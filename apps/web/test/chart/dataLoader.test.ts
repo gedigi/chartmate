@@ -159,12 +159,89 @@ describe('createDataLoader getBars', () => {
     expect(fetchBars.mock.calls[0]![0]).toMatchObject({ tf: '1D', from: NOW - initialWindowMs('1D'), to: NOW });
   });
 
-  it('fetch error → onError, no callback, no throw', async () => {
+  it('forward error → onError and an empty page that keeps more.forward, so a later forward fetches again', async () => {
     const { loader, fetchBars, events } = setup();
-    fetchBars.mockRejectedValue(new Error('boom'));
-    const cb = await init(loader);
-    expect(cb).not.toHaveBeenCalled();
+    const t0 = NOW - 1000 * MIN5;
+    fetchBars
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce(barsRes([bar(t0 - MIN5)]));
+    const cb1 = vi.fn();
+    await loader.getBars({ type: 'forward', timestamp: t0, symbol, period: period5m, callback: cb1 });
     expect(events.onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'boom' }));
+    expect(cb1).toHaveBeenCalledWith([], { forward: true, backward: false });
+    const cb2 = vi.fn();
+    await loader.getBars({ type: 'forward', timestamp: t0, symbol, period: period5m, callback: cb2 });
+    expect(fetchBars).toHaveBeenCalledTimes(2);
+    expect(cb2).toHaveBeenCalledWith([expect.objectContaining({ timestamp: t0 - MIN5 })], { forward: true, backward: false });
+  });
+
+  it('init error → onError, retries after 2 s and calls back on success', async () => {
+    const { loader, fetchBars, events } = setup();
+    fetchBars
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce(barsRes([bar(NOW - MIN5)]));
+    const cb = vi.fn();
+    const done = loader.getBars({ type: 'init', timestamp: null, symbol, period: period5m, callback: cb });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(events.onError).toHaveBeenCalledTimes(1);
+    expect(cb).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(fetchBars).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await done;
+    expect(fetchBars).toHaveBeenCalledTimes(2);
+    expect(cb).toHaveBeenCalledWith([expect.objectContaining({ timestamp: NOW - MIN5 })], { forward: true, backward: false });
+  });
+
+  it('init retries back off 2 s, 5 s, 10 s, then every 30 s, reporting each error', async () => {
+    const { loader, fetchBars, events } = setup();
+    fetchBars.mockRejectedValue(new Error('down'));
+    void loader.getBars({ type: 'init', timestamp: null, symbol, period: period5m, callback: vi.fn() });
+    const calls = async (ms: number) => { await vi.advanceTimersByTimeAsync(ms); return fetchBars.mock.calls.length; };
+    expect(await calls(0)).toBe(1);
+    expect(await calls(2000)).toBe(2);
+    expect(await calls(4999)).toBe(2);
+    expect(await calls(1)).toBe(3);
+    expect(await calls(10_000)).toBe(4);
+    expect(await calls(29_999)).toBe(4);
+    expect(await calls(1)).toBe(5);
+    expect(await calls(30_000)).toBe(6);
+    expect(events.onError).toHaveBeenCalledTimes(6);
+    loader.dispose();
+  });
+
+  it('init retries stop after dispose, unsubscribe/reset, or a newer init', async () => {
+    for (const stop of ['dispose', 'unsubscribe', 'newInit'] as const) {
+      const { loader, fetchBars } = setup();
+      fetchBars.mockRejectedValueOnce(new Error('boom'));
+      const cb = vi.fn();
+      void loader.getBars({ type: 'init', timestamp: null, symbol, period: period5m, callback: cb });
+      await vi.advanceTimersByTimeAsync(0);
+      const cb2 = vi.fn();
+      if (stop === 'dispose') loader.dispose();
+      else if (stop === 'unsubscribe') loader.unsubscribeBar();
+      else {
+        fetchBars.mockResolvedValueOnce(barsRes([bar(NOW - MIN5)]));
+        await loader.getBars({ type: 'init', timestamp: null, symbol, period: { type: 'hour', span: 1 }, callback: cb2 });
+      }
+      fetchBars.mockResolvedValue(barsRes([bar(NOW - MIN5)]));
+      const before = fetchBars.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(fetchBars.mock.calls.length, stop).toBe(before);
+      expect(cb, stop).not.toHaveBeenCalled();
+      if (stop === 'newInit') expect(cb2).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('an AbortError is not reported as an error and is not retried', async () => {
+    const { loader, fetchBars, events } = setup();
+    fetchBars.mockRejectedValue(new DOMException('aborted', 'AbortError'));
+    const cb = vi.fn();
+    await loader.getBars({ type: 'init', timestamp: null, symbol, period: period5m, callback: cb });
+    await loader.getBars({ type: 'forward', timestamp: NOW - MIN5, symbol, period: period5m, callback: cb });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(events.onError).not.toHaveBeenCalled();
+    expect(fetchBars).toHaveBeenCalledTimes(2);
   });
 
   it('ignores a stale init response superseded by a newer init', async () => {

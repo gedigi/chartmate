@@ -18,6 +18,7 @@ const k = vi.hoisted(() => {
       overlays, indicators, data,
       setStyles: vi.fn(), setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(), setTimezone: vi.fn(),
       resize: vi.fn(), getDataList: vi.fn(() => data),
+      getStyles: vi.fn(() => ({ indicator: { lines: [{ color: '#d1' }, { color: '#d2' }, { color: '#d3' }] } })),
       createIndicator: vi.fn((v: Partial<FakeIndicator> & { name: string }, _isStack?: boolean) => {
         const id = `ind_${++seq}`;
         indicators.push({ id, paneId: v.paneId ?? `pane_${seq}`, calcParams: v.calcParams ?? [], visible: v.visible ?? true, styles: v.styles ?? null, name: v.name });
@@ -128,6 +129,19 @@ describe('ChartAdapter', () => {
     expect(a.listIndicators()).toEqual([expect.objectContaining({ id, calcParams: [50], visible: false, lineColors: ['#fff'] })]);
     a.removeIndicator(id);
     expect(a.listIndicators()).toEqual([]);
+  });
+
+  it('updateIndicator without lineColors resets a previous colour override to the default line colours', () => {
+    const a = make();
+    const id = a.addIndicator({ name: 'MA', pane: 'main', calcParams: [20], lineColors: ['#fff'] });
+    a.updateIndicator(id, { calcParams: [30] });
+    expect(chart().overrideIndicator).toHaveBeenLastCalledWith(expect.objectContaining({
+      id, calcParams: [30], styles: { lines: [{ color: '#d1' }, { color: '#d2' }, { color: '#d3' }] },
+    }));
+    expect(a.listIndicators()[0]!.lineColors).toBeUndefined();
+    chart().overrideIndicator.mockClear();
+    a.updateIndicator(id, { visible: false });
+    expect(chart().overrideIndicator.mock.calls[0]![0]).not.toHaveProperty('styles');
   });
 
   it('setSessionShading creates/removes the SESSION_SHADE indicator on the candle pane', () => {
