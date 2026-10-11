@@ -1,0 +1,94 @@
+import {
+  nyParts, tagSessionFixedHours, tfMs,
+  type Bar, type NativeTimeframe, type Quote, type SymbolInfo,
+} from '@altv/shared';
+import { NotFoundError } from '../../src/errors.js';
+import type { FetchBarsResult, MarketDataProvider, ProviderLimits } from '../../src/providers/types.js';
+
+const MIN = 60_000;
+
+export type PriceFn = (code: string, tf: NativeTimeframe, ts: number) => Pick<Bar, 'open' | 'high' | 'low' | 'close'>;
+
+export interface Call { code: string; tf: NativeTimeframe; from: number; to: number }
+
+/** Records calls; generates bars on the native grid; can be switched to throw. */
+export class FakeProvider implements MarketDataProvider {
+  readonly id = 'fixture' as const;
+  calls: Call[] = [];
+  searchCalls: string[] = [];
+  quoteCalls: string[][] = [];
+  firstCalls: string[] = [];
+  fail: Error | null = null;
+  /** Throw NotFound ("no data") for requests ending at or before this ts, like Yahoo pre-listing. */
+  noDataBefore = -Infinity;
+  searchFail: Error | null = null;
+  delayMs = 0;
+  firstTs: number | null = Date.UTC(2000, 0, 1);
+  /** Optional deterministic prices (default: a function of the grid index). */
+  price: PriceFn | null = null;
+  /** Per-code first bar ts (bars before it don't exist), e.g. a later listing. */
+  listedFrom: Record<string, number> = {};
+
+  constructor(
+    readonly assetClass: 'stock' | 'crypto',
+    private readonly now: () => number,
+    readonly limits: ProviderLimits = { maxLookbackMs: {}, maxSpanPerRequestMs: {} },
+    private readonly universe: string[] = [],
+  ) {}
+
+  async search(q: string): Promise<SymbolInfo[]> {
+    this.searchCalls.push(q);
+    if (this.searchFail) throw this.searchFail;
+    const needle = q.trim().toUpperCase();
+    return this.universe.filter((t) => t.includes(needle)).map((t) => this.info(t));
+  }
+
+  async fetchBars(code: string, tf: NativeTimeframe, from: number, to: number): Promise<FetchBarsResult> {
+    this.calls.push({ code, tf, from, to });
+    if (this.delayMs) await new Promise((r) => setTimeout(r, this.delayMs));
+    if (this.fail) throw this.fail;
+    if (to <= this.noDataBefore) throw new NotFoundError('No data found, symbol may be delisted');
+    return { bars: this.generate(tf, Math.max(from, this.noDataBefore, this.listedFrom[code] ?? -Infinity), Math.min(to, this.now()), code) };
+  }
+
+  async quotes(codes: string[]): Promise<Quote[]> {
+    this.quoteCalls.push(codes);
+    if (this.fail) throw this.fail;
+    return codes.filter((c) => this.universe.includes(c)).map((c) => ({ id: `${this.assetClass}:${c}`, price: 10, changePct: 1, ts: this.now() }));
+  }
+
+  async firstBarTs(code: string): Promise<number | null> {
+    this.firstCalls.push(code);
+    if (this.fail) throw this.fail;
+    return this.firstTs;
+  }
+
+  info(t: string): SymbolInfo {
+    return { id: `${this.assetClass}:${t}`, assetClass: this.assetClass, ticker: t, name: `${t} Inc`, exchange: 'X', pricePrecision: 2 };
+  }
+
+  /** Stock 1h bars sit on :30 (NY 09:30-aligned); everything else on the UTC grid. */
+  generate(tf: NativeTimeframe, from: number, to: number, code = ''): Bar[] {
+    const step = tfMs(tf);
+    const offset = this.assetClass === 'stock' && tf === '1h' ? 30 * MIN : 0;
+    const out: Bar[] = [];
+    for (let ts = Math.ceil((from - offset) / step) * step + offset; ts < to; ts += step) {
+      const v = ts / step;
+      const bar: Bar = this.price
+        ? { ts, ...this.price(code, tf, ts), volume: 1 }
+        : { ts, open: v % 1000, high: (v % 1000) + 2, low: (v % 1000) - 1, close: (v % 1000) + 1, volume: 1 };
+      if (this.assetClass === 'stock') {
+        if (tf === '1D') {
+          const dow = new Date(ts).getUTCDay();
+          if (dow === 0 || dow === 6) continue;
+        } else {
+          const dow = nyParts(ts).dow;
+          const s = dow !== 0 && dow !== 6 ? tagSessionFixedHours(ts) : null;
+          if (!s) continue;
+          bar.session = s;
+        }
+      }
+      out.push(bar);
+    }
+    return out;
+  }}

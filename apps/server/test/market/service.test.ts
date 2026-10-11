@@ -1,98 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import {
-  nyParts, tagSessionFixedHours, tfMs,
-  type Bar, type NativeTimeframe, type Quote, type SymbolInfo,
-} from '@altv/shared';
 import { createDb } from '../../src/db/connect.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';
 import { AppError, NotFoundError, ProviderError } from '../../src/errors.js';
 import { RequestQueue } from '../../src/providers/queue.js';
-import type { FetchBarsResult, MarketDataProvider, ProviderLimits } from '../../src/providers/types.js';
+import { nyParts } from '@altv/shared';
+import { FakeProvider } from '../helpers/fakeProvider.js';
 import { MarketDataService, calendarFor } from '../../src/market/service.js';
 
 const MIN = 60_000;
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
-
-interface Call { code: string; tf: NativeTimeframe; from: number; to: number }
-
-/** Records calls; generates bars on the native grid; can be switched to throw. */
-class FakeProvider implements MarketDataProvider {
-  readonly id = 'fixture' as const;
-  calls: Call[] = [];
-  searchCalls: string[] = [];
-  quoteCalls: string[][] = [];
-  firstCalls: string[] = [];
-  fail: Error | null = null;
-  /** Throw NotFound ("no data") for requests ending at or before this ts, like Yahoo pre-listing. */
-  noDataBefore = -Infinity;
-  searchFail: Error | null = null;
-  delayMs = 0;
-  firstTs: number | null = Date.UTC(2000, 0, 1);
-
-  constructor(
-    readonly assetClass: 'stock' | 'crypto',
-    private readonly now: () => number,
-    readonly limits: ProviderLimits = { maxLookbackMs: {}, maxSpanPerRequestMs: {} },
-    private readonly universe: string[] = [],
-  ) {}
-
-  async search(q: string): Promise<SymbolInfo[]> {
-    this.searchCalls.push(q);
-    if (this.searchFail) throw this.searchFail;
-    const needle = q.trim().toUpperCase();
-    return this.universe.filter((t) => t.includes(needle)).map((t) => this.info(t));
-  }
-
-  async fetchBars(code: string, tf: NativeTimeframe, from: number, to: number): Promise<FetchBarsResult> {
-    this.calls.push({ code, tf, from, to });
-    if (this.delayMs) await new Promise((r) => setTimeout(r, this.delayMs));
-    if (this.fail) throw this.fail;
-    if (to <= this.noDataBefore) throw new NotFoundError('No data found, symbol may be delisted');
-    return { bars: this.generate(tf, Math.max(from, this.noDataBefore), Math.min(to, this.now())) };
-  }
-
-  async quotes(codes: string[]): Promise<Quote[]> {
-    this.quoteCalls.push(codes);
-    if (this.fail) throw this.fail;
-    return codes.filter((c) => this.universe.includes(c)).map((c) => ({ id: `${this.assetClass}:${c}`, price: 10, changePct: 1, ts: this.now() }));
-  }
-
-  async firstBarTs(code: string): Promise<number | null> {
-    this.firstCalls.push(code);
-    if (this.fail) throw this.fail;
-    return this.firstTs;
-  }
-
-  info(t: string): SymbolInfo {
-    return { id: `${this.assetClass}:${t}`, assetClass: this.assetClass, ticker: t, name: `${t} Inc`, exchange: 'X', pricePrecision: 2 };
-  }
-
-  /** Stock 1h bars sit on :30 (NY 09:30-aligned); everything else on the UTC grid. */
-  generate(tf: NativeTimeframe, from: number, to: number): Bar[] {
-    const step = tfMs(tf);
-    const offset = this.assetClass === 'stock' && tf === '1h' ? 30 * MIN : 0;
-    const out: Bar[] = [];
-    for (let ts = Math.ceil((from - offset) / step) * step + offset; ts < to; ts += step) {
-      const v = ts / step;
-      const bar: Bar = { ts, open: v % 1000, high: (v % 1000) + 2, low: (v % 1000) - 1, close: (v % 1000) + 1, volume: 1 };
-      if (this.assetClass === 'stock') {
-        if (tf === '1D') {
-          const dow = new Date(ts).getUTCDay();
-          if (dow === 0 || dow === 6) continue;
-        } else {
-          const dow = nyParts(ts).dow;
-          const s = dow !== 0 && dow !== 6 ? tagSessionFixedHours(ts) : null;
-          if (!s) continue;
-          bar.session = s;
-        }
-      }
-      out.push(bar);
-    }
-    return out;
-  }
-}
 
 const NOW = Date.UTC(2026, 10, 4, 18, 20); // Wed 2026-11-04 13:20 EST
 const EDGE_1H = Date.UTC(2026, 10, 4, 16); // floor(NOW − 2h) on the 1h grid
