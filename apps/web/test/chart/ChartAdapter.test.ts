@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 interface FakeOverlay {
   id: string; name: string; groupId: string; points: Array<{ timestamp: number; value: number }>; lock: boolean;
   extendData: unknown; styles: unknown; onRemoved?: (e: unknown) => void; onDrawEnd?: (e: unknown) => void; onPressedMoveEnd?: (e: unknown) => void;
+  onSelected?: (e: unknown) => void; onDeselected?: (e: unknown) => void; mode?: string;
 }
 interface FakeIndicator { id: string; name: string; paneId: string; calcParams: number[]; visible: boolean; styles: unknown }
 
@@ -42,12 +43,17 @@ const k = vi.hoisted(() => {
         return id;
       }),
       getOverlays: vi.fn((f?: { groupId?: string }) => overlays.filter((o) => !f?.groupId || o.groupId === f.groupId)),
+      overrideOverlay: vi.fn((o: Partial<FakeOverlay>) => {
+        const ov = overlays.find((x) => x.id === o.id);
+        if (ov) Object.assign(ov, Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)));
+        return true;
+      }),
       removeOverlay: vi.fn((f: { id?: string; groupId?: string }) => {
         for (let i = overlays.length - 1; i >= 0; i--) {
           const o = overlays[i]!;
           if ((f.id && o.id === f.id) || (f.groupId && o.groupId === f.groupId)) {
+            o.onRemoved?.({ overlay: o }); // like KLineChart: onRemoved fires while the overlay is still listed
             overlays.splice(i, 1);
-            o.onRemoved?.({ overlay: o });
           }
         }
         return true;
@@ -72,6 +78,7 @@ vi.mock('klinecharts', () => ({
 }));
 
 const { ChartAdapter } = await import('../../src/chart/ChartAdapter');
+const { api } = await import('../../src/api/client');
 
 const AAPL: SymbolInfo = { id: 'stock:AAPL', assetClass: 'stock', ticker: 'AAPL', name: 'Apple', pricePrecision: 2 };
 const BTC: SymbolInfo = { id: 'crypto:BTC', assetClass: 'crypto', ticker: 'BTC', name: 'Bitcoin', pricePrecision: 2 };
@@ -219,6 +226,137 @@ describe('ChartAdapter', () => {
     const a = make();
     a.startDrawing('simpleAnnotation', { text: 'hi' });
     expect(chart().createOverlay).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'simpleAnnotation', extendData: 'hi' }));
+  });
+
+  describe('drawing tools', () => {
+    const userOverlays = () => chart().overlays.filter((o) => o.groupId !== 'markers');
+    const DAY = 86_400_000;
+
+    /** Simulates KLineChart calling the installed data loader for the initial page. */
+    async function fireInit(ts = [DAY, 2 * DAY]) {
+      vi.spyOn(api, 'bars').mockResolvedValue({
+        symbol: 'stock:AAPL', tf: '1D', session: 'rth', hasMoreBefore: false, stale: false, notices: [], markers: [],
+        bars: ts.map((t) => ({ ts: t, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 })),
+      });
+      const loader = chart().setDataLoader.mock.calls.at(-1)![0] as { getBars: (p: unknown) => Promise<void> };
+      await loader.getBars({
+        type: 'init', timestamp: null, symbol: { ticker: 'stock:AAPL' }, period: { type: 'day', span: 1 },
+        callback: (d: Array<{ timestamp: number; high: number }>) => { chart().data.splice(0, chart().data.length, ...d); },
+      });
+    }
+
+    async function loaded() {
+      const a = make();
+      a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 15000 }, events());
+      await fireInit();
+      return a;
+    }
+
+    it('removeSelected removes the last selected drawing (never markers) and fires a change', async () => {
+      const a = await loaded();
+      const changed = vi.fn();
+      a.onDrawingsChange(changed);
+      a.restoreDrawings([
+        { name: 'segment', points: [{ timestamp: 1, value: 1 }, { timestamp: 2, value: 2 }], lock: false },
+        { name: 'rayLine', points: [{ timestamp: 3, value: 3 }, { timestamp: 4, value: 4 }], lock: false },
+      ]);
+      expect(a.removeSelected()).toBe(false);
+      const [first, second] = userOverlays();
+      first!.onSelected?.({ overlay: first });
+      second!.onSelected?.({ overlay: second });
+      let atChange: string[] = [];
+      changed.mockImplementation(() => { atChange = a.serializeDrawings().map((d) => d.name); });
+      expect(a.removeSelected()).toBe(true);
+      expect(userOverlays().map((o) => o.name)).toEqual(['segment']);
+      expect(changed).toHaveBeenCalledTimes(1);
+      expect(atChange).toEqual(['segment']); // the change handler must not see the overlay being removed
+      expect(a.removeSelected()).toBe(false);
+      first!.onSelected?.({ overlay: first });
+      first!.onDeselected?.({ overlay: first });
+      expect(a.removeSelected()).toBe(false);
+      expect(userOverlays()).toHaveLength(1);
+    });
+
+    it('defers restoreDrawings until the first data page of the current load arrives', async () => {
+      const a = make();
+      a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 15000 }, events());
+      const d = [{ name: 'segment', points: [{ timestamp: DAY, value: 1 }, { timestamp: 2 * DAY, value: 2 }], lock: false }];
+      a.restoreDrawings(d);
+      expect(userOverlays()).toHaveLength(0);
+      await fireInit();
+      expect(a.serializeDrawings()).toEqual(d);
+      // A timeframe switch keeps existing drawings (anchored by timestamp) and restores immediately once data is in.
+      a.restoreDrawings([]);
+      expect(userOverlays()).toHaveLength(0);
+      a.restoreDrawings(d);
+      expect(a.serializeDrawings()).toEqual(d);
+    });
+
+    it('a pending restore is replaced by a newer one and cleared drawings are removed immediately', async () => {
+      const a = make();
+      a.restoreDrawings([{ name: 'segment', points: [{ timestamp: 1, value: 1 }, { timestamp: 2, value: 2 }], lock: false }]);
+      a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 15000 }, events());
+      a.restoreDrawings([{ name: 'rayLine', points: [{ timestamp: 1, value: 1 }, { timestamp: 2, value: 2 }], lock: false }]);
+      await fireInit();
+      expect(userOverlays().map((o) => o.name)).toEqual(['rayLine']);
+    });
+
+    it('magnet sets the mode of new drawings', () => {
+      const a = make();
+      a.startDrawing('segment');
+      expect(chart().createOverlay).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'segment', mode: 'normal' }));
+      a.setMagnet(true);
+      a.startDrawing('rayLine');
+      expect(chart().createOverlay).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'rayLine', mode: 'weak_magnet' }));
+    });
+
+    it('setLockAll locks every user drawing (not markers), new ones on draw end and restored ones; fires a change', async () => {
+      const a = await loaded();
+      const changed = vi.fn();
+      a.onDrawingsChange(changed);
+      a.setMarkers([{ ts: DAY, label: 'v1' }]);
+      a.restoreDrawings([{ name: 'segment', points: [{ timestamp: 1, value: 1 }, { timestamp: 2, value: 2 }], lock: false }]);
+      a.setLockAll(true);
+      expect(changed).toHaveBeenCalledTimes(1);
+      expect(chart().overrideOverlay).toHaveBeenCalledWith(expect.objectContaining({ lock: true }));
+      expect(userOverlays().every((o) => o.lock)).toBe(true);
+      a.startDrawing('rayLine');
+      const created = chart().overlays.at(-1)!;
+      expect(created.lock).toBe(false); // must stay interactive while it is being drawn
+      created.points = [{ timestamp: 1, value: 1 }, { timestamp: 2, value: 2 }];
+      created.onDrawEnd?.({ overlay: created });
+      expect(created.lock).toBe(true);
+      a.restoreDrawings([{ name: 'segment', points: [{ timestamp: 1, value: 1 }, { timestamp: 2, value: 2 }], lock: false }]);
+      expect(userOverlays().every((o) => o.lock)).toBe(true);
+      a.setLockAll(false);
+      expect(userOverlays().every((o) => !o.lock)).toBe(true);
+      expect(chart().overlays.find((o) => o.groupId === 'markers')!.lock).toBe(true);
+    });
+
+    it('startDrawing calls onEnd on draw end; cancelDrawing removes an unfinished drawing silently', () => {
+      const a = make();
+      const changed = vi.fn();
+      a.onDrawingsChange(changed);
+      const onEnd = vi.fn();
+      a.startDrawing('segment', { onEnd });
+      const first = chart().overlays.at(-1)!;
+      first.onDrawEnd?.({ overlay: first });
+      expect(onEnd).toHaveBeenCalledTimes(1);
+      expect(changed).toHaveBeenCalledTimes(1);
+      a.startDrawing('rayLine');
+      a.cancelDrawing();
+      expect(userOverlays().map((o) => o.name)).toEqual(['segment']);
+      expect(changed).toHaveBeenCalledTimes(1);
+      a.cancelDrawing(); // nothing in progress → the finished drawing stays
+      expect(userOverlays()).toHaveLength(1);
+    });
+
+    it('starting a new tool cancels an unfinished drawing', () => {
+      const a = make();
+      a.startDrawing('segment');
+      a.startDrawing('rayLine');
+      expect(userOverlays().map((o) => o.name)).toEqual(['rayLine']);
+    });
   });
 
   it('setTheme re-applies styles; resize and destroy delegate', () => {

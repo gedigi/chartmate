@@ -103,7 +103,12 @@ export class ChartAdapter {
 
   load(p: LoadParams, events: LoaderEvents): void {
     this.loader?.dispose(); // its pending results and polling become no-ops while the chart resets below
-    const loader = createDataLoader({ session: () => p.session, pollMs: p.pollMs }, events);
+    this.hasData = false;
+    const ready = () => { if (this.loader === loader) this.onDataReady(); };
+    const loader = createDataLoader({ session: () => p.session, pollMs: p.pollMs }, {
+      onMeta: (m) => events.onMeta(m),
+      onError: (e) => { ready(); events.onError(e); }, // never keep drawings hidden because a page failed
+    });
     this.loader = loader;
     this.tf = p.tf;
     this.markers = [];
@@ -120,7 +125,9 @@ export class ChartAdapter {
     this.chart.setPeriod(toPeriod(p.tf));
     // Installing the new loader last means only one 'init' request reaches the server.
     this.chart.setDataLoader({
-      getBars: (params) => loader.getBars(params),
+      getBars: (params) => loader.getBars(params.type === 'init'
+        ? { ...params, callback: (data, more) => { params.callback(data, more); ready(); } }
+        : params),
       subscribeBar: (params) => loader.subscribeBar(params),
       unsubscribeBar: () => loader.unsubscribeBar(),
     });
@@ -227,10 +234,37 @@ export class ChartAdapter {
 
   // ── drawings ──────────────────────────────────────────────────────────────
 
-  private readonly handlers = {
-    onDrawEnd: () => this.emitChange(),
+  /** Overlay id of the drawing currently selected by the user (KLineChart onSelected/onDeselected). */
+  private selectedId: string | null = null;
+  /** Overlay id + completion callback of the drawing being placed interactively. */
+  private drawing: { id: string; onEnd?: () => void } | null = null;
+  private magnet = false;
+  private lockAll = false;
+  /** False from load() until the first data page of that load arrives; restores are queued meanwhile. */
+  private hasData = false;
+  private pendingRestore: DrawingState[] | null = null;
+  /** KLineChart fires onRemoved while the overlay is still listed; hide it from serializeDrawings meanwhile. */
+  private readonly removing = new Set<string>();
+
+  private readonly handlers: Pick<OverlayCreate, 'onDrawEnd' | 'onPressedMoveEnd' | 'onRemoved' | 'onSelected' | 'onDeselected'> = {
+    onDrawEnd: ({ overlay }) => {
+      if (this.drawing?.id === overlay.id) {
+        const { onEnd } = this.drawing;
+        this.drawing = null;
+        if (this.lockAll) this.chart.overrideOverlay({ id: overlay.id, lock: true });
+        onEnd?.();
+      }
+      this.emitChange();
+    },
     onPressedMoveEnd: () => this.emitChange(),
-    onRemoved: () => this.emitChange(),
+    onRemoved: ({ overlay }) => {
+      if (this.selectedId === overlay.id) this.selectedId = null;
+      if (this.drawing?.id === overlay.id) this.drawing = null;
+      this.removing.add(overlay.id);
+      try { this.emitChange(); } finally { this.removing.delete(overlay.id); }
+    },
+    onSelected: ({ overlay }) => { this.selectedId = overlay.id; },
+    onDeselected: ({ overlay }) => { if (this.selectedId === overlay.id) this.selectedId = null; },
   };
 
   private emitChange(): void {
@@ -244,20 +278,65 @@ export class ChartAdapter {
   }
 
   private userOverlays(): Overlay[] {
-    return this.chart.getOverlays().filter((o) => o.groupId !== MARKERS);
+    return this.chart.getOverlays().filter((o) => o.groupId !== MARKERS && !this.removing.has(o.id));
   }
 
-  startDrawing(tool: DrawingTool, opts?: { text?: string }): void {
-    const create: OverlayCreate = { name: tool, ...this.handlers };
+  /**
+   * Starts placing a drawing interactively. New drawings use the magnet mode; they are locked on draw end
+   * when "lock all" is on (locking earlier would block the drawing clicks). `onEnd` fires once it is complete.
+   */
+  startDrawing(tool: DrawingTool, opts?: { text?: string; onEnd?: () => void }): void {
+    this.cancelDrawing();
+    const create: OverlayCreate = { name: tool, mode: this.magnet ? 'weak_magnet' : 'normal', ...this.handlers };
     if (opts?.text !== undefined) create.extendData = opts.text;
-    this.chart.createOverlay(create);
+    const id = this.chart.createOverlay(create);
+    if (typeof id === 'string') this.drawing = opts?.onEnd ? { id, onEnd: opts.onEnd } : { id };
+  }
+
+  /** Abandons the drawing being placed (if any). Finished drawings are untouched. */
+  cancelDrawing(): void {
+    const d = this.drawing;
+    if (!d) return;
+    this.drawing = null;
+    this.withSilence(() => this.chart.removeOverlay({ id: d.id }));
+  }
+
+  /** Removes the selected drawing. Returns false when nothing (removable) is selected. */
+  removeSelected(): boolean {
+    const id = this.selectedId;
+    if (!id) return false;
+    const o = this.userOverlays().find((x) => x.id === id);
+    if (!o || o.lock) {
+      if (!o) this.selectedId = null;
+      return false;
+    }
+    this.chart.removeOverlay({ id }); // onRemoved clears the selection and fires the change
+    return true;
+  }
+
+  /** Magnet (weak) snapping for drawings started from now on. */
+  setMagnet(on: boolean): void {
+    this.magnet = on;
+  }
+
+  /** Locks/unlocks every user drawing (markers stay locked); fires onDrawingsChange when anything changed. */
+  setLockAll(locked: boolean): void {
+    this.lockAll = locked;
+    let changed = false;
+    for (const o of this.userOverlays()) {
+      if (o.id === this.drawing?.id || o.lock === locked) continue;
+      this.chart.overrideOverlay({ id: o.id, lock: locked });
+      changed = true;
+    }
+    if (changed) this.emitChange();
   }
 
   serializeDrawings(): DrawingState[] {
+    if (this.pendingRestore) return this.pendingRestore.map((d) => ({ ...d }));
     const out: DrawingState[] = [];
     for (const o of this.userOverlays()) {
       const points = completePoints(o); // skips an overlay that is still being drawn
-      if (!points) continue;
+      if (!points || o.id === this.drawing?.id) continue;
       const d: DrawingState = { name: o.name, points, lock: o.lock };
       if (typeof o.extendData === 'string') d.text = o.extendData;
       if (o.styles) d.styles = o.styles;
@@ -266,12 +345,26 @@ export class ChartAdapter {
     return out;
   }
 
-  /** Replaces all user drawings. Does not fire onDrawingsChange. */
+  /**
+   * Replaces all user drawings. Does not fire onDrawingsChange. Existing drawings are removed at once; the new
+   * ones are created when the current load's first data page has arrived (queued until then).
+   */
   restoreDrawings(drawings: DrawingState[]): void {
+    this.drawing = null;
+    this.withSilence(() => this.removeUserOverlays());
+    this.pendingRestore = null;
+    if (drawings.length === 0) return;
+    if (!this.hasData) {
+      this.pendingRestore = drawings;
+      return;
+    }
+    this.createDrawings(drawings);
+  }
+
+  private createDrawings(drawings: DrawingState[]): void {
     this.withSilence(() => {
-      this.removeUserOverlays();
       for (const d of drawings) {
-        const create: OverlayCreate = { name: d.name, points: d.points, lock: d.lock, ...this.handlers };
+        const create: OverlayCreate = { name: d.name, points: d.points, lock: d.lock || this.lockAll, ...this.handlers };
         if (d.text !== undefined) create.extendData = d.text;
         if (d.styles) create.styles = d.styles as OverlayCreate['styles'];
         this.chart.createOverlay(create);
@@ -279,8 +372,17 @@ export class ChartAdapter {
     });
   }
 
+  private onDataReady(): void {
+    this.hasData = true;
+    const pending = this.pendingRestore;
+    this.pendingRestore = null;
+    if (pending) this.createDrawings(pending);
+  }
+
   clearDrawings(): void {
-    const had = this.userOverlays().length > 0;
+    const had = this.userOverlays().length > 0 || this.pendingRestore !== null;
+    this.drawing = null;
+    this.pendingRestore = null;
     this.withSilence(() => this.removeUserOverlays());
     if (had) this.emitChange();
   }
