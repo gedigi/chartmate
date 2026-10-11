@@ -34,6 +34,19 @@ describe('WeightsTable', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('normalize leaves empty/zero/negative rows untouched and hints to remove or fill them', async () => {
+    render(<Harness initial={[newRow('stock:AAPL', '1000000'), newRow('stock:MSFT', '1'), newRow('crypto:BTC', ''), newRow('crypto:ETH', '-5'), newRow('stock:SPY', '0')]} />);
+    expect(screen.getByText(/remove them or fill in a weight/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Normalize to 100%' }));
+    expect(weightInputs().map((i) => (i as HTMLInputElement).value)).toEqual(['99.99', '0.01', '', '-5', '0']);
+    expect(screen.getByTestId('weights-total')).toHaveTextContent('95.00%');
+  });
+
+  it('shows no unsized-row hint when every weight is positive', () => {
+    render(<Harness initial={[newRow('stock:AAPL', '60'), newRow('crypto:BTC', '30')]} />);
+    expect(screen.queryByText(/remove them or fill in a weight/)).not.toBeInTheDocument();
+  });
+
   it('accepts decimals and a total within ±0.01', () => {
     render(<Harness initial={[newRow('stock:AAPL', '33.33'), newRow('stock:MSFT', '33.33'), newRow('crypto:BTC', '33.33')]} />);
     expect(screen.getByTestId('weights-total')).toHaveTextContent('99.99%');
@@ -86,6 +99,15 @@ describe('weights helpers', () => {
     const r = normalizePercents([1, 2, 3, 7]);
     expect(Math.round(r.reduce((a, b) => a + b, 0) * 100)).toBe(10000);
     expect(r[3]).toBe(53.85);
+  });
+
+  it('normalizePercents gives every positive weight at least 0.01 and still totals exactly 100', () => {
+    expect(normalizePercents([1e6, 1])).toEqual([99.99, 0.01]);
+    const r = normalizePercents([1e9, 1, 1, 1]);
+    expect(r).toEqual([99.97, 0.01, 0.01, 0.01]);
+    expect(Math.round(r.reduce((a, b) => a + b, 0) * 100)).toBe(10000);
+    expect(() => normalizePercents([1, 0])).toThrow();
+    expect(() => normalizePercents([])).toThrow();
   });
 
   it('validateRows returns percents keyed by symbol when valid', () => {

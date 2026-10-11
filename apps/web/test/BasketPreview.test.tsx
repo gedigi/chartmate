@@ -1,7 +1,8 @@
 import type { Bar, BarsResponse } from '@altv/shared';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type BarsParams } from '../src/api/client';
+import type { BasketVersion } from '@altv/shared';
 import { BasketPreview, fetchDailyRange } from '../src/components/BasketPreview';
 
 vi.mock('../src/api/client', async (importOriginal) => {
@@ -38,20 +39,76 @@ describe('fetchDailyRange', () => {
   });
 });
 
+/** Runs pending timers up to `ms` and flushes the promise chains they start. */
+async function advance(ms: number) {
+  await act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+}
+
+const V_A: BasketVersion[] = [{ effectiveFrom: '2024-01-02', weights: { 'stock:AAPL': 0.5, 'crypto:ETH': 0.5 } }];
+const V_B: BasketVersion[] = [{ effectiveFrom: '2024-02-01', weights: { 'stock:MSFT': 1 } }];
+const V_C: BasketVersion[] = [{ effectiveFrom: '2024-03-01', weights: { 'stock:AAPL': 1 } }];
+const chartLabel = () => screen.getByTestId('basket-preview-chart').getAttribute('aria-label') ?? '';
+
 describe('BasketPreview', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
   it('draws the basket line with notices', async () => {
     vi.mocked(api.bars).mockImplementation(async (p) => respond(p, p.symbol === 'crypto:ETH' ? Date.UTC(2024, 1, 1) : 0));
-    render(<BasketPreview versions={[{ effectiveFrom: '2024-01-02', weights: { 'stock:AAPL': 0.5, 'crypto:ETH': 0.5 } }]} baseValue={100} />);
-    const chart = await screen.findByTestId('basket-preview-chart', {}, { timeout: 3000 });
+    render(<BasketPreview versions={V_A} baseValue={100} />);
+    await advance(599);
+    expect(api.bars).not.toHaveBeenCalled();
+    await advance(1);
+    const chart = screen.getByTestId('basket-preview-chart');
     expect(chart.querySelector('polyline')).not.toBeNull();
     expect(screen.getByTestId('basket-preview')).toHaveTextContent('Basket starts 2024-02-02: crypto:ETH has no data before that date.');
   });
 
   it('shows engine errors instead of the chart', async () => {
     vi.mocked(api.bars).mockImplementation(async (p) => ({ ...respond(p), bars: p.symbol === 'crypto:ETH' ? [] : respond(p).bars }));
-    render(<BasketPreview versions={[{ effectiveFrom: '2024-01-02', weights: { 'stock:AAPL': 0.5, 'crypto:ETH': 0.5 } }]} baseValue={100} />);
-    await waitFor(() => expect(screen.getByTestId('basket-preview')).toHaveTextContent('No data for crypto:ETH'), { timeout: 3000 });
+    render(<BasketPreview versions={V_A} baseValue={100} />);
+    await advance(600);
+    expect(screen.getByTestId('basket-preview')).toHaveTextContent('No data for crypto:ETH');
     expect(screen.queryByTestId('basket-preview-chart')).not.toBeInTheDocument();
+  });
+
+  it('debounces: two changes within 600 ms fetch only for the final versions', async () => {
+    const { rerender } = render(<BasketPreview versions={V_A} baseValue={100} />);
+    await advance(300);
+    rerender(<BasketPreview versions={V_B} baseValue={100} />);
+    await advance(300);
+    rerender(<BasketPreview versions={V_C} baseValue={100} />);
+    await advance(599);
+    expect(api.bars).not.toHaveBeenCalled();
+    await advance(1);
+    const symbols = vi.mocked(api.bars).mock.calls.map((c) => c[0].symbol);
+    expect(symbols).toEqual(['stock:AAPL']);
+    expect(vi.mocked(api.bars).mock.calls[0]![0].from).toBe(Date.UTC(2024, 2, 1) - 10 * DAY);
+    expect(chartLabel()).toContain('from 2024-03-01');
+  });
+
+  it('a delayed earlier response does not replace the newer chart', async () => {
+    let releaseEth!: () => void;
+    const ethGate = new Promise<void>((resolve) => { releaseEth = resolve; });
+    const signals: (AbortSignal | undefined)[] = [];
+    vi.mocked(api.bars).mockImplementation(async (p, signal) => {
+      signals.push(signal);
+      if (p.symbol === 'crypto:ETH') await ethGate; // slow, and ignores the abort signal on purpose
+      return respond(p);
+    });
+    const { rerender } = render(<BasketPreview versions={V_A} baseValue={100} />);
+    await advance(600); // run A: AAPL resolves, ETH hangs
+    expect(screen.queryByTestId('basket-preview-chart')).not.toBeInTheDocument();
+
+    rerender(<BasketPreview versions={V_C} baseValue={100} />);
+    expect(signals[0]!.aborted).toBe(true); // A's fetches were aborted
+    await advance(600); // run C: AAPL from cache
+    expect(chartLabel()).toContain('from 2024-03-01');
+
+    releaseEth();
+    await advance(0);
+    expect(chartLabel()).toContain('from 2024-03-01');
+    expect(screen.getByTestId('basket-preview')).not.toHaveTextContent('2024-01-02');
   });
 
   it('prompts for valid weights when there is nothing to preview', () => {
