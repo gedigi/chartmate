@@ -26,7 +26,7 @@ describe('registerCustomIndicators', () => {
     expect(names.filter((n) => n === 'VWAP')).toHaveLength(1);
     expect(names.filter((n) => n === 'ATR')).toHaveLength(1);
     expect(registered('VWAP')).toMatchObject({ series: 'price', figures: [expect.objectContaining({ key: 'vwap' })] });
-    expect(registered('ATR')).toMatchObject({ calcParams: [14], figures: [expect.objectContaining({ key: 'atr' })] });
+    expect(registered('ATR')).toMatchObject({ calcParams: [14], precision: 4, figures: [expect.objectContaining({ key: 'atr' })] });
   });
 
   it('VWAP resets on the NY date for stocks and on the UTC date for crypto', () => {
@@ -39,6 +39,19 @@ describe('registerCustomIndicators', () => {
     expect(t.calc(bars, { calcParams: [], extendData: { assetClass: 'stock' } })).toEqual([{ vwap: 10 }, { vwap: 20 }]);
     expect(t.calc(bars, { calcParams: [], extendData: { assetClass: 'basket' } })).toEqual([{ vwap: 10 }, { vwap: 20 }]);
     expect(t.calc(bars, { calcParams: [], extendData: { assetClass: 'crypto' } })).toEqual([{ vwap: 10 }, { vwap: 15 }]);
+  });
+
+  it('VWAP does not reset on 1D+ charts (intraday: false): it spans the whole loaded series', () => {
+    const t = registered('VWAP');
+    const day = 86_400_000;
+    const bars = [
+      { timestamp: 0, open: 1, high: 10, low: 10, close: 10, volume: 1 },
+      { timestamp: day, open: 1, high: 20, low: 20, close: 20, volume: 3 },
+      { timestamp: 2 * day, open: 1, high: 40, low: 40, close: 40, volume: 1 },
+    ];
+    expect(t.calc(bars, { calcParams: [], extendData: { assetClass: 'crypto', intraday: true } })).toEqual([{ vwap: 10 }, { vwap: 20 }, { vwap: 40 }]);
+    // (10·1 + 20·3) / 4 = 17.5; (70 + 40) / 5 = 22
+    expect(t.calc(bars, { calcParams: [], extendData: { assetClass: 'crypto', intraday: false } })).toEqual([{ vwap: 10 }, { vwap: 17.5 }, { vwap: 22 }]);
   });
 
   it('ATR uses its first calc param as the period', () => {

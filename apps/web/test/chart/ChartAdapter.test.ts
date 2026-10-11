@@ -151,21 +151,30 @@ describe('ChartAdapter', () => {
     expect(chart().overrideIndicator.mock.calls[0]![0]).not.toHaveProperty('styles');
   });
 
-  it('registers the custom VWAP/ATR indicators and passes the asset class to indicators via extendData', () => {
+  it('registers the custom VWAP/ATR indicators and passes symbol/timeframe context via extendData', () => {
     const a = make();
     expect(k.state.registered).toEqual(expect.arrayContaining(['VWAP', 'ATR']));
     const early = a.addIndicator({ name: 'VWAP', pane: 'main' });
+    const atrId = a.addIndicator({ name: 'ATR', pane: 'sub' });
+    expect(chart().createIndicator).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'ATR', precision: 4 }), false);
     a.setSessionShading(true);
     a.load({ symbol: AAPL, tf: '5m', session: 'rth', pollMs: 15000 }, events());
-    expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({ id: early, extendData: { assetClass: 'stock' } }));
+    const stock5m = { assetClass: 'stock', intraday: true, pricePrecision: 2 };
+    expect(chart().overrideIndicator).toHaveBeenCalledWith({ id: early, name: 'VWAP', extendData: stock5m });
+    expect(chart().overrideIndicator).toHaveBeenCalledWith({ id: atrId, name: 'ATR', extendData: stock5m, precision: 2 });
     expect(chart().overrideIndicator).not.toHaveBeenCalledWith(expect.objectContaining({ name: 'SESSION_SHADE' }));
     a.addIndicator({ name: 'VWAP', pane: 'main' });
-    expect(chart().createIndicator).toHaveBeenLastCalledWith(expect.objectContaining({ extendData: { assetClass: 'stock' } }), true);
+    expect(chart().createIndicator).toHaveBeenLastCalledWith(expect.objectContaining({ extendData: stock5m }), true);
+    a.addIndicator({ name: 'ATR', pane: 'sub' });
+    expect(chart().createIndicator).toHaveBeenLastCalledWith(expect.objectContaining({ precision: 2 }), false);
     chart().overrideIndicator.mockClear();
     a.load({ symbol: AAPL, tf: '1h', session: 'rth', pollMs: 15000 }, events());
-    expect(chart().overrideIndicator).not.toHaveBeenCalled(); // unchanged asset class
-    a.load({ symbol: BTC, tf: '1h', session: 'rth', pollMs: 5000 }, events());
-    expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({ id: early, extendData: { assetClass: 'crypto' } }));
+    expect(chart().overrideIndicator).not.toHaveBeenCalled(); // same context
+    a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 15000 }, events());
+    expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({ id: early, extendData: { ...stock5m, intraday: false } }));
+    a.load({ symbol: { ...BTC, pricePrecision: 6 }, tf: '1h', session: 'rth', pollMs: 5000 }, events());
+    expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({ id: early, extendData: { assetClass: 'crypto', intraday: true, pricePrecision: 6 } }));
+    expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({ id: atrId, precision: 6 }));
   });
 
   it('setSessionShading creates/removes the SESSION_SHADE indicator on the candle pane', () => {

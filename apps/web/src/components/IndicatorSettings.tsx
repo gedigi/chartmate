@@ -2,6 +2,7 @@ import type { IndicatorState } from '@altv/shared';
 import { useId, useState, type FormEvent, type JSX } from 'react';
 import { catalogEntry, defaultLineColor, validateParam } from '../chart/indicators/catalog';
 import { Modal } from './Modal';
+import './Indicators.css';
 
 export interface IndicatorSettingsProps {
   state: IndicatorState;

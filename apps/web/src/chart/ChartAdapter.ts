@@ -7,6 +7,7 @@ import {
   type ChartType, type DrawingState, type Marker, type SessionMode, type SymbolInfo, type Timeframe,
 } from '@altv/shared';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
+import { PRICE_PRECISION_INDICATORS } from './indicators/extensions';
 import { registerCustomIndicators } from './indicators/register';
 import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
@@ -119,7 +120,7 @@ export class ChartAdapter {
     this.tf = p.tf;
     this.markers = [];
     this.renderMarkers();
-    this.setIndicatorAssetClass(p.symbol.assetClass);
+    this.setIndicatorContext({ assetClass: p.symbol.assetClass, intraday: isIntraday(p.tf), pricePrecision: p.symbol.pricePrecision });
     this.chart.setTimezone(timezoneFor(p.symbol, p.tf));
     this.chart.setSymbol({
       ticker: p.symbol.id,
@@ -200,6 +201,7 @@ export class ChartAdapter {
     const styles = lineStyles(spec.lineColors);
     if (styles) create.styles = styles;
     create.extendData = this.indicatorExt;
+    if (PRICE_PRECISION_INDICATORS.has(spec.name)) create.precision = this.indicatorExt.pricePrecision ?? 4;
     const id = this.chart.createIndicator(create, main);
     if (!id) throw new Error(`Cannot create indicator ${spec.name}`);
     if (spec.lineColors) this.lineColors.set(id, spec.lineColors);
@@ -223,11 +225,16 @@ export class ChartAdapter {
     else this.lineColors.delete(id);
   }
 
-  private setIndicatorAssetClass(assetClass: SymbolInfo['assetClass']): void {
-    if (this.indicatorExt.assetClass === assetClass) return;
-    this.indicatorExt = { assetClass };
+  /** Updates the indicators' extendData (asset class, intraday, price precision) when it changes. */
+  private setIndicatorContext(ext: Required<IndicatorExtendData>): void {
+    const cur = this.indicatorExt;
+    if (cur.assetClass === ext.assetClass && cur.intraday === ext.intraday && cur.pricePrecision === ext.pricePrecision) return;
+    this.indicatorExt = ext;
     for (const i of this.chart.getIndicators()) {
-      if (i.name !== SESSION_SHADE) this.chart.overrideIndicator({ id: i.id, name: i.name, extendData: this.indicatorExt });
+      if (i.name === SESSION_SHADE) continue;
+      const override: IndicatorCreate = { id: i.id, name: i.name, extendData: ext };
+      if (PRICE_PRECISION_INDICATORS.has(i.name)) override.precision = ext.pricePrecision;
+      this.chart.overrideIndicator(override);
     }
   }
 

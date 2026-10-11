@@ -1,4 +1,4 @@
-import { TIMEFRAMES, type DrawingState, type Layout, type SymbolId, type Timeframe } from '@altv/shared';
+import { MAX_INDICATORS, TIMEFRAMES, type DrawingState, type Layout, type SymbolId, type Timeframe } from '@altv/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repos } from '../db/repos.js';
@@ -19,7 +19,7 @@ const LayoutSchema = z.object({
   tf: z.enum(TIMEFRAMES as unknown as [Timeframe, ...Timeframe[]]),
   session: z.enum(['rth', 'eth']),
   chartType: z.enum(['candle', 'ohlc', 'line', 'area']),
-  indicators: z.array(IndicatorSchema).max(30),
+  indicators: z.array(IndicatorSchema).max(MAX_INDICATORS),
 }) satisfies z.ZodType<Layout>;
 
 const DrawingSchema = z.object({

@@ -15,7 +15,8 @@ describe('CATALOG', () => {
     expect(catalogEntry('MA')).toMatchObject({ label: 'Moving Average (SMA)', pane: 'main', defaultParams: [5, 10, 30, 60] });
     expect(catalogEntry('SMA')).toMatchObject({ label: 'SMA (weighted, KLine)', pane: 'sub', defaultParams: [12, 2] });
     expect(catalogEntry('BOLL')).toMatchObject({ pane: 'main', defaultParams: [20, 2] });
-    expect(catalogEntry('VWAP')).toMatchObject({ label: 'VWAP (session)', pane: 'main', defaultParams: [] });
+    expect(catalogEntry('VWAP')).toMatchObject({ label: 'VWAP (session, intraday)', pane: 'main', defaultParams: [] });
+    expect(catalogEntry('VWAP')!.description).toMatch(/1D and longer/);
     expect(catalogEntry('ATR')).toMatchObject({ label: 'Average True Range', pane: 'sub', defaultParams: [14] });
     expect(catalogEntry('RSI')).toMatchObject({ pane: 'sub', defaultParams: [6, 12, 24] });
     expect(catalogEntry('NOPE')).toBeUndefined();
@@ -46,6 +47,11 @@ describe('validateParam', () => {
     expect(validateParam('RSI', 0, '2.5')).toMatch(/whole number/i);
     expect(validateParam('RSI', 0, '')).toMatch(/required/i);
     expect(validateParam('RSI', 0, 'abc')).toMatch(/number/i);
+  });
+
+  it('caps integer periods at 1000', () => {
+    expect(validateParam('RSI', 0, '1000')).toBeNull();
+    expect(validateParam('RSI', 0, '1001')).toBe('Must be at most 1000');
   });
 
   it('allows decimals > 0 for the BOLL std-dev and all SAR params', () => {

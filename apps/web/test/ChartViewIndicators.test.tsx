@@ -34,9 +34,23 @@ describe('ChartView indicator chips', () => {
     await act(async () => { await Promise.resolve(); });
     const area = screen.getByTestId('chart-view').querySelector('.chart-area') as HTMLElement;
     const chips = within(area).getByRole('list', { name: /active indicators/i });
+    // A strip above the canvas: first child of the chart area, outside the stage that holds the canvas host.
+    const stage = area.querySelector('.chart-stage') as HTMLElement;
+    expect(area.firstElementChild).toBe(chips);
+    expect(stage.contains(chips)).toBe(false);
+    expect(stage.contains(screen.getByTestId('chart-host'))).toBe(true);
     expect(chips).toHaveTextContent('RSI(14)');
     await userEvent.click(within(chips).getByRole('button', { name: 'Remove RSI(14)' }));
     const fn = setLayout.mock.calls[0]![0] as (l: Layout) => Layout;
     expect(fn(LAYOUT).indicators).toEqual([]);
+  });
+
+  it('takes no space when there are no indicators', async () => {
+    render(<ChartView layout={{ ...LAYOUT, indicators: [] }} setLayout={vi.fn()} symbolInfo={AAPL} theme="dark" />);
+    await act(async () => { await Promise.resolve(); });
+    const area = screen.getByTestId('chart-view').querySelector('.chart-area') as HTMLElement;
+    expect(screen.queryByRole('list', { name: /active indicators/i })).not.toBeInTheDocument();
+    expect(area.children).toHaveLength(1);
+    expect(area.firstElementChild).toHaveClass('chart-stage');
   });
 });

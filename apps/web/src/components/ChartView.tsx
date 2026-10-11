@@ -195,29 +195,31 @@ export function ChartView({ layout, setLayout, symbolInfo, theme }: ChartViewPro
         <DrawingToolbar controls={adapter} ticker={info?.ticker ?? symbol} />
       </div>
       <div className="chart-area">
-        <div className="chart-host" ref={hostRef} data-testid="chart-host" />
-        {initError && <div className="center-message chart-init-error" role="alert">Chart failed to start: {initError}</div>}
-        <div className="chart-overlay-top-left">
-          <StaleBadge stale={meta.stale} />
-          {notices.map((n) => (
-            <div key={n} className="chart-notice">
-              <span>{n}</span>
-              <button
-                type="button"
-                className="chart-notice-dismiss"
-                aria-label="Dismiss notice"
-                onClick={() => setDismissed((d) => new Set(d).add(n))}
-              >×</button>
-            </div>
-          ))}
-          <IndicatorChips layout={layout} setLayout={setLayout} />
-        </div>
-        {toast && (
-          <div className="chart-toast" role="alert">
-            <span>{toast}</span>
-            <button type="button" className="chart-notice-dismiss" aria-label="Dismiss error" onClick={() => setToast(null)}>×</button>
+        <IndicatorChips layout={layout} setLayout={setLayout} />
+        <div className="chart-stage">
+          <div className="chart-host" ref={hostRef} data-testid="chart-host" />
+          {initError && <div className="center-message chart-init-error" role="alert">Chart failed to start: {initError}</div>}
+          <div className="chart-overlay-top-left">
+            <StaleBadge stale={meta.stale} />
+            {notices.map((n) => (
+              <div key={n} className="chart-notice">
+                <span>{n}</span>
+                <button
+                  type="button"
+                  className="chart-notice-dismiss"
+                  aria-label="Dismiss notice"
+                  onClick={() => setDismissed((d) => new Set(d).add(n))}
+                >×</button>
+              </div>
+            ))}
           </div>
-        )}
+          {toast && (
+            <div className="chart-toast" role="alert">
+              <span>{toast}</span>
+              <button type="button" className="chart-notice-dismiss" aria-label="Dismiss error" onClick={() => setToast(null)}>×</button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
