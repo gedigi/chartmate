@@ -20,7 +20,9 @@ export function createDb(url: string): { db: Kysely<Database>; dialect: Dialect;
   if (url.startsWith('postgres://') || url.startsWith('postgresql://')) {
     pg.types.setTypeParser(20, (v: string) => Number(v)); // bigint -> number (ms timestamps are safe)
     pg.types.setTypeParser(1700, (v: string) => Number(v)); // numeric -> number
-    const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool: new pg.Pool({ connectionString: url }) }) });
+    const pool = new pg.Pool({ connectionString: url });
+    pool.on('error', err => console.error('postgres pool error (idle client):', err));
+    const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
     return { db, dialect: 'postgres', close: () => db.destroy() };
   }
   throw new Error(`Unsupported database URL: ${url.split(':')[0]}:…`);

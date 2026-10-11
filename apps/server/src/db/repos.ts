@@ -1,6 +1,15 @@
-import type { Kysely } from 'kysely';
+import { PostgresAdapter, sql, type Kysely } from 'kysely';
 import type { Bar, Basket, BasketVersion, DrawingState, Layout, NativeTimeframe, SymbolId } from '@altv/shared';
 import type { Database } from './schema.js';
+import type { Dialect } from './connect.js';
+
+function parseJson<T>(text: string, what: string): T {
+  try {
+    return JSON.parse(text) as T;
+  } catch (e) {
+    throw new Error(`corrupt JSON in ${what}: ${(e as Error).message}`);
+  }
+}
 
 const CHUNK = 500;
 
@@ -8,8 +17,11 @@ export class BarRepo {
   constructor(private db: Kysely<Database>) {}
 
   async upsert(symbol: string, tf: NativeTimeframe, bars: Bar[]): Promise<void> {
-    for (let i = 0; i < bars.length; i += CHUNK) {
-      const rows = bars.slice(i, i + CHUNK).map(b => ({
+    const byTs = new Map<number, Bar>();
+    for (const b of bars) byTs.set(b.ts, b); // last wins; Postgres rejects duplicate keys within one statement
+    const unique = [...byTs.values()];
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const rows = unique.slice(i, i + CHUNK).map(b => ({
         symbol, tf, ts: b.ts, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume, session: b.session ?? null,
       }));
       await this.db.insertInto('bars').values(rows)
@@ -43,7 +55,7 @@ function toBar(r: Database['bars']): Bar {
 }
 
 export class CoverageRepo {
-  constructor(private db: Kysely<Database>) {}
+  constructor(private db: Kysely<Database>, private dialect: Dialect = 'sqlite') {}
 
   async list(symbol: string, tf: NativeTimeframe): Promise<Array<[number, number]>> {
     const rows = await this.db.selectFrom('coverage').select(['from_ts', 'to_ts'])
@@ -53,6 +65,10 @@ export class CoverageRepo {
 
   async add(symbol: string, tf: NativeTimeframe, from: number, to: number): Promise<void> {
     await this.db.transaction().execute(async trx => {
+      if (this.dialect === 'postgres') {
+        // serialize concurrent merges for the same series
+        await sql`select pg_advisory_xact_lock(hashtext(${symbol + ':' + tf}))`.execute(trx);
+      }
       const overlap = await trx.selectFrom('coverage').select(['from_ts', 'to_ts'])
         .where('symbol', '=', symbol).where('tf', '=', tf)
         .where('from_ts', '<=', to).where('to_ts', '>=', from).execute();
@@ -155,7 +171,7 @@ async function getBasket(db: Kysely<Database>, id: string): Promise<Basket | nul
 }
 
 function toVersion(v: Database['basket_versions']): BasketVersion {
-  return { effectiveFrom: v.effective_from, weights: JSON.parse(v.weights_json) as BasketVersion['weights'] };
+  return { effectiveFrom: v.effective_from, weights: parseJson<BasketVersion['weights']>(v.weights_json, `basket_versions basket_id=${v.basket_id} idx=${v.idx}`) };
 }
 
 function toBasket(r: Database['baskets'], versions: BasketVersion[]): Basket {
@@ -184,7 +200,7 @@ export class LayoutRepo {
 
   async get(key: string): Promise<Layout | null> {
     const r = await this.db.selectFrom('layouts').select('json').where('key', '=', key).executeTakeFirst();
-    return r ? (JSON.parse(r.json) as Layout) : null;
+    return r ? parseJson<Layout>(r.json, `layouts key=${key}`) : null;
   }
 
   async put(key: string, l: Layout): Promise<void> {
@@ -200,7 +216,7 @@ export class DrawingRepo {
 
   async get(symbol: SymbolId): Promise<DrawingState[]> {
     const r = await this.db.selectFrom('drawings').select('json').where('symbol', '=', symbol).executeTakeFirst();
-    return r ? (JSON.parse(r.json) as DrawingState[]) : [];
+    return r ? parseJson<DrawingState[]>(r.json, `drawings symbol=${symbol}`) : [];
   }
 
   async put(symbol: SymbolId, d: DrawingState[]): Promise<void> {
@@ -221,10 +237,11 @@ export interface Repos {
   drawings: DrawingRepo;
 }
 
-export function createRepos(db: Kysely<Database>): Repos {
+export function createRepos(db: Kysely<Database>, dialect?: Dialect): Repos {
+  const d: Dialect = dialect ?? (db.getExecutor().adapter instanceof PostgresAdapter ? 'postgres' : 'sqlite');
   return {
     bars: new BarRepo(db),
-    coverage: new CoverageRepo(db),
+    coverage: new CoverageRepo(db, d),
     symbols: new SymbolRepo(db),
     baskets: new BasketRepo(db),
     watchlist: new WatchlistRepo(db),

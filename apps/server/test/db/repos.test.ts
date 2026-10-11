@@ -48,6 +48,8 @@ describe.each(urls)('repos on %s', (url) => {
     expect(b.createdAt).toBeGreaterThan(0);
     const u = await r.baskets.update('b1', { versions: [...b.versions, { effectiveFrom: '2024-02-01', weights: { 'stock:A': 0.5, 'crypto:BTC': 0.5 } }] });
     expect(u!.versions).toHaveLength(2);
+    expect(u!.versions[1]!.weights).toEqual({ 'stock:A': 0.5, 'crypto:BTC': 0.5 });
+    expect(b.versions[0]!.weights).toEqual({ 'stock:A': 1 });
     expect((await r.baskets.list()).map(x => x.id)).toEqual(['b1']);
     expect(await r.baskets.delete('b1')).toBe(true);
     expect(await r.baskets.get('b1')).toBeNull();
@@ -62,5 +64,32 @@ describe.each(urls)('repos on %s', (url) => {
     expect(await r.drawings.get('stock:A')).toEqual([]);
     await r.drawings.put('stock:A', [{ name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false }]);
     expect((await r.drawings.get('stock:A'))[0]!.name).toBe('segment');
+  });
+  it('coverage add is safe under concurrency', async () => {
+    await Promise.all([[0, 10], [5, 15], [12, 20], [20, 30], [28, 40], [100, 110]].map(([a, b]) => r.coverage.add('c', '1D', a!, b!)));
+    expect(await r.coverage.list('c', '1D')).toEqual([[0, 40], [100, 110]]);
+  });
+  it('bars upsert tolerates duplicate ts in one call (last wins)', async () => {
+    await r.bars.upsert('d', '1m', [
+      { ts: 1, open: 1, high: 1, low: 1, close: 1, volume: 1 },
+      { ts: 1, open: 2, high: 2, low: 2, close: 2, volume: 2 },
+    ]);
+    const rows = await r.bars.range('d', '1m', 0, 10);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.close).toBe(2);
+  });
+  it('deleting a basket cascades to versions', async () => {
+    await r.baskets.create({ id: 'bc', name: 'C', baseValue: 1, versions: [{ effectiveFrom: '2024-01-02', weights: { 'stock:A': 1 } }] });
+    await r.baskets.delete('bc');
+    const left = await h.db.selectFrom('basket_versions').selectAll().where('basket_id', '=', 'bc').execute();
+    expect(left).toEqual([]);
+  });
+  it('symbols get/upsert round-trip', async () => {
+    expect(await r.symbols.get('stock:A')).toBeNull();
+    const row = { id: 'stock:A', name: 'A Inc', exchange: 'NYSE', pricePrecision: 2, firstTs: Date.UTC(1999, 0, 1), updatedAt: Date.UTC(2030, 0, 1) };
+    await r.symbols.upsert(row);
+    expect(await r.symbols.get('stock:A')).toEqual(row);
+    await r.symbols.upsert({ ...row, name: 'B', exchange: null, firstTs: null });
+    expect(await r.symbols.get('stock:A')).toEqual({ ...row, name: 'B', exchange: null, firstTs: null });
   });
 });
