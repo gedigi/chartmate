@@ -1,0 +1,51 @@
+/* DrawingToolbar: fills the 40px .left-toolbar column of ChartView */
+.left-toolbar { position: relative; min-height: 0; }
+.drawing-toolbar { position: absolute; inset: 0; }
+.dt-scroll {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0;
+}
+.dt-scroll::-webkit-scrollbar { display: none; }
+.dt-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.dt-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+.dt-btn[aria-pressed='true'] { background: var(--accent); color: var(--accent-text); }
+.dt-btn:disabled { opacity: 0.4; cursor: default; }
+.dt-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.dt-sep { flex: none; width: 24px; height: 1px; margin: 4px 0; background: var(--border); }
+
+.dt-popover {
+  position: absolute;
+  left: 40px;
+  z-index: 20;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 6px;
+  margin-left: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.dt-popover input { width: 160px; }
+.dt-popover .dt-ok { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }

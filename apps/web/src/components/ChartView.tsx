@@ -5,6 +5,7 @@ import { ChartAdapter, type IndicatorSpec } from '../chart/ChartAdapter';
 import type { LoaderMeta } from '../chart/dataLoader';
 import { pollIntervalMs } from '../chart/periods';
 import { useDebouncedSave } from '../state/useDebouncedSave';
+import { DrawingToolbar } from './DrawingToolbar';
 import { StaleBadge } from './StaleBadge';
 import './ChartView.css';
 
@@ -189,7 +190,9 @@ export function ChartView({ layout, symbolInfo, theme }: ChartViewProps): JSX.El
 
   return (
     <div className="chart-view" data-testid="chart-view">
-      <div className="left-toolbar" aria-label="Drawing tools" />
+      <div className="left-toolbar">
+        <DrawingToolbar controls={adapter} ticker={info?.ticker ?? symbol} />
+      </div>
       <div className="chart-area">
         <div className="chart-host" ref={hostRef} data-testid="chart-host" />
         {initError && <div className="center-message chart-init-error" role="alert">Chart failed to start: {initError}</div>}

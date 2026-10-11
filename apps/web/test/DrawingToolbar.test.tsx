@@ -1,0 +1,123 @@
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { DrawingToolbar, type DrawingControls } from '../src/components/DrawingToolbar';
+
+function makeControls() {
+  let onEnd: (() => void) | undefined;
+  const c = {
+    startDrawing: vi.fn((_tool: string, opts?: { text?: string; onEnd?: () => void }) => { onEnd = opts?.onEnd; }),
+    cancelDrawing: vi.fn(),
+    clearDrawings: vi.fn(),
+    removeSelected: vi.fn(() => true),
+    setMagnet: vi.fn(),
+    setLockAll: vi.fn(),
+  };
+  return { c: c as typeof c & DrawingControls, end: () => act(() => onEnd?.()) };
+}
+
+afterEach(() => vi.restoreAllMocks());
+
+describe('DrawingToolbar', () => {
+  it.each([
+    ['Trend line', 'segment'], ['Ray', 'rayLine'], ['Extended line', 'straightLine'],
+    ['Horizontal line', 'horizontalStraightLine'], ['Vertical line', 'verticalStraightLine'], ['Price line', 'priceLine'],
+    ['Parallel channel', 'parallelStraightLine'], ['Fibonacci retracement', 'fibonacciLine'],
+  ])('clicking %s starts drawing %s and highlights it until the drawing completes', async (label, tool) => {
+    const { c, end } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    const btn = screen.getByRole('button', { name: label });
+    expect(btn).toHaveAttribute('title', label);
+    await userEvent.click(btn);
+    expect(c.startDrawing).toHaveBeenCalledWith(tool, expect.objectContaining({ onEnd: expect.any(Function) }));
+    expect(btn).toHaveAttribute('aria-pressed', 'true');
+    end();
+    expect(btn).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('Escape cancels the active tool', async () => {
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    const btn = screen.getByRole('button', { name: 'Ray' });
+    await userEvent.click(btn);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(c.cancelDrawing).toHaveBeenCalled();
+    expect(btn).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('Text asks for the text in a popover, then starts a simpleAnnotation with it', async () => {
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Text' }));
+    expect(c.startDrawing).not.toHaveBeenCalled();
+    await userEvent.type(screen.getByRole('textbox', { name: 'Annotation text' }), 'Breakout');
+    await userEvent.click(screen.getByRole('button', { name: 'OK' }));
+    expect(c.startDrawing).toHaveBeenCalledWith('simpleAnnotation', expect.objectContaining({ text: 'Breakout' }));
+    expect(screen.queryByRole('textbox', { name: 'Annotation text' })).not.toBeInTheDocument();
+  });
+
+  it('Text popover: Enter submits, Cancel and empty text do not draw', async () => {
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Text' }));
+    await userEvent.click(screen.getByRole('button', { name: 'OK' }));
+    expect(c.startDrawing).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('textbox', { name: 'Annotation text' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Text' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'Annotation text' }), 'Hi{Enter}');
+    expect(c.startDrawing).toHaveBeenCalledWith('simpleAnnotation', expect.objectContaining({ text: 'Hi' }));
+  });
+
+  it('Clear all asks for confirmation before clearing', async () => {
+    const { c } = makeControls();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    const btn = screen.getByRole('button', { name: 'Clear all drawings' });
+    await userEvent.click(btn);
+    expect(confirm).toHaveBeenCalledWith('Remove all drawings on AAPL?');
+    expect(c.clearDrawings).not.toHaveBeenCalled();
+    await userEvent.click(btn);
+    expect(c.clearDrawings).toHaveBeenCalledTimes(1);
+  });
+
+  it('Magnet and Lock all are toggles reflected via aria-pressed', async () => {
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    const magnet = screen.getByRole('button', { name: 'Magnet' });
+    expect(magnet).toHaveAttribute('aria-pressed', 'false');
+    await userEvent.click(magnet);
+    expect(magnet).toHaveAttribute('aria-pressed', 'true');
+    expect(c.setMagnet).toHaveBeenLastCalledWith(true);
+    await userEvent.click(magnet);
+    expect(magnet).toHaveAttribute('aria-pressed', 'false');
+    expect(c.setMagnet).toHaveBeenLastCalledWith(false);
+    const lock = screen.getByRole('button', { name: 'Lock all drawings' });
+    await userEvent.click(lock);
+    expect(lock).toHaveAttribute('aria-pressed', 'true');
+    expect(c.setLockAll).toHaveBeenLastCalledWith(true);
+  });
+
+  it('Delete/Backspace remove the selected drawing unless typing in an input', () => {
+    const { c } = makeControls();
+    render(<><input aria-label="other" /><DrawingToolbar controls={c} ticker="AAPL" /></>);
+    fireEvent.keyDown(document.body, { key: 'Delete' });
+    fireEvent.keyDown(document.body, { key: 'Backspace' });
+    expect(c.removeSelected).toHaveBeenCalledTimes(2);
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'other' }), { key: 'Delete' });
+    expect(c.removeSelected).toHaveBeenCalledTimes(2);
+  });
+
+  it('Delete selected button removes the selected drawing', async () => {
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Delete selected drawing' }));
+    expect(c.removeSelected).toHaveBeenCalledTimes(1);
+  });
+
+  it('buttons are disabled without a chart', () => {
+    render(<DrawingToolbar controls={null} ticker="AAPL" />);
+    expect(screen.getByRole('button', { name: 'Trend line' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Clear all drawings' })).toBeDisabled();
+  });
+});
