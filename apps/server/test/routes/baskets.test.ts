@@ -28,8 +28,9 @@ describe('basket routes', () => {
 
   it('caps a version at 50 constituents (zod shape check)', async () => {
     const body = basketBody();
-    body.versions[0]!.weights = Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`stock:S${i}`, 1 / 51]));
-    const r = await t.app.inject({ method: 'POST', url: '/api/baskets', payload: body });
+    const weights: Record<string, number> = Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`stock:S${i}`, 1 / 51]));
+    const payload = { ...body, versions: [{ ...body.versions[0]!, weights }] };
+    const r = await t.app.inject({ method: 'POST', url: '/api/baskets', payload });
     expect(r.statusCode).toBe(400);
     expect(r.json()).toMatchObject({ code: 'invalid_request' });
     expect(r.json().message).toMatch(/at most 50 constituents/);
