@@ -91,4 +91,5 @@ export class FakeProvider implements MarketDataProvider {
       out.push(bar);
     }
     return out;
-  }}
+  }
+}

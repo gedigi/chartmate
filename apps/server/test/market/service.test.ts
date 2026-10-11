@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { nyParts } from '@altv/shared';
 import { createDb } from '../../src/db/connect.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';
 import { AppError, NotFoundError, ProviderError } from '../../src/errors.js';
 import { RequestQueue } from '../../src/providers/queue.js';
-import { nyParts } from '@altv/shared';
 import { FakeProvider } from '../helpers/fakeProvider.js';
 import { MarketDataService, calendarFor } from '../../src/market/service.js';
 

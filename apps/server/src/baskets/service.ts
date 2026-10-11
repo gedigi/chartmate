@@ -126,7 +126,9 @@ export class BasketService {
     const outCal: Calendar = isIntraday(a.tf) ? calendar : 'utc';
     // A derived bucket starting before `to` needs its base bars up to the bucket's end.
     const baseTo = derived ? Math.max(a.to, bucketEnd(a.to - 1, a.tf, outCal)) : a.to;
-    const fetchFrom = from - (isIntraday(base) ? INTRADAY_PAD_MS : DAILY_PAD_MS);
+    // Build base bars from the start of the bucket containing `a.from` so a kept leading bucket is complete.
+    const baseFrom = derived ? Math.max(bucketStart(a.from, a.tf, outCal), units.startTs) : from;
+    const fetchFrom = baseFrom - (isIntraday(base) ? INTRADAY_PAD_MS : DAILY_PAD_MS);
 
     // Only versions active somewhere in [fetchFrom, baseTo) need their constituents' bars.
     const vs = units.versions;
@@ -143,9 +145,12 @@ export class BasketService {
       return { id, bars, stale: r.stale };
     }));
 
-    let bars = buildBasketBars(units, fetched).filter((b) => b.ts >= from);
+    let bars = buildBasketBars(units, fetched).filter((b) => b.ts >= baseFrom); // drop padding
     if (derived) bars = resample(bars, a.tf, outCal);
-    bars = bars.filter((b) => b.ts < a.to);
+    // [from, to) contract on output timestamps; a basket that genuinely starts mid-bucket keeps that bucket.
+    const startsInside = from === units.startTs && units.startTs > a.from;
+    const lower = derived && startsInside ? bucketStart(units.startTs, a.tf, outCal) : a.from;
+    bars = bars.filter((b) => b.ts >= lower && b.ts < a.to);
 
     // Earliest available history: constituents of the version active at `from`.
     const activeAtFrom = [...vs].reverse().find((v) => v.effectiveTs <= from) ?? vs[0]!;
@@ -187,11 +192,11 @@ export class BasketService {
         throw err;
       }
     }
-    return this.computeUnits(versions, baseValue);
+    return this.computeUnits(versions, baseValue, 'save');
   }
 
   /** Daily data for every constituent from v0 − 10 d to now, then the engine. */
-  private async computeUnits(versions: BasketVersion[], baseValue: number): Promise<{ units: UnitsResult; stale: boolean }> {
+  private async computeUnits(versions: BasketVersion[], baseValue: number, mode: 'save' | 'read'): Promise<{ units: UnitsResult; stale: boolean }> {
     const from = parseDateString(versions[0]!.effectiveFrom) - UNITS_LOOKBACK_MS;
     const to = this.now() + DAY;
     const ids = constituents(versions);
@@ -202,7 +207,8 @@ export class BasketService {
     try {
       return { units: computeVersionUnits(versions, daily, baseValue), stale };
     } catch (err) {
-      if (err instanceof BasketValidationError) throw stale ? unavailable() : invalid(err.message);
+      // On save a failure is the user's input; on read the basket was valid when saved, so it's missing data.
+      if (err instanceof BasketValidationError) throw stale || mode === 'read' ? unavailable() : invalid(err.message);
       throw err;
     }
   }
@@ -222,7 +228,7 @@ export class BasketService {
     }
     let r: { units: UnitsResult; stale: boolean };
     try {
-      r = await this.computeUnits(basket.versions, basket.baseValue);
+      r = await this.computeUnits(basket.versions, basket.baseValue, 'read');
     } catch (err) {
       // A refresh that fails (e.g. provider outage) falls back to the expired units for the same versions.
       if (hit && hit.key === key) return { units: hit.units, stale: true };

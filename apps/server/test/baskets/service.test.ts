@@ -223,6 +223,88 @@ describe('BasketService', () => {
     });
   });
 
+  describe('getBars: derived timeframes, sessions, version switches', () => {
+    it('1W with a mid-week from drops the partial leading bucket', async () => {
+      const b = await svc.create({ name: 'mix', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
+      const r = await svc.getBars({ id: b.id, tf: '1W', session: 'rth', from: D(9, 23), to: D(10, 5) });
+      expect(r.bars.map((x) => x.ts)).toEqual([D(9, 28)]);
+      // Week of 09-28 opens Mon 09-28 (AAA d=27 → 127, BTC 1270) and closes Sun 10-04 (AAA Fri 10-02 → 131, BTC d=33 → 1330).
+      expect(r.bars[0]!.open).toBeCloseTo((50 * 127) / 110 + (50 * 1270) / 1120, 9);
+      expect(r.bars[0]!.close).toBeCloseTo((50 * 131) / 110 + (50 * 1330) / 1120, 9);
+    });
+
+    it('1W keeps the bucket containing the basket start when the basket starts mid-week', async () => {
+      stock.listedFrom.NEW = D(9, 16);
+      const b = await svc.create({ name: 'ipo', versions: [v('2026-09-10', { 'stock:AAA': 0.5, 'stock:NEW': 0.5 })] });
+      const r = await svc.getBars({ id: b.id, tf: '1W', session: 'rth', from: D(9, 1), to: D(9, 28) });
+      expect(r.bars.map((x) => x.ts)).toEqual([D(9, 14), D(9, 21)]);
+      expect(r.bars[0]!.open).toBeCloseTo(2 * ((50 * 116) / 115), 9); // Thu 09-17 is the first basket day
+      expect(r.bars[0]!.close).toBeCloseTo(2 * ((50 * 117) / 115), 9);
+    });
+
+    it('4h with a mid-bucket from drops the partial leading bucket (utc grid)', async () => {
+      const b = await svc.create({ name: 'mix', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
+      const r = await svc.getBars({ id: b.id, tf: '4h', session: 'rth', from: D(9, 19, 2), to: D(9, 20) });
+      expect(r.bars.map((x) => x.ts)).toEqual([4, 8, 12, 16, 20].map((hh) => D(9, 19, hh)));
+    });
+
+    it('RTH 4h for a stock-only basket uses the nyse-rth grid (13:30Z in EDT)', async () => {
+      const b = await svc.create({ name: 'two', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'stock:BBB': 0.5 })] });
+      const r = await svc.getBars({ id: b.id, tf: '4h', session: 'rth', from: D(9, 18), to: D(9, 19) });
+      expect(r.bars.map((x) => x.ts)).toEqual([D(9, 18, 13, 30), D(9, 18, 17, 30)]);
+      expect(r.bars[1]!.close).toBeCloseTo((50 * 117) / 110 + (50 * 67) / 60, 9);
+    });
+
+    it('ETH 1h for a stock-only basket includes pre/post bars (nyse-eth grid)', async () => {
+      const b = await svc.create({ name: 'two', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'stock:BBB': 0.5 })] });
+      const eth = await svc.getBars({ id: b.id, tf: '1h', session: 'eth', from: D(9, 18), to: D(9, 19) });
+      // NY 04:30–19:30 EDT = 08:30Z–23:30Z: 16 bars (5 pre, 7 regular, 4 post).
+      expect(eth.bars).toHaveLength(16);
+      expect(eth.bars[0]!.ts).toBe(D(9, 18, 8, 30));
+      expect(eth.bars.at(-1)!.ts).toBe(D(9, 18, 23, 30));
+      expect(eth.bars[0]!.close).toBeCloseTo((50 * 117) / 110 + (50 * 67) / 60, 9);
+      const rth = await svc.getBars({ id: b.id, tf: '1h', session: 'rth', from: D(9, 18), to: D(9, 19) });
+      expect(rth.bars).toHaveLength(7);
+      const eth4 = await svc.getBars({ id: b.id, tf: '4h', session: 'eth', from: D(9, 18), to: D(9, 19) });
+      expect(eth4.bars.map((x) => x.ts)).toEqual([8, 12, 16, 20].map((hh) => D(9, 18, hh))); // anchored 04:00 EDT
+    });
+
+    it('1M output is stamped on the 1st of the month', async () => {
+      const b = await svc.create({ name: 'mix', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
+      const r = await svc.getBars({ id: b.id, tf: '1M', session: 'rth', from: D(9, 1), to: D(11, 1) });
+      expect(r.bars.map((x) => x.ts)).toEqual([D(9, 1), D(10, 1)]);
+      expect(r.bars[0]!.open).toBeCloseTo((50 * 113) / 110 + (50 * 1130) / 1120, 9); // first basket day 09-14
+      expect(r.bars[0]!.close).toBeCloseTo((50 * 129) / 110 + (50 * 1290) / 1120, 9); // Wed 09-30, d=29
+    });
+
+    it('two versions with disjoint constituents: stock-only then crypto-only', async () => {
+      const b = await svc.create({
+        name: 'swap',
+        versions: [v('2026-09-14', { 'stock:AAA': 1 }), v('2026-09-21', { 'crypto:BTC': 1 })],
+      });
+      const r = await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: D(9, 17), to: D(9, 23) });
+      // v1 active days need an AAA bar (no weekend bars); v2 trades daily.
+      expect(r.bars.map((x) => x.ts)).toEqual([D(9, 17), D(9, 18), D(9, 21), D(9, 22)]);
+      const L = (100 * 117) / 110; // v1 units × Fri 09-18 close
+      expect(r.bars[0]!.close).toBeCloseTo((100 * 116) / 110, 9);
+      expect(r.bars[1]!.close).toBeCloseTo(L, 9);
+      // v2 sized at BTC's prior close Sun 09-20 (d=19 → 1190).
+      expect(r.bars[2]!.close).toBeCloseTo((L * 1200) / 1190, 9);
+      expect(r.bars[3]!.close).toBeCloseTo((L * 1210) / 1190, 9);
+      expect(r.markers).toEqual([{ ts: D(9, 21), label: 'v2' }]);
+    });
+
+    it('a saved basket whose units cannot be computed on read → 503, not 400', async () => {
+      const b = await svc.create({ name: 'a', versions: [v('2026-09-14', { 'stock:AAA': 1 })] });
+      await h.db.deleteFrom('bars').execute();
+      await h.db.deleteFrom('coverage').execute();
+      stock.listedFrom.AAA = Infinity; // provider answers with no data (not an outage)
+      const cold = new BasketService({ repos, market, now: () => now });
+      await expectAppError(cold.getBars({ id: b.id, tf: '1D', session: 'rth', from: D(9, 1), to: D(10, 1) }),
+        503, 'data_unavailable', 'Market data temporarily unavailable; try again');
+    });
+  });
+
   describe('units cache', () => {
     it('reuses units; recomputes after 6 h only for versions effective from yesterday on; invalidated by appendVersion', async () => {
       const b = await svc.create({ name: 'mix', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
