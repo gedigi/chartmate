@@ -1,6 +1,6 @@
 import type { Bar, Basket, BarsResponse, SymbolInfo } from '@altv/shared';
 import type { BarsParams } from '../src/api/client';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../src/api/client';
@@ -39,23 +39,46 @@ beforeEach(() => {
   vi.mocked(api.search).mockImplementation(async (q) => SYMBOLS.filter((s) => s.ticker.toLowerCase().startsWith(q.toLowerCase())));
   vi.mocked(api.bars).mockImplementation(async (p) => dailyBars(p));
 });
-afterEach(() => vi.clearAllMocks());
+afterEach(() => { restoreRealTimers(); vi.clearAllMocks(); });
 
-async function pickSymbol(rowIndex: number, query: string) {
-  const row = screen.getAllByTestId('weight-row')[rowIndex]!;
-  await userEvent.type(within(row).getByRole('combobox'), query);
-  const option = await screen.findByRole('option');
-  await userEvent.click(option);
+type User = ReturnType<typeof userEvent.setup>;
+/** How a test drives the form: real timers, or fake timers advanced explicitly after each search. */
+interface Driver { user: User; settle: () => Promise<void> }
+const realTimers = (): Driver => ({ user: userEvent.setup(), settle: async () => {} });
+async function advance(ms: number) {
+  await act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+}
+const fakeTimers = (): Driver => ({ user: userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) }), settle: () => advance(250) });
+
+/**
+ * Testing Library's async wrapper (used by user-event) drains with setTimeout(0) and only advances it for *Jest*
+ * fake timers; expose a minimal `jest` shim so it advances Vitest's fake clock instead of hanging.
+ */
+function useFakeTimersWithTestingLibrary() {
+  vi.useFakeTimers();
+  (globalThis as { jest?: unknown }).jest = { advanceTimersByTime: (ms: number) => vi.advanceTimersByTime(ms) };
+}
+function restoreRealTimers() {
+  delete (globalThis as { jest?: unknown }).jest;
+  vi.useRealTimers();
 }
 
-async function fillCreateForm() {
-  await userEvent.type(screen.getByLabelText('Name'), 'Tech + BTC');
-  await pickSymbol(0, 'AAPL');
-  await userEvent.type(screen.getByRole('spinbutton', { name: 'Weight for AAPL' }), '60');
-  await userEvent.click(screen.getByRole('button', { name: 'Add constituent' }));
-  await pickSymbol(1, 'BTC');
-  await userEvent.type(screen.getByRole('spinbutton', { name: 'Weight for BTC' }), '40');
-  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2024-01-02' } });
+async function pickSymbol(d: Driver, rowIndex: number, query: string) {
+  const row = screen.getAllByTestId('weight-row')[rowIndex]!;
+  await d.user.type(within(row).getByRole('combobox'), query);
+  await d.settle();
+  const option = await screen.findByRole('option');
+  await d.user.click(option);
+}
+
+async function fillCreateForm(d: Driver = realTimers()) {
+  await d.user.type(screen.getByLabelText('Name'), 'Tech + BTC');
+  await pickSymbol(d, 0, 'AAPL');
+  await d.user.type(screen.getByRole('spinbutton', { name: 'Weight for AAPL' }), '60');
+  await d.user.click(screen.getByRole('button', { name: 'Add constituent' }));
+  await pickSymbol(d, 1, 'BTC');
+  await d.user.type(screen.getByRole('spinbutton', { name: 'Weight for BTC' }), '40');
+  fireEvent.change(screen.getByLabelText('Start date (UTC)'), { target: { value: '2024-01-02' } });
 }
 
 const BASKET: Basket = {
@@ -104,9 +127,18 @@ describe('BasketEditor — create', () => {
   });
 
   it('renders a client-side preview from 1D constituent bars', async () => {
-    render(<BasketEditor onSaved={() => {}} onCancel={() => {}} />);
-    await fillCreateForm();
-    const preview = await screen.findByTestId('basket-preview-chart', {}, { timeout: 3000 });
+    useFakeTimersWithTestingLibrary();
+    try {
+      render(<BasketEditor onSaved={() => {}} onCancel={() => {}} />);
+      await fillCreateForm(fakeTimers());
+      vi.mocked(api.bars).mockClear(); // earlier partial forms may have previewed; check the final one
+      await advance(599);
+      expect(api.bars).not.toHaveBeenCalled();
+      await advance(1);
+    } finally {
+      restoreRealTimers();
+    }
+    const preview = screen.getByTestId('basket-preview-chart');
     expect(preview.querySelector('polyline')).not.toBeNull();
     const calls = vi.mocked(api.bars).mock.calls.map((c) => c[0]);
     expect(calls.every((p) => p.tf === '1D' && p.session === 'rth')).toBe(true);
@@ -153,7 +185,7 @@ describe('BasketEditor — edit', () => {
     const aapl = screen.getByRole('spinbutton', { name: 'Weight for AAPL' });
     expect(aapl).toHaveValue(70);
     expect(screen.getByRole('spinbutton', { name: 'Weight for BTC' })).toHaveValue(30);
-    const date = screen.getByLabelText('Effective date');
+    const date = screen.getByLabelText('Effective date (UTC)');
     expect(date).toHaveAttribute('min', '2024-06-04');
 
     fireEvent.change(aapl, { target: { value: '80' } });
@@ -176,7 +208,7 @@ describe('BasketEditor — edit', () => {
     vi.mocked(api.baskets.appendVersion).mockRejectedValue(new ApiError(400, 'invalid_basket', 'No data for crypto:BTC before 2024-07-01'));
     render(<BasketEditor basket={BASKET} onSaved={() => {}} onCancel={() => {}} />);
     await userEvent.click(screen.getByRole('button', { name: 'Change weights' }));
-    fireEvent.change(screen.getByLabelText('Effective date'), { target: { value: '2024-07-01' } });
+    fireEvent.change(screen.getByLabelText('Effective date (UTC)'), { target: { value: '2024-07-01' } });
     await userEvent.click(screen.getByRole('button', { name: 'Add version' }));
     expect(await screen.findByText('No data for crypto:BTC before 2024-07-01')).toBeInTheDocument();
   });

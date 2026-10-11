@@ -142,10 +142,10 @@ function CreateBasket({ onSaved, onCancel }: BasketEditorProps): JSX.Element {
           <h3 className="panel-title">Constituents</h3>
           <WeightsTable rows={rows} onChange={setRows} />
           <label className="field">
-            <span>Start date</span>
+            <span>Start date (UTC)</span>
             <input type="date" value={startDate} max={today} onChange={(e) => setStartDate(e.target.value)} />
           </label>
-          <p className="hint">The basket starts at {DEFAULT_BASE_VALUE} on this date, sized at the prior close.</p>
+          <p className="hint">The basket starts at {DEFAULT_BASE_VALUE} from 00:00 UTC on this date, sized at the prior close.</p>
           {dateError && <p className="form-error">{dateError}</p>}
           {error && <p className="form-error" role="alert">{error}</p>}
           <div className="editor-actions">
@@ -267,7 +267,7 @@ function EditBasket({ basket, onSaved, onCancel }: BasketEditorProps & { basket:
               <h3 className="panel-title">New version</h3>
               <WeightsTable rows={rows} onChange={setRows} />
               <label className="field">
-                <span>Effective date</span>
+                <span>Effective date (UTC)</span>
                 <input type="date" value={effDate} min={minDate} max={today} onChange={(e) => { setEffDate(e.target.value); setAppendError(null); }} />
               </label>
               <p className="hint">{EFFECTIVE_DATE_HINT}</p>

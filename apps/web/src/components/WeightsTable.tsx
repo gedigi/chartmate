@@ -73,12 +73,15 @@ export function validateRows(rows: WeightRow[]): RowsValidation {
 
 /**
  * Rescales positive values proportionally to percentages with 2 decimals that sum to exactly 100.00.
- * Rounding is done in integer hundredths; the remainder goes to the largest weight (first on ties).
+ * Rounding is done in integer hundredths; every value gets at least 0.01 (a positive weight never rounds
+ * away to 0), and the remaining difference goes to the largest weight (first on ties).
  */
 export function normalizePercents(values: number[]): number[] {
+  if (values.length === 0 || values.length > 10_000) throw new Error('Need between 1 and 10000 weights');
+  if (values.some((v) => !(v > 0) || !Number.isFinite(v))) throw new Error('Weights must be positive finite numbers');
   const sum = values.reduce((a, b) => a + b, 0);
-  if (!(sum > 0) || !Number.isFinite(sum)) throw new Error('Weights must sum to a positive number');
-  const cents = values.map((v) => Math.round((v / sum) * 10_000));
+  if (!Number.isFinite(sum)) throw new Error('Weights must sum to a finite number');
+  const cents = values.map((v) => Math.max(1, Math.round((v / sum) * 10_000)));
   let largest = 0;
   values.forEach((v, i) => { if (v > values[largest]!) largest = i; });
   cents[largest]! += 10_000 - cents.reduce((a, b) => a + b, 0);
@@ -99,6 +102,7 @@ export function WeightsTable({ rows, onChange }: WeightsTableProps): JSX.Element
   const totalOk = Math.abs(total - 100) <= TOTAL_TOLERANCE + 1e-9;
   const positive = rows.map((r) => parseWeight(r.weight)).map((w) => (w !== null && w > 0 ? w : 0));
   const canNormalize = positive.some((w) => w > 0);
+  const hasUnsized = rows.some((_, i) => positive[i] === 0);
 
   const update = (key: string, patch: Partial<WeightRow>) => onChange(rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const remove = (key: string) => onChange(rows.filter((r) => r.key !== key));
@@ -173,6 +177,11 @@ export function WeightsTable({ rows, onChange }: WeightsTableProps): JSX.Element
       <div className="weights-actions">
         <button type="button" onClick={normalize} disabled={!canNormalize}>Normalize to 100%</button>
       </div>
+      {hasUnsized && canNormalize && (
+        <p className="hint weights-hint">
+          Normalize only rescales positive weights. Rows with an empty, zero or negative weight are left unchanged: remove them or fill in a weight.
+        </p>
+      )}
       {errors.length > 0 && (
         <ul className="form-error weights-errors" role="alert">
           {errors.map((e) => <li key={e}>{e}</li>)}

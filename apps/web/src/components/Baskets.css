@@ -68,6 +68,7 @@ button.danger:hover:not(:disabled) { color: var(--down); border-color: var(--dow
 .total-ok { color: var(--up); }
 .total-bad { color: var(--down); }
 .weights-actions { display: flex; justify-content: flex-end; margin-top: 6px; }
+.weights-hint { margin-top: 6px; }
 .weights-errors { margin: 6px 0 0; padding-left: 18px; font-size: 12px; }
 
 /* Preview */
