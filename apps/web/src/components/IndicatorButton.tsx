@@ -5,15 +5,16 @@ import { IndicatorPicker } from './IndicatorPicker';
 export interface IndicatorButtonProps {
   layout: Layout;
   setLayout: (fn: (l: Layout) => Layout) => void;
+  disabled?: boolean;
 }
 
 /** TopBar "Indicators" button: opens the indicator picker; picked indicators are appended to the layout
  * (never beyond MAX_INDICATORS, which the server's layout schema enforces). */
-export function IndicatorButton({ layout, setLayout }: IndicatorButtonProps): JSX.Element {
+export function IndicatorButton({ layout, setLayout, disabled }: IndicatorButtonProps): JSX.Element {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>Indicators</button>
+      <button type="button" aria-haspopup="dialog" aria-expanded={open} disabled={disabled} onClick={() => setOpen(true)}>Indicators</button>
       {open && (
         <IndicatorPicker
           count={layout.indicators.length}

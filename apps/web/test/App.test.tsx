@@ -1,5 +1,5 @@
 import type { Layout } from '@altv/shared';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api/client';
@@ -57,5 +57,24 @@ describe('App', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Baskets' }));
     expect(screen.getByTestId('baskets-page')).toBeInTheDocument();
     expect(window.location.hash).toBe('#/baskets');
+  });
+
+  it('disables the top-bar chart controls until the default layout has loaded', async () => {
+    vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+    let resolveDefault!: (l: Layout | null) => void;
+    vi.mocked(api.layouts.get).mockImplementation((key) =>
+      key === 'default' ? new Promise((r) => { resolveDefault = r; }) : Promise.resolve(null));
+    render(<App />);
+    const bar = await screen.findByRole('banner');
+    expect(within(bar).getByRole('combobox', { name: 'Search symbol' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '1h' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Chart type' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Indicators' })).toBeDisabled();
+    resolveDefault({ symbol: 'stock:AAPL', tf: '1h', session: 'rth', chartType: 'candle', indicators: [] });
+    await waitFor(() => expect(within(bar).getByRole('combobox', { name: 'Search symbol' })).toBeEnabled());
+    expect(screen.getByRole('button', { name: '1h' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'RTH' })).toBeEnabled();
+    expect(screen.getByRole('combobox', { name: 'Chart type' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Indicators' })).toBeEnabled();
   });
 });

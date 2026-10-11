@@ -46,4 +46,75 @@ describe('useLayout', () => {
     await settle();
     expect(put.mock.calls.map((c) => c[0]).sort()).toEqual(['default', 'sym:stock:AAPL']);
   });
+
+  it('only writes the per-symbol key when indicators change (by value), not on tf/chartType changes', async () => {
+    const { result } = renderHook(() => useLayout());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    await settle();
+    act(() => result.current.setLayout((l) => ({ ...l, tf: '1D' })));
+    await settle();
+    act(() => result.current.setLayout((l) => ({ ...l, chartType: 'line' })));
+    await settle();
+    // Same indicators, new array identity: still not a change.
+    act(() => result.current.setLayout((l) => ({ ...l, indicators: l.indicators.map((i) => ({ ...i })) })));
+    await settle();
+    expect(put.mock.calls.some((c) => c[0] === 'default')).toBe(true);
+    expect(put.mock.calls.filter((c) => c[0].startsWith('sym:'))).toEqual([]);
+  });
+});
+
+/** Promise whose resolution the test controls. */
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => { resolve = r; });
+  return { promise, resolve };
+}
+
+describe('useLayout per-symbol load races', () => {
+  const rsi = { name: 'RSI', pane: 'sub' as const, calcParams: [14], visible: true };
+  const macd = { name: 'MACD', pane: 'sub' as const, calcParams: [12, 26, 9], visible: true };
+  const ma = { name: 'MA', pane: 'main' as const, calcParams: [50], visible: true };
+
+  it('keeps indicator edits made on a symbol before its sym: layout resolves (and saves them under that symbol)', async () => {
+    const msft = deferred<Layout | null>();
+    vi.mocked(api.layouts.get).mockImplementation(async (key) =>
+      key === 'default' ? saved : key === 'sym:stock:MSFT' ? msft.promise : null);
+    const { result } = renderHook(() => useLayout());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    await settle();
+    act(() => result.current.setLayout((l) => ({ ...l, symbol: 'stock:MSFT' })));
+    act(() => result.current.setLayout((l) => ({ ...l, indicators: [rsi] })));
+    await act(async () => { msft.resolve({ ...saved, symbol: 'stock:MSFT', indicators: [macd] }); await Promise.resolve(); });
+    await settle();
+    expect(result.current.layout.indicators).toEqual([rsi]);
+    const symPuts = put.mock.calls.filter((c) => c[0].startsWith('sym:'));
+    expect(symPuts.map((c) => [c[0], c[1].indicators])).toEqual([['sym:stock:MSFT', [rsi]]]);
+  });
+
+  it('A→B→A: B\'s indicators are never applied to A and never saved under A', async () => {
+    const aaplLoads: ReturnType<typeof deferred<Layout | null>>[] = [];
+    const msft = deferred<Layout | null>();
+    vi.mocked(api.layouts.get).mockImplementation((key) => {
+      if (key === 'default') return Promise.resolve(saved);
+      if (key === 'sym:stock:MSFT') return msft.promise;
+      const d = deferred<Layout | null>();
+      aaplLoads.push(d);
+      return d.promise;
+    });
+    const { result } = renderHook(() => useLayout());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    await act(async () => { aaplLoads[0]!.resolve({ ...saved, indicators: [ma] }); await Promise.resolve(); });
+    await waitFor(() => expect(result.current.layout.indicators).toEqual([ma]));
+    act(() => result.current.setLayout((l) => ({ ...l, symbol: 'stock:MSFT' })));
+    act(() => result.current.setLayout((l) => ({ ...l, symbol: 'stock:AAPL' })));
+    await act(async () => { msft.resolve({ ...saved, symbol: 'stock:MSFT', indicators: [macd] }); await Promise.resolve(); });
+    expect(result.current.layout.indicators).toEqual([ma]);
+    await act(async () => { aaplLoads[1]!.resolve({ ...saved, indicators: [ma] }); await Promise.resolve(); });
+    await settle();
+    expect(result.current.layout).toMatchObject({ symbol: 'stock:AAPL', indicators: [ma] });
+    for (const [key, l] of put.mock.calls) {
+      if (key === 'sym:stock:AAPL') expect(l.indicators).toEqual([ma]);
+      expect(key).not.toBe('sym:stock:MSFT');
+    }
+  });
 });

@@ -19,6 +19,8 @@ export interface TopBarProps {
   onToggleTheme: () => void;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
+  /** Disables symbol search, timeframe/session/chart-type and indicator controls (e.g. until the layout loaded). */
+  controlsDisabled?: boolean;
   /** Shown only when the server requires a password. */
   onLogout?: () => void;
 }
@@ -37,7 +39,7 @@ export function TopBar(p: TopBarProps): JSX.Element {
       </div>
       {p.view === 'chart' && (
         <>
-          <SymbolSearch onSelect={p.onSelectSymbol} />
+          <SymbolSearch onSelect={p.onSelectSymbol} disabled={p.controlsDisabled} />
           <div className="symbol-label" title={symbolInfo?.name ?? layout.symbol}>
             <strong>{symbolInfo?.ticker ?? layout.symbol}</strong>
             {symbolInfo && <span className="symbol-name">{symbolInfo.name}</span>}
@@ -50,8 +52,9 @@ export function TopBar(p: TopBarProps): JSX.Element {
             showSession={p.showSession}
             chartType={layout.chartType}
             onChartType={(chartType) => setLayout((l) => ({ ...l, chartType }))}
+            disabled={p.controlsDisabled}
           />
-          <IndicatorButton layout={layout} setLayout={setLayout} />
+          <IndicatorButton layout={layout} setLayout={setLayout} disabled={p.controlsDisabled} />
         </>
       )}
       <div className="top-bar-end">

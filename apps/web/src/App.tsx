@@ -112,6 +112,7 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((o) => !o)}
         onLogout={onLogout}
+        controlsDisabled={!loaded}
       />
       {view === 'chart' ? (
         <>

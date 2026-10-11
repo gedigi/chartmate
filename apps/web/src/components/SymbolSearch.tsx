@@ -11,6 +11,7 @@ export interface SymbolSearchProps {
   filter?: (s: SymbolInfo) => boolean;
   /** Accessible label of the input. Default: "Search symbol". */
   ariaLabel?: string;
+  disabled?: boolean;
 }
 
 type State =
@@ -20,7 +21,7 @@ type State =
   | { kind: 'error'; message: string };
 
 /** Debounced symbol search combobox (stocks, crypto and baskets). */
-export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filter, ariaLabel = 'Search symbol' }: SymbolSearchProps): JSX.Element {
+export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filter, ariaLabel = 'Search symbol', disabled }: SymbolSearchProps): JSX.Element {
   const [query, setQuery] = useState('');
   const [state, setState] = useState<State>({ kind: 'idle' });
   const [open, setOpen] = useState(false);
@@ -100,6 +101,7 @@ export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filte
         aria-controls={listId}
         aria-activedescendant={expanded && active >= 0 ? optionId(active) : undefined}
         placeholder={placeholder}
+        disabled={disabled}
         value={query}
         autoComplete="off"
         spellCheck={false}
