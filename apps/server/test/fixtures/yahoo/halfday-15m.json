@@ -1,0 +1,18 @@
+{
+ "meta": {
+  "symbol": "AAPL",
+  "exchangeTimezoneName": "America/New_York",
+  "firstTradeDate": "1980-12-12T14:30:00.000Z",
+  "dataGranularity": "15m",
+  "tradingPeriods": {
+   "pre": [[{ "timezone": "EST", "start": "2026-11-27T09:00:00.000Z", "end": "2026-11-27T14:30:00.000Z", "gmtoffset": -18000 }]],
+   "regular": [[{ "timezone": "EST", "start": "2026-11-27T14:30:00.000Z", "end": "2026-11-27T18:00:00.000Z", "gmtoffset": -18000 }]],
+   "post": [[{ "timezone": "EST", "start": "2026-11-27T18:00:00.000Z", "end": "2026-11-27T22:00:00.000Z", "gmtoffset": -18000 }]]
+  }
+ },
+ "quotes": [
+  { "date": "2026-11-27T14:30:00.000Z", "open": 230.0, "high": 231.0, "low": 229.5, "close": 230.5, "volume": 120000 },
+  { "date": "2026-11-27T17:45:00.000Z", "open": 231.0, "high": 231.4, "low": 230.8, "close": 231.2, "volume": 90000 },
+  { "date": "2026-11-27T18:15:00.000Z", "open": 231.2, "high": 231.3, "low": 231.0, "close": 231.1, "volume": 4000 }
+ ]
+}
