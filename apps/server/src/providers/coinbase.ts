@@ -1,4 +1,4 @@
-import { resample, type Bar, type NativeTimeframe, type Quote, type SymbolInfo } from '@altv/shared';
+import { resample, tfMs, type Bar, type NativeTimeframe, type Quote, type SymbolInfo } from '@altv/shared';
 import { NotFoundError } from '../errors.js';
 import { getJson } from './http.js';
 import { decimalsOf, num, rankMatches } from './util.js';
@@ -23,7 +23,17 @@ export interface CoinbaseOptions { fetchImpl?: typeof fetch; now?: () => number;
 export class CoinbaseProvider implements MarketDataProvider {
   readonly id = 'coinbase' as const;
   readonly assetClass = 'crypto' as const;
-  readonly limits: ProviderLimits = { maxLookbackMs: {}, maxSpanPerRequestMs: {} };
+  /**
+   * One candles request (≤ 300) per chunk, so MarketDataService paces requests through the queue and persists
+   * each; 30m is built from 5m candles, so its span is 300 × 5m (a multiple of 30m).
+   */
+  readonly limits: ProviderLimits = {
+    maxLookbackMs: {},
+    maxSpanPerRequestMs: {
+      '1m': MAX_CANDLES * tfMs('1m'), '5m': MAX_CANDLES * tfMs('5m'), '15m': MAX_CANDLES * tfMs('15m'),
+      '30m': MAX_CANDLES * tfMs('5m'), '1h': MAX_CANDLES * tfMs('1h'), '1D': MAX_CANDLES * tfMs('1D'),
+    },
+  };
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
   private readonly baseUrl: string;
@@ -83,6 +93,7 @@ export class CoinbaseProvider implements MarketDataProvider {
     const step = granularitySec * 1000;
     const span = MAX_CANDLES * step;
     const byTs = new Map<number, Bar>();
+    // Internal paging is a safety net; MarketDataService already chunks to one request per call.
     for (let s = from; s < to; s += span) {
       const e = Math.min(to, s + span);
       const params = new URLSearchParams({

@@ -138,7 +138,10 @@ export class MarketDataService {
         try {
           fetched = await provider.fetchBars(code, tf, gapFrom, gapTo);
         } catch (err) {
-          throw asProviderError(provider.id, err);
+          const e = asProviderError(provider.id, err);
+          // Cool down at once so this request's remaining queued chunks fail fast instead of hammering upstream.
+          if (e instanceof ProviderError && e.retryable && e.provider !== 'queue') queue.backoff(BACKOFF_MS);
+          throw e;
         }
         await this.repos.bars.upsert(symbol, tf, fetched.bars);
         await markCovered(gapFrom, gapTo);

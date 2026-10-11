@@ -1,4 +1,4 @@
-import type { Bar, NativeTimeframe, Quote, SymbolInfo } from '@altv/shared';
+import { tfMs, type Bar, type NativeTimeframe, type Quote, type SymbolInfo } from '@altv/shared';
 import { NotFoundError } from '../errors.js';
 import { getJson, type HttpErrorInfo } from './http.js';
 import { decimalsOf, num, rankMatches } from './util.js';
@@ -20,7 +20,11 @@ export interface BinanceOptions { baseUrl: string; fetchImpl?: typeof fetch; now
 export class BinanceProvider implements MarketDataProvider {
   readonly id = 'binance' as const;
   readonly assetClass = 'crypto' as const;
-  readonly limits: ProviderLimits = { maxLookbackMs: {}, maxSpanPerRequestMs: {} };
+  /** One kline page per chunk, so MarketDataService paces pages through the queue and persists each. */
+  readonly limits: ProviderLimits = {
+    maxLookbackMs: {},
+    maxSpanPerRequestMs: Object.fromEntries(Object.keys(INTERVAL).map((tf) => [tf, PAGE * tfMs(tf as NativeTimeframe)])),
+  };
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
@@ -36,6 +40,7 @@ export class BinanceProvider implements MarketDataProvider {
     const symbol = pair(code);
     const byTs = new Map<number, Bar>();
     let start = from;
+    // Internal paging is a safety net; MarketDataService already chunks to one page per call.
     while (start < to) {
       const rows = await this.get<Kline[]>('/api/v3/klines', {
         symbol, interval: INTERVAL[tf], startTime: String(start), endTime: String(to - 1), limit: String(PAGE),
@@ -48,7 +53,7 @@ export class BinanceProvider implements MarketDataProvider {
       if (rows.length < PAGE) break;
       const last = Number(rows[rows.length - 1]![0]);
       if (!(last >= start)) break; // no forward progress
-      start = last + 1;
+      start = last + tfMs(tf); // klines sit on the tf grid: a full last page ending at `to` needs no follow-up
     }
     return { bars: [...byTs.values()].sort((a, b) => a.ts - b.ts) };
   }

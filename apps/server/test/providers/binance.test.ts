@@ -15,11 +15,15 @@ function make(handler: (url: URL) => Response | Promise<Response>, now: () => nu
 const row = (ts: number, c = 100) => [ts, String(c), String(c + 1), String(c - 1), String(c + 0.5), '12.5', ts + HOUR - 1, '0', 1, '0', '0', '0'];
 
 describe('BinanceProvider', () => {
-  it('identity and no limits', () => {
+  it('identity; no lookback limit; one request (1000 klines) per queued chunk', () => {
     const { p } = make(() => jsonResponse([]));
     expect(p.id).toBe('binance');
     expect(p.assetClass).toBe('crypto');
-    expect(p.limits).toEqual({ maxLookbackMs: {}, maxSpanPerRequestMs: {} });
+    const M = 60_000;
+    expect(p.limits).toEqual({
+      maxLookbackMs: {},
+      maxSpanPerRequestMs: { '1m': 1000 * M, '5m': 5000 * M, '15m': 15000 * M, '30m': 30000 * M, '1h': 1000 * HOUR, '1D': 24000 * HOUR },
+    });
   });
 
   it('parses klines into numeric bars and requests the USDT pair', async () => {
@@ -72,12 +76,21 @@ describe('BinanceProvider', () => {
     });
     const res = await p.fetchBars('BTC', '1h', from, to);
     expect(calls).toHaveLength(2);
-    expect(Number(calls[1]!.searchParams.get('startTime'))).toBe(from + 999 * HOUR + 1);
+    expect(Number(calls[1]!.searchParams.get('startTime'))).toBe(from + 1000 * HOUR) // next grid slot after the last kline;
     expect(res.bars).toHaveLength(1200);
     const tss = res.bars.map((b) => b.ts);
     expect(new Set(tss).size).toBe(1200);
     expect(tss[0]).toBe(from);
     expect(tss.at(-1)).toBe(to - HOUR);
+  });
+
+  it('a full page that reaches `to` needs no follow-up request', async () => {
+    const from = Date.UTC(2026, 0, 1);
+    const to = from + 1000 * HOUR;
+    const { p, calls } = make(() => jsonResponse(Array.from({ length: 1000 }, (_, i) => row(from + i * HOUR))));
+    const res = await p.fetchBars('BTC', '1h', from, to);
+    expect(calls).toHaveLength(1);
+    expect(res.bars).toHaveLength(1000);
   });
 
   it('search "bt" returns crypto:BTC first and excludes non-USDT and BREAK symbols', async () => {
