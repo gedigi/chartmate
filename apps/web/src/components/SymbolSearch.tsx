@@ -7,6 +7,10 @@ const DEBOUNCE_MS = 200;
 export interface SymbolSearchProps {
   onSelect: (id: SymbolId) => void;
   placeholder?: string;
+  /** Keeps only matching results (e.g. stock/crypto for basket constituents). Default: keep all. */
+  filter?: (s: SymbolInfo) => boolean;
+  /** Accessible label of the input. Default: "Search symbol". */
+  ariaLabel?: string;
 }
 
 type State =
@@ -16,7 +20,7 @@ type State =
   | { kind: 'error'; message: string };
 
 /** Debounced symbol search combobox (stocks, crypto and baskets). */
-export function SymbolSearch({ onSelect, placeholder = 'Search symbol…' }: SymbolSearchProps): JSX.Element {
+export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filter, ariaLabel = 'Search symbol' }: SymbolSearchProps): JSX.Element {
   const [query, setQuery] = useState('');
   const [state, setState] = useState<State>({ kind: 'idle' });
   const [open, setOpen] = useState(false);
@@ -53,7 +57,7 @@ export function SymbolSearch({ onSelect, placeholder = 'Search symbol…' }: Sym
 
   useEffect(() => () => { if (blurTimer.current) clearTimeout(blurTimer.current); }, []);
 
-  const items = state.kind === 'results' ? state.items : [];
+  const items = state.kind === 'results' ? (filter ? state.items.filter(filter) : state.items) : [];
   const expanded = open && state.kind !== 'idle';
 
   function choose(item: SymbolInfo) {
@@ -90,7 +94,7 @@ export function SymbolSearch({ onSelect, placeholder = 'Search symbol…' }: Sym
       <input
         type="text"
         role="combobox"
-        aria-label="Search symbol"
+        aria-label={ariaLabel}
         aria-autocomplete="list"
         aria-expanded={expanded}
         aria-controls={listId}

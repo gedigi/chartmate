@@ -1,0 +1,183 @@
+import type { Bar, Basket, BarsResponse, SymbolInfo } from '@altv/shared';
+import type { BarsParams } from '../src/api/client';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { api, ApiError } from '../src/api/client';
+import { BasketEditor } from '../src/components/BasketEditor';
+
+vi.mock('../src/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/api/client')>();
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      search: vi.fn(),
+      bars: vi.fn(),
+      baskets: { ...actual.api.baskets, create: vi.fn(), update: vi.fn(), appendVersion: vi.fn() },
+    },
+  };
+});
+
+const DAY = 86_400_000;
+const SYMBOLS: SymbolInfo[] = [
+  { id: 'stock:AAPL', assetClass: 'stock', ticker: 'AAPL', name: 'Apple', pricePrecision: 2 },
+  { id: 'crypto:BTC', assetClass: 'crypto', ticker: 'BTC', name: 'Bitcoin', pricePrecision: 2 },
+];
+
+function dailyBars(p: BarsParams): BarsResponse {
+  const bars: Bar[] = [];
+  const start = Math.max(p.from, Date.UTC(2020, 0, 1));
+  for (let t = Math.ceil(start / DAY) * DAY; t < p.to; t += DAY) {
+    const c = p.symbol === 'stock:AAPL' ? 100 + (t - Date.UTC(2020, 0, 1)) / DAY / 10 : 50_000;
+    bars.push({ ts: t, open: c, high: c, low: c, close: c, volume: 1 });
+  }
+  return { symbol: p.symbol, tf: '1D', session: 'rth', bars, hasMoreBefore: false, stale: false, notices: [], markers: [] };
+}
+
+beforeEach(() => {
+  vi.mocked(api.search).mockImplementation(async (q) => SYMBOLS.filter((s) => s.ticker.toLowerCase().startsWith(q.toLowerCase())));
+  vi.mocked(api.bars).mockImplementation(async (p) => dailyBars(p));
+});
+afterEach(() => vi.clearAllMocks());
+
+async function pickSymbol(rowIndex: number, query: string) {
+  const row = screen.getAllByTestId('weight-row')[rowIndex]!;
+  await userEvent.type(within(row).getByRole('combobox'), query);
+  const option = await screen.findByRole('option');
+  await userEvent.click(option);
+}
+
+async function fillCreateForm() {
+  await userEvent.type(screen.getByLabelText('Name'), 'Tech + BTC');
+  await pickSymbol(0, 'AAPL');
+  await userEvent.type(screen.getByRole('spinbutton', { name: 'Weight for AAPL' }), '60');
+  await userEvent.click(screen.getByRole('button', { name: 'Add constituent' }));
+  await pickSymbol(1, 'BTC');
+  await userEvent.type(screen.getByRole('spinbutton', { name: 'Weight for BTC' }), '40');
+  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2024-01-02' } });
+}
+
+const BASKET: Basket = {
+  id: 'b1',
+  name: 'Tech + BTC',
+  baseValue: 100,
+  createdAt: 0,
+  updatedAt: 0,
+  versions: [
+    { effectiveFrom: '2024-01-02', weights: { 'stock:AAPL': 0.5, 'crypto:BTC': 0.5 } },
+    { effectiveFrom: '2024-06-03', weights: { 'stock:AAPL': 0.7, 'crypto:BTC': 0.3 } },
+  ],
+};
+
+describe('BasketEditor — create', () => {
+  it('submits % weights as fractions with the chosen start date', async () => {
+    const created: Basket = { ...BASKET, versions: [BASKET.versions[0]!] };
+    vi.mocked(api.baskets.create).mockResolvedValue(created);
+    const onSaved = vi.fn();
+    render(<BasketEditor onSaved={onSaved} onCancel={() => {}} />);
+    await fillCreateForm();
+    await userEvent.click(screen.getByRole('button', { name: 'Create basket' }));
+    expect(api.baskets.create).toHaveBeenCalledWith({
+      name: 'Tech + BTC',
+      versions: [{ effectiveFrom: '2024-01-02', weights: { 'stock:AAPL': 0.6, 'crypto:BTC': 0.4 } }],
+    });
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(created));
+  });
+
+  it('shows the server error message inline', async () => {
+    vi.mocked(api.baskets.create).mockRejectedValue(new ApiError(400, 'invalid_basket', 'No data for stock:AAPL'));
+    const onSaved = vi.fn();
+    render(<BasketEditor onSaved={onSaved} onCancel={() => {}} />);
+    await fillCreateForm();
+    await userEvent.click(screen.getByRole('button', { name: 'Create basket' }));
+    expect(await screen.findByText('No data for stock:AAPL')).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it('does not submit while the weights are invalid or the name is empty', async () => {
+    render(<BasketEditor onSaved={() => {}} onCancel={() => {}} />);
+    expect(screen.getByRole('button', { name: 'Create basket' })).toBeDisabled();
+    await fillCreateForm();
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Weight for BTC' }), { target: { value: '30' } });
+    expect(screen.getByRole('button', { name: 'Create basket' })).toBeDisabled();
+  });
+
+  it('renders a client-side preview from 1D constituent bars', async () => {
+    render(<BasketEditor onSaved={() => {}} onCancel={() => {}} />);
+    await fillCreateForm();
+    const preview = await screen.findByTestId('basket-preview-chart', {}, { timeout: 3000 });
+    expect(preview.querySelector('polyline')).not.toBeNull();
+    const calls = vi.mocked(api.bars).mock.calls.map((c) => c[0]);
+    expect(calls.every((p) => p.tf === '1D' && p.session === 'rth')).toBe(true);
+    expect(calls.some((p) => p.symbol === 'stock:AAPL' && p.from === Date.UTC(2024, 0, 2) - 10 * DAY)).toBe(true);
+    expect(screen.getByTestId('basket-preview')).toHaveTextContent('2024-01-02');
+  });
+});
+
+describe('BasketEditor — edit', () => {
+  it('lists versions newest first with a weights summary', () => {
+    render(<BasketEditor basket={BASKET} onSaved={() => {}} onCancel={() => {}} />);
+    const items = within(screen.getByRole('list', { name: 'Version history' })).getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('2024-06-03');
+    expect(items[0]).toHaveTextContent('AAPL 70%');
+    expect(items[0]).toHaveTextContent('BTC 30%');
+    expect(items[1]).toHaveTextContent('2024-01-02');
+    expect(items[1]).toHaveTextContent('AAPL 50%');
+  });
+
+  it('renames the basket', async () => {
+    const renamed = { ...BASKET, name: 'Renamed' };
+    vi.mocked(api.baskets.update).mockResolvedValue(renamed);
+    const onSaved = vi.fn();
+    render(<BasketEditor basket={BASKET} onSaved={onSaved} onCancel={() => {}} />);
+    const name = screen.getByLabelText('Name');
+    await userEvent.clear(name);
+    await userEvent.type(name, 'Renamed');
+    await userEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    expect(api.baskets.update).toHaveBeenCalledWith('b1', { name: 'Renamed' });
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(renamed));
+  });
+
+  it('appends a version prefilled from the latest weights, validating the effective date', async () => {
+    const updated: Basket = {
+      ...BASKET,
+      versions: [...BASKET.versions, { effectiveFrom: '2024-07-01', weights: { 'stock:AAPL': 0.8, 'crypto:BTC': 0.2 } }],
+    };
+    vi.mocked(api.baskets.appendVersion).mockResolvedValue(updated);
+    const onSaved = vi.fn();
+    render(<BasketEditor basket={BASKET} onSaved={onSaved} onCancel={() => {}} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Change weights' }));
+
+    expect(screen.getByText('New weights take effect from the start of this date, sized at the prior close. The chart stays continuous.')).toBeInTheDocument();
+    const aapl = screen.getByRole('spinbutton', { name: 'Weight for AAPL' });
+    expect(aapl).toHaveValue(70);
+    expect(screen.getByRole('spinbutton', { name: 'Weight for BTC' })).toHaveValue(30);
+    const date = screen.getByLabelText('Effective date');
+    expect(date).toHaveAttribute('min', '2024-06-04');
+
+    fireEvent.change(aapl, { target: { value: '80' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Weight for BTC' }), { target: { value: '20' } });
+    fireEvent.change(date, { target: { value: '2024-06-03' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Add version' }));
+    expect(screen.getByText('Effective date must be after 2024-06-03')).toBeInTheDocument();
+    expect(api.baskets.appendVersion).not.toHaveBeenCalled();
+
+    fireEvent.change(date, { target: { value: '2024-07-01' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Add version' }));
+    expect(api.baskets.appendVersion).toHaveBeenCalledWith('b1', {
+      effectiveFrom: '2024-07-01',
+      weights: { 'stock:AAPL': 0.8, 'crypto:BTC': 0.2 },
+    });
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(updated));
+  });
+
+  it('shows the server error when appending fails', async () => {
+    vi.mocked(api.baskets.appendVersion).mockRejectedValue(new ApiError(400, 'invalid_basket', 'No data for crypto:BTC before 2024-07-01'));
+    render(<BasketEditor basket={BASKET} onSaved={() => {}} onCancel={() => {}} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Change weights' }));
+    fireEvent.change(screen.getByLabelText('Effective date'), { target: { value: '2024-07-01' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Add version' }));
+    expect(await screen.findByText('No data for crypto:BTC before 2024-07-01')).toBeInTheDocument();
+  });
+});
