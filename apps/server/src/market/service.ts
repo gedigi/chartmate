@@ -1,0 +1,247 @@
+import {
+  baseTimeframe, bucketStart, filterSession, isIntraday, parseSymbolId, resample, tfMs,
+  type AssetClass, type Bar, type Calendar, type NativeTimeframe, type Quote, type SessionMode,
+  type SymbolId, type SymbolInfo, type Timeframe,
+} from '@altv/shared';
+import type { Repos, SymbolInfoRow } from '../db/repos.js';
+import { AppError, NotFoundError, ProviderError } from '../errors.js';
+import { RequestQueue } from '../providers/queue.js';
+import type { ProviderRegistry } from '../providers/registry.js';
+import type { MarketDataProvider } from '../providers/types.js';
+import { mergeRanges, missingRanges, splitRange } from './coverage.js';
+
+const DAY = 86_400_000;
+const BACKOFF_MS = 30_000;
+const SYMBOL_TTL_MS = 7 * DAY;
+
+export interface GetBarsArgs { symbol: SymbolId; tf: Timeframe; session: SessionMode; from: number; to: number }
+export interface BarsResult { bars: Bar[]; stale: boolean; hasMoreBefore: boolean; earliestTs: number | null; notices: string[] }
+
+type MarketClass = 'stock' | 'crypto';
+
+export function calendarFor(symbol: SymbolId, session: SessionMode): Calendar {
+  if (symbol.startsWith('crypto:')) return 'utc';
+  return session === 'rth' ? 'nyse-rth' : 'nyse-eth';
+}
+
+/** Exclusive end of the `tf` bucket that contains `ts`. */
+function bucketEnd(ts: number, tf: Timeframe, cal: Calendar): number {
+  const start = bucketStart(ts, tf, cal);
+  if (tf === '1M') {
+    const d = new Date(start);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+  }
+  return start + tfMs(tf);
+}
+
+function parseMarketSymbol(id: SymbolId): { assetClass: MarketClass; code: string } {
+  let parsed: { assetClass: AssetClass; code: string };
+  try {
+    parsed = parseSymbolId(id);
+  } catch {
+    throw new AppError(400, 'invalid_symbol', `Invalid symbol ${id}`);
+  }
+  if (parsed.assetClass === 'basket') throw new AppError(400, 'invalid_symbol', `Basket symbols are not market data: ${id}`);
+  return { assetClass: parsed.assetClass, code: parsed.code };
+}
+
+/** Wraps a non-ProviderError upstream failure (e.g. network TypeError) as a retryable ProviderError; NotFound/AppErrors pass through. */
+function asProviderError(provider: string, err: unknown): unknown {
+  if (err instanceof ProviderError || err instanceof AppError) return err;
+  return new ProviderError(provider, `request failed: ${err instanceof Error ? err.message : String(err)}`, true);
+}
+
+export class MarketDataService {
+  private readonly repos: Repos;
+  private readonly registry: ProviderRegistry;
+  private readonly now: () => number;
+  private readonly queues: { stock: RequestQueue; crypto: RequestQueue };
+
+  constructor(deps: { repos: Repos; registry: ProviderRegistry; now?: () => number; queues?: { stock: RequestQueue; crypto: RequestQueue } }) {
+    this.repos = deps.repos;
+    this.registry = deps.registry;
+    this.now = deps.now ?? Date.now;
+    this.queues = deps.queues ?? {
+      stock: new RequestQueue({ concurrency: 2, minIntervalMs: 250 }),
+      crypto: new RequestQueue({ concurrency: 4, minIntervalMs: 100 }),
+    };
+  }
+
+  async getBars(a: GetBarsArgs): Promise<BarsResult> {
+    const { assetClass } = parseMarketSymbol(a.symbol);
+    const base = baseTimeframe(a.tf);
+    const derived = a.tf !== base;
+    const cal: Calendar = isIntraday(a.tf) ? calendarFor(a.symbol, a.session) : 'utc';
+    // A derived bucket starting before `to` needs its natives up to the bucket's end.
+    const nativeTo = derived && a.to > a.from ? Math.max(a.to, bucketEnd(a.to - 1, a.tf, cal)) : a.to;
+
+    const [native, earliestTs] = await Promise.all([
+      this.getNativeBars(a.symbol, base, a.from, nativeTo),
+      this.earliest(a.symbol, a.tf),
+    ]);
+
+    let bars = native.bars;
+    if (assetClass === 'stock' && isIntraday(base)) bars = filterSession(bars, a.session);
+    if (derived) bars = resample(bars, a.tf, cal);
+    bars = bars.filter((b) => b.ts >= a.from && b.ts < a.to);
+
+    const notices: string[] = [];
+    const lookback = this.provider(assetClass).limits.maxLookbackMs[base];
+    if (lookback !== undefined && a.from < this.now() - lookback) {
+      notices.push(`Free data source limits ${a.tf} history to ~${Math.round(lookback / DAY)} days.`);
+    }
+    const hasMoreBefore = earliestTs === null ? bars.length > 0 : a.from > earliestTs;
+    return { bars, stale: native.stale, hasMoreBefore, earliestTs, notices };
+  }
+
+  async getNativeBars(symbol: SymbolId, tf: NativeTimeframe, from: number, to: number): Promise<{ bars: Bar[]; stale: boolean }> {
+    const { assetClass, code } = parseMarketSymbol(symbol);
+    const provider = this.provider(assetClass);
+    const queue = this.queues[assetClass];
+    const now = this.now();
+    const step = tfMs(tf);
+
+    const lookback = provider.limits.maxLookbackMs[tf];
+    if (lookback !== undefined) from = Math.max(from, now - lookback);
+    to = Math.min(to, now + step);
+    if (from >= to) return { bars: [], stale: false };
+
+    const recentEdge = tf === '1D' ? now - 3 * DAY : now - 2 * step;
+    const covered = await this.repos.coverage.list(symbol, tf);
+    const gaps = missingRanges(covered, from, Math.min(to, recentEdge));
+    const recentFrom = Math.max(from, recentEdge);
+    if (recentFrom < to) gaps.push([recentFrom, to]);
+    const span = provider.limits.maxSpanPerRequestMs[tf];
+    const chunks = mergeRanges(gaps).flatMap(([a, b]) => splitRange(a, b, span));
+
+    const results = await Promise.allSettled(chunks.map(([gapFrom, gapTo]) =>
+      queue.run(`${symbol}|${tf}|${gapFrom}|${gapTo}`, async () => {
+        let fetched;
+        try {
+          fetched = await provider.fetchBars(code, tf, gapFrom, gapTo);
+        } catch (err) {
+          throw asProviderError(provider.id, err);
+        }
+        await this.repos.bars.upsert(symbol, tf, fetched.bars);
+        const coveredTo = Math.min(gapTo, recentEdge);
+        if (gapFrom < coveredTo) await this.repos.coverage.add(symbol, tf, gapFrom, coveredTo);
+      })));
+
+    let stale = false;
+    for (const r of results) {
+      if (r.status === 'fulfilled') continue;
+      const err = r.reason;
+      if (!(err instanceof ProviderError)) throw err; // NotFoundError (→ 404) and internal failures propagate
+      stale = true;
+      // The queue's own cooldown rejection must not extend the cooldown.
+      if (err.retryable && err.provider !== 'queue') queue.backoff(BACKOFF_MS);
+    }
+    return { bars: await this.repos.bars.range(symbol, tf, from, to), stale };
+  }
+
+  async getLatest(symbol: SymbolId, tf: Timeframe, session: SessionMode): Promise<{ bar: Bar | null; stale: boolean }> {
+    const now = this.now();
+    const cal = isIntraday(tf) ? calendarFor(symbol, session) : 'utc';
+    const back = tf === '1W' ? 7 * DAY : tf === '1M' ? 31 * DAY : tfMs(tf);
+    const r = await this.getBars({ symbol, tf, session, from: bucketStart(now, tf, cal) - back, to: now + tfMs(tf) });
+    return { bar: r.bars.at(-1) ?? null, stale: r.stale };
+  }
+
+  /** max(listing date, now − provider lookback for the base timeframe); null if neither is known. Never throws for lookup failures. */
+  async earliest(symbol: SymbolId, tf: Timeframe): Promise<number | null> {
+    const { assetClass } = parseMarketSymbol(symbol);
+    const lookback = this.provider(assetClass).limits.maxLookbackMs[baseTimeframe(tf)];
+    let firstTs: number | null = null;
+    try {
+      await this.symbolInfo(symbol);
+      firstTs = (await this.repos.symbols.get(symbol))?.firstTs ?? null;
+    } catch {
+      firstTs = null; // unknown listing date; bars requests must not fail on metadata lookups
+    }
+    const fromLookback = lookback === undefined ? null : this.now() - lookback;
+    if (firstTs === null && fromLookback === null) return null;
+    return Math.max(firstTs ?? -Infinity, fromLookback ?? -Infinity);
+  }
+
+  async search(q: string): Promise<SymbolInfo[]> {
+    const [stocks, cryptos] = await Promise.allSettled([this.searchClass('stock', q), this.searchClass('crypto', q)]);
+    if (stocks.status === 'rejected' && cryptos.status === 'rejected') {
+      const reason = stocks.reason;
+      throw reason instanceof ProviderError ? reason : new ProviderError('search', 'symbol search unavailable', true);
+    }
+    const s = stocks.status === 'fulfilled' ? stocks.value : [];
+    const c = cryptos.status === 'fulfilled' ? cryptos.value : [];
+    const needle = q.trim().toUpperCase();
+    const cryptoFirst = needle !== '' && c.some((x) => x.ticker.toUpperCase() === needle);
+    const seen = new Set<string>();
+    return (cryptoFirst ? [...c, ...s] : [...s, ...c]).filter((x) => !seen.has(x.id) && (seen.add(x.id), true));
+  }
+
+  async quotes(ids: SymbolId[]): Promise<Quote[]> {
+    const codes: Record<MarketClass, string[]> = { stock: [], crypto: [] };
+    for (const id of ids) {
+      let p: { assetClass: AssetClass; code: string };
+      try {
+        p = parseSymbolId(id);
+      } catch {
+        continue;
+      }
+      if (p.assetClass !== 'basket' && !codes[p.assetClass].includes(p.code)) codes[p.assetClass].push(p.code);
+    }
+    const run = async (cls: MarketClass): Promise<Quote[]> => {
+      const list = codes[cls];
+      if (list.length === 0) return [];
+      try {
+        return await this.queues[cls].run(`quotes|${list.join(',')}`, () => this.provider(cls).quotes(list));
+      } catch {
+        return [];
+      }
+    };
+    const [s, c] = await Promise.all([run('stock'), run('crypto')]);
+    return [...s, ...c];
+  }
+
+  async symbolInfo(id: SymbolId): Promise<SymbolInfo> {
+    const { assetClass, code } = parseMarketSymbol(id);
+    const row = await this.repos.symbols.get(id);
+    if (row && this.now() - row.updatedAt < SYMBOL_TTL_MS) return toInfo(row, assetClass, code);
+    try {
+      return await this.refreshSymbol(id, assetClass, code, row);
+    } catch (err) {
+      if (row) return toInfo(row, assetClass, code); // best effort: a stale row beats an error
+      throw err;
+    }
+  }
+
+  private async refreshSymbol(id: SymbolId, assetClass: MarketClass, code: string, prev: SymbolInfoRow | null): Promise<SymbolInfo> {
+    const results = await this.searchClass(assetClass, code);
+    const match = results.find((r) => r.id === id);
+    if (!match) throw new NotFoundError(`Unknown symbol ${id}`);
+    let firstTs: number | null;
+    try {
+      firstTs = await this.queues[assetClass].run(`first|${code}`, () => this.provider(assetClass).firstBarTs(code));
+    } catch {
+      firstTs = null;
+    }
+    const row: SymbolInfoRow = {
+      id, name: match.name, exchange: match.exchange ?? null, pricePrecision: match.pricePrecision,
+      firstTs: firstTs ?? prev?.firstTs ?? null, updatedAt: this.now(),
+    };
+    await this.repos.symbols.upsert(row);
+    return toInfo(row, assetClass, code);
+  }
+
+  private searchClass(cls: MarketClass, q: string): Promise<SymbolInfo[]> {
+    return this.queues[cls].run(`search|${q}`, () => this.provider(cls).search(q));
+  }
+
+  private provider(cls: MarketClass): MarketDataProvider {
+    return this.registry[cls];
+  }
+}
+
+function toInfo(row: SymbolInfoRow, assetClass: MarketClass, code: string): SymbolInfo {
+  const info: SymbolInfo = { id: row.id, assetClass, ticker: code, name: row.name, pricePrecision: row.pricePrecision };
+  if (row.exchange != null) info.exchange = row.exchange;
+  return info;
+}
