@@ -16,7 +16,12 @@ Requires Node >= 22 and pnpm 8.
 pnpm i && pnpm dev
 ```
 
-Open http://localhost:5173 (the Vite dev server proxies the API on port 8787).
+This starts the API server (`tsx watch`, port 8787) and the Vite dev server in parallel. Open
+http://localhost:5173 (Vite's default port); Vite proxies `/api/*` to `http://localhost:8787`
+(see `apps/web/vite.config.ts`). If you change the server's `PORT`, update that proxy target too.
+
+The SQLite default `sqlite:./data/altv.db` is resolved against the **server's working directory**, which
+for `pnpm dev` is `apps/server/`, so dev data ends up in `apps/server/data/altv.db`.
 
 ## Production, locally
 
@@ -24,8 +29,13 @@ Open http://localhost:5173 (the Vite dev server proxies the API on port 8787).
 pnpm build && pnpm --filter @altv/server start
 ```
 
-Open http://localhost:8787. The server also serves the built web app. Data lives in
-`./data/altv.db` (SQLite) unless `DATABASE_URL` says otherwise.
+Open http://localhost:8787. The server also serves the built web app.
+
+`pnpm --filter @altv/server start` runs with `apps/server/` as its working directory, so the default
+`sqlite:./data/altv.db` is `apps/server/data/altv.db`. The path is relative to wherever the server is
+started, so for anything you care about use an absolute path, e.g.
+`DATABASE_URL=sqlite:/home/me/altv/altv.db pnpm --filter @altv/server start` (the directory is created
+if missing).
 
 ## Docker
 
@@ -34,8 +44,16 @@ docker build -t altv .
 docker run -p 8787:8787 -v altv-data:/data altv
 ```
 
-The image runs as the non-root `node` user, stores SQLite at `/data/altv.db` (mount a volume on
-`/data`) and has a built-in healthcheck on `/api/health`.
+The image runs as the non-root `node` user (uid/gid 1000), stores SQLite at `/data/altv.db` (mount a
+volume on `/data`) and has a built-in healthcheck on `/api/health` (it honours `PORT`).
+
+A named volume (as above) just works. If you bind-mount a host directory instead, it must be writable by
+uid 1000, otherwise the server cannot create the database:
+
+```sh
+mkdir -p ./altv-data && sudo chown 1000:1000 ./altv-data
+docker run -p 8787:8787 -v "$PWD/altv-data:/data" altv
+```
 
 ## Hosted setup (Postgres + password)
 
@@ -93,6 +111,19 @@ blocks some regions (e.g. the US): set `CRYPTO_PROVIDER=coinbase`, or point `BIN
 endpoint reachable from your host. Switching providers does not invalidate saved baskets, watchlists
 or drawings. If a provider is down or rate limiting, cached bars are served marked `stale`.
 
+## Charts
+
+- **Timeframes** 1m … 1M, chart types candles / bars / line / area, light and dark themes.
+- **RTH / ETH toggle** for stocks (and baskets containing a stock): RTH shows regular-hours bars only,
+  ETH adds pre- and post-market bars, shaded on intraday charts. It is hidden for crypto, which trades
+  around the clock.
+- **Indicators**: up to **30** per chart (the picker stops adding beyond that and the server rejects
+  larger layouts). The indicator set is remembered per symbol; timeframe, session and chart type are
+  global.
+- **Drawings** are saved per symbol on the server (debounced ~1 s after each change). Points are stored in
+  time/price coordinates (bar timestamp + price), not pixels, so they stay anchored to the same price and
+  time across timeframes, zoom levels and window sizes.
+
 ## Baskets
 
 A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
@@ -111,30 +142,72 @@ A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
 
 ## Custom indicators
 
-Indicators live in `apps/web/src/chart/indicators/`. Add a TypeScript file there that exports a
-KLineChart indicator template (the object you would pass to `registerIndicator`); files in that
-folder are registered automatically at startup and appear in the indicator picker.
+Every file in `apps/web/src/chart/indicators/custom/*.ts` is a custom indicator. Each one must
+`export default` an object `{ template, catalog }` (type `CustomIndicator` from
+`apps/web/src/chart/indicators/types.ts`):
+
+- `template`: a KLineChart indicator template (what you would pass to `registerIndicator`).
+- `catalog`: how it appears in the indicator picker and settings dialog (label, pane, default params and
+  their labels, one name per line). `catalog.name` must equal `template.name`.
+- `usePricePrecision` (optional): format values with the charted symbol's price precision.
+
+The files are picked up at build time with `import.meta.glob` (eager), registered with KLineChart, and
+listed in the picker; no other file needs editing. `custom/vwap.ts` and `custom/atr.ts` are the built-in
+examples. Restart `pnpm dev` (or rebuild) after adding a file.
+
+Example: `apps/web/src/chart/indicators/custom/range.ts`
 
 ```ts
-import type { IndicatorTemplate } from 'klinecharts';
+import type { CustomIndicator } from '../types';
 
-export const myRange: IndicatorTemplate = {
-  name: 'MY_RANGE',
-  shortName: 'Range',
-  calcParams: [],
-  figures: [{ key: 'range', title: 'Range: ', type: 'line' }],
-  calc: (bars) => bars.map((b) => ({ range: b.high - b.low })),
+/** Average bar range (high − low) over the last N bars, in its own pane. */
+const indicator: CustomIndicator = {
+  template: {
+    name: 'RANGE',
+    shortName: 'Range',
+    calcParams: [10],
+    figures: [{ key: 'range', title: 'Range: ', type: 'line' }],
+    calc: (dataList, ind) => {
+      const n = Math.max(1, Math.floor(ind.calcParams[0] ?? 10));
+      let sum = 0;
+      return dataList.map((bar, i) => {
+        sum += bar.high - bar.low;
+        const dropped = dataList[i - n];
+        if (dropped) sum -= dropped.high - dropped.low;
+        return { range: i >= n - 1 ? sum / n : null };
+      });
+    },
+  },
+  usePricePrecision: true, // format values like prices of the charted symbol
+  catalog: {
+    name: 'RANGE', label: 'Average Bar Range', pane: 'sub', defaultParams: [10], paramLabels: ['Period'], lines: ['Range'],
+  },
 };
+
+export default indicator;
 ```
 
-Only files under `apps/web/src/chart/` may import `klinecharts`.
+Error handling:
+
+- A default export with the wrong shape (missing `calc`, `catalog.name` ≠ `template.name`, …) is
+  **skipped** with a `[indicators] … skipped` warning in the browser console; the app still starts.
+- A module that **throws while being imported** (top-level code) is **fatal**: the app fails to start.
+  Keep top-level code free of side effects and do the work inside `calc`.
+
+By convention only files under `apps/web/src/chart/` import `klinecharts` (there is no lint rule
+enforcing it); custom indicators normally need only the types from `../types`.
 
 ## Tests
 
 ```sh
 pnpm test        # unit + route tests, no network
-pnpm typecheck
+pnpm typecheck   # all packages + the e2e suite
+pnpm e2e         # Playwright end-to-end test (Chromium)
 ```
+
+`pnpm e2e` builds everything, starts the built server on port 8799 in fixture mode (`ALTV_PROVIDERS=fixture`,
+no network) with a fresh SQLite file under `test-results/`, and runs `e2e/tests/`. The first time, install
+the browser with `pnpm exec playwright install chromium`.
 
 ## Roadmap (v2 backlog)
 
