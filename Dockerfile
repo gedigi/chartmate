@@ -2,8 +2,13 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /repo
 RUN corepack enable
-COPY . .
+# Manifests + lockfile first so the dependency layer is cached until they change.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/shared/package.json packages/shared/
+COPY apps/server/package.json apps/server/
+COPY apps/web/package.json apps/web/
 RUN pnpm install --frozen-lockfile
+COPY . .
 RUN pnpm build
 # Self-contained, prod-only copy of the server package (node_modules incl. the
 # workspace dep @altv/shared with its dist, plus apps/server/dist).
@@ -23,5 +28,5 @@ USER node
 VOLUME /data
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://localhost:8787/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://localhost:'+(process.env.PORT||8787)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node","dist/main.js"]

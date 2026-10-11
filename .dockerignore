@@ -1,6 +1,8 @@
 **/node_modules
 **/dist
-**/data
+# Local SQLite data dirs only (anchored, so source dirs named `data` are still copied).
+/data
+/apps/server/data
 **/*.db
 .git
 .claude
