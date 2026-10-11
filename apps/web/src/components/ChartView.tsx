@@ -148,7 +148,7 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
     return () => { active = false; };
   }, [adapter, info, tf, session, pollMs]);
 
-  const shade = session === 'eth' && isIntraday(tf) && info?.assetClass !== 'crypto';
+  const shade = session === 'eth' && isIntraday(tf) && info?.assetClass === 'stock'; // only stock bars carry session tags
   useEffect(() => { adapter?.setSessionShading(shade); }, [adapter, shade]);
   useEffect(() => { adapter?.setMarkers(meta.markers); }, [adapter, meta.markers]);
 

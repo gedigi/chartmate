@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CATALOG, catalogEntry, indicatorLabel, validateParam } from '../../src/chart/indicators/catalog';
+import { CATALOG, catalogEntry, defaultLineColor, indicatorLabel, validateParam } from '../../src/chart/indicators/catalog';
+import { CUSTOM_INDICATORS } from '../../src/chart/indicators/extensions';
 
 describe('CATALOG', () => {
   it('every entry has one label per default param', () => {
@@ -29,6 +30,16 @@ describe('CATALOG', () => {
       expect(e.lines.length, e.name).toBeLessThanOrEqual(5);
       for (const l of e.lines) expect(l.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('default line colours', () => {
+  it('VWAP defaults to a colour distinct from the BOLL bands, in its template and in the settings defaults', () => {
+    const vwap = defaultLineColor(0, 'VWAP');
+    expect([0, 1, 2].map((i) => defaultLineColor(i, 'BOLL'))).not.toContain(vwap);
+    const tpl = CUSTOM_INDICATORS.find((c) => c.catalog.name === 'VWAP')!.template;
+    expect(tpl.styles?.lines?.[0]?.color).toBe(vwap);
+    expect(defaultLineColor(0)).toBe('#ff9600');
   });
 });
 

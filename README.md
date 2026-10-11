@@ -125,8 +125,8 @@ size its units off by the split factor. To refetch a symbol, delete its cache (s
 
 - **Timeframes** 1m … 1M, chart types candles / bars / line / area, light and dark themes.
 - **RTH / ETH toggle** for stocks (and baskets containing a stock): RTH shows regular-hours bars only,
-  ETH adds pre- and post-market bars, shaded on intraday charts. It is hidden for crypto, which trades
-  around the clock.
+  ETH adds pre- and post-market bars, shaded on intraday stock charts (basket charts are not shaded).
+  It is hidden for crypto, which trades around the clock.
 - **Indicators**: up to **30** per chart (the picker stops adding beyond that and the server rejects
   larger layouts). The indicator set is remembered per symbol; timeframe, session and chart type are
   global.

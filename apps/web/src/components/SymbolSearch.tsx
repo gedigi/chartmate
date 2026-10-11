@@ -17,11 +17,13 @@ export interface SymbolSearchProps {
 interface State {
   /** Results of the last completed search; kept on screen while the next one loads. Null = none yet. */
   items: SymbolInfo[] | null;
+  /** Trimmed query the items belong to. */
+  forQuery: string;
   loading: boolean;
   error: string | null;
 }
 
-const IDLE: State = { items: null, loading: false, error: null };
+const IDLE: State = { items: null, forQuery: '', loading: false, error: null };
 
 /** Debounced symbol search combobox (stocks, crypto and baskets). */
 export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filter, ariaLabel = 'Search symbol', disabled }: SymbolSearchProps): JSX.Element {
@@ -44,12 +46,12 @@ export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filte
       api.search(q, ctl.signal).then(
         (items) => {
           if (ctl.signal.aborted) return;
-          setState({ items, loading: false, error: null });
+          setState({ items, forQuery: q, loading: false, error: null });
           setActive(-1);
         },
         (err: unknown) => {
           if (ctl.signal.aborted) return;
-          setState({ items: null, loading: false, error: errorMessage(err) });
+          setState({ items: null, forQuery: q, loading: false, error: errorMessage(err) });
         },
       );
     }, DEBOUNCE_MS);
@@ -81,8 +83,11 @@ export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filte
       e.preventDefault();
       if (items.length > 0) setActive((i) => (i <= 0 ? items.length - 1 : i - 1));
     } else if (e.key === 'Enter') {
-      const item = items[active] ?? items[0];
-      if (expanded && item) {
+      // An explicitly highlighted (visible) result, else the first result — but only if the results are for
+      // what is typed now and no newer search is pending (never pick a stale result).
+      const current = !state.loading && state.forQuery === query.trim();
+      const item = listShown ? (items[active] ?? (current ? items[0] : undefined)) : undefined;
+      if (item) {
         e.preventDefault();
         choose(item);
       }
@@ -103,7 +108,7 @@ export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filte
         aria-autocomplete="list"
         aria-expanded={expanded}
         aria-controls={listShown ? listId : undefined}
-        aria-activedescendant={expanded && active >= 0 ? optionId(active) : undefined}
+        aria-activedescendant={listShown && active >= 0 && active < items.length ? optionId(active) : undefined}
         placeholder={placeholder}
         disabled={disabled}
         value={query}

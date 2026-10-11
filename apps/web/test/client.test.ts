@@ -101,12 +101,32 @@ describe('api client', () => {
     }
   });
 
-  it('omits keepalive for PUT bodies over the browser keepalive quota', async () => {
+  it('omits keepalive for PUT bodies over 16 KB', async () => {
     const f = mockFetch(new Response(null, { status: 204 }));
-    const big = Array.from({ length: 2000 }, (_, i) => ({ name: 'segment', points: [{ timestamp: i, value: i }], lock: false }));
+    const big = Array.from({ length: 400 }, (_, i) => ({ name: 'segment', points: [{ timestamp: i, value: i }], lock: false }));
     await api.drawings.put('crypto:BTC', big);
-    expect(String(f.mock.calls[0]![1]?.body).length).toBeGreaterThan(60_000);
+    expect(String(f.mock.calls[0]![1]?.body).length).toBeGreaterThan(16_000);
     expect(f.mock.calls[0]![1]?.keepalive).toBeUndefined();
+  });
+
+  it('keeps in-flight keepalive bodies within a 48 KB budget, freeing it when requests settle', async () => {
+    const resolvers: Array<() => void> = [];
+    const f = vi.fn<typeof fetch>().mockImplementation(() =>
+      new Promise((r) => { resolvers.push(() => r(new Response(null, { status: 204 }))); }));
+    vi.stubGlobal('fetch', f);
+    // ~15 KB each: three fit in 48 KB, the fourth does not.
+    const body = Array.from({ length: 210 }, (_, i) => ({ name: 'segment', points: [{ timestamp: i, value: i }], lock: false }));
+    const puts = [0, 1, 2, 3].map((i) => api.drawings.put(`crypto:C${i}`, body));
+    const size = String(f.mock.calls[0]![1]?.body).length;
+    expect(size).toBeGreaterThan(12_000);
+    expect(size).toBeLessThanOrEqual(16_000);
+    expect(f.mock.calls.map((c) => c[1]?.keepalive)).toEqual([true, true, true, undefined]);
+    for (const r of resolvers) r();
+    await Promise.all(puts);
+    const last = api.drawings.put('crypto:C9', body);
+    resolvers.at(-1)!();
+    await last;
+    expect(f.mock.calls.at(-1)![1]?.keepalive).toBe(true);
   });
 
   it('does not set keepalive on GET requests', async () => {

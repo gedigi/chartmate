@@ -7,6 +7,7 @@ import {
   type ChartType, type DrawingState, type Marker, type SessionMode, type SymbolInfo, type Timeframe,
 } from '@altv/shared';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
+import { catalogEntry } from './indicators/catalog';
 import { PRICE_PRECISION_INDICATORS } from './indicators/extensions';
 import { registerCustomIndicators } from './indicators/register';
 import type { IndicatorExtendData } from './indicators/types';
@@ -242,7 +243,9 @@ export class ChartAdapter {
       override.styles = lineStyles(spec.lineColors);
     } else if (this.lineColors.has(id)) {
       // No colours any more: KLineChart merges override styles, so write the default line colours back explicitly.
-      override.styles = lineStyles(this.chart.getStyles().indicator.lines.map((l) => l.color));
+      const palette = this.chart.getStyles().indicator.lines.map((l) => l.color);
+      const own = catalogEntry(existing.name)?.defaultColors;
+      override.styles = lineStyles(own ? palette.map((c, i) => own[i] ?? c) : palette);
     }
     this.chart.overrideIndicator(override);
     if (spec.lineColors) this.lineColors.set(id, spec.lineColors);

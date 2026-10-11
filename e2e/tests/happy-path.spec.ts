@@ -42,6 +42,16 @@ async function pickSymbol(scope: Locator, comboboxName: string, ticker: string):
 
 const errorToast = (page: Page) => page.locator('.chart-toast');
 
+/** Asserts that no error toast or connection banner appears over `ms` (checked repeatedly, not just once). */
+async function expectNoErrorsFor(page: Page, ms = 2000): Promise<void> {
+  const until = Date.now() + ms;
+  do {
+    expect(await errorToast(page).count(), 'error toast').toBe(0);
+    expect(await page.locator('.chart-banner').count(), 'connection banner').toBe(0);
+    await page.waitForTimeout(200);
+  } while (Date.now() < until);
+}
+
 test('happy path: chart, indicators, drawings, baskets', async ({ page, request }) => {
   await resetServerState(request);
 
@@ -66,7 +76,7 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
   await hourlyEth;
   await expect(timeframes.getByRole('button', { name: '1h', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(sessions.getByRole('button', { name: 'ETH', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await expect(errorToast(page)).toHaveCount(0);
+  await expectNoErrorsFor(page);
 
   // 3. Indicator picker → RSI → chip.
   await page.getByRole('button', { name: 'Indicators', exact: true }).click();
@@ -78,9 +88,11 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
   const chips = page.getByRole('list', { name: 'Active indicators' });
   await expect(chips.getByText(/^RSI\b/)).toBeVisible();
 
-  // 4. Horizontal line tool + click on the candle pane → debounced PUT with exactly one drawing.
-  await page.getByRole('toolbar', { name: 'Drawing tools' }).getByRole('button', { name: 'Horizontal line', exact: true }).click();
-  await expect(page.getByRole('toolbar', { name: 'Drawing tools' }).getByRole('button', { name: 'Horizontal line', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  // 4. Trend line (segment: two clicks) on the candle pane → debounced PUT with exactly one 2-point drawing.
+  const tools = page.getByRole('toolbar', { name: 'Drawing tools' });
+  const trendLine = tools.getByRole('button', { name: 'Trend line', exact: true });
+  await trendLine.click(); // waits until enabled (this symbol's drawings and first data are in)
+  await expect(trendLine).toHaveAttribute('aria-pressed', 'true');
   const drawingsPut = page.waitForResponse((r) => isApi(r, 'PUT', `/api/drawings/${encodeURIComponent(AAPL)}`));
   const host = page.getByTestId('chart-host');
   const box = await host.boundingBox();
@@ -88,14 +100,24 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
   // Upper third of the chart: inside the candle pane (RSI and VOL panes sit below it), left of the price axis.
   // These fractions depend on the pinned 1440x900 viewport (playwright.config.ts) and on the pane layout at
   // this point (candle pane + VOL + RSI sub-panes, chip strip above the canvas). If either changes — a
-  // different viewport, another default sub-pane, taller toolbars — re-check that this point still lands in
-  // the candle pane, otherwise the click creates no drawing and the PUT below never happens.
-  await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.3);
+  // different viewport, another default sub-pane, taller toolbars — re-check that these points still land in
+  // the candle pane, otherwise the clicks create no drawing and the PUT below never happens.
+  const p1 = { x: box.x + box.width * 0.35, y: box.y + box.height * 0.32 };
+  const p2 = { x: box.x + box.width * 0.55, y: box.y + box.height * 0.22 };
+  await page.mouse.move(p1.x, p1.y);
+  await page.mouse.click(p1.x, p1.y);
+  // A second press right after the first does not reliably register with KLineChart: move, pause, then click.
+  await page.mouse.move(p2.x, p2.y, { steps: 8 });
+  await page.waitForTimeout(400);
+  await page.mouse.click(p2.x, p2.y);
   const put = await drawingsPut;
   expect(put.ok()).toBe(true);
-  const sent = put.request().postDataJSON() as unknown[];
+  const sent = put.request().postDataJSON() as Array<{ name: string; points: unknown[] }>;
   expect(Array.isArray(sent)).toBe(true);
   expect(sent).toHaveLength(1);
+  expect(sent[0]!.name).toBe('segment');
+  expect(sent[0]!.points).toHaveLength(2);
+  await expect(trendLine).toHaveAttribute('aria-pressed', 'false');
 
   // 5. Layout (with RSI) is persisted → reload keeps the chip; the drawing is on the server.
   for (const key of ['default', `sym:${AAPL}`]) {
@@ -132,7 +154,7 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
   const first = (await (await basketBars).json()) as { bars: unknown[] };
   expect(first.bars.length).toBeGreaterThan(0);
   await expect(page.locator('header .symbol-label strong')).toHaveText(BASKET_NAME);
-  await expect(errorToast(page)).toHaveCount(0);
+  await expectNoErrorsFor(page);
 
   // 7. Append a version (100% BTC from yesterday UTC) → the basket chart's bars carry a version marker.
   const effective = yesterdayUtc();
@@ -159,5 +181,5 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
   const marked = (await (await markedBars).json()) as { bars: unknown[]; markers: Array<{ ts: number }> };
   expect(marked.bars.length).toBeGreaterThan(0);
   expect(marked.markers.some((m) => new Date(m.ts).toISOString().slice(0, 10) === effective)).toBe(true);
-  await expect(errorToast(page)).toHaveCount(0);
+  await expectNoErrorsFor(page);
 });

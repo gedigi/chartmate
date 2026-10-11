@@ -42,7 +42,9 @@ export function TopBar(p: TopBarProps): JSX.Element {
           <SymbolSearch onSelect={p.onSelectSymbol} disabled={p.controlsDisabled} />
           <div className="symbol-label" title={symbolInfo?.name ?? layout.symbol}>
             <strong>{symbolInfo?.ticker ?? layout.symbol}</strong>
-            {symbolInfo && <span className="symbol-name">{symbolInfo.name}</span>}
+            {/* A basket's ticker is its name: show it once. */}
+            {symbolInfo && symbolInfo.assetClass !== 'basket' && symbolInfo.name !== symbolInfo.ticker
+              && <span className="symbol-name">{symbolInfo.name}</span>}
           </div>
           <TimeframeBar
             tf={layout.tf}

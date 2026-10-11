@@ -207,6 +207,21 @@ describe('App', () => {
     expect(await screen.findByLabelText('Password')).toBeInTheDocument();
   });
 
+  it('shows a basket\'s name only once in the top-bar symbol label', async () => {
+    vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+    const layout: Layout = { symbol: 'basket:b1', tf: '1D', session: 'rth', chartType: 'candle', indicators: [] };
+    vi.mocked(api.layouts.get).mockImplementation(async (key) => (key === 'default' ? layout : null));
+    vi.mocked(api.symbol).mockResolvedValue({ id: 'basket:b1', assetClass: 'basket', ticker: 'Tech Mix', name: 'Tech Mix', pricePrecision: 2 });
+    vi.spyOn(api.baskets, 'get').mockRejectedValue(new Error('n/a'));
+    render(<App />);
+    const label = await waitFor(() => {
+      const el = document.querySelector('header .symbol-label');
+      expect(el).toHaveTextContent('Tech Mix');
+      return el!;
+    });
+    expect(label.textContent).toBe('Tech Mix');
+  });
+
   it('shows no symbol error while the symbol info is still loading', async () => {
     vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
     vi.mocked(api.symbol).mockImplementation(() => new Promise(() => {}));

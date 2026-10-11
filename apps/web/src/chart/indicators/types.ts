@@ -12,6 +12,8 @@ export interface CatalogEntry {
   paramLabels: string[];
   /** One name per line figure, in figure order (colour inputs; colours map to `styles.lines[i]`). */
   lines: string[];
+  /** Default colour per line when it differs from KLineChart's palette (`defaultLineColor`). */
+  defaultColors?: string[];
   /** Indices of params that accept decimals > 0; every other param must be an integer in 1…1000. */
   decimalParams?: number[];
   /** Optional longer explanation (picker / chip tooltip). */
@@ -27,7 +29,7 @@ export interface CatalogEntry {
  * propagates to the app's entry point and the app fails to start. Keep module top-level code side-effect free.
  */
 export interface CustomIndicator {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- templates differ in their result/extendData types
+  // `any`: templates differ in their result/extendData types.
   template: IndicatorTemplate<any, number, any>;
   catalog: CatalogEntry;
   /** Format values with the symbol's price precision (default precision 4 when unknown). */

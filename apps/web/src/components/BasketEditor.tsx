@@ -1,5 +1,5 @@
 import {
-  BasketValidationError, normalizeWeights, parseDateString, utcDateString, validateVersions,
+  BasketValidationError, maxEffectiveDate, MIN_EFFECTIVE_DATE, normalizeWeights, parseDateString, utcDateString, validateVersions,
   type Basket, type BasketVersion, type SymbolId,
 } from '@altv/shared';
 import { useState, type FormEvent, type JSX } from 'react';
@@ -52,18 +52,23 @@ function versionFromRows(rows: WeightRow[], effectiveFrom: string): BasketVersio
   return { effectiveFrom, weights: normalizeWeights(percents) };
 }
 
-/** Error for a create-mode start date, or null. */
-function startDateError(date: string, today: string): string | null {
+/** Same bounds as the server (shared validateVersions): 1970-01-01 … tomorrow (UTC). */
+function outOfRange(date: string, max: string): boolean {
+  return date < MIN_EFFECTIVE_DATE || date > max;
+}
+
+/** Error for a create-mode start date, or null. Checked before any preview request is made. */
+function startDateError(date: string, max: string): string | null {
   if (!isValidDate(date)) return 'Enter a valid start date';
-  if (date > today) return 'Start date cannot be in the future';
+  if (outOfRange(date, max)) return `Start date must be between ${MIN_EFFECTIVE_DATE} and ${max}`;
   return null;
 }
 
 /** Error for a new version's effective date, or null. */
-function effectiveDateError(date: string, latest: string, today: string): string | null {
+function effectiveDateError(date: string, latest: string, max: string): string | null {
   if (!isValidDate(date)) return 'Enter a valid effective date';
+  if (outOfRange(date, max)) return `Effective date must be between ${MIN_EFFECTIVE_DATE} and ${max}`;
   if (date <= latest) return `Effective date must be after ${latest}`;
-  if (date > today) return 'Effective date cannot be in the future';
   return null;
 }
 
@@ -101,13 +106,14 @@ function EditorHeader({ title, onCancel }: { title: string; onCancel: () => void
 
 function CreateBasket({ onSaved, onCancel }: BasketEditorProps): JSX.Element {
   const today = todayString();
+  const maxDate = maxEffectiveDate();
   const [name, setName] = useState('');
   const [rows, setRows] = useState<WeightRow[]>(() => [newRow()]);
   const [startDate, setStartDate] = useState(today);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const dateError = startDateError(startDate, today);
+  const dateError = startDateError(startDate, maxDate);
   const version = dateError ? null : versionFromRows(rows, startDate);
   const canSave = !busy && name.trim() !== '' && version !== null;
 
@@ -143,7 +149,7 @@ function CreateBasket({ onSaved, onCancel }: BasketEditorProps): JSX.Element {
           <WeightsTable rows={rows} onChange={setRows} />
           <label className="field">
             <span>Start date (UTC)</span>
-            <input type="date" value={startDate} max={today} onChange={(e) => setStartDate(e.target.value)} />
+            <input type="date" value={startDate} min={MIN_EFFECTIVE_DATE} max={maxDate} onChange={(e) => setStartDate(e.target.value)} />
           </label>
           <p className="hint">The basket starts at {DEFAULT_BASE_VALUE} from 00:00 UTC on this date, sized at the prior close.</p>
           {dateError && <p className="form-error">{dateError}</p>}
@@ -161,9 +167,10 @@ function CreateBasket({ onSaved, onCancel }: BasketEditorProps): JSX.Element {
 
 function EditBasket({ basket, onSaved, onCancel }: BasketEditorProps & { basket: Basket }): JSX.Element {
   const today = todayString();
+  const maxDate = maxEffectiveDate();
   const latest = basket.versions[basket.versions.length - 1]!;
   const minDate = dayAfter(latest.effectiveFrom);
-  const canAppendToday = minDate <= today;
+  const canAppendToday = minDate <= maxDate;
 
   const [name, setName] = useState(basket.name);
   const [renaming, setRenaming] = useState(false);
@@ -175,14 +182,14 @@ function EditBasket({ basket, onSaved, onCancel }: BasketEditorProps & { basket:
   const [appending, setAppending] = useState(false);
   const [appendError, setAppendError] = useState<string | null>(null);
 
-  const dateError = effectiveDateError(effDate, latest.effectiveFrom, today);
+  const dateError = effectiveDateError(effDate, latest.effectiveFrom, maxDate);
   const draft = changing && !dateError ? versionFromRows(rows, effDate) : null;
   const weightsValid = validateRows(rows).percents !== null;
   const previewVersions = draft ? [...basket.versions, draft] : basket.versions;
 
   function openChange() {
     setRows(rowsFromWeights(latest.weights));
-    setEffDate(today);
+    setEffDate(minDate > today ? minDate : today);
     setAppendError(null);
     setChanging(true);
   }
@@ -268,7 +275,7 @@ function EditBasket({ basket, onSaved, onCancel }: BasketEditorProps & { basket:
               <WeightsTable rows={rows} onChange={setRows} />
               <label className="field">
                 <span>Effective date (UTC)</span>
-                <input type="date" value={effDate} min={minDate} max={today} onChange={(e) => { setEffDate(e.target.value); setAppendError(null); }} />
+                <input type="date" value={effDate} min={minDate < MIN_EFFECTIVE_DATE ? MIN_EFFECTIVE_DATE : minDate} max={maxDate} onChange={(e) => { setEffDate(e.target.value); setAppendError(null); }} />
               </label>
               <p className="hint">{EFFECTIVE_DATE_HINT}</p>
               {dateError && <p className="form-error">{dateError}</p>}

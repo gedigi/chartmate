@@ -1,4 +1,4 @@
-import { parseSymbolId, type AssetClass, type SymbolId, type SymbolInfo } from '@altv/shared';
+import { MAX_CONSTITUENTS, parseSymbolId, type AssetClass, type SymbolId, type SymbolInfo } from '@altv/shared';
 import type { JSX } from 'react';
 import { SymbolSearch } from './SymbolSearch';
 
@@ -51,6 +51,7 @@ export interface RowsValidation {
 export function validateRows(rows: WeightRow[]): RowsValidation {
   const errors: string[] = [];
   if (rows.length === 0) return { errors: ['Add at least one constituent'], percents: null };
+  if (rows.length > MAX_CONSTITUENTS) errors.push(`At most ${MAX_CONSTITUENTS} constituents per version`);
   if (rows.some((r) => r.symbol === null)) errors.push('Choose a symbol for every row');
   if (rows.some((r) => { const w = parseWeight(r.weight); return w === null || !(w > 0); })) {
     errors.push('Every weight must be a positive number');
@@ -165,7 +166,8 @@ export function WeightsTable({ rows, onChange }: WeightsTableProps): JSX.Element
         <tfoot>
           <tr>
             <td>
-              <button type="button" onClick={() => onChange([...rows, newRow()])}>Add constituent</button>
+              <button type="button" disabled={rows.length >= MAX_CONSTITUENTS}
+                onClick={() => { if (rows.length < MAX_CONSTITUENTS) onChange([...rows, newRow()]); }}>Add constituent</button>
             </td>
             <td className="num">
               Total <strong data-testid="weights-total" className={totalOk ? 'total-ok' : 'total-bad'}>{total.toFixed(2)}%</strong>
@@ -177,6 +179,9 @@ export function WeightsTable({ rows, onChange }: WeightsTableProps): JSX.Element
       <div className="weights-actions">
         <button type="button" onClick={normalize} disabled={!canNormalize}>Normalize to 100%</button>
       </div>
+      {rows.length >= MAX_CONSTITUENTS && (
+        <p className="hint weights-hint" data-testid="constituent-limit">A version can hold at most {MAX_CONSTITUENTS} constituents.</p>
+      )}
       {hasUnsized && canNormalize && (
         <p className="hint weights-hint">
           Normalize only rescales positive weights. Rows with an empty, zero or negative weight are left unchanged: remove them or fill in a weight.

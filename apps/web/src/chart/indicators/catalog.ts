@@ -54,8 +54,10 @@ export function catalogEntry(name: string): CatalogEntry | undefined {
 /** KLineChart's default indicator line palette (lower-case, as `<input type="color">` reports it). */
 export const DEFAULT_LINE_COLORS = ['#ff9600', '#935ebd', '#1677ff', '#e11d74', '#01c5c4'] as const;
 
-export function defaultLineColor(i: number): string {
-  return DEFAULT_LINE_COLORS[i % DEFAULT_LINE_COLORS.length]!;
+/** Default colour of line `i`: the indicator's own default (catalog `defaultColors`) or KLineChart's palette. */
+export function defaultLineColor(i: number, name?: string): string {
+  const own = name === undefined ? undefined : catalogEntry(name)?.defaultColors?.[i];
+  return own ?? DEFAULT_LINE_COLORS[i % DEFAULT_LINE_COLORS.length]!;
 }
 
 /** Short chip label: `RSI(6, 12, 24)`, or just the name when there are no params. */

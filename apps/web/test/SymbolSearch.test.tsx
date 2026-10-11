@@ -106,6 +106,41 @@ describe('SymbolSearch', () => {
     expect(onSelect).toHaveBeenCalledWith('stock:AAPL');
   });
 
+  it('Enter does not auto-pick a stale first result while the typed query has not been searched yet', async () => {
+    let resolveSecond!: (v: SymbolInfo[]) => void;
+    vi.spyOn(api, 'search')
+      .mockResolvedValueOnce(RESULTS)
+      .mockImplementationOnce(() => new Promise((r) => { resolveSecond = r; }));
+    const onSelect = vi.fn();
+    render(<SymbolSearch onSelect={onSelect} />);
+    const input = screen.getByRole('combobox');
+    await userEvent.type(input, 'aa');
+    await screen.findAllByRole('option');
+    await userEvent.type(input, 'v');
+    await userEvent.keyboard('{Enter}'); // within the debounce: results are for "aa"
+    expect(onSelect).not.toHaveBeenCalled();
+    await waitFor(() => expect(api.search).toHaveBeenCalledTimes(2));
+    await userEvent.keyboard('{Enter}'); // loading
+    expect(onSelect).not.toHaveBeenCalled();
+    await act(async () => { resolveSecond([RESULTS[1]!]); });
+    await userEvent.keyboard('{Enter}');
+    expect(onSelect).toHaveBeenCalledWith('crypto:AAVE');
+  });
+
+  it('sets aria-activedescendant only while the listbox is rendered', async () => {
+    vi.spyOn(api, 'search').mockResolvedValueOnce(RESULTS).mockResolvedValueOnce([]);
+    render(<SymbolSearch onSelect={() => {}} />);
+    const input = screen.getByRole('combobox');
+    await userEvent.type(input, 'aa');
+    await screen.findAllByRole('option');
+    await userEvent.keyboard('{ArrowDown}');
+    expect(input).toHaveAttribute('aria-activedescendant');
+    await userEvent.type(input, 'zzz');
+    await screen.findByText('No results');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(input).not.toHaveAttribute('aria-activedescendant');
+  });
+
   it('re-focusing before the blur timeout keeps the dropdown open', async () => {
     vi.spyOn(api, 'search').mockResolvedValue(RESULTS);
     render(<SymbolSearch onSelect={() => {}} />);

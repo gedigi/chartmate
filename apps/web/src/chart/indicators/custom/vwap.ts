@@ -7,6 +7,9 @@ import type { CustomIndicator, IndicatorExtendData } from '../types';
  * session) it is anchored to the first loaded bar instead. The chart adapter supplies asset class and
  * timeframe via `extendData`.
  */
+/** Distinct from BOLL's upper band (KLineChart's first palette colour), which VWAP often shares the pane with. */
+const VWAP_COLOR = '#01c5c4';
+
 const indicator: CustomIndicator = {
   template: {
     name: 'VWAP',
@@ -14,6 +17,7 @@ const indicator: CustomIndicator = {
     series: 'price',
     calcParams: [],
     figures: [{ key: 'vwap', title: 'VWAP: ', type: 'line' }],
+    styles: { lines: [{ style: 'solid', smooth: false, size: 1, dashedValue: [2, 2], color: VWAP_COLOR }] },
     calc: (dataList, ind) => {
       const ext = ind.extendData as IndicatorExtendData | undefined;
       if (ext?.intraday === false) return vwap(dataList, () => 0);
@@ -21,7 +25,7 @@ const indicator: CustomIndicator = {
     },
   },
   catalog: {
-    name: 'VWAP', label: 'VWAP (session, intraday)', pane: 'main', defaultParams: [], paramLabels: [], lines: ['VWAP'],
+    name: 'VWAP', label: 'VWAP (session, intraday)', pane: 'main', defaultParams: [], paramLabels: [], lines: ['VWAP'], defaultColors: [VWAP_COLOR],
     description: 'Resets each session on intraday charts; on 1D and longer timeframes it spans the whole loaded series.',
   },
 };

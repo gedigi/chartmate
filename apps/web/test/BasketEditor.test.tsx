@@ -1,4 +1,5 @@
 import type { Bar, Basket, BarsResponse, SymbolInfo } from '@altv/shared';
+import { maxEffectiveDate } from '@altv/shared';
 import type { BarsParams } from '../src/api/client';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -116,6 +117,21 @@ describe('BasketEditor — create', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Create basket' }));
     expect(await screen.findByText('No data for stock:AAPL')).toBeInTheDocument();
     expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it('bounds the start date to 1970-01-01 … tomorrow (UTC) and rejects pre-1970 dates before any preview fetch', async () => {
+    const bars = vi.mocked(api.bars);
+    render(<BasketEditor onSaved={() => {}} onCancel={() => {}} />);
+    const date = screen.getByLabelText('Start date (UTC)');
+    expect(date).toHaveAttribute('min', '1970-01-01');
+    expect(date).toHaveAttribute('max', maxEffectiveDate());
+    await fillCreateForm();
+    bars.mockClear();
+    fireEvent.change(date, { target: { value: '1969-12-31' } });
+    expect(screen.getByText(`Start date must be between 1970-01-01 and ${maxEffectiveDate()}`)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create basket' })).toBeDisabled();
+    await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
+    expect(bars).not.toHaveBeenCalled();
   });
 
   it('does not submit while the weights are invalid or the name is empty', async () => {

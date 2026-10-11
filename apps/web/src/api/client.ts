@@ -24,8 +24,13 @@ function qs(q: Query): string {
   return `?${p.toString()}`;
 }
 
-/** Bytes; browsers cap in-flight keepalive bodies at 64 KiB. */
-const KEEPALIVE_MAX_BODY = 60_000;
+/**
+ * Browsers cap the bodies of all in-flight keepalive requests together at 64 KiB (per page). Only small bodies
+ * use keepalive, and only while the bytes already in flight leave room for them.
+ */
+export const KEEPALIVE_MAX_BODY = 16_000;
+export const KEEPALIVE_BUDGET = 48_000;
+let keepaliveInFlight = 0;
 
 let unauthorizedHandler: (() => void) | null = null;
 
@@ -43,15 +48,24 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     init.headers = { 'content-type': 'application/json' };
     init.body = JSON.stringify(body);
   }
-  // Lets a save flushed from `beforeunload` complete after the page is gone. Browsers reject keepalive
-  // requests whose body exceeds 64 KiB, so very large payloads go without it.
-  if (method === 'PUT' && (typeof init.body !== 'string' || new TextEncoder().encode(init.body).length <= KEEPALIVE_MAX_BODY)) init.keepalive = true;
+  // Lets a save flushed from `beforeunload` complete after the page is gone (see KEEPALIVE_BUDGET).
+  let keepaliveBytes = 0;
+  if (method === 'PUT') {
+    const bytes = typeof init.body === 'string' ? new TextEncoder().encode(init.body).length : 0;
+    if (bytes <= KEEPALIVE_MAX_BODY && keepaliveInFlight + bytes <= KEEPALIVE_BUDGET) {
+      init.keepalive = true;
+      keepaliveBytes = bytes;
+      keepaliveInFlight += bytes;
+    }
+  }
   let res: Response;
   try {
     res = await fetch(`/api${path}`, init);
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
     throw new ApiError(0, 'network_error', err instanceof Error ? err.message : 'Network error');
+  } finally {
+    keepaliveInFlight -= keepaliveBytes;
   }
   if (!res.ok) {
     let code = 'http_error';

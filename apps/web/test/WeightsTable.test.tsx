@@ -65,6 +65,23 @@ describe('WeightsTable', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Add at least one constituent');
   });
 
+  it('caps a version at 50 constituents: "Add constituent" disabled with a hint', async () => {
+    const rows49 = Array.from({ length: 49 }, (_, i) => newRow(`stock:S${i}`, '1'));
+    render(<Harness initial={rows49} />);
+    const add = screen.getByRole('button', { name: 'Add constituent' });
+    expect(add).toBeEnabled();
+    expect(screen.queryByTestId('constituent-limit')).not.toBeInTheDocument();
+    await userEvent.click(add);
+    expect(screen.getAllByTestId('weight-row')).toHaveLength(50);
+    expect(add).toBeDisabled();
+    expect(screen.getByTestId('constituent-limit')).toHaveTextContent('at most 50 constituents');
+  });
+
+  it('flags more than 50 rows', () => {
+    render(<Harness initial={Array.from({ length: 51 }, (_, i) => newRow(`stock:S${i}`, '1'))} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('At most 50 constituents per version');
+  });
+
   it('removes a row', async () => {
     render(<Harness initial={[newRow('stock:AAPL', '60'), newRow('crypto:BTC', '40')]} />);
     await userEvent.click(screen.getByRole('button', { name: 'Remove AAPL' }));

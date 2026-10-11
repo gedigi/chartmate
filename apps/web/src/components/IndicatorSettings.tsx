@@ -20,10 +20,10 @@ export function IndicatorSettings({ state, onSave, onClose }: IndicatorSettingsP
   const defaults = entry?.defaultParams ?? state.calcParams;
   const labels = entry?.paramLabels ?? state.calcParams.map((_, i) => `Param ${i + 1}`);
   const lines = entry?.lines ?? [];
-  const defaultColors = lines.map((_, i) => defaultLineColor(i));
+  const defaultColors = lines.map((_, i) => defaultLineColor(i, state.name));
 
   const [values, setValues] = useState(() => labels.map((_, i) => String(state.calcParams[i] ?? defaults[i] ?? '')));
-  const [colors, setColors] = useState(() => lines.map((_, i) => state.lineColors?.[i] ?? defaultLineColor(i)));
+  const [colors, setColors] = useState(() => lines.map((_, i) => state.lineColors?.[i] ?? defaultLineColor(i, state.name)));
   const idBase = useId();
 
   const errors = values.map((v, i) => validateParam(state.name, i, v));
