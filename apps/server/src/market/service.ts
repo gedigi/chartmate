@@ -13,6 +13,10 @@ import { mergeRanges, missingRanges, splitRange } from './coverage.js';
 const DAY = 86_400_000;
 const BACKOFF_MS = 30_000;
 const SYMBOL_TTL_MS = 7 * DAY;
+/** Retry window for a row whose listing-date lookup failed. */
+const SYMBOL_RETRY_MS = 60 * 60_000;
+/** How long an unknown symbol id is remembered. */
+const NEGATIVE_TTL_MS = 10 * 60_000;
 
 export interface GetBarsArgs { symbol: SymbolId; tf: Timeframe; session: SessionMode; from: number; to: number }
 export interface BarsResult { bars: Bar[]; stale: boolean; hasMoreBefore: boolean; earliestTs: number | null; notices: string[] }
@@ -56,6 +60,8 @@ export class MarketDataService {
   private readonly registry: ProviderRegistry;
   private readonly now: () => number;
   private readonly queues: { stock: RequestQueue; crypto: RequestQueue };
+  /** Unknown symbol ids → expiry (ms). */
+  private readonly unknownUntil = new Map<SymbolId, number>();
 
   constructor(deps: { repos: Repos; registry: ProviderRegistry; now?: () => number; queues?: { stock: RequestQueue; crypto: RequestQueue } }) {
     this.repos = deps.repos;
@@ -101,12 +107,14 @@ export class MarketDataService {
     const now = this.now();
     const step = tfMs(tf);
 
+    // Grid-aligned bounds keep dedupe keys stable while the clock moves within one bar.
+    const floorGrid = (x: number) => Math.floor(x / step) * step;
     const lookback = provider.limits.maxLookbackMs[tf];
-    if (lookback !== undefined) from = Math.max(from, now - lookback);
-    to = Math.min(to, now + step);
+    if (lookback !== undefined) from = Math.max(from, Math.ceil((now - lookback) / step) * step);
+    to = Math.min(to, floorGrid(now + step));
     if (from >= to) return { bars: [], stale: false };
 
-    const recentEdge = tf === '1D' ? now - 3 * DAY : now - 2 * step;
+    const recentEdge = floorGrid(tf === '1D' ? now - 3 * DAY : now - 2 * step);
     const covered = await this.repos.coverage.list(symbol, tf);
     const gaps = missingRanges(covered, from, Math.min(to, recentEdge));
     const recentFrom = Math.max(from, recentEdge);
@@ -114,6 +122,10 @@ export class MarketDataService {
     const span = provider.limits.maxSpanPerRequestMs[tf];
     const chunks = mergeRanges(gaps).flatMap(([a, b]) => splitRange(a, b, span));
 
+    const markCovered = async (gapFrom: number, gapTo: number) => {
+      const coveredTo = Math.min(gapTo, recentEdge);
+      if (gapFrom < coveredTo) await this.repos.coverage.add(symbol, tf, gapFrom, coveredTo);
+    };
     const results = await Promise.allSettled(chunks.map(([gapFrom, gapTo]) =>
       queue.run(`${symbol}|${tf}|${gapFrom}|${gapTo}`, async () => {
         let fetched;
@@ -123,18 +135,33 @@ export class MarketDataService {
           throw asProviderError(provider.id, err);
         }
         await this.repos.bars.upsert(symbol, tf, fetched.bars);
-        const coveredTo = Math.min(gapTo, recentEdge);
-        if (gapFrom < coveredTo) await this.repos.coverage.add(symbol, tf, gapFrom, coveredTo);
+        await markCovered(gapFrom, gapTo);
       })));
 
     let stale = false;
-    for (const r of results) {
-      if (r.status === 'fulfilled') continue;
+    const notFound: Array<[number, number]> = [];
+    let firstNotFound: NotFoundError | null = null;
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') return;
       const err = r.reason;
-      if (!(err instanceof ProviderError)) throw err; // NotFoundError (→ 404) and internal failures propagate
+      if (err instanceof NotFoundError) {
+        notFound.push(chunks[i]!);
+        firstNotFound ??= err;
+        return;
+      }
+      if (!(err instanceof ProviderError)) throw err; // internal failures propagate
       stale = true;
       // The queue's own cooldown rejection must not extend the cooldown.
       if (err.retryable && err.provider !== 'queue') queue.backoff(BACKOFF_MS);
+    });
+
+    if (firstNotFound) {
+      // Providers report "no data" as NotFound for valid symbols too (e.g. a pre-listing window).
+      // For a known symbol such a chunk is simply empty; only an unknown symbol is a 404.
+      const known = await this.isKnown(symbol, tf);
+      if (known === false) throw firstNotFound;
+      if (known === null) stale = true; // couldn't tell (lookup outage): serve the DB, don't mark coverage
+      else for (const [a, b] of notFound) await markCovered(a, b);
     }
     return { bars: await this.repos.bars.range(symbol, tf, from, to), stale };
   }
@@ -205,11 +232,33 @@ export class MarketDataService {
     const { assetClass, code } = parseMarketSymbol(id);
     const row = await this.repos.symbols.get(id);
     if (row && this.now() - row.updatedAt < SYMBOL_TTL_MS) return toInfo(row, assetClass, code);
+    if (!row) {
+      const until = this.unknownUntil.get(id);
+      if (until !== undefined && this.now() < until) throw new NotFoundError(`Unknown symbol ${id}`);
+      this.unknownUntil.delete(id);
+    }
     try {
       return await this.refreshSymbol(id, assetClass, code, row);
     } catch (err) {
       if (row) return toInfo(row, assetClass, code); // best effort: a stale row beats an error
+      if (err instanceof NotFoundError) {
+        const now = this.now();
+        if (this.unknownUntil.size >= 1000) for (const [k, t] of this.unknownUntil) if (t <= now) this.unknownUntil.delete(k);
+        this.unknownUntil.set(id, now + NEGATIVE_TTL_MS);
+      }
       throw err;
+    }
+  }
+
+  /** true = known symbol, false = unknown (NotFound), null = undetermined (lookup failed). */
+  private async isKnown(symbol: SymbolId, tf: NativeTimeframe): Promise<boolean | null> {
+    if (await this.repos.bars.lastBefore(symbol, tf, Number.MAX_SAFE_INTEGER)) return true;
+    try {
+      await this.symbolInfo(symbol);
+      return true;
+    } catch (err) {
+      if (err instanceof NotFoundError) return false;
+      return null;
     }
   }
 
@@ -218,14 +267,19 @@ export class MarketDataService {
     const match = results.find((r) => r.id === id);
     if (!match) throw new NotFoundError(`Unknown symbol ${id}`);
     let firstTs: number | null;
+    let lookupFailed = false;
     try {
       firstTs = await this.queues[assetClass].run(`first|${code}`, () => this.provider(assetClass).firstBarTs(code));
     } catch {
       firstTs = null;
+      lookupFailed = true;
     }
+    firstTs ??= prev?.firstTs ?? null;
+    const now = this.now();
     const row: SymbolInfoRow = {
-      id, name: match.name, exchange: match.exchange ?? null, pricePrecision: match.pricePrecision,
-      firstTs: firstTs ?? prev?.firstTs ?? null, updatedAt: this.now(),
+      id, name: match.name, exchange: match.exchange ?? null, pricePrecision: match.pricePrecision, firstTs,
+      // A failed listing-date lookup is retried within the hour instead of caching null for the full TTL.
+      updatedAt: lookupFailed && firstTs === null ? now - SYMBOL_TTL_MS + SYMBOL_RETRY_MS : now,
     };
     await this.repos.symbols.upsert(row);
     return toInfo(row, assetClass, code);

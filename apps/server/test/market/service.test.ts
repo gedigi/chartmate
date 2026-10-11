@@ -25,6 +25,8 @@ class FakeProvider implements MarketDataProvider {
   quoteCalls: string[][] = [];
   firstCalls: string[] = [];
   fail: Error | null = null;
+  /** Throw NotFound ("no data") for requests ending at or before this ts, like Yahoo pre-listing. */
+  noDataBefore = -Infinity;
   searchFail: Error | null = null;
   delayMs = 0;
   firstTs: number | null = Date.UTC(2000, 0, 1);
@@ -47,7 +49,8 @@ class FakeProvider implements MarketDataProvider {
     this.calls.push({ code, tf, from, to });
     if (this.delayMs) await new Promise((r) => setTimeout(r, this.delayMs));
     if (this.fail) throw this.fail;
-    return { bars: this.generate(tf, from, Math.min(to, this.now())) };
+    if (to <= this.noDataBefore) throw new NotFoundError('No data found, symbol may be delisted');
+    return { bars: this.generate(tf, Math.max(from, this.noDataBefore), Math.min(to, this.now())) };
   }
 
   async quotes(codes: string[]): Promise<Quote[]> {
@@ -92,6 +95,7 @@ class FakeProvider implements MarketDataProvider {
 }
 
 const NOW = Date.UTC(2026, 10, 4, 18, 20); // Wed 2026-11-04 13:20 EST
+const EDGE_1H = Date.UTC(2026, 10, 4, 16); // floor(NOW − 2h) on the 1h grid
 
 describe('MarketDataService', () => {
   let h: ReturnType<typeof createDb>;
@@ -131,10 +135,11 @@ describe('MarketDataService', () => {
       expect(crypto.calls).toEqual([{ code: 'BTC', tf: '1h', from, to: NOW }]);
       expect(r1.stale).toBe(false);
       expect(r1.bars.length).toBe(240);
-      expect(await repos.coverage.list('crypto:BTC', '1h')).toEqual([[from, NOW - 2 * HOUR]]);
+      // recentEdge is floored to the 1h grid: 18:20 − 2h → 16:00
+      expect(await repos.coverage.list('crypto:BTC', '1h')).toEqual([[from, EDGE_1H]]);
 
       const r2 = await svc.getNativeBars('crypto:BTC', '1h', from, NOW);
-      expect(crypto.calls.slice(1)).toEqual([{ code: 'BTC', tf: '1h', from: NOW - 2 * HOUR, to: NOW }]);
+      expect(crypto.calls.slice(1)).toEqual([{ code: 'BTC', tf: '1h', from: EDGE_1H, to: NOW }]);
       expect(r2.bars).toEqual(r1.bars);
     });
 
@@ -157,7 +162,7 @@ describe('MarketDataService', () => {
       await svc.getNativeBars('crypto:BTC', '1D', NOW - 20 * DAY, NOW - 10 * DAY);
       crypto.calls = [];
       await svc.getNativeBars('crypto:BTC', '1D', NOW - 30 * DAY, NOW);
-      const edge = NOW - 3 * DAY; // 1D recent edge
+      const edge = Date.UTC(2026, 10, 1); // 1D recent edge: now − 3d floored to UTC midnight
       expect(crypto.calls).toEqual([
         { code: 'BTC', tf: '1D', from: NOW - 30 * DAY, to: NOW - 20 * DAY },
         { code: 'BTC', tf: '1D', from: NOW - 10 * DAY, to: NOW },
@@ -212,7 +217,7 @@ describe('MarketDataService', () => {
       expect(r.stale).toBe(true);
       expect(r.bars.length).toBe(48);
       expect(queues.crypto.cooldownUntil).toBe(0); // non-retryable → no backoff
-      expect(await repos.coverage.list('crypto:BTC', '1h')).toEqual([[NOW - 2 * DAY, NOW - 2 * HOUR]]);
+      expect(await repos.coverage.list('crypto:BTC', '1h')).toEqual([[NOW - 2 * DAY, EDGE_1H]]);
     });
 
     it('network failure (non-ProviderError) → stale, not thrown', async () => {
@@ -387,6 +392,94 @@ describe('MarketDataService', () => {
       expect(crypto.quoteCalls).toEqual([['BTC', 'ETH']]);
       stock.fail = new ProviderError('yahoo', 'down', true);
       expect((await svc.quotes(['stock:AAPL', 'crypto:BTC'])).map((x) => x.id)).toEqual(['crypto:BTC']);
+    });
+  });
+
+  describe('review fixes', () => {
+    it('known symbol: provider NotFound for a pre-listing window → [] (no error), covered; later windows work', async () => {
+      stock.noDataBefore = Date.UTC(2020, 0, 1);
+      const early = await svc.getBars({ symbol: 'stock:AAPL', tf: '1D', session: 'rth', from: Date.UTC(2015, 0, 1), to: Date.UTC(2016, 0, 1) });
+      expect(early.bars).toEqual([]);
+      expect(early.stale).toBe(false);
+      expect(await repos.coverage.list('stock:AAPL', '1D')).toEqual([[Date.UTC(2015, 0, 1), Date.UTC(2016, 0, 1)]]);
+      stock.calls = [];
+      await svc.getBars({ symbol: 'stock:AAPL', tf: '1D', session: 'rth', from: Date.UTC(2015, 0, 1), to: Date.UTC(2016, 0, 1) });
+      expect(stock.calls).toEqual([]); // the empty window is cached
+      const later = await svc.getBars({ symbol: 'stock:AAPL', tf: '1D', session: 'rth', from: Date.UTC(2021, 0, 1), to: Date.UTC(2021, 1, 1) });
+      expect(later.bars.length).toBe(21); // weekdays in Jan 2021 (fake has no holidays)
+      expect(later.stale).toBe(false);
+    });
+
+    it('symbol known from cached bars: NotFound chunk is empty even if symbol lookup is down', async () => {
+      await svc.getNativeBars('stock:MSFT', '1D', Date.UTC(2026, 9, 1), Date.UTC(2026, 9, 10));
+      stock.searchFail = new ProviderError('yahoo', 'down', true);
+      stock.noDataBefore = Date.UTC(2021, 0, 1);
+      const r = await svc.getNativeBars('stock:MSFT', '1D', Date.UTC(2020, 0, 1), Date.UTC(2020, 2, 1));
+      expect(r).toEqual({ bars: [], stale: false });
+    });
+
+    it('NotFound chunk while symbol lookup is down and nothing cached → stale, not 404, not covered', async () => {
+      stock.searchFail = new ProviderError('yahoo', 'down', true);
+      stock.noDataBefore = Date.UTC(2021, 0, 1);
+      const r = await svc.getNativeBars('stock:MSFT', '1D', Date.UTC(2020, 0, 1), Date.UTC(2020, 2, 1));
+      expect(r).toEqual({ bars: [], stale: true });
+      expect(await repos.coverage.list('stock:MSFT', '1D')).toEqual([]);
+    });
+
+    it('unknown symbol: provider NotFound still rejects with NotFoundError', async () => {
+      stock.noDataBefore = Infinity;
+      await expect(svc.getBars({ symbol: 'stock:NOPE', tf: '1D', session: 'rth', from: NOW - 10 * DAY, to: NOW }))
+        .rejects.toBeInstanceOf(NotFoundError);
+    });
+
+    it('dedupe keys are stable when concurrent calls see clocks a few ms apart within one bar', async () => {
+      crypto.delayMs = 5;
+      const args = { symbol: 'crypto:BTC', tf: '1m' as const, session: 'eth' as const, from: NOW - HOUR, to: NOW + HOUR };
+      const pa = svc.getBars(args);
+      now = NOW + 7; // same 1m bar
+      const pb = svc.getBars(args);
+      now = NOW + 12;
+      const pc = svc.getBars(args);
+      const [a, b, c] = await Promise.all([pa, pb, pc]);
+      expect(crypto.calls).toEqual([{ code: 'BTC', tf: '1m', from: NOW - HOUR, to: NOW + MIN }]);
+      expect(a.bars).toEqual(b.bars);
+      expect(b.bars).toEqual(c.bars);
+    });
+
+    it('failed firstBarTs lookup: row is stored but refreshed within the hour', async () => {
+      stock.fail = new ProviderError('yahoo', 'down', true); // fake firstBarTs throws `fail`
+      await svc.symbolInfo('stock:AAPL');
+      const row = await repos.symbols.get('stock:AAPL');
+      expect(row?.firstTs).toBeNull();
+      expect(row!.updatedAt + 7 * DAY - NOW).toBe(HOUR); // expires one hour from now
+      stock.fail = null;
+      stock.searchCalls = [];
+      now = NOW + 30 * MIN;
+      await svc.symbolInfo('stock:AAPL');
+      expect(stock.searchCalls).toEqual([]); // still fresh
+      now = NOW + HOUR;
+      await svc.symbolInfo('stock:AAPL');
+      expect(stock.searchCalls).toEqual(['AAPL']);
+      expect((await repos.symbols.get('stock:AAPL'))?.firstTs).toBe(Date.UTC(2000, 0, 1));
+      expect((await repos.symbols.get('stock:AAPL'))?.updatedAt).toBe(NOW + HOUR);
+    });
+
+    it('a provider that legitimately reports no listing date keeps the full TTL', async () => {
+      await svc.symbolInfo('crypto:BTC'); // crypto fake firstTs = null, no failure
+      expect((await repos.symbols.get('crypto:BTC'))?.updatedAt).toBe(NOW);
+    });
+
+    it('unknown ids are negatively cached for 10 minutes (symbolInfo, earliest, getBars, getLatest)', async () => {
+      await expect(svc.symbolInfo('stock:ZZZZ')).rejects.toBeInstanceOf(NotFoundError);
+      expect(stock.searchCalls).toEqual(['ZZZZ']);
+      await expect(svc.symbolInfo('stock:ZZZZ')).rejects.toBeInstanceOf(NotFoundError);
+      expect(await svc.earliest('stock:ZZZZ', '1D')).toBeNull();
+      await svc.getBars({ symbol: 'stock:ZZZZ', tf: '1D', session: 'rth', from: NOW - 5 * DAY, to: NOW });
+      await svc.getLatest('stock:ZZZZ', '1h', 'rth');
+      expect(stock.searchCalls).toEqual(['ZZZZ']);
+      now = NOW + 10 * 60_000;
+      await expect(svc.symbolInfo('stock:ZZZZ')).rejects.toBeInstanceOf(NotFoundError);
+      expect(stock.searchCalls).toEqual(['ZZZZ', 'ZZZZ']);
     });
   });
 
