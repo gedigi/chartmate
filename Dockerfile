@@ -16,6 +16,7 @@ RUN pnpm deploy --filter @altv/server --prod /out
 
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production \
+    HOST=0.0.0.0 \
     DATABASE_URL=sqlite:/data/altv.db \
     ALTV_WEB_DIST=/app/web
 WORKDIR /app

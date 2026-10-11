@@ -10,6 +10,8 @@ export type Dialect = 'sqlite' | 'postgres';
 export function createDb(url: string): { db: Kysely<Database>; dialect: Dialect; close(): Promise<void> } {
   if (url.startsWith('sqlite:')) {
     const path = url.slice('sqlite:'.length);
+    // better-sqlite3 treats '' as a private temporary database, which would silently lose all data.
+    if (path.trim() === '') throw new Error('Invalid DATABASE_URL: sqlite: URL has an empty path (use e.g. sqlite:./data/altv.db)');
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     const sqlite = new BetterSqlite3(path);
     sqlite.pragma('journal_mode = WAL');

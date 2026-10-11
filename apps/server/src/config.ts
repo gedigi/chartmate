@@ -6,6 +6,8 @@ import { z } from 'zod';
 
 export interface Config {
   port: number;
+  /** Listen address: 127.0.0.1 by default (local runs); the Docker image sets 0.0.0.0. */
+  host: string;
   databaseUrl: string;
   password: string | null;
   sessionSecret: string;
@@ -25,7 +27,11 @@ const blankToUndefined = (v: unknown) => (typeof v === 'string' && v.trim() === 
 
 const EnvSchema = z.object({
   PORT: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).max(65_535).default(8787)),
-  DATABASE_URL: z.preprocess(blankToUndefined, z.string().default('sqlite:./data/altv.db')),
+  HOST: z.preprocess(blankToUndefined, z.string().trim().default('127.0.0.1')),
+  DATABASE_URL: z.preprocess(blankToUndefined, z.string().default('sqlite:./data/altv.db').refine(
+    (u) => !u.startsWith('sqlite:') || u.slice('sqlite:'.length).trim() !== '',
+    { message: 'sqlite: URL has an empty path (use e.g. sqlite:./data/altv.db)' },
+  )),
   ALTV_PASSWORD: z.preprocess(blankToUndefined, z.string().optional()),
   ALTV_SESSION_SECRET: z.preprocess(blankToUndefined, z.string().min(16).optional()),
   CRYPTO_PROVIDER: z.preprocess(blankToUndefined, z.enum(['binance', 'coinbase']).default('binance')),
@@ -58,6 +64,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const webDistCandidate = resolve(e.ALTV_WEB_DIST ?? DEFAULT_WEB_DIST);
   return {
     port: e.PORT,
+    host: e.HOST,
     databaseUrl: e.DATABASE_URL,
     password,
     sessionSecret: e.ALTV_SESSION_SECRET ?? sha256Hex('altv:' + (password ?? '')),
