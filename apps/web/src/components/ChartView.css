@@ -1,0 +1,52 @@
+/* ChartView: chart canvas host + overlays inside .chart-area */
+.chart-host { position: absolute; inset: 0; }
+.chart-init-error { position: absolute; inset: 0; color: var(--error); }
+
+.chart-overlay-top-left {
+  position: absolute;
+  top: 28px;
+  left: 8px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: min(480px, calc(100% - 80px));
+  pointer-events: none;
+}
+.chart-overlay-top-left > * { pointer-events: auto; }
+
+.chart-notice, .chart-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.chart-notice { background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border); }
+
+.chart-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  z-index: 6;
+  max-width: calc(100% - 32px);
+  background: var(--bg-elevated);
+  color: var(--error);
+  border: 1px solid var(--error);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.chart-notice-dismiss {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.chart-notice-dismiss:hover { color: var(--text); }
