@@ -357,8 +357,6 @@ describe('ChartAdapter', () => {
       created.points = [{ timestamp: 1, value: 1 }, { timestamp: 2, value: 2 }];
       created.onDrawEnd?.({ overlay: created });
       expect(created.lock).toBe(true);
-      a.restoreDrawings([{ name: 'segment', points: [{ timestamp: 1, value: 1 }, { timestamp: 2, value: 2 }], lock: false }]);
-      expect(userOverlays().every((o) => o.lock)).toBe(true);
       a.setLockAll(false);
       expect(userOverlays().every((o) => !o.lock)).toBe(true);
       expect(chart().overlays.find((o) => o.groupId === 'markers')!.lock).toBe(true);
@@ -380,6 +378,69 @@ describe('ChartAdapter', () => {
       expect(changed).toHaveBeenCalledTimes(1);
       a.cancelDrawing(); // nothing in progress → the finished drawing stays
       expect(userOverlays()).toHaveLength(1);
+    });
+
+    it('lock-all state is derived on restore: all locked → true; setLockAll(false) unlocks all', async () => {
+      const a = await loaded();
+      const lock = vi.fn();
+      a.onLockAllChange(lock);
+      const seg = (lockIt: boolean) => ({ name: 'segment', points: [{ timestamp: DAY, value: 1 }, { timestamp: 2 * DAY, value: 2 }], lock: lockIt });
+      a.restoreDrawings([seg(true), seg(true)]);
+      expect(lock).toHaveBeenLastCalledWith(true);
+      a.setLockAll(false);
+      expect(lock).toHaveBeenLastCalledWith(false);
+      expect(userOverlays().map((o) => o.lock)).toEqual([false, false]);
+      a.restoreDrawings([seg(true), seg(false)]);
+      expect(lock).toHaveBeenLastCalledWith(false);
+      a.restoreDrawings([seg(true)]);
+      expect(lock).toHaveBeenLastCalledWith(true);
+      a.restoreDrawings([]);
+      expect(lock).toHaveBeenLastCalledWith(false);
+    });
+
+    it('restoring for a new symbol waits for that symbol\'s data, not the previous symbol\'s', async () => {
+      const a = await loaded(); // AAPL data is in
+      const d = [{ name: 'segment', points: [{ timestamp: DAY, value: 1 }, { timestamp: 2 * DAY, value: 2 }], lock: false }];
+      a.restoreDrawings(d, 'crypto:BTC'); // fetched before BTC's load() started
+      expect(userOverlays()).toHaveLength(0);
+      a.load({ symbol: BTC, tf: '1D', session: 'rth', pollMs: 5000 }, events());
+      await fireInit();
+      expect(a.serializeDrawings()).toEqual(d);
+      expect(userOverlays()).toHaveLength(1);
+      a.restoreDrawings(d, 'crypto:BTC'); // same symbol, data in → immediate
+      expect(userOverlays()).toHaveLength(1);
+    });
+
+    it('a failed initial page releases a pending restore', async () => {
+      const a = make();
+      const ev = events();
+      a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 15000 }, ev);
+      const d = [{ name: 'segment', points: [{ timestamp: DAY, value: 1 }, { timestamp: 2 * DAY, value: 2 }], lock: false }];
+      a.restoreDrawings(d);
+      vi.spyOn(api, 'bars').mockRejectedValue(new Error('boom'));
+      const loader = chart().setDataLoader.mock.calls.at(-1)![0] as { getBars: (p: unknown) => Promise<void> };
+      // The loader keeps retrying a failed init; the drawings must not wait for that.
+      void loader.getBars({ type: 'init', timestamp: null, symbol: { ticker: 'stock:AAPL' }, period: { type: 'day', span: 1 }, callback: vi.fn() });
+      await vi.waitFor(() => expect(ev.onError).toHaveBeenCalled());
+      expect(userOverlays()).toHaveLength(1);
+      a.destroy(); // stops the retry loop
+    });
+
+    it('restoreDrawings and clearDrawings end an in-progress drawing (onEnd fires)', async () => {
+      const a = await loaded();
+      const onEnd = vi.fn();
+      a.startDrawing('segment', { onEnd });
+      a.restoreDrawings([]);
+      expect(onEnd).toHaveBeenCalledTimes(1);
+      expect(userOverlays()).toHaveLength(0);
+      const onEnd2 = vi.fn();
+      a.startDrawing('rayLine', { onEnd: onEnd2 });
+      a.clearDrawings();
+      expect(onEnd2).toHaveBeenCalledTimes(1);
+      const onEnd3 = vi.fn();
+      a.startDrawing('rayLine', { onEnd: onEnd3 });
+      a.cancelDrawing();
+      expect(onEnd3).toHaveBeenCalledTimes(1);
     });
 
     it('starting a new tool cancels an unfinished drawing', () => {

@@ -108,7 +108,8 @@ export class ChartAdapter {
 
   load(p: LoadParams, events: LoaderEvents): void {
     this.loader?.dispose(); // its pending results and polling become no-ops while the chart resets below
-    this.hasData = false;
+    this.dataSymbol = null;
+    this.loadSymbol = p.symbol.id;
     const ready = () => { if (this.loader === loader) this.onDataReady(); };
     const loader = createDataLoader({ session: () => p.session, pollMs: p.pollMs }, {
       onMeta: (m) => events.onMeta(m),
@@ -260,9 +261,12 @@ export class ChartAdapter {
   private drawing: { id: string; onEnd?: () => void } | null = null;
   private magnet = false;
   private lockAll = false;
-  /** False from load() until the first data page of that load arrives; restores are queued meanwhile. */
-  private hasData = false;
-  private pendingRestore: DrawingState[] | null = null;
+  /** Symbol of the current load(); dataSymbol becomes it once that load's first data page arrived. */
+  private loadSymbol: string | null = null;
+  private dataSymbol: string | null = null;
+  /** Drawings queued by restoreDrawings until data for their symbol (or any data, if unspecified) is in. */
+  private pendingRestore: { drawings: DrawingState[]; symbol?: string } | null = null;
+  private readonly lockListeners = new Set<(locked: boolean) => void>();
   /** KLineChart fires onRemoved while the overlay is still listed; hide it from serializeDrawings meanwhile. */
   private readonly removing = new Set<string>();
 
@@ -279,7 +283,7 @@ export class ChartAdapter {
     onPressedMoveEnd: () => this.emitChange(),
     onRemoved: ({ overlay }) => {
       if (this.selectedId === overlay.id) this.selectedId = null;
-      if (this.drawing?.id === overlay.id) this.drawing = null;
+      if (this.drawing?.id === overlay.id) this.endDrawing();
       this.removing.add(overlay.id);
       try { this.emitChange(); } finally { this.removing.delete(overlay.id); }
     },
@@ -313,12 +317,19 @@ export class ChartAdapter {
     if (typeof id === 'string') this.drawing = opts?.onEnd ? { id, onEnd: opts.onEnd } : { id };
   }
 
-  /** Abandons the drawing being placed (if any). Finished drawings are untouched. */
+  /** Abandons the drawing being placed (if any); its onEnd fires. Finished drawings are untouched. */
   cancelDrawing(): void {
     const d = this.drawing;
     if (!d) return;
-    this.drawing = null;
+    this.endDrawing();
     this.withSilence(() => this.chart.removeOverlay({ id: d.id }));
+  }
+
+  /** Forgets the in-progress drawing and tells its starter that the tool is done. */
+  private endDrawing(): void {
+    const d = this.drawing;
+    this.drawing = null;
+    d?.onEnd?.();
   }
 
   /** Removes the selected drawing. Returns false when nothing (removable) is selected. */
@@ -348,11 +359,31 @@ export class ChartAdapter {
       this.chart.overrideOverlay({ id: o.id, lock: locked });
       changed = true;
     }
+    this.emitLockState();
     if (changed) this.emitChange();
   }
 
+  /**
+   * Fired with the effective "lock all" state: on setLockAll and whenever drawings are restored or cleared
+   * (true iff there are drawings and every one is locked). Returns an unsubscribe function.
+   */
+  onLockAllChange(cb: (locked: boolean) => void): () => void {
+    this.lockListeners.add(cb);
+    return () => { this.lockListeners.delete(cb); };
+  }
+
+  private emitLockState(): void {
+    if (this.destroyed) return;
+    for (const cb of this.lockListeners) cb(this.lockAll);
+  }
+
+  private deriveLockAll(drawings: DrawingState[]): void {
+    this.lockAll = drawings.length > 0 && drawings.every((d) => d.lock);
+    this.emitLockState();
+  }
+
   serializeDrawings(): DrawingState[] {
-    if (this.pendingRestore) return this.pendingRestore.map((d) => ({ ...d }));
+    if (this.pendingRestore) return this.pendingRestore.drawings.map((d) => ({ ...d }));
     const out: DrawingState[] = [];
     for (const o of this.userOverlays()) {
       const points = completePoints(o); // skips an overlay that is still being drawn
@@ -366,16 +397,20 @@ export class ChartAdapter {
   }
 
   /**
-   * Replaces all user drawings. Does not fire onDrawingsChange. Existing drawings are removed at once; the new
-   * ones are created when the current load's first data page has arrived (queued until then).
+   * Replaces all user drawings. Does not fire onDrawingsChange. Existing drawings (and any in-progress one) are
+   * removed at once; the new ones are created once data has arrived — for `symbol` when given (so drawings of a
+   * new symbol never land on the previous symbol's data), else for the current load. Queued until then.
+   * The "lock all" state is re-derived from the restored drawings.
    */
-  restoreDrawings(drawings: DrawingState[]): void {
-    this.drawing = null;
+  restoreDrawings(drawings: DrawingState[], symbol?: string): void {
+    this.endDrawing();
     this.withSilence(() => this.removeUserOverlays());
     this.pendingRestore = null;
+    this.deriveLockAll(drawings);
     if (drawings.length === 0) return;
-    if (!this.hasData) {
-      this.pendingRestore = drawings;
+    const ready = symbol === undefined ? this.dataSymbol !== null : this.dataSymbol === symbol;
+    if (!ready) {
+      this.pendingRestore = symbol === undefined ? { drawings } : { drawings, symbol };
       return;
     }
     this.createDrawings(drawings);
@@ -384,7 +419,7 @@ export class ChartAdapter {
   private createDrawings(drawings: DrawingState[]): void {
     this.withSilence(() => {
       for (const d of drawings) {
-        const create: OverlayCreate = { name: d.name, points: d.points, lock: d.lock || this.lockAll, ...this.handlers };
+        const create: OverlayCreate = { name: d.name, points: d.points, lock: d.lock, ...this.handlers };
         if (d.text !== undefined) create.extendData = d.text;
         if (d.styles) create.styles = d.styles as OverlayCreate['styles'];
         this.chart.createOverlay(create);
@@ -393,16 +428,18 @@ export class ChartAdapter {
   }
 
   private onDataReady(): void {
-    this.hasData = true;
+    this.dataSymbol = this.loadSymbol;
     const pending = this.pendingRestore;
+    if (!pending || (pending.symbol !== undefined && pending.symbol !== this.dataSymbol)) return;
     this.pendingRestore = null;
-    if (pending) this.createDrawings(pending);
+    this.createDrawings(pending.drawings);
   }
 
   clearDrawings(): void {
     const had = this.userOverlays().length > 0 || this.pendingRestore !== null;
-    this.drawing = null;
+    this.endDrawing();
     this.pendingRestore = null;
+    this.deriveLockAll([]);
     this.withSilence(() => this.removeUserOverlays());
     if (had) this.emitChange();
   }
@@ -429,6 +466,7 @@ export class ChartAdapter {
     this.loader?.dispose();
     this.loader = null;
     this.changeListeners.clear();
+    this.lockListeners.clear();
     dispose(this.el);
   }
 }

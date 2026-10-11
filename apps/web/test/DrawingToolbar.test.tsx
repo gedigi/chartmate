@@ -5,6 +5,7 @@ import { DrawingToolbar, type DrawingControls } from '../src/components/DrawingT
 
 function makeControls() {
   let onEnd: (() => void) | undefined;
+  let lockCb: ((locked: boolean) => void) | null = null;
   const c = {
     startDrawing: vi.fn((_tool: string, opts?: { text?: string; onEnd?: () => void }) => { onEnd = opts?.onEnd; }),
     cancelDrawing: vi.fn(),
@@ -12,8 +13,14 @@ function makeControls() {
     removeSelected: vi.fn(() => true),
     setMagnet: vi.fn(),
     setLockAll: vi.fn(),
+    onLockAllChange: vi.fn((cb: (locked: boolean) => void) => { lockCb = cb; return () => { lockCb = null; }; }),
   };
-  return { c: c as typeof c & DrawingControls, end: () => act(() => onEnd?.()) };
+  return {
+    c: c as typeof c & DrawingControls,
+    end: () => act(() => onEnd?.()),
+    emitLock: (v: boolean) => act(() => lockCb?.(v)),
+    hasLockListener: () => lockCb !== null,
+  };
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -106,6 +113,49 @@ describe('DrawingToolbar', () => {
     expect(c.removeSelected).toHaveBeenCalledTimes(2);
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'other' }), { key: 'Delete' });
     expect(c.removeSelected).toHaveBeenCalledTimes(2);
+  });
+
+  it('Lock all reflects the adapter state (e.g. 2 locked drawings restored) and a click unlocks all', async () => {
+    const { c, emitLock } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    const lock = screen.getByRole('button', { name: 'Lock all drawings' });
+    expect(lock).toHaveAttribute('aria-pressed', 'false');
+    emitLock(true);
+    expect(lock).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(lock);
+    expect(c.setLockAll).toHaveBeenLastCalledWith(false);
+    expect(lock).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('Clear all cancelled in the confirm keeps the in-progress drawing', async () => {
+    const { c } = makeControls();
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    const ray = screen.getByRole('button', { name: 'Ray' });
+    await userEvent.click(ray);
+    await userEvent.click(screen.getByRole('button', { name: 'Clear all drawings' }));
+    expect(c.cancelDrawing).not.toHaveBeenCalled();
+    expect(ray).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('Escape typed inside an input does not cancel the active tool', async () => {
+    const { c } = makeControls();
+    render(<><input aria-label="other" /><DrawingToolbar controls={c} ticker="AAPL" /></>);
+    const ray = screen.getByRole('button', { name: 'Ray' });
+    await userEvent.click(ray);
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'other' }), { key: 'Escape' });
+    expect(c.cancelDrawing).not.toHaveBeenCalled();
+    expect(ray).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('removes its keyboard listener and lock subscription on unmount', () => {
+    const { c, hasLockListener } = makeControls();
+    const { unmount } = render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    expect(hasLockListener()).toBe(true);
+    unmount();
+    fireEvent.keyDown(document.body, { key: 'Delete' });
+    expect(c.removeSelected).not.toHaveBeenCalled();
+    expect(hasLockListener()).toBe(false);
   });
 
   it('Delete selected button removes the selected drawing', async () => {

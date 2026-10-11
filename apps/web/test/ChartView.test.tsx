@@ -21,6 +21,7 @@ const fake = vi.hoisted(() => {
     restoreDrawings = vi.fn();
     serializeDrawings = vi.fn(() => [{ name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false }]);
     onDrawingsChange = vi.fn((cb: () => void) => { this.changeCb = cb; return () => { this.changeCb = null; }; });
+    onLockAllChange = vi.fn(() => () => {});
     resize = vi.fn();
     destroy = vi.fn();
     constructor() { instances.push(this); }
@@ -128,7 +129,7 @@ describe('ChartView', () => {
     await flush();
     await flush();
     expect(api.drawings.get).toHaveBeenCalledWith('stock:AAPL');
-    expect(adapter().restoreDrawings).toHaveBeenLastCalledWith([{ name: 'rayLine', points: [{ timestamp: 5, value: 5 }], lock: false }]);
+    expect(adapter().restoreDrawings).toHaveBeenLastCalledWith([{ name: 'rayLine', points: [{ timestamp: 5, value: 5 }], lock: false }], 'stock:AAPL');
     vi.useFakeTimers();
     act(() => adapter().changeCb!());
     act(() => { vi.advanceTimersByTime(999); });

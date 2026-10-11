@@ -4,7 +4,8 @@ import './DrawingToolbar.css';
 
 /** The slice of ChartAdapter the toolbar drives. */
 export type DrawingControls = Pick<
-  ChartAdapter, 'startDrawing' | 'cancelDrawing' | 'clearDrawings' | 'removeSelected' | 'setMagnet' | 'setLockAll'
+  ChartAdapter,
+  'startDrawing' | 'cancelDrawing' | 'clearDrawings' | 'removeSelected' | 'setMagnet' | 'setLockAll' | 'onLockAllChange'
 >;
 
 export interface DrawingToolbarProps {
@@ -70,6 +71,8 @@ export function DrawingToolbar({ controls, ticker }: DrawingToolbarProps): JSX.E
 
   // The chart (re)creates with default modes; reset local toggles when it changes.
   useEffect(() => { setActive(null); setMagnet(false); setLocked(false); }, [controls]);
+  // "Lock all" mirrors the adapter: it is re-derived whenever drawings are restored (reload, symbol switch).
+  useEffect(() => controls?.onLockAllChange(setLocked), [controls]);
 
   const start = (tool: DrawingTool, opts?: { text?: string }) => {
     if (!controls) return;
@@ -157,8 +160,9 @@ export function DrawingToolbar({ controls, ticker }: DrawingToolbarProps): JSX.E
           type="button" className="dt-btn" title="Clear all drawings" aria-label="Clear all drawings" disabled={disabled}
           onClick={() => {
             if (!controls) return;
+            if (!window.confirm(`Remove all drawings on ${ticker}?`)) return;
             cancel();
-            if (window.confirm(`Remove all drawings on ${ticker}?`)) controls.clearDrawings();
+            controls.clearDrawings();
           }}
         >{CLEAR_ICON}</button>
       </div>

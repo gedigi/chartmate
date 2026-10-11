@@ -9,7 +9,7 @@ vi.mock('../src/chart/ChartAdapter', () => ({
     seq = 0;
     load = vi.fn(); setTheme = vi.fn(); setChartType = vi.fn(); setSessionShading = vi.fn(); setMarkers = vi.fn();
     addIndicator = vi.fn(() => `ind_${++this.seq}`); updateIndicator = vi.fn(); removeIndicator = vi.fn();
-    restoreDrawings = vi.fn(); serializeDrawings = vi.fn(() => []); onDrawingsChange = vi.fn(() => () => {});
+    restoreDrawings = vi.fn(); serializeDrawings = vi.fn(() => []); onDrawingsChange = vi.fn(() => () => {}); onLockAllChange = vi.fn(() => () => {});
     resize = vi.fn(); destroy = vi.fn();
   },
 }));

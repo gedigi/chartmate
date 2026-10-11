@@ -160,7 +160,7 @@ export function ChartView({ layout, setLayout, symbolInfo, theme }: ChartViewPro
     api.drawings.get(symbol).then(
       (d) => {
         if (cancelled) return;
-        adapter.restoreDrawings(d);
+        adapter.restoreDrawings(d, symbol); // created once this symbol's data is in
         setDrawingsFor(symbol);
       },
       (err: unknown) => { if (!cancelled) setToast(`Could not load drawings: ${errorMessage(err)}`); },
