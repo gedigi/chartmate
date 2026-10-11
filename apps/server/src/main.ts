@@ -36,9 +36,10 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
-  await app.listen({ host: '0.0.0.0', port: config.port });
+  await app.listen({ host: config.host, port: config.port });
+  const shownHost = config.host.includes(':') ? `[${config.host}]` : config.host;
   app.log.info(
-    `altv listening on http://localhost:${config.port} (${dialect}, providers=${config.providers}, ` +
+    `altv listening on http://${shownHost}:${config.port} (${dialect}, providers=${config.providers}, ` +
     `auth ${config.password !== null ? 'enabled' : 'disabled'}, web ${config.webDist ?? 'not served'})`,
   );
 }

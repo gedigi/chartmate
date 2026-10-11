@@ -72,7 +72,10 @@ export class YahooProvider implements MarketDataProvider {
 
     for (let s = start; s < end; s = s + span) {
       const e = Math.min(end, s + span);
-      const opts: Record<string, unknown> = { period1: new Date(s), period2: new Date(e), interval: INTERVAL[tf] };
+      // Daily bars are stamped at the 09:30 NY open (13:30Z/14:30Z), not at midnight: ask one day past the
+      // chunk end so the last day's bar is returned, then keep [from, to) on the normalized ts below.
+      const period2 = daily ? Math.min(e + DAY, now) : e;
+      const opts: Record<string, unknown> = { period1: new Date(s), period2: new Date(period2), interval: INTERVAL[tf] };
       if (!daily) opts.includePrePost = true;
       const res = (await this.call(() => this.client.chart(code, opts))) as YChart;
 

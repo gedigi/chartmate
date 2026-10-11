@@ -26,6 +26,27 @@ describe('basket routes', () => {
     expect(j.json()).toMatchObject({ code: 'invalid_request' });
   });
 
+  it('caps a version at 50 constituents (zod shape check)', async () => {
+    const body = basketBody();
+    const weights: Record<string, number> = Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`stock:S${i}`, 1 / 51]));
+    const payload = { ...body, versions: [{ ...body.versions[0]!, weights }] };
+    const r = await t.app.inject({ method: 'POST', url: '/api/baskets', payload });
+    expect(r.statusCode).toBe(400);
+    expect(r.json()).toMatchObject({ code: 'invalid_request' });
+    expect(r.json().message).toMatch(/at most 50 constituents/);
+  });
+
+  it('rejects effective dates outside 1970-01-01 … today+1 with invalid_basket', async () => {
+    const maxDate = isoDate(Math.floor(Date.now() / DAY) * DAY + DAY);
+    for (const effectiveFrom of ['1969-12-31', isoDate(Date.now() + 3 * DAY)]) {
+      const body = basketBody();
+      body.versions[0]!.effectiveFrom = effectiveFrom;
+      const r = await t.app.inject({ method: 'POST', url: '/api/baskets', payload: body });
+      expect(r.statusCode).toBe(400);
+      expect(r.json()).toMatchObject({ code: 'invalid_basket', message: `Version 1: Effective date must be between 1970-01-01 and ${maxDate}` });
+    }
+  });
+
   it('CRUD round-trip', async () => {
     const created = await t.app.inject({ method: 'POST', url: '/api/baskets', payload: basketBody() });
     expect(created.statusCode).toBe(201);

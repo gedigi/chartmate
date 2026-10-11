@@ -29,7 +29,8 @@ for `pnpm dev` is `apps/server/`, so dev data ends up in `apps/server/data/altv.
 pnpm build && pnpm --filter @altv/server start
 ```
 
-Open http://localhost:8787. The server also serves the built web app.
+Open http://localhost:8787. The server also serves the built web app. It listens on `127.0.0.1` by
+default; set `HOST=0.0.0.0` to reach it from other machines (the Docker image already does).
 
 `pnpm --filter @altv/server start` runs with `apps/server/` as its working directory, so the default
 `sqlite:./data/altv.db` is `apps/server/data/altv.db`. The path is relative to wherever the server is
@@ -44,7 +45,7 @@ docker build -t altv .
 docker run -p 8787:8787 -v altv-data:/data altv
 ```
 
-The image runs as the non-root `node` user (uid/gid 1000), stores SQLite at `/data/altv.db` (mount a
+The image sets `HOST=0.0.0.0` so the published port is reachable. It runs as the non-root `node` user (uid/gid 1000), stores SQLite at `/data/altv.db` (mount a
 volume on `/data`) and has a built-in healthcheck on `/api/health` (it honours `PORT`).
 
 A named volume (as above) just works. If you bind-mount a host directory instead, it must be writable by
@@ -69,6 +70,8 @@ docker run -d -p 8787:8787 \
 Put it behind an HTTPS reverse proxy. Notes on login security:
 
 - Setting `ALTV_PASSWORD` turns on a login page. Use a strong password.
+- Set `ALTV_SESSION_SECRET` to a random value (as above). If unset, the secret is derived from the
+  password, so a leaked session cookie would let someone guess the password offline.
 - Login attempts are rate limited: 10 failures per IP per 15 minutes, plus a global limit of 100
   failures per 15 minutes. The global limit means a determined attacker can lock *you* out for a while.
 - Behind a reverse proxy set `ALTV_TRUST_PROXY`, otherwise every client appears to come from the
@@ -82,7 +85,8 @@ Put it behind an HTTPS reverse proxy. Notes on login security:
 | Variable | Default | Description |
 | --- | --- | --- |
 | `PORT` | `8787` | HTTP port. |
-| `DATABASE_URL` | `sqlite:./data/altv.db` (Docker: `sqlite:/data/altv.db`) | `sqlite:<path>` or `postgres://…`. |
+| `HOST` | `127.0.0.1` (Docker: `0.0.0.0`) | Listen address. Use `0.0.0.0` (or `::`) to accept connections from other hosts. |
+| `DATABASE_URL` | `sqlite:./data/altv.db` (Docker: `sqlite:/data/altv.db`) | `sqlite:<path>` or `postgres://…`. An empty SQLite path (`sqlite:`) is rejected. |
 | `ALTV_PASSWORD` | unset (no auth) | Enables password login. |
 | `ALTV_SESSION_SECRET` | derived from the password | Cookie signing secret, min 16 chars. Set explicitly in production. |
 | `ALTV_TRUST_PROXY` | unset (`false`) | `true`, a hop count (e.g. `1`), or an IP/CIDR list of trusted proxies. |
@@ -110,6 +114,12 @@ Crypto symbols are `crypto:<BASE>` priced in USD (Binance `BTCUSDT`, Coinbase `B
 blocks some regions (e.g. the US): set `CRYPTO_PROVIDER=coinbase`, or point `BINANCE_BASE_URL` at an
 endpoint reachable from your host. Switching providers does not invalidate saved baskets, watchlists
 or drawings. If a provider is down or rate limiting, cached bars are served marked `stale`.
+
+Fetched history is cached in the database and not re-downloaded. Yahoo's daily bars are split- and
+dividend-adjusted *as of the day they were fetched*, so after a stock split (or dividend) the cached
+history before it is not refreshed: the chart shows a jump at the split, and baskets holding that stock
+size its units off by the split factor. To refetch a symbol, delete its cache (see
+[Troubleshooting](#troubleshooting)).
 
 ## Charts
 
@@ -139,6 +149,34 @@ A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
 - The basket starts at the first date on which *all* constituents have data (a prior close). If a
   constituent lists after the requested start, the chart starts later and a notice names the
   limiting symbol.
+- Intraday basket bars use the NYSE session grid when every constituent is a stock, and the UTC grid
+  as soon as any version holds crypto. Appending a crypto version to a stock-only basket therefore
+  re-grids its **whole** intraday history to UTC buckets (daily and above are unaffected).
+- A version holds at most 50 constituents, and its effective date must lie between 1970-01-01 and
+  tomorrow (UTC).
+
+## Troubleshooting
+
+**Missing days in daily/weekly/monthly history (caches created before this fix).** Earlier builds could
+drop a stock's daily bar when a chart requested a range starting between midnight UTC and the US open,
+and then never refetch it (the range was recorded as cached). Fresh installs are not affected. To repair
+an existing database, clear the fetch log so missing ranges are fetched again (bars already stored are
+kept and simply re-upserted):
+
+```sql
+DELETE FROM coverage;
+```
+
+**Stale history after a stock split or dividend.** Delete that symbol's cache, then reload the chart:
+
+```sql
+DELETE FROM bars WHERE symbol = 'stock:NVDA';
+DELETE FROM coverage WHERE symbol = 'stock:NVDA';
+```
+
+For SQLite stop the server first and run these with `sqlite3 <path-to-altv.db>`; for Postgres use `psql`
+against `DATABASE_URL`. Restart the server afterwards so baskets recompute their (cached) units from the
+corrected history.
 
 ## Custom indicators
 

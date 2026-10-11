@@ -30,6 +30,7 @@ export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () 
   const baskets = new BasketService({ repos, market });
   const config: Config = {
     port: 0,
+    host: '127.0.0.1',
     databaseUrl: 'sqlite::memory:',
     password: null,
     sessionSecret: 'test-secret-test-secret-test-secret',

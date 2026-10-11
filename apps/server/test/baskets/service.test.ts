@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { nyDateUtcMidnight, type BasketVersion, type NativeTimeframe } from '@altv/shared';
+import { nyDateUtcMidnight, tfMs, type BasketVersion, type NativeTimeframe } from '@altv/shared';
 import { createDb } from '../../src/db/connect.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';
@@ -338,6 +338,46 @@ describe('BasketService', () => {
       expect(r.stale).toBe(false);
       const d = await svc.getLatest(b.id, '1D', 'rth');
       expect(d.bar?.ts).toBe(D(10, 9));
+    });
+
+    it('equals the last bar of a full getBars (stock-only and mixed, across a weekend)', async () => {
+      const stocks = await svc.create({ name: 's', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'stock:BBB': 0.5 })] });
+      const mixed = await svc.create({ name: 'm', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
+      let compared = 0;
+      // Fri 08:00 EDT; Mon 05:00 EDT (pre-market after a weekend); Mon 11:00 EDT (regular session)
+      for (const at of [NOW, D(10, 12, 9), D(10, 12, 15)]) {
+        now = at;
+        for (const id of [stocks.id, mixed.id]) {
+          for (const tf of ['5m', '1h', '4h', '1D'] as const) {
+            for (const session of ['rth', 'eth'] as const) {
+              const label = `${id === stocks.id ? 'stocks' : 'mixed'} ${tf} ${session} @${new Date(at).toISOString()}`;
+              const full = (await svc.getBars({ id, tf, session, from: D(9, 20), to: now + DAY })).bars.at(-1);
+              const latest = (await svc.getLatest(id, tf, session)).bar;
+              if (latest === null) {
+                // Nothing in the current bucket window (e.g. RTH before the open): the last full bar is older.
+                expect(full!.ts, label).toBeLessThan(now - tfMs(tf));
+              } else {
+                expect(latest, label).toEqual(full);
+                compared++;
+              }
+            }
+          }
+        }
+      }
+      expect(compared).toBeGreaterThan(30);
+    });
+
+    it('fetches a small pad: 4 days for stock baskets, 2 bars for crypto-only, intraday', async () => {
+      const stocks = await svc.create({ name: 's', versions: [v('2026-09-14', { 'stock:AAA': 1 })] });
+      const coins = await svc.create({ name: 'c', versions: [v('2026-09-14', { 'crypto:BTC': 1 })] });
+      const spy = vi.spyOn(market, 'getNativeBars');
+      await svc.getLatest(stocks.id, '5m', 'eth');
+      const sFrom = Math.min(...spy.mock.calls.filter((c) => c[1] === '5m').map((c) => c[2]));
+      expect(sFrom).toBeGreaterThanOrEqual(NOW - 4 * DAY - 10 * 60_000);
+      spy.mockClear();
+      await svc.getLatest(coins.id, '1h', 'eth');
+      const cFrom = Math.min(...spy.mock.calls.filter((c) => c[1] === '1h').map((c) => c[2]));
+      expect(cFrom).toBeGreaterThanOrEqual(NOW - 4 * HOUR);
     });
   });
 });

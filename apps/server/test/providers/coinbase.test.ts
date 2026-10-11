@@ -26,11 +26,16 @@ function candleServer(rowFor: (tsSec: number) => number[]) {
 }
 
 describe('CoinbaseProvider', () => {
-  it('identity and no limits', () => {
+  it('identity; no lookback limit; one request (≤ 300 candles) per queued chunk', () => {
     const { p } = make(() => jsonResponse([]));
     expect(p.id).toBe('coinbase');
     expect(p.assetClass).toBe('crypto');
-    expect(p.limits).toEqual({ maxLookbackMs: {}, maxSpanPerRequestMs: {} });
+    const M = 60_000;
+    expect(p.limits).toEqual({
+      maxLookbackMs: {},
+      // 30m is built from 5m candles, so its span is 300 × 5m.
+      maxSpanPerRequestMs: { '1m': 300 * M, '5m': 1500 * M, '15m': 4500 * M, '30m': 1500 * M, '1h': 300 * 60 * M, '1D': 300 * 1440 * M },
+    });
   });
 
   it('candles: sorted ascending with ms timestamps and correct column mapping', async () => {
