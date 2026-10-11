@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8'); // vitest runs with apps/web as cwd
 const inline = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
-// eslint-disable-next-line @typescript-eslint/no-implied-eval -- executes the inline script under test
+// Executes the (trusted, repo-owned) inline script under test.
 const run = () => { new Function(inline)(); };
 
 afterEach(() => {

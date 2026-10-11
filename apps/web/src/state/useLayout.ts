@@ -80,7 +80,7 @@ export function useLayout(): { layout: Layout; setLayout: (fn: (l: Layout) => La
   useDebouncedSave(layout, saveDefault, 1000, loaded);
   // Identity changes only when the symbol or the indicators (by value) change.
   const indicatorsJson = JSON.stringify(layout.indicators);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on symbol + indicators only
+  // Deliberately keyed on symbol + indicators only (tf/chartType changes must not re-save sym:<id>).
   const symValue = useMemo(() => layout, [symbol, indicatorsJson]);
   useDebouncedSave(symValue, saveSymbol, 1000, loaded && symLoadedFor === symbol);
 
