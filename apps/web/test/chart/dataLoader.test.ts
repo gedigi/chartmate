@@ -19,7 +19,7 @@ function barsRes(bars: Bar[], over: Partial<BarsResponse> = {}): BarsResponse {
 function setup(opts: { session?: () => SessionMode; pollMs?: number } = {}) {
   const fetchBars = vi.fn<(p: BarsParams, signal?: AbortSignal) => Promise<BarsResponse>>();
   const fetchLatest = vi.fn<(p: LatestParams, signal?: AbortSignal) => Promise<LatestResponse>>();
-  const events: LoaderEvents = { onMeta: vi.fn(), onError: vi.fn() };
+  const events = { onMeta: vi.fn(), onError: vi.fn(), onConnection: vi.fn(), onReload: vi.fn() } satisfies LoaderEvents;
   const loader = createDataLoader({
     session: opts.session ?? (() => 'eth'),
     pollMs: opts.pollMs ?? 5000,
@@ -175,7 +175,7 @@ describe('createDataLoader getBars', () => {
     expect(cb2).toHaveBeenCalledWith([expect.objectContaining({ timestamp: t0 - MIN5 })], { forward: true, backward: false });
   });
 
-  it('init error → onError, retries after 2 s and calls back on success', async () => {
+  it('init error → connection lost (not a toast error), retries after 2 s, calls back and reports recovery', async () => {
     const { loader, fetchBars, events } = setup();
     fetchBars
       .mockRejectedValueOnce(new Error('boom'))
@@ -183,7 +183,8 @@ describe('createDataLoader getBars', () => {
     const cb = vi.fn();
     const done = loader.getBars({ type: 'init', timestamp: null, symbol, period: period5m, callback: cb });
     await vi.advanceTimersByTimeAsync(0);
-    expect(events.onError).toHaveBeenCalledTimes(1);
+    expect(events.onConnection).toHaveBeenCalledWith(true, expect.objectContaining({ message: 'boom' }));
+    expect(events.onError).not.toHaveBeenCalled();
     expect(cb).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1999);
     expect(fetchBars).toHaveBeenCalledTimes(1);
@@ -191,9 +192,10 @@ describe('createDataLoader getBars', () => {
     await done;
     expect(fetchBars).toHaveBeenCalledTimes(2);
     expect(cb).toHaveBeenCalledWith([expect.objectContaining({ timestamp: NOW - MIN5 })], { forward: true, backward: false });
+    expect(events.onConnection).toHaveBeenLastCalledWith(false);
   });
 
-  it('init retries back off 2 s, 5 s, 10 s, then every 30 s, reporting each error', async () => {
+  it('init retries back off 2 s, 5 s, 10 s, then every 30 s, reporting the outage once', async () => {
     const { loader, fetchBars, events } = setup();
     fetchBars.mockRejectedValue(new Error('down'));
     void loader.getBars({ type: 'init', timestamp: null, symbol, period: period5m, callback: vi.fn() });
@@ -206,7 +208,8 @@ describe('createDataLoader getBars', () => {
     expect(await calls(29_999)).toBe(4);
     expect(await calls(1)).toBe(5);
     expect(await calls(30_000)).toBe(6);
-    expect(events.onError).toHaveBeenCalledTimes(6);
+    expect(events.onError).not.toHaveBeenCalled();
+    expect(events.onConnection).toHaveBeenCalledTimes(1);
     loader.dispose();
   });
 
@@ -314,14 +317,81 @@ describe('createDataLoader polling', () => {
     expect(events.onMeta).toHaveBeenLastCalledWith(expect.objectContaining({ stale: true }));
   });
 
-  it('fetch error → onError and polling continues', async () => {
+  it('fetch errors → a single "connection lost" (no toast errors), polling continues, recovery reported once', async () => {
     const { fetchLatest, events, onBar } = await subscribed();
+    events.onConnection.mockClear();
     fetchLatest.mockRejectedValueOnce(new Error('down'));
-    fetchLatest.mockResolvedValueOnce({ bar: bar(NOW), stale: false });
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(events.onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'down' }));
+    fetchLatest.mockRejectedValueOnce(new Error('down'));
+    fetchLatest.mockResolvedValue({ bar: bar(NOW), stale: false });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(events.onError).not.toHaveBeenCalled();
+    expect(events.onConnection.mock.calls).toEqual([[true, expect.objectContaining({ message: 'down' })]]);
     await vi.advanceTimersByTimeAsync(5000);
     expect(onBar).toHaveBeenCalledWith(expect.objectContaining({ timestamp: NOW }));
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(events.onConnection.mock.calls.map((c) => c[0])).toEqual([true, false]);
+  });
+
+  it('a newer bar backfills [lastTs, bar.ts + tf) in order, finalising the previously forming bar', async () => {
+    const { fetchBars, fetchLatest, onBar } = await subscribed();
+    fetchBars.mockClear();
+    fetchBars.mockResolvedValueOnce(barsRes([
+      bar(NOW - MIN5, { close: 7 }), bar(NOW, { close: 8 }), bar(NOW + MIN5, { close: 9 }), bar(NOW + 2 * MIN5, { close: 0 }),
+    ]));
+    fetchLatest.mockResolvedValue({ bar: bar(NOW + 2 * MIN5, { close: 10 }), stale: false });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetchBars).toHaveBeenCalledWith(
+      { symbol: 'stock:AAPL', tf: '5m', session: 'eth', from: NOW - MIN5, to: NOW + 3 * MIN5 }, expect.anything());
+    expect(onBar.mock.calls.map((c) => [c[0].timestamp, c[0].close])).toEqual([
+      [NOW - MIN5, 7], [NOW, 8], [NOW + MIN5, 9], [NOW + 2 * MIN5, 10],
+    ]);
+    // Same bar again: a plain update, no further backfill.
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetchBars).toHaveBeenCalledTimes(1);
+    expect(onBar).toHaveBeenCalledTimes(5);
+  });
+
+  it('a failed backfill applies nothing and is retried on the next poll', async () => {
+    const { fetchBars, fetchLatest, onBar, events } = await subscribed();
+    fetchBars.mockClear();
+    fetchBars.mockRejectedValueOnce(new Error('down')).mockResolvedValueOnce(barsRes([bar(NOW - MIN5), bar(NOW)]));
+    fetchLatest.mockResolvedValue({ bar: bar(NOW + MIN5), stale: false });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(onBar).not.toHaveBeenCalled();
+    expect(events.onConnection).toHaveBeenLastCalledWith(true, expect.anything());
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetchBars).toHaveBeenCalledTimes(2);
+    expect(onBar.mock.calls.map((c) => c[0].timestamp)).toEqual([NOW - MIN5, NOW, NOW + MIN5]);
+  });
+
+  it('a gap larger than 3900 bars asks for a full reload instead of backfilling', async () => {
+    const { fetchBars, fetchLatest, onBar, events } = await subscribed();
+    fetchBars.mockClear();
+    fetchLatest.mockResolvedValue({ bar: bar(NOW - MIN5 + 3901 * MIN5), stale: false });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(events.onReload).toHaveBeenCalledTimes(1);
+    expect(fetchBars).not.toHaveBeenCalled();
+    expect(onBar).not.toHaveBeenCalled();
+  });
+
+  it('pauses while the document is hidden and polls immediately when it becomes visible', async () => {
+    const { loader, fetchLatest } = await subscribed();
+    fetchLatest.mockResolvedValue({ bar: null, stale: false });
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    try {
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(fetchLatest).not.toHaveBeenCalled();
+      hidden.mockReturnValue(false);
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchLatest).toHaveBeenCalledTimes(1);
+      loader.unsubscribeBar();
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchLatest).toHaveBeenCalledTimes(1);
+    } finally {
+      hidden.mockRestore();
+    }
   });
 
   it('unsubscribe stops polling', async () => {

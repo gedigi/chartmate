@@ -1,6 +1,7 @@
 import type { Quote, SymbolId, SymbolInfo } from '@altv/shared';
-import { useEffect, useRef, useState, type DragEvent, type JSX, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type DragEvent, type JSX, type KeyboardEvent } from 'react';
 import { api } from '../api/client';
+import { retryDelayMs } from '../state/retry';
 import { useWatchlist } from '../state/useWatchlist';
 import { Sparkline } from './Sparkline';
 import { SymbolSearch } from './SymbolSearch';
@@ -40,22 +41,38 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
   const requestedInfo = useRef(new Set<string>());
   const focusId = useRef<SymbolId | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const hintId = useId();
 
   const key = ids.join(',');
   const setKey = ids.slice().sort().join(',');
 
-  // Symbol info (names, price precision), cached per id.
+  // Symbol info (names, price precision), cached per id; failures are retried with backoff.
+  const infoRetries = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   useEffect(() => {
-    for (const id of ids) {
-      if (requestedInfo.current.has(id)) continue;
-      requestedInfo.current.add(id);
+    const load = (id: SymbolId, attempt: number) => {
       api.symbol(id).then(
         (info) => setInfos((cur) => ({ ...cur, [id]: info })),
-        () => { requestedInfo.current.delete(id); },
+        () => {
+          infoRetries.current.set(id, setTimeout(() => {
+            infoRetries.current.delete(id);
+            load(id, attempt + 1);
+          }, retryDelayMs(attempt)));
+        },
       );
+    };
+    for (const id of key === '' ? [] : key.split(',')) {
+      if (requestedInfo.current.has(id)) continue;
+      requestedInfo.current.add(id);
+      load(id, 0);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
+  useEffect(() => {
+    const retries = infoRetries.current;
+    return () => {
+      for (const t of retries.values()) clearTimeout(t);
+      retries.clear();
+    };
+  }, []);
 
   // Quote + sparkline polling. Keyed on the id *set* so reordering does not refetch.
   useEffect(() => {
@@ -118,7 +135,10 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       onSelect(id);
-    } else if (e.key === 'Delete') {
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      // Handled here: must not also reach the chart's "delete selected drawing" shortcut.
+      e.preventDefault();
+      e.stopPropagation();
       focusId.current = ids[index + 1] ?? ids[index - 1] ?? null;
       remove(id);
     }
@@ -136,7 +156,8 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
       <h2 className="panel-title">Watchlist</h2>
       <SymbolSearch onSelect={add} placeholder="Add symbol…" />
       {error && <div className="watchlist-error" role="alert">{error}</div>}
-      <ul className="watchlist-list" ref={listRef}>
+      <ul className="watchlist-list" ref={listRef} role="listbox" aria-label="Watchlist symbols"
+        aria-describedby={ids.length > 0 ? hintId : undefined}>
         {ids.map((id, i) => {
           const info = infos[id];
           const q = quotes[id];
@@ -153,7 +174,8 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
               className={classes.join(' ')}
               tabIndex={0}
               draggable
-              aria-current={id === currentSymbol ? 'true' : undefined}
+              role="option"
+              aria-selected={id === currentSymbol}
               onClick={() => onSelect(id)}
               onKeyDown={(e) => onKeyDown(e, id, i)}
               onDragStart={(e) => {
@@ -174,6 +196,7 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
               <button
                 type="button"
                 className="wl-remove"
+                tabIndex={-1}
                 aria-label={`Remove ${label}`}
                 onClick={(e) => { e.stopPropagation(); remove(id); }}
               >
@@ -183,6 +206,7 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
           );
         })}
       </ul>
+      <p id={hintId} className="sr-only">Enter opens the chart, Delete removes, Alt+Arrow keys reorder.</p>
       {loaded && ids.length === 0 && <div className="watchlist-empty">No symbols. Search above to add one.</div>}
     </section>
   );

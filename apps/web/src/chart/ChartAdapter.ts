@@ -111,10 +111,15 @@ export class ChartAdapter {
     this.loader?.dispose(); // its pending results and polling become no-ops while the chart resets below
     this.dataSymbol = null;
     this.loadSymbol = p.symbol.id;
+    // Blank the chart at once: KLineChart keeps the previous series until the new init page arrives, which
+    // could take several retries (old data must never sit under the new symbol / timeframe).
+    this.installEmptyLoader();
     const ready = () => { if (this.loader === loader) this.onDataReady(); };
     const loader = createDataLoader({ session: () => p.session, pollMs: p.pollMs }, {
       onMeta: (m) => events.onMeta(m),
       onError: (e) => { ready(); events.onError(e); }, // never keep drawings hidden because a page failed
+      onConnection: (lost, e) => { if (lost) ready(); events.onConnection?.(lost, e); },
+      onReload: () => { if (this.loader === loader) this.chart.resetData(); }, // gap too large to backfill
     });
     this.loader = loader;
     this.tf = p.tf;
@@ -139,6 +144,25 @@ export class ChartAdapter {
       subscribeBar: (params) => loader.subscribeBar(params),
       unsubscribeBar: () => loader.unsubscribeBar(),
     });
+  }
+
+  /**
+   * Stops loading/polling and blanks the chart (e.g. while the current symbol's info cannot be loaded), so
+   * the previous symbol's data is neither shown nor polled any more. The next load() starts afresh.
+   */
+  clear(): void {
+    this.loader?.dispose();
+    this.loader = null;
+    this.dataSymbol = null;
+    this.loadSymbol = null;
+    this.markers = [];
+    this.renderMarkers();
+    this.installEmptyLoader();
+  }
+
+  /** A loader that answers 'init' with no data: installing it resets KLineChart to an empty series. */
+  private installEmptyLoader(): void {
+    this.chart.setDataLoader({ getBars: ({ callback }) => callback([], { forward: false, backward: false }) });
   }
 
   // ── appearance ────────────────────────────────────────────────────────────

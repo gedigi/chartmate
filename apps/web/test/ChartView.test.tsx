@@ -1,7 +1,8 @@
-import type { Layout, SymbolInfo } from '@altv/shared';
+import type { Basket, Layout, SymbolInfo } from '@altv/shared';
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api/client';
+import { notifyBasketChanged } from '../src/state/useBaskets';
 import type { LoaderEvents } from '../src/chart/dataLoader';
 
 const fake = vi.hoisted(() => {
@@ -24,6 +25,13 @@ const fake = vi.hoisted(() => {
     onLockAllChange = vi.fn(() => () => {});
     resize = vi.fn();
     destroy = vi.fn();
+    clear = vi.fn();
+    startDrawing = vi.fn();
+    cancelDrawing = vi.fn();
+    clearDrawings = vi.fn();
+    removeSelected = vi.fn(() => false);
+    setMagnet = vi.fn();
+    setLockAll = vi.fn();
     constructor() { instances.push(this); }
   }
   return { instances, FakeAdapter };
@@ -43,11 +51,18 @@ const LAYOUT: Layout = {
 const adapter = () => fake.instances.at(-1)!;
 const flush = () => act(async () => { await Promise.resolve(); });
 
-function renderView(layout: Layout = LAYOUT, info: SymbolInfo | null = AAPL) {
+function renderView(layout: Layout = LAYOUT, info: SymbolInfo | null = AAPL, extra: { symbolError?: string | null; onRetrySymbol?: () => void } = {}) {
   const setLayout = vi.fn();
-  const r = render(<ChartView layout={layout} setLayout={setLayout} symbolInfo={info} theme="dark" />);
-  return { ...r, rerenderWith: (l: Layout, i: SymbolInfo | null = info) => r.rerender(<ChartView layout={l} setLayout={setLayout} symbolInfo={i} theme="dark" />) };
+  const r = render(<ChartView layout={layout} setLayout={setLayout} symbolInfo={info} theme="dark" {...extra} />);
+  return {
+    ...r,
+    rerenderWith: (l: Layout, i: SymbolInfo | null = info, e: typeof extra = extra) =>
+      r.rerender(<ChartView layout={l} setLayout={setLayout} symbolInfo={i} theme="dark" {...e} />),
+  };
 }
+
+const trendLine = () => screen.getByRole('button', { name: 'Trend line' });
+const meta = (stale = false) => ({ stale, notices: [], markers: [] });
 
 beforeEach(() => {
   fake.instances.length = 0;
@@ -154,6 +169,108 @@ describe('ChartView', () => {
     act(() => adapter().changeCb!());
     act(() => { vi.advanceTimersByTime(1000); });
     expect(vi.mocked(api.drawings.put).mock.calls.map((c) => c[0])).toEqual(['stock:AAPL', 'crypto:BTC']);
+  });
+
+  it('symbol info failure: stops/blanks the previous chart, shows an opaque error panel whose Retry retries', async () => {
+    const onRetrySymbol = vi.fn();
+    const { rerenderWith } = renderView(LAYOUT, AAPL, { onRetrySymbol });
+    await flush();
+    expect(adapter().load).toHaveBeenCalledTimes(1);
+    // Switch to MSFT whose info is still loading: the AAPL loader must stop at once (no polling under MSFT).
+    rerenderWith({ ...LAYOUT, symbol: 'stock:MSFT' }, null, { onRetrySymbol });
+    await flush();
+    expect(adapter().clear).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('chart-loading')).toBeInTheDocument();
+    rerenderWith({ ...LAYOUT, symbol: 'stock:MSFT' }, null, { symbolError: 'Network error', onRetrySymbol });
+    const panel = screen.getByTestId('symbol-error');
+    expect(panel).toHaveClass('chart-error-panel');
+    expect(panel).toHaveTextContent("Couldn't load symbol stock:MSFT: Network error");
+    expect(screen.queryByTestId('chart-loading')).not.toBeInTheDocument();
+    act(() => screen.getByRole('button', { name: 'Retry' }).click());
+    expect(onRetrySymbol).toHaveBeenCalledTimes(1);
+    expect(adapter().load).toHaveBeenCalledTimes(1);
+    expect(trendLine()).toBeDisabled();
+  });
+
+  it('shows a loading overlay until the first data of each load arrives', async () => {
+    const { rerenderWith } = renderView();
+    await flush();
+    expect(screen.getByTestId('chart-loading')).toBeInTheDocument();
+    act(() => adapter().events!.onMeta(meta()));
+    expect(screen.queryByTestId('chart-loading')).not.toBeInTheDocument();
+    rerenderWith({ ...LAYOUT, tf: '1h' });
+    await flush();
+    expect(screen.getByTestId('chart-loading')).toBeInTheDocument();
+  });
+
+  it('an outage shows one persistent banner + stale badge (no toasts) and clears on recovery', async () => {
+    renderView();
+    await flush();
+    act(() => adapter().events!.onMeta(meta()));
+    act(() => adapter().events!.onConnection!(true, new Error('Network error')));
+    expect(screen.getAllByText('Connection lost — retrying…')).toHaveLength(1);
+    expect(screen.getByText(/Data delayed/)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    act(() => adapter().events!.onConnection!(false));
+    expect(screen.queryByText('Connection lost — retrying…')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Data delayed/)).not.toBeInTheDocument();
+  });
+
+  it('places notices in the bottom-left stack, away from the top-left OHLC legend', async () => {
+    renderView();
+    await flush();
+    act(() => adapter().events!.onMeta({ stale: false, notices: ['Some notice'], markers: [] }));
+    expect(screen.getByText('Some notice').closest('.chart-overlay-bottom-left')).not.toBeNull();
+  });
+
+  it('drawing tools stay disabled until the symbol\'s drawings and first data are in', async () => {
+    renderView();
+    await flush();
+    await flush();
+    expect(trendLine()).toBeDisabled(); // drawings loaded, data not yet
+    act(() => adapter().events!.onMeta(meta()));
+    expect(trendLine()).toBeEnabled();
+  });
+
+  it('retries a failed drawings load with backoff and keeps saving disabled until it succeeds', async () => {
+    vi.useFakeTimers();
+    vi.mocked(api.drawings.get)
+      .mockRejectedValueOnce(new Error('down'))
+      .mockRejectedValueOnce(new Error('down'))
+      .mockResolvedValueOnce([]);
+    renderView();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    act(() => adapter().events!.onMeta(meta()));
+    expect(screen.getByRole('alert')).toHaveTextContent(/Could not load drawings/);
+    expect(trendLine()).toBeDisabled();
+    act(() => adapter().changeCb!());
+    await act(async () => { await vi.advanceTimersByTimeAsync(1999); });
+    expect(api.drawings.get).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(api.drawings.get).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(api.drawings.get).toHaveBeenCalledTimes(3);
+    expect(api.drawings.put).not.toHaveBeenCalled();
+    expect(trendLine()).toBeEnabled();
+    act(() => adapter().changeCb!());
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(api.drawings.put).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-derives the basket poll interval when the basket is edited', async () => {
+    const B: SymbolInfo = { id: 'basket:b1', assetClass: 'basket', ticker: 'B1', name: 'B1', pricePrecision: 2 };
+    const stocks: Basket = { id: 'b1', name: 'B1', baseValue: 100, createdAt: 0, updatedAt: 0,
+      versions: [{ effectiveFrom: '2024-01-02', weights: { 'stock:AAPL': 1 } }] };
+    const get = vi.spyOn(api.baskets, 'get').mockResolvedValue(stocks);
+    renderView({ ...LAYOUT, symbol: 'basket:b1' }, B);
+    await flush();
+    await flush();
+    expect(adapter().load.mock.calls.at(-1)![0]).toMatchObject({ pollMs: 15000 });
+    get.mockResolvedValue({ ...stocks, versions: [...stocks.versions, { effectiveFrom: '2024-02-01', weights: { 'crypto:BTC': 1 } }] });
+    act(() => notifyBasketChanged('b1'));
+    await flush();
+    await flush();
+    expect(adapter().load.mock.calls.at(-1)![0]).toMatchObject({ pollMs: 5000 });
   });
 
   it('destroys the adapter on unmount', async () => {

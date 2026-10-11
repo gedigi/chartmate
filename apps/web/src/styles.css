@@ -160,3 +160,6 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 @media (max-width: 1100px) {
   .symbol-name, .brand { display: none; }
 }
+
+/* Visually hidden, still announced by screen readers. */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

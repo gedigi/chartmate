@@ -11,6 +11,8 @@ export type DrawingControls = Pick<
 export interface DrawingToolbarProps {
   /** Null until the chart exists; all buttons are disabled meanwhile. */
   controls: DrawingControls | null;
+  /** Disables every button (e.g. until the current symbol's drawings are loaded) without resetting the toggles. */
+  disabled?: boolean;
   /** Shown in the "clear all" confirmation. */
   ticker: string;
 }
@@ -54,10 +56,19 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 /**
+ * True when the key event belongs to another widget (watchlist, dialog, button, listbox / option): Delete there
+ * means something else (or nothing) and must not remove the selected drawing.
+ */
+function isOtherWidget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return target.closest('button, [role="listbox"], [role="option"], [role="dialog"], dialog, [data-testid="watchlist"]') !== null;
+}
+
+/**
  * Vertical drawing toolbar (left column of the chart): drawing tools, magnet, lock all, delete selected, clear all.
  * Keyboard: Delete/Backspace removes the selected drawing, Escape cancels the active tool.
  */
-export function DrawingToolbar({ controls, ticker }: DrawingToolbarProps): JSX.Element {
+export function DrawingToolbar({ controls, disabled: disabledProp = false, ticker }: DrawingToolbarProps): JSX.Element {
   const [active, setActiveState] = useState<Active>(null);
   const activeRef = useRef<Active>(null);
   const setActive = (a: Active) => { activeRef.current = a; setActiveState(a); };
@@ -68,6 +79,9 @@ export function DrawingToolbar({ controls, ticker }: DrawingToolbarProps): JSX.E
   const rootRef = useRef<HTMLDivElement>(null);
   const controlsRef = useRef(controls);
   controlsRef.current = controls;
+  const disabled = !controls || disabledProp;
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
 
   // The chart (re)creates with default modes; reset local toggles when it changes.
   useEffect(() => { setActive(null); setMagnet(false); setLocked(false); }, [controls]);
@@ -92,7 +106,7 @@ export function DrawingToolbar({ controls, ticker }: DrawingToolbarProps): JSX.E
         if (!isTyping(e.target)) cancel();
         return;
       }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && !isTyping(e.target)) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !isTyping(e.target) && !isOtherWidget(e.target) && !disabledRef.current) {
         if (controlsRef.current?.removeSelected()) e.preventDefault();
       }
     };
@@ -115,7 +129,6 @@ export function DrawingToolbar({ controls, ticker }: DrawingToolbarProps): JSX.E
     start('simpleAnnotation', { text: t });
   };
 
-  const disabled = !controls;
   const toolButton = (tool: DrawingTool, label: string, icon: JSX.Element, onClick: (btn: HTMLElement) => void) => (
     <button
       key={tool}

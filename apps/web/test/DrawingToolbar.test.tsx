@@ -115,6 +115,28 @@ describe('DrawingToolbar', () => {
     expect(c.removeSelected).toHaveBeenCalledTimes(2);
   });
 
+  it('Delete/Backspace ignore watchlist, dialogs, buttons and listbox options, and do nothing while disabled', () => {
+    const { c } = makeControls();
+    const { rerender } = render(
+      <>
+        <section data-testid="watchlist"><span tabIndex={0}>row</span></section>
+        <div role="dialog" aria-label="dlg"><span tabIndex={0}>in dialog</span></div>
+        <button type="button">btn</button>
+        <ul role="listbox" aria-label="lb"><li role="option" aria-selected="false">opt</li></ul>
+        <DrawingToolbar controls={c} ticker="AAPL" />
+      </>,
+    );
+    fireEvent.keyDown(screen.getByText('row'), { key: 'Delete' });
+    fireEvent.keyDown(screen.getByText('in dialog'), { key: 'Backspace' });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'btn' }), { key: 'Delete' });
+    fireEvent.keyDown(screen.getByRole('option', { name: 'opt' }), { key: 'Delete' });
+    expect(c.removeSelected).not.toHaveBeenCalled();
+    rerender(<DrawingToolbar controls={c} disabled ticker="AAPL" />);
+    fireEvent.keyDown(document.body, { key: 'Delete' });
+    expect(c.removeSelected).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Trend line' })).toBeDisabled();
+  });
+
   it('Lock all reflects the adapter state (e.g. 2 locked drawings restored) and a click unlocks all', async () => {
     const { c, emitLock } = makeControls();
     render(<DrawingToolbar controls={c} ticker="AAPL" />);

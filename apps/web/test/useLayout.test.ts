@@ -1,7 +1,7 @@
 import type { Layout } from '@altv/shared';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
-import { api } from '../src/api/client';
+import { api, ApiError } from '../src/api/client';
 import { DEFAULT_LAYOUT, useLayout } from '../src/state/useLayout';
 
 const saved: Layout = { symbol: 'stock:AAPL', tf: '1h', session: 'rth', chartType: 'candle', indicators: [] };
@@ -116,5 +116,82 @@ describe('useLayout per-symbol load races', () => {
       if (key === 'sym:stock:AAPL') expect(l.indicators).toEqual([ma]);
       expect(key).not.toBe('sym:stock:MSFT');
     }
+  });
+});
+
+describe('useLayout load failures and early edits', () => {
+  it('a non-404 failure of the default load never adopts DEFAULT_LAYOUT or saves; it retries with backoff', async () => {
+    vi.mocked(api.layouts.get).mockImplementation(async (key) => {
+      if (key === 'default') throw new ApiError(500, 'internal', 'boom');
+      return null;
+    });
+    const { result } = renderHook(() => useLayout());
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(result.current.loaded).toBe(false);
+    expect(result.current.loadError).toBe('boom');
+    act(() => result.current.setLayout((l) => ({ ...l, tf: '1m' })));
+    await settle();
+    expect(result.current.layout).toEqual(DEFAULT_LAYOUT);
+    expect(put).not.toHaveBeenCalled();
+    const calls = () => vi.mocked(api.layouts.get).mock.calls.filter((c) => c[0] === 'default').length;
+    const before = calls();
+    vi.mocked(api.layouts.get).mockImplementation(async (key) => (key === 'default' ? saved : null));
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(calls()).toBeGreaterThan(before);
+    expect(result.current.loaded).toBe(true);
+    expect(result.current.loadError).toBeNull();
+    expect(result.current.layout).toEqual(saved);
+    await settle();
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('retry() reloads the default layout at once', async () => {
+    let fail = true;
+    vi.mocked(api.layouts.get).mockImplementation(async (key) => {
+      if (key === 'default') { if (fail) throw new ApiError(0, 'network_error', 'offline'); return saved; }
+      return null;
+    });
+    const { result } = renderHook(() => useLayout());
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(result.current.loadError).toBe('offline');
+    fail = false;
+    act(() => result.current.retry());
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(result.current.loaded).toBe(true);
+    expect(result.current.layout).toEqual(saved);
+  });
+
+  it('a symbol selected before the default layout loads is applied on top of it (and saved)', async () => {
+    const d = deferred<Layout | null>();
+    vi.mocked(api.layouts.get).mockImplementation((key) => (key === 'default' ? d.promise : Promise.resolve(null)));
+    const { result } = renderHook(() => useLayout());
+    act(() => result.current.selectSymbol('stock:MSFT'));
+    expect(result.current.layout.symbol).toBe(DEFAULT_LAYOUT.symbol);
+    await act(async () => { d.resolve(saved); await Promise.resolve(); });
+    await waitFor(() => expect(result.current.layout).toEqual({ ...saved, symbol: 'stock:MSFT' }));
+    await settle();
+    expect(put).toHaveBeenCalledWith('default', expect.objectContaining({ symbol: 'stock:MSFT', tf: saved.tf }));
+  });
+
+  it('an indicator edit made while the sym: load keeps failing is saved once that load succeeds', async () => {
+    const rsi = { name: 'RSI', pane: 'sub' as const, calcParams: [14], visible: true };
+    let symFails = true;
+    vi.mocked(api.layouts.get).mockImplementation(async (key) => {
+      if (key === 'default') return saved;
+      if (symFails) throw new ApiError(503, 'unavailable', 'down');
+      return { ...saved, indicators: [] };
+    });
+    const { result } = renderHook(() => useLayout());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    act(() => result.current.setLayout((l) => ({ ...l, indicators: [rsi] })));
+    await settle();
+    expect(put.mock.calls.filter((c) => c[0].startsWith('sym:'))).toEqual([]);
+    symFails = false;
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    await settle();
+    const symPuts = put.mock.calls.filter((c) => c[0] === 'sym:stock:AAPL');
+    expect(symPuts.length).toBeGreaterThanOrEqual(1);
+    expect(symPuts.at(-1)![1].indicators).toEqual([rsi]);
+    expect(result.current.layout.indicators).toEqual([rsi]);
   });
 });

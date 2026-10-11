@@ -1,5 +1,5 @@
 import type { SymbolId, SymbolInfo } from '@altv/shared';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api/client';
@@ -47,8 +47,8 @@ describe('Watchlist', () => {
     expect(screen.getByText('-2.00%')).toHaveClass('down');
     expect(await screen.findByText('My Basket')).toBeInTheDocument();
     expect(rows()[2]!.textContent).toContain('—');
-    expect(rows()[1]).toHaveAttribute('aria-current', 'true');
-    expect(rows()[0]).not.toHaveAttribute('aria-current');
+    expect(rows()[1]).toHaveAttribute('aria-selected', 'true');
+    expect(rows()[0]).toHaveAttribute('aria-selected', 'false');
     await waitFor(() => expect(document.querySelectorAll('polyline')).toHaveLength(2));
   });
 
@@ -205,6 +205,39 @@ describe('Watchlist', () => {
     expect(rows()[0]!.querySelector('.wl-price')).toHaveTextContent('—');
     await act(async () => { resolve(INFO['stock:AAPL']!); });
     expect(rows()[0]!.querySelector('.wl-price')).toHaveTextContent('10.00');
+  });
+
+  it('is a listbox of options; Delete on a row does not reach document-level shortcuts', async () => {
+    setup(['stock:AAPL', 'crypto:BTC']);
+    const onDoc = vi.fn();
+    document.addEventListener('keydown', onDoc);
+    try {
+      render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+      await screen.findByText('BTC');
+      const list = screen.getByRole('listbox', { name: 'Watchlist symbols' });
+      const opts = within(list).getAllByRole('option');
+      expect(opts).toHaveLength(2);
+      expect(within(list).getByRole('option', { selected: true })).toHaveAttribute('data-symbol', 'stock:AAPL');
+      fireEvent.keyDown(opts[1]!, { key: 'Delete' });
+      expect(order()).toEqual(['stock:AAPL']);
+      expect(onDoc).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', onDoc);
+    }
+  });
+
+  it('retries a failed symbol info load with backoff', async () => {
+    setup(['stock:AAPL']);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(api.symbol).mockRejectedValueOnce(new Error('down')).mockRejectedValueOnce(new Error('down'));
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(api.symbol).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(api.symbol).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(api.symbol).toHaveBeenCalledTimes(3);
+    await waitFor(() => expect(rows()[0]!.querySelector('.wl-symbol')).toHaveAttribute('title', 'Apple Inc.'));
   });
 
   it('Delete removes the row and focuses the neighbor (previous if last)', async () => {

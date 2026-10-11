@@ -122,6 +122,91 @@ describe('App', () => {
     expect(await screen.findByText("Couldn't load symbol crypto:BTC: Unknown symbol")).toBeInTheDocument();
   });
 
+  it('recovers from a failed symbol info load via the Retry button, by re-selecting the symbol, or automatically', async () => {
+    vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+    vi.spyOn(api.watchlist, 'get').mockResolvedValue(['crypto:BTC']);
+    vi.spyOn(api.watchlist, 'put').mockResolvedValue(undefined);
+    const ok = vi.mocked(api.symbol).getMockImplementation()!;
+    vi.mocked(api.symbol).mockRejectedValue(new ApiError(0, 'network_error', 'offline'));
+    render(<App />);
+    expect(await screen.findByText("Couldn't load symbol crypto:BTC: offline")).toBeInTheDocument();
+    // Retry button.
+    const n = vi.mocked(api.symbol).mock.calls.length;
+    await userEvent.click(within(screen.getByTestId('symbol-error')).getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(vi.mocked(api.symbol).mock.calls.length).toBeGreaterThan(n));
+    // Re-selecting the same symbol in the watchlist retries too; this time it works.
+    vi.mocked(api.symbol).mockImplementation(ok);
+    const row = await screen.findByRole('option', { name: /BTC/ });
+    await userEvent.click(row);
+    await waitFor(() => expect(screen.queryByTestId('symbol-error')).not.toBeInTheDocument());
+    expect(await screen.findByText('crypto:BTC name')).toBeInTheDocument();
+  });
+
+  it('retries a failed symbol info load automatically with backoff', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+      const ok = vi.mocked(api.symbol).getMockImplementation()!;
+      vi.mocked(api.symbol).mockRejectedValueOnce(new ApiError(503, 'unavailable', 'down'));
+      vi.mocked(api.symbol).mockImplementation(ok);
+      render(<App />);
+      expect(await screen.findByText("Couldn't load symbol crypto:BTC: down")).toBeInTheDocument();
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+      await waitFor(() => expect(screen.queryByTestId('symbol-error')).not.toBeInTheDocument());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a watchlist click before the default layout loads is applied after it loads (not overwritten)', async () => {
+    vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+    vi.spyOn(api.watchlist, 'get').mockResolvedValue(['stock:MSFT']);
+    vi.spyOn(api.watchlist, 'put').mockResolvedValue(undefined);
+    let resolveDefault!: (l: Layout | null) => void;
+    vi.mocked(api.layouts.get).mockImplementation((key) =>
+      key === 'default' ? new Promise((r) => { resolveDefault = r; }) : Promise.resolve(null));
+    render(<App />);
+    await userEvent.click(await screen.findByRole('option', { name: /MSFT/ }));
+    resolveDefault({ symbol: 'stock:AAPL', tf: '1h', session: 'rth', chartType: 'candle', indicators: [] });
+    expect(await screen.findByText('stock:MSFT name')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1h' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('a failed default-layout load blocks the chart with Retry (controls stay disabled, nothing saved)', async () => {
+    vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+    let fail = true;
+    vi.mocked(api.layouts.get).mockImplementation(async (key) => {
+      if (key === 'default' && fail) throw new ApiError(500, 'internal', 'db down');
+      return null;
+    });
+    render(<App />);
+    expect(await screen.findByText("Couldn't load layout: db down")).toBeInTheDocument();
+    expect(screen.queryByTestId('chart-view')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1h' })).toBeDisabled();
+    fail = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByTestId('chart-view')).toBeInTheDocument();
+    expect(api.layouts.put).not.toHaveBeenCalled();
+  });
+
+  it('a 401 arriving while a session check is in flight triggers one more check afterwards', async () => {
+    let resolveFirst!: (s: { authRequired: boolean; authenticated: boolean }) => void;
+    const session = vi.spyOn(api, 'session')
+      .mockImplementationOnce(() => new Promise((r) => { resolveFirst = r; }))
+      .mockResolvedValue({ authRequired: true, authenticated: false });
+    let handler: (() => void) | null = null;
+    const setHandler = await import('../src/api/client');
+    const spy = vi.spyOn(setHandler, 'setUnauthorizedHandler');
+    render(<App />);
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    handler = spy.mock.calls.find((c) => c[0] !== null)![0];
+    act(() => handler!()); // 401 while the first check is in flight
+    expect(session).toHaveBeenCalledTimes(1);
+    await act(async () => { resolveFirst({ authRequired: true, authenticated: true }); });
+    await waitFor(() => expect(session).toHaveBeenCalledTimes(2));
+    expect(await screen.findByLabelText('Password')).toBeInTheDocument();
+  });
+
   it('shows no symbol error while the symbol info is still loading', async () => {
     vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
     vi.mocked(api.symbol).mockImplementation(() => new Promise(() => {}));

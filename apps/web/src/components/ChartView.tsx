@@ -4,7 +4,9 @@ import { api, errorMessage } from '../api/client';
 import { ChartAdapter, type IndicatorSpec } from '../chart/ChartAdapter';
 import type { LoaderMeta } from '../chart/dataLoader';
 import { pollIntervalMs } from '../chart/periods';
+import { onBasketChanged } from '../state/useBaskets';
 import { useDebouncedSave } from '../state/useDebouncedSave';
+import { retryDelayMs } from '../state/retry';
 import { DrawingToolbar } from './DrawingToolbar';
 import { IndicatorChips } from './IndicatorChips';
 import { StaleBadge } from './StaleBadge';
@@ -15,8 +17,10 @@ export interface ChartViewProps {
   setLayout: (fn: (l: Layout) => Layout) => void;
   /** Null while the symbol's info is loading or failed to load. */
   symbolInfo: SymbolInfo | null;
-  /** Set when the current symbol's info failed to load (shown inline instead of a blank chart). */
+  /** Set when the current symbol's info failed to load (an error panel with Retry replaces the chart). */
   symbolError?: string | null;
+  /** Retry button of the symbol error panel. */
+  onRetrySymbol?: () => void;
   theme: 'dark' | 'light';
 }
 
@@ -24,11 +28,20 @@ const EMPTY_META: LoaderMeta = { stale: false, notices: [], markers: [] };
 const TOAST_MS = 6000;
 const DRAWINGS_SAVE_MS = 1000;
 
-/** Polling interval for a symbol; baskets poll fast only if they contain crypto. Null while unknown. */
+/**
+ * Polling interval for a symbol; baskets poll fast only if they contain crypto (re-checked when the basket is
+ * edited). Null while unknown.
+ */
 function usePollMs(info: SymbolInfo | null): number | null {
   const [basket, setBasket] = useState<{ id: SymbolId; ms: number } | null>(null);
+  const [basketRev, setBasketRev] = useState(0);
   const isBasket = info?.assetClass === 'basket';
   const id = info?.id;
+  useEffect(() => {
+    if (!isBasket || !id) return;
+    const code = parseSymbolId(id).code;
+    return onBasketChanged((changed) => { if (changed === code) setBasketRev((r) => r + 1); });
+  }, [isBasket, id]);
   useEffect(() => {
     if (!isBasket || !id) return;
     let cancelled = false;
@@ -38,7 +51,7 @@ function usePollMs(info: SymbolInfo | null): number | null {
       () => done(pollIntervalMs('basket')),
     );
     return () => { cancelled = true; };
-  }, [isBasket, id]);
+  }, [isBasket, id, basketRev]);
   if (!info) return null;
   if (!isBasket) return pollIntervalMs(info.assetClass);
   return basket?.id === info.id ? basket.ms : null;
@@ -57,13 +70,18 @@ const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringif
  * stale badge, etc.). The root fills its grid cell; `.chart-view` is itself a 2-column grid.
  * One ChartAdapter lives for the component's lifetime and is driven from `layout`.
  */
-export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, theme }: ChartViewProps): JSX.Element {
+export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, onRetrySymbol, theme }: ChartViewProps): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
   const [adapter, setAdapter] = useState<ChartAdapter | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
   const [meta, setMeta] = useState<LoaderMeta>(EMPTY_META);
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
   const [toast, setToast] = useState<string | null>(null);
+  /** First data (or a definitive failure) of the current load is in; until then a loading overlay shows. */
+  const [dataSettled, setDataSettled] = useState(false);
+  const [dataReceived, setDataReceived] = useState(false);
+  /** Error message while initial loads / polls keep failing (one persistent banner instead of toasts). */
+  const [connectionLost, setConnectionLost] = useState<string | null>(null);
   const themeRef = useRef(theme);
   themeRef.current = theme;
   const indicatorsRef = useRef(new Map<string, { id: string; state: IndicatorState }>());
@@ -98,16 +116,34 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, t
   useEffect(() => { adapter?.setTheme(theme); }, [adapter, theme]);
   useEffect(() => { adapter?.setChartType(chartType); }, [adapter, chartType]);
 
-  // Data: (re)load on symbol / timeframe / session change.
+  // Data: (re)load on symbol / timeframe / session change. Without info for the current symbol (loading or
+  // failed) the chart is blanked and the previous symbol's loader stops: its data must not sit under the new header.
   useEffect(() => {
-    if (!adapter || !info || pollMs === null) return;
-    let active = true;
+    if (!adapter) return;
     setMeta(EMPTY_META);
     setDismissed(new Set());
     setToast(null);
+    setConnectionLost(null);
+    setDataSettled(false);
+    setDataReceived(false);
+    if (!info || pollMs === null) {
+      adapter.clear();
+      return;
+    }
+    let active = true;
     adapter.load({ symbol: info, tf, session, pollMs }, {
-      onMeta: (m) => { if (active) setMeta(m); },
+      onMeta: (m) => {
+        if (!active) return;
+        setMeta(m);
+        setDataSettled(true);
+        setDataReceived(true);
+      },
       onError: (e) => { if (active) setToast(errorMessage(e)); },
+      onConnection: (lost, e) => {
+        if (!active) return;
+        setConnectionLost(lost ? errorMessage(e ?? new Error('Connection lost')) : null);
+        if (lost) setDataSettled(true);
+      },
     });
     return () => { active = false; };
   }, [adapter, info, tf, session, pollMs]);
@@ -157,17 +193,29 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, t
   useEffect(() => {
     if (!adapter) return;
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     setDrawingsFor(null);
     adapter.restoreDrawings([]);
-    api.drawings.get(symbol).then(
-      (d) => {
-        if (cancelled) return;
-        adapter.restoreDrawings(d, symbol); // created once this symbol's data is in
-        setDrawingsFor(symbol);
-      },
-      (err: unknown) => { if (!cancelled) setToast(`Could not load drawings: ${errorMessage(err)}`); },
-    );
-    return () => { cancelled = true; };
+    // Retried with backoff: saving stays disabled until this symbol's drawings are loaded.
+    const fetchDrawings = (attempt: number) => {
+      api.drawings.get(symbol).then(
+        (d) => {
+          if (cancelled) return;
+          adapter.restoreDrawings(d, symbol); // created once this symbol's data is in
+          setDrawingsFor(symbol);
+        },
+        (err: unknown) => {
+          if (cancelled) return;
+          if (attempt === 0) setToast(`Could not load drawings (retrying): ${errorMessage(err)}`);
+          timer = setTimeout(() => fetchDrawings(attempt + 1), retryDelayMs(attempt));
+        },
+      );
+    };
+    fetchDrawings(0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [adapter, symbol]);
 
   useEffect(() => adapter?.onDrawingsChange(() => {
@@ -193,22 +241,35 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, t
   }, [toast]);
 
   const notices = meta.notices.filter((n) => !dismissed.has(n));
+  const symbolFailed = !initError && symbolError !== null && !info;
+  // Drawing tools only once this symbol's drawings are loaded and the chart has data (or gave up waiting for it),
+  // so nothing drawn in the switch window is lost to a pending restore.
+  const drawingReady = drawingsFor === symbol && dataSettled && info !== null;
 
   return (
     <div className="chart-view" data-testid="chart-view">
       <div className="left-toolbar">
-        <DrawingToolbar controls={adapter} ticker={info?.ticker ?? symbol} />
+        <DrawingToolbar controls={adapter} disabled={!drawingReady} ticker={info?.ticker ?? symbol} />
       </div>
       <div className="chart-area">
         <IndicatorChips layout={layout} setLayout={setLayout} />
         <div className="chart-stage">
           <div className="chart-host" ref={hostRef} data-testid="chart-host" />
           {initError && <div className="center-message chart-init-error" role="alert">Chart failed to start: {initError}</div>}
-          {!initError && symbolError !== null && !info && (
-            <div className="center-message chart-init-error" role="alert">Couldn&apos;t load symbol {symbol}: {symbolError}</div>
+          {symbolFailed && (
+            <div className="center-message chart-error-panel" role="alert" data-testid="symbol-error">
+              <p>Couldn&apos;t load symbol {symbol}: {symbolError}</p>
+              <button type="button" onClick={onRetrySymbol}>Retry</button>
+            </div>
           )}
-          <div className="chart-overlay-top-left">
-            <StaleBadge stale={meta.stale} />
+          {!initError && !symbolFailed && !dataReceived && (
+            <div className="chart-loading" data-testid="chart-loading" aria-live="polite">Loading…</div>
+          )}
+          <div className="chart-overlay-bottom-left">
+            {connectionLost !== null && (
+              <div className="chart-banner" role="status" title={connectionLost}>Connection lost — retrying…</div>
+            )}
+            <StaleBadge stale={meta.stale || connectionLost !== null} />
             {notices.map((n) => (
               <div key={n} className="chart-notice">
                 <span>{n}</span>

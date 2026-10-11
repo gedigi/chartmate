@@ -8,6 +8,7 @@ import { TopBar, type Theme, type View } from './components/TopBar';
 import { Watchlist } from './components/Watchlist';
 import { onBasketChanged } from './state/useBaskets';
 import { useLayout } from './state/useLayout';
+import { retryDelayMs } from './state/retry';
 
 const THEME_KEY = 'altv.theme';
 const SIDEBAR_BREAKPOINT = 900;
@@ -52,18 +53,34 @@ type SymbolInfoState =
   | { status: 'ready'; info: SymbolInfo }
   | { status: 'error'; message: string };
 
-/** Info for the current symbol, distinguishing loading from a failed load. */
-function useSymbolInfo(symbol: SymbolId): SymbolInfoState {
+/**
+ * Info for the current symbol, distinguishing loading from a failed load. A failed load is retried with
+ * backoff (2 s, 5 s, 10 s, then every 30 s); `retry()` retries at once.
+ */
+function useSymbolInfo(symbol: SymbolId): { state: SymbolInfoState; retry: () => void } {
   const [state, setState] = useState<{ id: SymbolId; value: SymbolInfoState } | null>(null);
+  const [attemptKey, setAttemptKey] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    api.symbol(symbol).then(
-      (info) => { if (!cancelled) setState({ id: symbol, value: { status: 'ready', info } }); },
-      (err: unknown) => { if (!cancelled) setState({ id: symbol, value: { status: 'error', message: errorMessage(err) } }); },
-    );
-    return () => { cancelled = true; };
-  }, [symbol]);
-  return state?.id === symbol ? state.value : { status: 'loading' };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = (attempt: number) => {
+      api.symbol(symbol).then(
+        (info) => { if (!cancelled) setState({ id: symbol, value: { status: 'ready', info } }); },
+        (err: unknown) => {
+          if (cancelled) return;
+          setState({ id: symbol, value: { status: 'error', message: errorMessage(err) } });
+          timer = setTimeout(() => load(attempt + 1), retryDelayMs(attempt));
+        },
+      );
+    };
+    load(0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [symbol, attemptKey]);
+  const retry = useCallback(() => setAttemptKey((k) => k + 1), []);
+  return { state: state?.id === symbol ? state.value : { status: 'loading' }, retry };
 }
 
 /** RTH/ETH only matters for stocks and for baskets containing at least one stock (re-checked when the basket is edited). */
@@ -100,16 +117,24 @@ function useShowSession(symbol: SymbolId): boolean {
 }
 
 function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme: () => void; onLogout?: () => void }): JSX.Element {
-  const { layout, setLayout, loaded } = useLayout();
+  const { layout, setLayout, selectSymbol: selectLayoutSymbol, loaded, loadError, retry: retryLayout } = useLayout();
   const [view, setView] = useHashView();
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= SIDEBAR_BREAKPOINT);
-  const symbolInfoState = useSymbolInfo(layout.symbol);
+  const { state: symbolInfoState, retry: retrySymbolInfo } = useSymbolInfo(layout.symbol);
   const symbolInfo = symbolInfoState.status === 'ready' ? symbolInfoState.info : null;
   const symbolError = symbolInfoState.status === 'error' ? symbolInfoState.message : null;
   const showSession = useShowSession(layout.symbol);
 
-  const selectSymbol = useCallback((id: SymbolId) => setLayout((l) => (l.symbol === id ? l : { ...l, symbol: id })), [setLayout]);
+  const current = useRef({ symbol: layout.symbol, failed: symbolError !== null });
+  current.current = { symbol: layout.symbol, failed: symbolError !== null };
+  // Re-selecting the current symbol after its info failed retries the info load.
+  const selectSymbol = useCallback((id: SymbolId) => {
+    if (id === current.current.symbol && current.current.failed) retrySymbolInfo();
+    selectLayoutSymbol(id);
+  }, [selectLayoutSymbol, retrySymbolInfo]);
   const openChart = useCallback((id: SymbolId) => { selectSymbol(id); setView('chart'); }, [selectSymbol, setView]);
+
+  const layoutBlocked = !loaded && loadError !== null;
 
   return (
     <div className={`app-shell view-${view}${sidebarOpen && view === 'chart' ? '' : ' sidebar-collapsed'}`}>
@@ -131,11 +156,19 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
       {view === 'chart' ? (
         <>
           <main className="chart-main">
-            {loaded
-              ? <ChartView layout={layout} setLayout={setLayout} symbolInfo={symbolInfo} symbolError={symbolError} theme={theme} />
-              : <div className="center-message">Loading layout…</div>}
+            {loaded && (
+              <ChartView layout={layout} setLayout={setLayout} symbolInfo={symbolInfo} symbolError={symbolError}
+                onRetrySymbol={retrySymbolInfo} theme={theme} />
+            )}
+            {layoutBlocked && (
+              <div className="center-message">
+                <p role="alert">Couldn&apos;t load layout: {loadError}</p>
+                <button type="button" onClick={retryLayout}>Retry</button>
+              </div>
+            )}
+            {!loaded && !layoutBlocked && <div className="center-message">Loading layout…</div>}
           </main>
-          {sidebarOpen && (
+          {sidebarOpen && !layoutBlocked && (
             <aside className="right-sidebar">
               <Watchlist currentSymbol={layout.symbol} onSelect={selectSymbol} />
             </aside>
@@ -160,13 +193,22 @@ export function App(): JSX.Element {
   const [session, setSession] = useState<SessionState>({ status: 'loading' });
 
   const checking = useRef(false);
+  /** A check was requested while one was in flight (e.g. a 401 arrived meanwhile): run one more afterwards. */
+  const recheck = useRef(false);
   const loadSession = useCallback(() => {
-    if (checking.current) return; // coalesce bursts (e.g. several 401s at once)
+    if (checking.current) { // coalesce bursts (e.g. several 401s at once) into one follow-up check
+      recheck.current = true;
+      return;
+    }
     checking.current = true;
+    recheck.current = false;
     api.session().then(
       (s) => setSession({ status: 'ready', ...s }),
       (err: unknown) => setSession({ status: 'error', message: errorMessage(err) }),
-    ).finally(() => { checking.current = false; });
+    ).finally(() => {
+      checking.current = false;
+      if (recheck.current) loadSession();
+    });
   }, []);
   useEffect(loadSession, [loadSession]);
   // Session expired mid-use: any API 401 re-checks the session, which shows Login if needed.

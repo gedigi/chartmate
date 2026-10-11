@@ -6,7 +6,7 @@ let seq = 0;
 
 function makeChart() {
   return {
-    setStyles() {}, setSymbol() {}, setPeriod() {}, setDataLoader() {}, setTimezone() {}, resize() {},
+    setStyles() {}, setSymbol() {}, setPeriod() {}, setDataLoader() {}, setTimezone() {}, resize() {}, resetData() {},
     getDataList: () => [],
     getIndicators: () => [],
     getOverlays: () => [],

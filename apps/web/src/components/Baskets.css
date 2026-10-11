@@ -4,7 +4,6 @@
 .baskets-page .muted, .basket-editor .muted { color: var(--text-muted); }
 .baskets-page .up { color: var(--up); }
 .baskets-page .down { color: var(--down); }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 .baskets-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 button.danger:hover:not(:disabled) { color: var(--down); border-color: var(--down); }

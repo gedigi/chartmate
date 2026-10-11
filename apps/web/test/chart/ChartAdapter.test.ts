@@ -17,7 +17,7 @@ const k = vi.hoisted(() => {
     const data: Array<{ timestamp: number; high: number }> = [];
     const chart = {
       overlays, indicators, data,
-      setStyles: vi.fn(), setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(), setTimezone: vi.fn(),
+      setStyles: vi.fn(), setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(), setTimezone: vi.fn(), resetData: vi.fn(),
       resize: vi.fn(), getDataList: vi.fn(() => data),
       getStyles: vi.fn(() => ({ indicator: { lines: [{ color: '#d1' }, { color: '#d2' }, { color: '#d3' }] } })),
       createIndicator: vi.fn((v: Partial<FakeIndicator> & { name: string }, _isStack?: boolean) => {
@@ -83,7 +83,7 @@ const { api } = await import('../../src/api/client');
 
 const AAPL: SymbolInfo = { id: 'stock:AAPL', assetClass: 'stock', ticker: 'AAPL', name: 'Apple', pricePrecision: 2 };
 const BTC: SymbolInfo = { id: 'crypto:BTC', assetClass: 'crypto', ticker: 'BTC', name: 'Bitcoin', pricePrecision: 2 };
-const events = () => ({ onMeta: vi.fn(), onError: vi.fn() });
+const events = () => ({ onMeta: vi.fn(), onError: vi.fn(), onConnection: vi.fn() });
 
 let el: HTMLElement;
 beforeEach(() => {
@@ -109,6 +109,60 @@ describe('ChartAdapter', () => {
     expect(chart().setDataLoader).toHaveBeenCalledWith(expect.objectContaining({ getBars: expect.any(Function), subscribeBar: expect.any(Function) }));
     a.load({ symbol: BTC, tf: '1D', session: 'rth', pollMs: 5000 }, events());
     expect(chart().setSymbol).toHaveBeenLastCalledWith(expect.objectContaining({ ticker: 'crypto:BTC', pricePrecision: 2, volumePrecision: 4 }));
+  });
+
+  /** Runs the loader installed by setDataLoader call `i` for 'init' and returns what it called back with. */
+  async function runInit(i: number) {
+    const loader = chart().setDataLoader.mock.calls[i]![0] as { getBars: (p: unknown) => Promise<void> | void };
+    const callback = vi.fn();
+    await loader.getBars({ type: 'init', timestamp: null, symbol: { ticker: 'x' }, period: { type: 'day', span: 1 }, callback });
+    return callback;
+  }
+
+  it('load blanks the chart first (an empty-init loader) so old data never shows under the new symbol', async () => {
+    const a = make();
+    a.load({ symbol: AAPL, tf: '5m', session: 'eth', pollMs: 15000 }, events());
+    const calls = chart().setDataLoader.mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(await runInit(0)).toHaveBeenCalledWith([], { forward: false, backward: false });
+    expect(calls[0]![0]).not.toHaveProperty('subscribeBar');
+  });
+
+  it('clear() stops the current loader and blanks the chart', async () => {
+    const a = make();
+    a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 15000 }, events());
+    const real = chart().setDataLoader.mock.calls.at(-1)![0] as { getBars: (p: unknown) => Promise<void> };
+    const bars = vi.spyOn(api, 'bars');
+    a.clear();
+    expect(await runInit(chart().setDataLoader.mock.calls.length - 1)).toHaveBeenCalledWith([], { forward: false, backward: false });
+    const cb = vi.fn();
+    await real.getBars({ type: 'init', timestamp: null, symbol: { ticker: 'stock:AAPL' }, period: { type: 'day', span: 1 }, callback: cb });
+    expect(bars).not.toHaveBeenCalled(); // the disposed loader is inert
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it('a poll gap too large to backfill resets the chart data (full reload)', async () => {
+    vi.useFakeTimers();
+    try {
+      const a = make();
+      a.load({ symbol: BTC, tf: '1m', session: 'rth', pollMs: 5000 }, events());
+      const loader = chart().setDataLoader.mock.calls.at(-1)![0] as {
+        getBars: (p: unknown) => Promise<void>; subscribeBar: (p: unknown) => void;
+      };
+      const now = Date.now();
+      vi.spyOn(api, 'bars').mockResolvedValue({
+        symbol: 'crypto:BTC', tf: '1m', session: 'rth', hasMoreBefore: false, stale: false, notices: [], markers: [],
+        bars: [{ ts: now - 10 * 86_400_000, open: 1, high: 1, low: 1, close: 1, volume: 1 }],
+      });
+      await loader.getBars({ type: 'init', timestamp: null, symbol: { ticker: 'crypto:BTC' }, period: { type: 'minute', span: 1 }, callback: vi.fn() });
+      vi.spyOn(api, 'latest').mockResolvedValue({ bar: { ts: now, open: 1, high: 1, low: 1, close: 1, volume: 1 }, stale: false });
+      loader.subscribeBar({ symbol: { ticker: 'crypto:BTC' }, period: { type: 'minute', span: 1 }, callback: vi.fn() });
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(chart().resetData).toHaveBeenCalledTimes(1);
+      a.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('addIndicator main → candle_pane with isStack=true; sub → new pane', () => {
@@ -430,7 +484,7 @@ describe('ChartAdapter', () => {
       const loader = chart().setDataLoader.mock.calls.at(-1)![0] as { getBars: (p: unknown) => Promise<void> };
       // The loader keeps retrying a failed init; the drawings must not wait for that.
       void loader.getBars({ type: 'init', timestamp: null, symbol: { ticker: 'stock:AAPL' }, period: { type: 'day', span: 1 }, callback: vi.fn() });
-      await vi.waitFor(() => expect(ev.onError).toHaveBeenCalled());
+      await vi.waitFor(() => expect(ev.onConnection).toHaveBeenCalledWith(true, expect.anything()));
       expect(userOverlays()).toHaveLength(1);
       a.destroy(); // stops the retry loop
     });
