@@ -15,7 +15,7 @@ export function Login({ onSuccess }: { onSuccess: () => void }): JSX.Element {
       onSuccess();
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) setError('Wrong password');
-      else if (err instanceof ApiError && err.code === 'rate_limited') setError('Too many attempts — try again later');
+      else if (err instanceof ApiError && (err.status === 429 || err.code === 'rate_limited')) setError('Too many attempts — try again later');
       else setError(errorMessage(err));
       setBusy(false);
     }

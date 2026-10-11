@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, ApiError } from '../src/api/client';
+import { api, ApiError, setUnauthorizedHandler } from '../src/api/client';
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -12,7 +12,7 @@ function mockFetch(...responses: Response[]) {
   return fn;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); setUnauthorizedHandler(null); });
 
 describe('api client', () => {
   it('maps non-2xx JSON errors to ApiError with status and code', async () => {
@@ -88,5 +88,52 @@ describe('api client', () => {
       ['/api/baskets/b1', 'PUT'],
       ['/api/baskets/b1', 'DELETE'],
     ]);
+  });
+
+  it('sends PUT requests with keepalive so beforeunload flushes survive the page unloading', async () => {
+    const f = mockFetch(new Response(null, { status: 204 }), new Response(null, { status: 204 }), new Response(null, { status: 204 }));
+    await api.layouts.put('default', { symbol: 'crypto:BTC', tf: '1D', session: 'rth', chartType: 'candle', indicators: [] });
+    await api.drawings.put('crypto:BTC', []);
+    await api.watchlist.put([]);
+    for (const [, init] of f.mock.calls) {
+      expect(init?.method).toBe('PUT');
+      expect(init?.keepalive).toBe(true);
+    }
+  });
+
+  it('omits keepalive for PUT bodies over the browser keepalive quota', async () => {
+    const f = mockFetch(new Response(null, { status: 204 }));
+    const big = Array.from({ length: 2000 }, (_, i) => ({ name: 'segment', points: [{ timestamp: i, value: i }], lock: false }));
+    await api.drawings.put('crypto:BTC', big);
+    expect(String(f.mock.calls[0]![1]?.body).length).toBeGreaterThan(60_000);
+    expect(f.mock.calls[0]![1]?.keepalive).toBeUndefined();
+  });
+
+  it('does not set keepalive on GET requests', async () => {
+    const f = mockFetch(jsonResponse(200, []));
+    await api.watchlist.get();
+    expect(f.mock.calls[0]![1]?.keepalive).toBeUndefined();
+  });
+
+  it('calls the registered unauthorized handler when a request returns 401 unauthorized', async () => {
+    const onUnauthorized = vi.fn();
+    setUnauthorizedHandler(onUnauthorized);
+    mockFetch(jsonResponse(401, { code: 'unauthorized', message: 'Login required' }));
+    await expect(api.watchlist.get()).rejects.toMatchObject({ status: 401, code: 'unauthorized' });
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call the unauthorized handler for login/session requests or other errors', async () => {
+    const onUnauthorized = vi.fn();
+    setUnauthorizedHandler(onUnauthorized);
+    mockFetch(
+      jsonResponse(401, { code: 'unauthorized', message: 'Wrong password' }),
+      jsonResponse(401, { code: 'unauthorized', message: 'Login required' }),
+      jsonResponse(403, { code: 'forbidden', message: 'nope' }),
+    );
+    await expect(api.login('bad')).rejects.toMatchObject({ status: 401 });
+    await expect(api.session()).rejects.toMatchObject({ status: 401 });
+    await expect(api.watchlist.get()).rejects.toMatchObject({ status: 403 });
+    expect(onUnauthorized).not.toHaveBeenCalled();
   });
 });

@@ -77,4 +77,21 @@ describe('App', () => {
     expect(screen.getByRole('combobox', { name: 'Chart type' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Indicators' })).toBeEnabled();
   });
+
+  it('re-checks the session and shows Login when an API call returns 401 mid-session', async () => {
+    const session = vi.spyOn(api, 'session')
+      .mockResolvedValueOnce({ authRequired: true, authenticated: true })
+      .mockResolvedValue({ authRequired: true, authenticated: false });
+    // Every un-mocked API call (watchlist, quotes, …) now fails as an expired session would.
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockImplementation(async () =>
+      new Response(JSON.stringify({ code: 'unauthorized', message: 'Login required' }), { status: 401 })));
+    try {
+      render(<App />);
+      expect(await screen.findByLabelText('Password')).toBeInTheDocument();
+      expect(screen.queryByTestId('chart-view')).not.toBeInTheDocument();
+      expect(session.mock.calls.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

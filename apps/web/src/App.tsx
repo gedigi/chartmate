@@ -1,6 +1,6 @@
 import { parseSymbolId, type SymbolId, type SymbolInfo } from '@altv/shared';
-import { useCallback, useEffect, useState, type JSX } from 'react';
-import { api, errorMessage } from './api/client';
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
+import { api, errorMessage, setUnauthorizedHandler } from './api/client';
 import { BasketsPage } from './components/BasketsPage';
 import { ChartView } from './components/ChartView';
 import { Login } from './components/Login';
@@ -145,13 +145,21 @@ export function App(): JSX.Element {
   const [theme, toggleTheme] = useTheme();
   const [session, setSession] = useState<SessionState>({ status: 'loading' });
 
+  const checking = useRef(false);
   const loadSession = useCallback(() => {
+    if (checking.current) return; // coalesce bursts (e.g. several 401s at once)
+    checking.current = true;
     api.session().then(
       (s) => setSession({ status: 'ready', ...s }),
       (err: unknown) => setSession({ status: 'error', message: errorMessage(err) }),
-    );
+    ).finally(() => { checking.current = false; });
   }, []);
   useEffect(loadSession, [loadSession]);
+  // Session expired mid-use: any API 401 re-checks the session, which shows Login if needed.
+  useEffect(() => {
+    setUnauthorizedHandler(loadSession);
+    return () => setUnauthorizedHandler(null);
+  }, [loadSession]);
 
   const logout = useCallback(() => {
     api.logout().catch(() => { /* reload session regardless */ }).finally(loadSession);

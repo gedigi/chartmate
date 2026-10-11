@@ -24,12 +24,28 @@ function qs(q: Query): string {
   return `?${p.toString()}`;
 }
 
+/** Bytes; browsers cap in-flight keepalive bodies at 64 KiB. */
+const KEEPALIVE_MAX_BODY = 60_000;
+
+let unauthorizedHandler: (() => void) | null = null;
+
+/**
+ * Registers the single global handler called when any API request (other than `/login` and `/session`
+ * themselves) fails with 401 `unauthorized`, i.e. the session expired mid-use. Pass null to unregister.
+ */
+export function setUnauthorizedHandler(fn: (() => void) | null): void {
+  unauthorizedHandler = fn;
+}
+
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const init: RequestInit = { method, credentials: 'same-origin', signal };
   if (body !== undefined) {
     init.headers = { 'content-type': 'application/json' };
     init.body = JSON.stringify(body);
   }
+  // Lets a save flushed from `beforeunload` complete after the page is gone. Browsers reject keepalive
+  // requests whose body exceeds 64 KiB, so very large payloads go without it.
+  if (method === 'PUT' && (typeof init.body !== 'string' || new TextEncoder().encode(init.body).length <= KEEPALIVE_MAX_BODY)) init.keepalive = true;
   let res: Response;
   try {
     res = await fetch(`/api${path}`, init);
@@ -48,6 +64,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
         if (typeof d.message === 'string') message = d.message;
       }
     } catch { /* non-JSON error body */ }
+    if (res.status === 401 && code === 'unauthorized' && path !== '/login' && path !== '/session') unauthorizedHandler?.();
     throw new ApiError(res.status, code, message);
   }
   if (res.status === 204) return undefined as T;
