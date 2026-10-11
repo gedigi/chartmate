@@ -1,4 +1,4 @@
-import type { Basket } from '@altv/shared';
+import { MAX_CONSTITUENTS, type Basket } from '@altv/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { BasketService } from '../baskets/service.js';
@@ -7,7 +7,9 @@ import { parse } from './validation.js';
 // Shape only; semantic validation (dates, weights, constituents) is BasketService's job → 400 invalid_basket.
 const VersionSchema = z.object({
   effectiveFrom: z.string().max(10),
-  weights: z.record(z.string().max(100), z.number()),
+  weights: z.record(z.string().max(100), z.number()).refine((w) => Object.keys(w).length <= MAX_CONSTITUENTS, {
+    message: `A version may have at most ${MAX_CONSTITUENTS} constituents`,
+  }),
 });
 const CreateBody = z.object({
   name: z.string().max(200),

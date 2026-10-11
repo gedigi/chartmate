@@ -179,7 +179,7 @@ export class BasketService {
   /** Validation order: versions shape → constituents exist → engine dry-run on daily data. */
   private async validate(versions: BasketVersion[], baseValue: number): Promise<{ units: UnitsResult; stale: boolean }> {
     try {
-      validateVersions(versions);
+      validateVersions(versions, { now: this.now() });
     } catch (err) {
       if (err instanceof BasketValidationError) throw invalid(err.message);
       throw err;

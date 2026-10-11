@@ -11,8 +11,21 @@ export class BasketValidationError extends Error {
   }
 }
 
-export function validateVersions(versions: BasketVersion[]): void {
+/** Most constituents a single basket version may hold. */
+export const MAX_CONSTITUENTS = 50;
+/** Earliest allowed `effectiveFrom`. */
+export const MIN_EFFECTIVE_DATE = '1970-01-01';
+
+/** Latest allowed `effectiveFrom` (YYYY-MM-DD): tomorrow, UTC. */
+export function maxEffectiveDate(now: number = Date.now()): string {
+  return utcDateString(Math.floor(now / DAY_MS) * DAY_MS + DAY_MS);
+}
+
+export function validateVersions(versions: BasketVersion[], opts: { now?: number } = {}): void {
   if (versions.length === 0) throw new BasketValidationError('Basket needs at least one version');
+  const maxDate = maxEffectiveDate(opts.now ?? Date.now());
+  const minTs = parseDateString(MIN_EFFECTIVE_DATE);
+  const maxTs = parseDateString(maxDate);
   let prevTs = -Infinity;
   versions.forEach((v, k) => {
     const label = `Version ${k + 1}`;
@@ -22,10 +35,16 @@ export function validateVersions(versions: BasketVersion[]): void {
     } catch {
       throw new BasketValidationError(`${label}: invalid effectiveFrom date ${v.effectiveFrom}`);
     }
+    if (ts < minTs || ts > maxTs) {
+      throw new BasketValidationError(`${label}: Effective date must be between ${MIN_EFFECTIVE_DATE} and ${maxDate}`);
+    }
     if (ts <= prevTs) throw new BasketValidationError(`${label}: effectiveFrom must be strictly after the previous version`);
     prevTs = ts;
     const entries = Object.entries(v.weights);
     if (entries.length === 0) throw new BasketValidationError(`${label}: no weights`);
+    if (entries.length > MAX_CONSTITUENTS) {
+      throw new BasketValidationError(`${label}: at most ${MAX_CONSTITUENTS} constituents (got ${entries.length})`);
+    }
     let sum = 0;
     for (const [id, w] of entries) {
       let cls: string;

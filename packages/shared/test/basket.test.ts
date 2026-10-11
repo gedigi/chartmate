@@ -22,6 +22,20 @@ describe('validateVersions', () => {
   });
   it('accepts increasing multi-version', () =>
     expect(() => validateVersions([ok, { effectiveFrom: '2024-02-01', weights: { 'stock:A': 1 } }])).not.toThrow());
+  it('caps constituents at 50 per version', () => {
+    const weights = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`stock:S${i}`, 1 / n]));
+    expect(() => validateVersions([{ ...ok, weights: weights(50) }])).not.toThrow();
+    expect(() => validateVersions([{ ...ok, weights: weights(51) }])).toThrow(/Version 1: at most 50 constituents \(got 51\)/);
+  });
+  it('bounds effectiveFrom to 1970-01-01 … today+1 (UTC), with an injectable now', () => {
+    const now = Date.parse('2026-10-11T23:30:00Z');
+    const msg = 'Effective date must be between 1970-01-01 and 2026-10-12';
+    expect(() => validateVersions([{ ...ok, effectiveFrom: '1970-01-01' }], { now })).not.toThrow();
+    expect(() => validateVersions([{ ...ok, effectiveFrom: '2026-10-12' }], { now })).not.toThrow();
+    expect(() => validateVersions([{ ...ok, effectiveFrom: '1969-12-31' }], { now })).toThrow(msg);
+    expect(() => validateVersions([{ ...ok, effectiveFrom: '2026-10-13' }], { now })).toThrow(msg);
+    expect(() => validateVersions([ok, { effectiveFrom: '9999-01-01', weights: { 'stock:A': 1 } }], { now })).toThrow(BasketValidationError);
+  });
 });
 
 describe('normalizeWeights', () => {
