@@ -12,6 +12,8 @@ import type { MarketDataService } from '../market/service.js';
 const DAY = 86_400_000;
 const UNITS_TTL_MS = 6 * 3_600_000;
 const INTRADAY_PAD_MS = 5 * DAY;
+/** getLatest's intraday pad for baskets holding a stock: covers a long weekend so forward-fill has a prior close. */
+const LATEST_STOCK_PAD_MS = 4 * DAY;
 const DAILY_PAD_MS = 10 * DAY;
 const UNITS_LOOKBACK_MS = 10 * DAY;
 const MAX_NAME = 80;
@@ -19,7 +21,11 @@ export const INTRADAY_HL_NOTICE = 'Basket high/low are approximate (sum of const
 
 export type BarsResponseCore = { bars: Bar[]; stale: boolean; hasMoreBefore: boolean; notices: string[]; markers: Marker[] };
 
-export interface BasketBarsArgs { id: string; tf: Timeframe; session: SessionMode; from: number; to: number }
+export interface BasketBarsArgs {
+  id: string; tf: Timeframe; session: SessionMode; from: number; to: number;
+  /** History fetched before the first base bar to seed forward-fill (default: 5 d intraday, 10 d daily). */
+  padMs?: number;
+}
 
 interface CachedUnits { key: string; units: UnitsResult; at: number }
 
@@ -128,7 +134,7 @@ export class BasketService {
     const baseTo = derived ? Math.max(a.to, bucketEnd(a.to - 1, a.tf, outCal)) : a.to;
     // Build base bars from the start of the bucket containing `a.from` so a kept leading bucket is complete.
     const baseFrom = derived ? Math.max(bucketStart(a.from, a.tf, outCal), units.startTs) : from;
-    const fetchFrom = baseFrom - (isIntraday(base) ? INTRADAY_PAD_MS : DAILY_PAD_MS);
+    const fetchFrom = baseFrom - (a.padMs ?? (isIntraday(base) ? INTRADAY_PAD_MS : DAILY_PAD_MS));
 
     // Only versions active somewhere in [fetchFrom, baseTo) need their constituents' bars.
     const vs = units.versions;
@@ -168,11 +174,17 @@ export class BasketService {
 
   async getLatest(id: string, tf: Timeframe, session: SessionMode): Promise<{ bar: Bar | null; stale: boolean }> {
     const basket = await this.get(id);
-    const anyCrypto = constituents(basket.versions).some((c) => parseSymbolId(c).assetClass === 'crypto');
+    const classes = constituents(basket.versions).map((c) => parseSymbolId(c).assetClass);
+    const anyCrypto = classes.includes('crypto');
     const cal: Calendar = !isIntraday(tf) || anyCrypto ? 'utc' : session === 'eth' ? 'nyse-eth' : 'nyse-rth';
     const now = this.now();
     const back = tf === '1W' ? 7 * DAY : tf === '1M' ? 31 * DAY : tfMs(tf);
-    const r = await this.getBars({ id, tf, session, from: bucketStart(now, tf, cal) - back, to: now + tfMs(tf) });
+    // Polled often: fetch just enough history to seed forward-fill (stocks: across a long weekend).
+    const base = baseTimeframe(tf);
+    const padMs = !isIntraday(base) ? undefined : classes.includes('stock') ? LATEST_STOCK_PAD_MS : 2 * tfMs(base);
+    const r = await this.getBars({
+      id, tf, session, from: bucketStart(now, tf, cal) - back, to: now + tfMs(tf), ...(padMs !== undefined ? { padMs } : {}),
+    });
     return { bar: r.bars.at(-1) ?? null, stale: r.stale };
   }
 
