@@ -6,6 +6,7 @@ import type { LoaderMeta } from '../chart/dataLoader';
 import { pollIntervalMs } from '../chart/periods';
 import { useDebouncedSave } from '../state/useDebouncedSave';
 import { DrawingToolbar } from './DrawingToolbar';
+import { IndicatorChips } from './IndicatorChips';
 import { StaleBadge } from './StaleBadge';
 import './ChartView.css';
 
@@ -54,7 +55,7 @@ const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringif
  * stale badge, etc.). The root fills its grid cell; `.chart-view` is itself a 2-column grid.
  * One ChartAdapter lives for the component's lifetime and is driven from `layout`.
  */
-export function ChartView({ layout, symbolInfo, theme }: ChartViewProps): JSX.Element {
+export function ChartView({ layout, setLayout, symbolInfo, theme }: ChartViewProps): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
   const [adapter, setAdapter] = useState<ChartAdapter | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
@@ -209,6 +210,7 @@ export function ChartView({ layout, symbolInfo, theme }: ChartViewProps): JSX.El
               >×</button>
             </div>
           ))}
+          <IndicatorChips layout={layout} setLayout={setLayout} />
         </div>
         {toast && (
           <div className="chart-toast" role="alert">

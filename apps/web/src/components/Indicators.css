@@ -1,0 +1,104 @@
+/* Modal dialog (shared) */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 10vh 16px 16px;
+  background: rgba(0, 0, 0, 0.45);
+}
+.modal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(420px, 100%);
+  max-height: 80vh;
+  padding: 14px 16px 16px;
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  outline: none;
+}
+.modal-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.modal-title { margin: 0; font-size: 15px; font-weight: 600; }
+.modal-close { background: none; border: none; font-size: 18px; line-height: 1; padding: 2px 6px; color: var(--text-muted); }
+.modal-close:hover:not(:disabled) { color: var(--text); }
+
+/* Indicator picker */
+.indicator-search { width: 100%; }
+.indicator-groups { overflow: auto; min-height: 0; flex: 1; }
+.indicator-group + .indicator-group { margin-top: 8px; }
+.indicator-group-title {
+  margin: 4px 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.indicator-group ul { list-style: none; margin: 0; padding: 0; }
+.indicator-option {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  background: none;
+  text-align: left;
+}
+.indicator-option-name { min-width: 48px; font-weight: 600; }
+.indicator-option-label { color: var(--text-muted); }
+.indicator-empty { color: var(--text-muted); margin: 8px 0; }
+.indicator-picker-status { min-height: 1.2em; font-size: 12px; color: var(--text-muted); }
+
+/* Indicator settings */
+.indicator-settings form { display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+.indicator-settings-subtitle, .indicator-settings-note { margin: 0; color: var(--text-muted); }
+.settings-row { display: grid; grid-template-columns: 1fr 120px; align-items: center; gap: 4px 12px; }
+.settings-row input[type='text'] { width: 100%; }
+.settings-row input[type='color'] { width: 48px; height: 26px; padding: 0 2px; justify-self: start; }
+.settings-error { grid-column: 2; font-size: 12px; }
+.settings-colors { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); }
+.settings-colors legend { padding: 0 4px; color: var(--text-muted); font-size: 12px; }
+.settings-actions { display: flex; gap: 6px; margin-top: 6px; }
+.settings-actions-spacer { flex: 1; }
+
+/* Active-indicator chips (inside .chart-overlay-top-left) */
+.indicator-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.indicator-chip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 2px 1px 6px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg-panel) 80%, transparent);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+}
+.indicator-chip:hover, .indicator-chip:focus-within { border-color: var(--border); }
+.indicator-chip.is-hidden .indicator-chip-label { color: var(--text-muted); text-decoration: line-through; }
+.indicator-chip-label { margin-right: 4px; white-space: nowrap; }
+.indicator-chip-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.6;
+}
+.indicator-chip:hover .indicator-chip-button, .indicator-chip-button:focus-visible { opacity: 1; }
+.indicator-chip-button:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
+.indicator-chip-remove:hover:not(:disabled) { color: var(--error); }

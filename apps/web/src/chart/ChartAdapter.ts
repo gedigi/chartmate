@@ -7,6 +7,8 @@ import {
   type ChartType, type DrawingState, type Marker, type SessionMode, type SymbolInfo, type Timeframe,
 } from '@altv/shared';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
+import { registerCustomIndicators } from './indicators/register';
+import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
 import { registerSessionShade, SESSION_SHADE } from './sessionShade';
 import { chartStyles, THEME_TOKENS, type ThemeName } from './theme';
@@ -80,6 +82,8 @@ export class ChartAdapter {
   private tf: Timeframe | null = null;
   private loader: DataLoaderImpl | null = null;
   private markers: Marker[] = [];
+  /** Passed to every indicator as `extendData` (VWAP picks its session day from it). */
+  private indicatorExt: IndicatorExtendData = {};
   private readonly lineColors = new Map<string, string[]>();
   private readonly changeListeners = new Set<() => void>();
   private silent = 0;
@@ -87,6 +91,7 @@ export class ChartAdapter {
 
   constructor(el: HTMLElement, opts: { theme: ThemeName }) {
     registerSessionShade();
+    registerCustomIndicators();
     this.el = el;
     this.theme = opts.theme;
     const chart = init(el, { styles: this.styles() });
@@ -113,6 +118,7 @@ export class ChartAdapter {
     this.tf = p.tf;
     this.markers = [];
     this.renderMarkers();
+    this.setIndicatorAssetClass(p.symbol.assetClass);
     this.chart.setTimezone(timezoneFor(p.symbol, p.tf));
     this.chart.setSymbol({
       ticker: p.symbol.id,
@@ -192,6 +198,7 @@ export class ChartAdapter {
     if (spec.visible !== undefined) create.visible = spec.visible;
     const styles = lineStyles(spec.lineColors);
     if (styles) create.styles = styles;
+    create.extendData = this.indicatorExt;
     const id = this.chart.createIndicator(create, main);
     if (!id) throw new Error(`Cannot create indicator ${spec.name}`);
     if (spec.lineColors) this.lineColors.set(id, spec.lineColors);
@@ -213,6 +220,14 @@ export class ChartAdapter {
     this.chart.overrideIndicator(override);
     if (spec.lineColors) this.lineColors.set(id, spec.lineColors);
     else this.lineColors.delete(id);
+  }
+
+  private setIndicatorAssetClass(assetClass: SymbolInfo['assetClass']): void {
+    if (this.indicatorExt.assetClass === assetClass) return;
+    this.indicatorExt = { assetClass };
+    for (const i of this.chart.getIndicators()) {
+      if (i.name !== SESSION_SHADE) this.chart.overrideIndicator({ id: i.id, name: i.name, extendData: this.indicatorExt });
+    }
   }
 
   removeIndicator(id: string): void {
