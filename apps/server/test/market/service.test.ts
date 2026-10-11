@@ -272,8 +272,22 @@ describe('MarketDataService', () => {
       stock.searchFail = new ProviderError('yahoo', 'down', true);
       expect((await svc.symbolInfo('stock:AAPL')).name).toBe('Old');
       stock.searchFail = null;
+      now = NOW + HOUR;
       expect((await svc.symbolInfo('stock:AAPL')).name).toBe('AAPL Inc');
-      expect((await repos.symbols.get('stock:AAPL'))?.updatedAt).toBe(NOW);
+      expect((await repos.symbols.get('stock:AAPL'))?.updatedAt).toBe(NOW + HOUR);
+    });
+    it('a failed refresh of a stale row is retried no sooner than an hour later', async () => {
+      await repos.symbols.upsert({ id: 'stock:AAPL', name: 'Old', exchange: null, pricePrecision: 2, firstTs: null, updatedAt: NOW - 8 * DAY });
+      stock.searchFail = new ProviderError('yahoo', 'down', true);
+      expect((await svc.symbolInfo('stock:AAPL')).name).toBe('Old');
+      expect(stock.searchCalls).toHaveLength(1);
+      now = NOW + HOUR - 1;
+      expect((await svc.symbolInfo('stock:AAPL')).name).toBe('Old');
+      await svc.earliest('stock:AAPL', '1D');
+      expect(stock.searchCalls).toHaveLength(1);
+      now = NOW + HOUR;
+      expect((await svc.symbolInfo('stock:AAPL')).name).toBe('Old');
+      expect(stock.searchCalls).toHaveLength(2);
     });
     it('earliest = max(firstTs, now − lookback)', async () => {
       expect(await svc.earliest('stock:AAPL', '1m')).toBe(NOW - 29 * DAY);
@@ -401,6 +415,14 @@ describe('MarketDataService', () => {
       now = NOW + 10 * 60_000;
       await expect(svc.symbolInfo('stock:ZZZZ')).rejects.toBeInstanceOf(NotFoundError);
       expect(stock.searchCalls).toEqual(['ZZZZ', 'ZZZZ']);
+    });
+
+    it('the negative cache is capped at 1000 entries, evicting the oldest', async () => {
+      for (let i = 0; i < 1005; i++) await expect(svc.symbolInfo(`stock:Z${i}`)).rejects.toBeInstanceOf(NotFoundError);
+      const map = (svc as unknown as { unknownUntil: Map<string, number> }).unknownUntil;
+      expect(map.size).toBe(1000);
+      expect(map.has('stock:Z0')).toBe(false);
+      expect(map.has('stock:Z1004')).toBe(true);
     });
   });
 

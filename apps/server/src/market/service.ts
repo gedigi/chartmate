@@ -17,6 +17,8 @@ const SYMBOL_TTL_MS = 7 * DAY;
 const SYMBOL_RETRY_MS = 60 * 60_000;
 /** How long an unknown symbol id is remembered. */
 const NEGATIVE_TTL_MS = 10 * 60_000;
+/** Most unknown ids remembered at once. */
+const MAX_UNKNOWN = 1000;
 
 export interface GetBarsArgs { symbol: SymbolId; tf: Timeframe; session: SessionMode; from: number; to: number }
 export interface BarsResult { bars: Bar[]; stale: boolean; hasMoreBefore: boolean; earliestTs: number | null; notices: string[] }
@@ -249,14 +251,35 @@ export class MarketDataService {
     try {
       return await this.refreshSymbol(id, assetClass, code, row);
     } catch (err) {
-      if (row) return toInfo(row, assetClass, code); // best effort: a stale row beats an error
-      if (err instanceof NotFoundError) {
-        const now = this.now();
-        if (this.unknownUntil.size >= 1000) for (const [k, t] of this.unknownUntil) if (t <= now) this.unknownUntil.delete(k);
-        this.unknownUntil.set(id, now + NEGATIVE_TTL_MS);
+      if (row) {
+        // Best effort: a stale row beats an error. Push the next refresh attempt out by the retry window
+        // so an outage doesn't turn every call into an upstream lookup.
+        const retryAt = this.now() - SYMBOL_TTL_MS + SYMBOL_RETRY_MS;
+        if (row.updatedAt < retryAt) {
+          try {
+            await this.repos.symbols.upsert({ ...row, updatedAt: retryAt });
+          } catch {
+            // keep serving the row even if the bump can't be stored
+          }
+        }
+        return toInfo(row, assetClass, code);
       }
+      if (err instanceof NotFoundError) this.rememberUnknown(id);
       throw err;
     }
+  }
+
+  /** Negative-caches an unknown id; the map is capped (expired entries first, then the oldest). */
+  private rememberUnknown(id: SymbolId): void {
+    const now = this.now();
+    const m = this.unknownUntil;
+    m.delete(id); // re-insert so Map order stays oldest-first
+    if (m.size >= MAX_UNKNOWN) for (const [k, t] of m) if (t <= now) m.delete(k);
+    for (const k of m.keys()) {
+      if (m.size < MAX_UNKNOWN) break;
+      m.delete(k);
+    }
+    m.set(id, now + NEGATIVE_TTL_MS);
   }
 
   /** true = known symbol, false = unknown (NotFound), null = undetermined (lookup failed). */
