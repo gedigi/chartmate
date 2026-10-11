@@ -122,6 +122,7 @@ describe('FixtureProvider', () => {
     expect(q[0]!.price).toBe(bars.at(-1)!.close);
     expect(q[0]!.ts).toBe(bars.at(-1)!.ts);
     expect(typeof q[0]!.changePct).toBe('number');
+    for (const x of q) expect(Number.isFinite(x.price)).toBe(true);
     // unknown codes are skipped
     expect(await crypto().quotes(['NOPE'])).toEqual([]);
   });

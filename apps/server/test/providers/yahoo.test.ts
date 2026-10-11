@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { YahooProvider, type YahooLike } from '../../src/providers/yahoo.js';
+import { createYahooClient, YahooProvider, type YahooLike } from '../../src/providers/yahoo.js';
 import { NotFoundError, ProviderError } from '../../src/errors.js';
 import { fixture } from './helpers.js';
 
@@ -93,6 +93,64 @@ describe('YahooProvider', () => {
     const byTs = new Map(res.bars.map((b) => [new Date(b.ts).toISOString(), b.session]));
     expect(byTs.get('2026-11-27T17:45:00.000Z')).toBe('regular');
     expect(byTs.get('2026-11-27T18:15:00.000Z')).toBe('post');
+  });
+
+  it('half-day: 18:15Z is post even when Yahoo\'s post period starts later (gap after the 18:00Z close)', async () => {
+    const fx = fixture('yahoo/halfday-15m.json');
+    fx.meta.tradingPeriods.post = [[{ timezone: 'EST', start: '2026-11-27T21:00:00.000Z', end: '2026-11-28T01:00:00.000Z', gmtoffset: -18000 }]];
+    fx.meta.tradingPeriods.pre = [[{ timezone: 'EST', start: '2026-11-27T13:00:00.000Z', end: '2026-11-27T14:30:00.000Z', gmtoffset: -18000 }]];
+    fx.quotes.push({ date: '2026-11-27T10:00:00.000Z', open: 229, high: 229.5, low: 228.5, close: 229.2, volume: 100 });
+    const { client } = fakeYahoo({ chart: () => fx });
+    const p = new YahooProvider({ client, now: () => Date.parse('2026-11-28T12:00:00Z') });
+    const res = await p.fetchBars('AAPL', '15m', Date.parse('2026-11-27T00:00:00Z'), Date.parse('2026-11-28T00:00:00Z'));
+    const byTs = new Map(res.bars.map((b) => [new Date(b.ts).toISOString(), b.session]));
+    expect(byTs.get('2026-11-27T18:15:00.000Z')).toBe('post');
+    expect(byTs.get('2026-11-27T17:45:00.000Z')).toBe('regular');
+    expect(byTs.get('2026-11-27T10:00:00.000Z')).toBe('pre'); // 05:00 EST, before Yahoo's own pre start
+    // windows are derived from the regular window: pre from 04:00 NY, post until 20:00 NY
+    expect(res.sessionWindows).toEqual([
+      { start: Date.parse('2026-11-27T09:00:00Z'), end: Date.parse('2026-11-27T14:30:00Z'), session: 'pre' },
+      { start: Date.parse('2026-11-27T14:30:00Z'), end: Date.parse('2026-11-27T18:00:00Z'), session: 'regular' },
+      { start: Date.parse('2026-11-27T18:00:00Z'), end: Date.parse('2026-11-28T01:00:00Z'), session: 'post' },
+    ]);
+  });
+
+  it('derived windows are DST-aware (EDT day: pre from 08:00Z, post until 00:00Z)', async () => {
+    const fx = fixture('yahoo/aapl-15m.json');
+    const { client } = fakeYahoo({ chart: () => fx });
+    const res = await provider(client).fetchBars('AAPL', '15m', Date.parse('2026-10-08T00:00:00Z'), Date.parse('2026-10-10T04:00:00Z'));
+    expect(res.sessionWindows!.filter((w) => w.start >= Date.parse('2026-10-09T00:00:00Z'))).toEqual([
+      { start: Date.parse('2026-10-09T08:00:00Z'), end: Date.parse('2026-10-09T13:30:00Z'), session: 'pre' },
+      { start: Date.parse('2026-10-09T13:30:00Z'), end: Date.parse('2026-10-09T20:00:00Z'), session: 'regular' },
+      { start: Date.parse('2026-10-09T20:00:00Z'), end: Date.parse('2026-10-10T00:00:00Z'), session: 'post' },
+    ]);
+  });
+
+  it('days without a regular window fall back to fixed hours', async () => {
+    const fx = fixture('yahoo/halfday-15m.json');
+    fx.meta.tradingPeriods = { pre: [[{ start: '2026-11-27T09:00:00.000Z', end: '2026-11-27T14:30:00.000Z' }]], regular: [], post: [] };
+    const { client } = fakeYahoo({ chart: () => fx });
+    const p = new YahooProvider({ client, now: () => Date.parse('2026-11-28T12:00:00Z') });
+    const res = await p.fetchBars('AAPL', '15m', Date.parse('2026-11-27T00:00:00Z'), Date.parse('2026-11-28T00:00:00Z'));
+    expect(res.sessionWindows).toBeUndefined();
+    expect(res.bars.find((b) => b.ts === Date.parse('2026-11-27T18:15:00Z'))!.session).toBe('regular');
+  });
+
+  it('drops an off-grid pseudo-bar even when it falls on whole seconds (23:59:00 in a 15m series)', async () => {
+    const fx = fixture('yahoo/aapl-15m.json');
+    fx.quotes = fx.quotes.filter((q: any) => q.date !== '2026-10-09T23:59:31.000Z');
+    fx.quotes.push({ date: '2026-10-09T23:59:00.000Z', open: 336.08, high: 336.08, low: 336.08, close: 336.08, volume: 0 });
+    const { client } = fakeYahoo({ chart: () => fx });
+    const res = await provider(client).fetchBars('AAPL', '15m', Date.parse('2026-10-08T00:00:00Z'), Date.parse('2026-10-10T04:00:00Z'));
+    expect(res.bars.some((b) => b.ts === Date.parse('2026-10-09T23:59:00Z'))).toBe(false);
+    expect(res.bars.at(-1)!.ts).toBe(Date.parse('2026-10-09T23:45:00Z'));
+  });
+
+  it('1h: bars stamped at 09:30 NY (13:30Z) are kept', async () => {
+    const q = (date: string) => ({ date, open: 100, high: 101, low: 99, close: 100.5, volume: 10 });
+    const { client } = fakeYahoo({ chart: () => ({ meta: {}, quotes: [q('2026-10-09T13:30:00.000Z'), q('2026-10-09T14:30:00.000Z'), q('2026-10-09T19:59:00.000Z')] }) });
+    const res = await provider(client).fetchBars('SPY', '1h', Date.parse('2026-10-09T00:00:00Z'), Date.parse('2026-10-10T00:00:00Z'));
+    expect(res.bars.map((b) => new Date(b.ts).toISOString())).toEqual(['2026-10-09T13:30:00.000Z', '2026-10-09T14:30:00.000Z']);
   });
 
   it('intraday without tradingPeriods falls back to fixed-hours tagging', async () => {
@@ -222,6 +280,39 @@ describe('YahooProvider', () => {
     const other = await run(new Error('Only 8 days worth of 1m granularity data are allowed to be fetched per request.'));
     expect(other).toBeInstanceOf(ProviderError);
     expect((other as ProviderError).retryable).toBe(false);
+  });
+
+  it('a Yahoo timeout (TimeoutError) → retryable ProviderError', async () => {
+    const { client } = fakeYahoo({ chart: () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError'); } });
+    const err = await provider(client).fetchBars('AAPL', '1D', NOW - 10 * DAY, NOW).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ProviderError);
+    expect((err as ProviderError).retryable).toBe(true);
+  });
+
+  it('createYahooClient passes a 15 s timeout signal as module fetchOptions on every call', async () => {
+    const seen: any[] = [];
+    const yf = {
+      chart: async (...args: any[]) => { seen.push(args); return {}; },
+      search: async (...args: any[]) => { seen.push(args); return {}; },
+      quote: async (...args: any[]) => { seen.push(args); return []; },
+    };
+    const c = createYahooClient(yf);
+    await c.chart('AAPL', { interval: '1d' });
+    await c.search('apple', { quotesCount: 20 });
+    await c.quote(['AAPL']);
+    expect(seen.map((a) => a.slice(0, 2))).toEqual([['AAPL', { interval: '1d' }], ['apple', { quotesCount: 20 }], [['AAPL'], {}]]);
+    for (const a of seen) expect(a[2].fetchOptions.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('quotes skip rows whose price is not finite', async () => {
+    const { client } = fakeYahoo({
+      quote: () => [
+        { symbol: 'AAPL', marketState: 'REGULAR', regularMarketPrice: null, regularMarketTime: new Date(NOW) },
+        { symbol: 'SPY', marketState: 'REGULAR', regularMarketPrice: Number.NaN, regularMarketTime: new Date(NOW) },
+        { symbol: 'MSFT', marketState: 'REGULAR', regularMarketPrice: 400, regularMarketTime: new Date(NOW) },
+      ],
+    });
+    expect((await provider(client).quotes(['AAPL', 'SPY', 'MSFT'])).map((q) => q.id)).toEqual(['stock:MSFT']);
   });
 
   it('quotes pick postMarketPrice when marketState is POST, else regularMarketPrice', async () => {

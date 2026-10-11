@@ -3,7 +3,7 @@ import {
   type Bar, type NativeTimeframe, type Quote, type SymbolInfo,
 } from '@altv/shared';
 import { NotFoundError } from '../errors.js';
-import { rankMatches } from './http.js';
+import { rankMatches } from './util.js';
 import type { FetchBarsResult, MarketDataProvider, ProviderLimits } from './types.js';
 
 const DAY = 86_400_000;

@@ -20,12 +20,20 @@ export async function getJson<T>(
   } catch (err) {
     throw new ProviderError(provider, `request failed: ${errMessage(err)}`, true);
   }
-  const text = await res.text().catch(() => '');
+  let text: string;
+  try {
+    text = await res.text();
+  } catch (err) {
+    throw new ProviderError(provider, `request failed: ${errMessage(err)}`, true, res.status);
+  }
   let body: unknown = text;
   try {
     body = text ? JSON.parse(text) : null;
   } catch {
     if (res.ok) throw new ProviderError(provider, 'invalid JSON response', true, res.status);
+  }
+  if (res.ok && (body === null || body === undefined)) {
+    throw new ProviderError(provider, 'invalid response: empty body', true, res.status);
   }
   if (!res.ok) {
     const mapped = opts.mapError?.({ status: res.status, body });
@@ -50,27 +58,4 @@ function bodyMessage(body: unknown): string | undefined {
 
 export function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-/** Number of decimals in an increment string like "0.01000000" (capped). */
-export function decimalsOf(increment: string | undefined, cap = 8): number {
-  if (!increment) return 2;
-  const [, frac = ''] = increment.split('.');
-  const trimmed = frac.replace(/0+$/, '');
-  return Math.min(cap, trimmed.length);
-}
-
-/** Exact match first, then prefix matches, then substring matches; stable within each group. */
-export function rankMatches<T>(items: T[], key: (t: T) => string, q: string, limit = 20): T[] {
-  const needle = q.trim().toUpperCase();
-  const exact: T[] = [];
-  const prefix: T[] = [];
-  const contains: T[] = [];
-  for (const it of items) {
-    const k = key(it).toUpperCase();
-    if (needle && k === needle) exact.push(it);
-    else if (k.startsWith(needle)) prefix.push(it);
-    else if (k.includes(needle)) contains.push(it);
-  }
-  return [...exact, ...prefix, ...contains].slice(0, limit);
 }

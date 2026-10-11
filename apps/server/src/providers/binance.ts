@@ -1,6 +1,7 @@
 import type { Bar, NativeTimeframe, Quote, SymbolInfo } from '@altv/shared';
 import { NotFoundError } from '../errors.js';
-import { decimalsOf, getJson, rankMatches, type HttpErrorInfo } from './http.js';
+import { getJson, type HttpErrorInfo } from './http.js';
+import { decimalsOf, num, rankMatches } from './util.js';
 import type { FetchBarsResult, MarketDataProvider, ProviderLimits } from './types.js';
 
 const INTERVAL: Record<NativeTimeframe, string> = { '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '1h', '1D': '1d' };
@@ -60,18 +61,35 @@ export class BinanceProvider implements MarketDataProvider {
   async quotes(codes: string[]): Promise<Quote[]> {
     if (codes.length === 0) return [];
     const pairs = codes.map(pair);
-    const rows = await this.get<Ticker24h[]>('/api/v3/ticker/24hr', { symbols: JSON.stringify(pairs) });
+    let rows: Ticker24h[];
+    try {
+      rows = await this.get<Ticker24h[]>('/api/v3/ticker/24hr', { symbols: JSON.stringify(pairs) });
+    } catch (err) {
+      // One unknown symbol fails the whole batch: retry per symbol and skip the unknown ones.
+      if (!(err instanceof NotFoundError)) throw err;
+      rows = [];
+      for (const p of pairs) {
+        try {
+          rows.push(await this.get<Ticker24h>('/api/v3/ticker/24hr', { symbol: p }));
+        } catch (e) {
+          if (!(e instanceof NotFoundError)) throw e;
+        }
+      }
+    }
     const bySymbol = new Map(rows.map((r) => [r.symbol, r]));
     const out: Quote[] = [];
     for (const p of pairs) {
       const r = bySymbol.get(p);
       if (!r) continue;
-      const changePct = Number(r.priceChangePercent);
+      const price = num(r.lastPrice);
+      const ts = num(r.closeTime);
+      if (!Number.isFinite(price) || !Number.isFinite(ts)) continue;
+      const changePct = num(r.priceChangePercent);
       out.push({
         id: `crypto:${p.slice(0, -'USDT'.length)}`,
-        price: Number(r.lastPrice),
+        price,
         changePct: Number.isFinite(changePct) ? changePct : null,
-        ts: Number(r.closeTime),
+        ts,
       });
     }
     return out;

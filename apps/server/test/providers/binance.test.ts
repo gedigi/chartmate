@@ -137,6 +137,25 @@ describe('BinanceProvider', () => {
     ]);
   });
 
+  it('quotes: batch failing with -1121 falls back to per-symbol requests and skips unknown symbols', async () => {
+    const tick = fixture<any[]>('binance/ticker-24hr.json');
+    const { p, calls } = make((url) => {
+      if (url.searchParams.has('symbols')) return jsonResponse({ code: -1121, msg: 'Invalid symbol.' }, 400);
+      const sym = url.searchParams.get('symbol');
+      const row = tick.find((t) => t.symbol === sym);
+      return row ? jsonResponse(row) : jsonResponse({ code: -1121, msg: 'Invalid symbol.' }, 400);
+    });
+    const res = await p.quotes(['BTC', 'NOPE', 'ETH']);
+    expect(res.map((q) => q.id)).toEqual(['crypto:BTC', 'crypto:ETH']);
+    expect(calls.map((c) => c.searchParams.get('symbol'))).toEqual([null, 'BTCUSDT', 'NOPEUSDT', 'ETHUSDT']);
+  });
+
+  it('quotes skip rows whose lastPrice is not a finite number', async () => {
+    const tick = fixture<any[]>('binance/ticker-24hr.json');
+    const { p } = make(() => jsonResponse([{ ...tick[0], lastPrice: 'abc' }, tick[1]]));
+    expect((await p.quotes(['BTC', 'ETH'])).map((q) => q.id)).toEqual(['crypto:ETH']);
+  });
+
   it('quotes([]) makes no request', async () => {
     const { p, calls } = make(() => jsonResponse([]));
     expect(await p.quotes([])).toEqual([]);

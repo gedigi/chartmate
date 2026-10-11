@@ -134,6 +134,24 @@ describe('CoinbaseProvider', () => {
     expect(res[1]!.id).toBe('crypto:ETH');
   });
 
+  it('quotes skip per-code 404s and non-finite prices instead of aborting', async () => {
+    const stats = fixture('coinbase/stats-btc.json');
+    const { p, calls } = make((url) => {
+      if (url.pathname === '/products/NOPE-USD/stats') return jsonResponse({ message: 'NotFound' }, 404);
+      if (url.pathname === '/products/BAD-USD/stats') return jsonResponse({ open: '1', last: '' });
+      return jsonResponse(stats);
+    });
+    const res = await p.quotes(['NOPE', 'BTC', 'BAD', 'ETH']);
+    expect(res.map((q) => q.id)).toEqual(['crypto:BTC', 'crypto:ETH']);
+    expect(calls).toHaveLength(4);
+  });
+
+  it('quotes still propagate retryable failures', async () => {
+    const err = await make(() => jsonResponse({ message: 'slow down' }, 429)).p.quotes(['BTC']).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ProviderError);
+    expect((err as ProviderError).retryable).toBe(true);
+  });
+
   it('404 → NotFoundError; 429 → retryable ProviderError', async () => {
     const nf = make(() => jsonResponse({ message: 'NotFound' }, 404)).p;
     await expect(nf.fetchBars('NOPE', '1h', NOW - HOUR, NOW)).rejects.toBeInstanceOf(NotFoundError);

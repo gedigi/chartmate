@@ -1,10 +1,10 @@
 import YahooFinance from 'yahoo-finance2';
 import {
-  nyDateUtcMidnight, tagSessions,
+  nyDateUtcMidnight, nyParts, nyToUtc, tagSessions, tfMs,
   type Bar, type NativeTimeframe, type Quote, type Session, type SessionWindow, type SymbolInfo,
 } from '@altv/shared';
 import { NotFoundError, ProviderError } from '../errors.js';
-import { errMessage } from './http.js';
+import { errMessage, REQUEST_TIMEOUT_MS } from './http.js';
 import type { FetchBarsResult, MarketDataProvider, ProviderLimits } from './types.js';
 
 /** The subset of yahoo-finance2 we use; injectable so tests can feed recorded fixtures. */
@@ -14,20 +14,21 @@ export interface YahooLike {
   quote(syms: string[], opts?: Record<string, unknown>): Promise<any>;
 }
 
-export function createYahooClient(): YahooLike {
-  // yahoo-finance2's overloaded signatures don't fit a plain structural interface.
-  const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] }) as any;
+/** Wraps yahoo-finance2; every call gets its own request timeout so a stalled request can't hold a queue slot. */
+export function createYahooClient(yf: any = new YahooFinance({ suppressNotices: ['yahooSurvey'] })): YahooLike {
+  // yahoo-finance2's overloaded signatures don't fit a plain structural interface, hence `any`.
+  const moduleOptions = () => ({ fetchOptions: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) } });
   return {
-    chart: (sym, opts) => yf.chart(sym, opts),
-    search: (q, opts) => yf.search(q, opts),
-    quote: (syms, opts) => yf.quote(syms, opts),
+    chart: (sym, opts) => yf.chart(sym, opts, moduleOptions()),
+    search: (q, opts) => yf.search(q, opts, moduleOptions()),
+    quote: (syms, opts) => yf.quote(syms, opts ?? {}, moduleOptions()),
   };
 }
 
 const DAY = 86_400_000;
 const MIN = 60_000;
 const INTERVAL: Record<NativeTimeframe, string> = { '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '1h', '1D': '1d' };
-const SESSIONS: Session[] = ['pre', 'regular', 'post'];
+const OFF_GRID_MOD_MAX = 30 * MIN;
 
 type DateLike = Date | string | number;
 interface YQuote { date: DateLike; open: number | null; high: number | null; low: number | null; close: number | null; volume?: number | null }
@@ -63,9 +64,10 @@ export class YahooProvider implements MarketDataProvider {
 
     const daily = tf === '1D';
     const span = this.limits.maxSpanPerRequestMs[tf] ?? Infinity;
+    // 1m–30m bars sit on their own grid; 1h bars start at :30 (09:30 NY), so check those against 30m.
+    const gridMod = Math.min(tfMs(tf), OFF_GRID_MOD_MAX);
     const byTs = new Map<number, Bar>();
     const windows: SessionWindow[] = [];
-    let sawPeriods = false;
     let firstTs: number | null = null;
 
     for (let s = start; s < end; s = s + span) {
@@ -76,15 +78,12 @@ export class YahooProvider implements MarketDataProvider {
 
       const ftd = toMs(res.meta?.firstTradeDate);
       if (ftd !== null) firstTs = nyDateUtcMidnight(ftd);
-      if (!daily && res.meta?.tradingPeriods) {
-        sawPeriods = true;
-        windows.push(...periodsToWindows(res.meta.tradingPeriods));
-      }
+      if (!daily && res.meta?.tradingPeriods) windows.push(...windowsFromRegular(res.meta.tradingPeriods));
       for (const q of res.quotes ?? []) {
         const bar = toBar(q);
         if (!bar) continue;
         if (daily) bar.ts = nyDateUtcMidnight(bar.ts);
-        else if (bar.ts % MIN !== 0) continue; // Yahoo's trailing off-grid "live tick" pseudo-bar
+        else if (bar.ts % gridMod !== 0) continue; // Yahoo's trailing off-grid "live tick" pseudo-bar
         if (bar.ts < from || bar.ts >= to) continue;
         byTs.set(bar.ts, bar); // duplicates: the last occurrence wins
       }
@@ -92,7 +91,7 @@ export class YahooProvider implements MarketDataProvider {
 
     const sorted = [...byTs.values()].sort((a, b) => a.ts - b.ts);
     if (daily) return { bars: sorted, firstTs };
-    const sessionWindows = sawPeriods ? dedupeWindows(windows) : undefined;
+    const sessionWindows = windows.length > 0 ? dedupeWindows(windows) : undefined;
     return { bars: tagSessions(sorted, sessionWindows), firstTs, ...(sessionWindows ? { sessionWindows } : {}) };
   }
 
@@ -122,7 +121,7 @@ export class YahooProvider implements MarketDataProvider {
     for (const r of rows) {
       if (!r || typeof r.symbol !== 'string') continue;
       const state = r.marketState;
-      let price: unknown = r.regularMarketPrice;
+      let price: unknown = r.regularMarketPrice; // isNum below rejects null/NaN/non-numbers
       if ((state === 'POST' || state === 'POSTPOST') && isNum(r.postMarketPrice)) price = r.postMarketPrice;
       else if (state === 'PRE' && isNum(r.preMarketPrice)) price = r.preMarketPrice;
       const ts = toMs(r.regularMarketTime);
@@ -178,14 +177,23 @@ function toBar(q: YQuote): Bar | null {
   return { ts, open, high, low, close, volume: isNum(q.volume) ? q.volume : 0 };
 }
 
-function periodsToWindows(tp: Partial<Record<Session, YPeriod[][] | YPeriod[]>>): SessionWindow[] {
+/**
+ * Builds windows from each day's `regular` period only: pre = [04:00 NY, open), regular = [open, close),
+ * post = [close, 20:00 NY). Yahoo's own pre/post periods are ignored, since they need not start exactly at an
+ * early close. Days without a regular period get no windows, so their bars fall back to fixed hours.
+ */
+function windowsFromRegular(tp: Partial<Record<Session, YPeriod[][] | YPeriod[]>>): SessionWindow[] {
   const out: SessionWindow[] = [];
-  for (const session of SESSIONS) {
-    for (const p of (tp[session] ?? []).flat()) {
-      const start = toMs(p.start);
-      const end = toMs(p.end);
-      if (start !== null && end !== null && end > start) out.push({ start, end, session });
-    }
+  for (const p of (tp.regular ?? []).flat()) {
+    const start = toMs(p.start);
+    const end = toMs(p.end);
+    if (start === null || end === null || end <= start) continue;
+    const { y, m, d } = nyParts(start);
+    const preStart = nyToUtc(y, m, d, 4, 0);
+    const postEnd = nyToUtc(y, m, d, 20, 0);
+    if (preStart < start) out.push({ start: preStart, end: start, session: 'pre' });
+    out.push({ start, end, session: 'regular' });
+    if (end < postEnd) out.push({ start: end, end: postEnd, session: 'post' });
   }
   return out;
 }

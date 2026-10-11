@@ -1,5 +1,7 @@
 import { resample, type Bar, type NativeTimeframe, type Quote, type SymbolInfo } from '@altv/shared';
-import { decimalsOf, getJson, rankMatches } from './http.js';
+import { NotFoundError } from '../errors.js';
+import { getJson } from './http.js';
+import { decimalsOf, num, rankMatches } from './util.js';
 import type { FetchBarsResult, MarketDataProvider, ProviderLimits } from './types.js';
 
 const BASE_URL = 'https://api.exchange.coinbase.com';
@@ -52,9 +54,16 @@ export class CoinbaseProvider implements MarketDataProvider {
   async quotes(codes: string[]): Promise<Quote[]> {
     const out: Quote[] = [];
     for (const code of codes) {
-      const s = await this.get<Stats>(`/products/${product(code)}/stats`);
-      const last = Number(s.last);
-      const open = Number(s.open);
+      let s: Stats;
+      try {
+        s = await this.get<Stats>(`/products/${product(code)}/stats`);
+      } catch (err) {
+        if (err instanceof NotFoundError) continue; // unknown product: skip, keep the rest
+        throw err;
+      }
+      const last = num(s.last);
+      if (!Number.isFinite(last)) continue;
+      const open = num(s.open);
       out.push({
         id: `crypto:${code.toUpperCase()}`,
         price: last,
