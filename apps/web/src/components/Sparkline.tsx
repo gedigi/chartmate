@@ -7,7 +7,8 @@ export interface SparklineProps {
 }
 
 /** Inline SVG sparkline. Renders nothing for fewer than 2 points. Green if last >= first, else red. */
-export function Sparkline({ values, width = 80, height = 24 }: SparklineProps): JSX.Element | null {
+export function Sparkline({ values: raw, width = 80, height = 24 }: SparklineProps): JSX.Element | null {
+  const values = raw.filter((v) => Number.isFinite(v));
   if (values.length < 2) return null;
   const min = Math.min(...values);
   const max = Math.max(...values);
