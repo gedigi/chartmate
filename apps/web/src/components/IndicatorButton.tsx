@@ -1,12 +1,24 @@
 import type { Layout } from '@altv/shared';
-import type { JSX } from 'react';
+import { useState, type JSX } from 'react';
+import { IndicatorPicker } from './IndicatorPicker';
 
 export interface IndicatorButtonProps {
   layout: Layout;
   setLayout: (fn: (l: Layout) => Layout) => void;
 }
 
-/** TopBar "Indicators" button (opens the indicator picker). STUB — implemented by Task 11. */
-export function IndicatorButton(_props: IndicatorButtonProps): JSX.Element {
-  return <button type="button" disabled>Indicators</button>;
+/** TopBar "Indicators" button: opens the indicator picker; picked indicators are appended to the layout. */
+export function IndicatorButton({ setLayout }: IndicatorButtonProps): JSX.Element {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>Indicators</button>
+      {open && (
+        <IndicatorPicker
+          onAdd={(s) => setLayout((l) => ({ ...l, indicators: [...l.indicators, s] }))}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
 }
