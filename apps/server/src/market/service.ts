@@ -107,8 +107,14 @@ export class MarketDataService {
     const now = this.now();
     const step = tfMs(tf);
 
-    // Grid-aligned bounds keep dedupe keys stable while the clock moves within one bar.
+    // Fetch and record coverage on the native grid (1D → UTC midnight): a bar whose ts lies before a
+    // non-aligned `from` (e.g. a daily bar stamped 00:00 requested from 10:00Z) must not be skipped while
+    // its range is marked covered. Grid-aligned bounds also keep dedupe keys stable as the clock moves.
     const floorGrid = (x: number) => Math.floor(x / step) * step;
+    const outFrom = from;
+    const outTo = to;
+    from = floorGrid(from);
+    to = Math.ceil(to / step) * step;
     const lookback = provider.limits.maxLookbackMs[tf];
     if (lookback !== undefined) from = Math.max(from, Math.ceil((now - lookback) / step) * step);
     to = Math.min(to, floorGrid(now + step));
@@ -163,7 +169,7 @@ export class MarketDataService {
       if (known === null) stale = true; // couldn't tell (lookup outage): serve the DB, don't mark coverage
       else for (const [a, b] of notFound) await markCovered(a, b);
     }
-    return { bars: await this.repos.bars.range(symbol, tf, from, to), stale };
+    return { bars: await this.repos.bars.range(symbol, tf, Math.max(from, outFrom), Math.min(to, outTo)), stale };
   }
 
   async getLatest(symbol: SymbolId, tf: Timeframe, session: SessionMode): Promise<{ bar: Bar | null; stale: boolean }> {

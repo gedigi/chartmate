@@ -14,6 +14,8 @@ const DAY = 86_400_000;
 
 const NOW = Date.UTC(2026, 10, 4, 18, 20); // Wed 2026-11-04 13:20 EST
 const EDGE_1H = Date.UTC(2026, 10, 4, 16); // floor(NOW − 2h) on the 1h grid
+const NEXT_1H = Date.UTC(2026, 10, 4, 19); // NOW ceiled to the 1h grid (fetch/coverage bounds are grid-aligned)
+const H = (x: number) => Math.floor(x / HOUR) * HOUR;
 
 describe('MarketDataService', () => {
   let h: ReturnType<typeof createDb>;
@@ -50,14 +52,14 @@ describe('MarketDataService', () => {
     it('first call fetches; identical second call only refetches the recent span', async () => {
       const from = NOW - 10 * DAY;
       const r1 = await svc.getNativeBars('crypto:BTC', '1h', from, NOW);
-      expect(crypto.calls).toEqual([{ code: 'BTC', tf: '1h', from, to: NOW }]);
+      expect(crypto.calls).toEqual([{ code: 'BTC', tf: '1h', from: H(from), to: NEXT_1H }]);
       expect(r1.stale).toBe(false);
       expect(r1.bars.length).toBe(240);
       // recentEdge is floored to the 1h grid: 18:20 − 2h → 16:00
-      expect(await repos.coverage.list('crypto:BTC', '1h')).toEqual([[from, EDGE_1H]]);
+      expect(await repos.coverage.list('crypto:BTC', '1h')).toEqual([[H(from), EDGE_1H]]);
 
       const r2 = await svc.getNativeBars('crypto:BTC', '1h', from, NOW);
-      expect(crypto.calls.slice(1)).toEqual([{ code: 'BTC', tf: '1h', from: EDGE_1H, to: NOW }]);
+      expect(crypto.calls.slice(1)).toEqual([{ code: 'BTC', tf: '1h', from: EDGE_1H, to: NEXT_1H }]);
       expect(r2.bars).toEqual(r1.bars);
     });
 
@@ -71,7 +73,7 @@ describe('MarketDataService', () => {
 
     it('a window entirely inside the recent span requests only that span; never empty requests', async () => {
       await svc.getNativeBars('crypto:BTC', '1h', NOW - HOUR, NOW);
-      expect(crypto.calls).toEqual([{ code: 'BTC', tf: '1h', from: NOW - HOUR, to: NOW }]);
+      expect(crypto.calls).toEqual([{ code: 'BTC', tf: '1h', from: H(NOW - HOUR), to: NEXT_1H }]);
       expect(await repos.coverage.list('crypto:BTC', '1h')).toEqual([]);
       for (const c of crypto.calls) expect(c.from).toBeLessThan(c.to);
     });
@@ -81,11 +83,12 @@ describe('MarketDataService', () => {
       crypto.calls = [];
       await svc.getNativeBars('crypto:BTC', '1D', NOW - 30 * DAY, NOW);
       const edge = Date.UTC(2026, 10, 1); // 1D recent edge: now − 3d floored to UTC midnight
+      const D0 = Date.UTC(2026, 10, 4); // NOW's UTC midnight: bounds snap to the daily grid
       expect(crypto.calls).toEqual([
-        { code: 'BTC', tf: '1D', from: NOW - 30 * DAY, to: NOW - 20 * DAY },
-        { code: 'BTC', tf: '1D', from: NOW - 10 * DAY, to: NOW },
+        { code: 'BTC', tf: '1D', from: D0 - 30 * DAY, to: D0 - 20 * DAY },
+        { code: 'BTC', tf: '1D', from: D0 - 9 * DAY, to: D0 + DAY },
       ]);
-      expect(await repos.coverage.list('crypto:BTC', '1D')).toEqual([[NOW - 30 * DAY, edge]]);
+      expect(await repos.coverage.list('crypto:BTC', '1D')).toEqual([[D0 - 30 * DAY, edge]]);
     });
 
     it('splits gaps by maxSpanPerRequestMs and clamps `to` to now + tf', async () => {
@@ -133,9 +136,9 @@ describe('MarketDataService', () => {
       crypto.fail = new ProviderError('binance', 'down', false, 500);
       const r = await svc.getNativeBars('crypto:BTC', '1h', NOW - 4 * DAY, NOW);
       expect(r.stale).toBe(true);
-      expect(r.bars.length).toBe(48);
+      expect(r.bars.length).toBe(49); // the first call fetched from the grid-aligned 2d-ago 18:00 bar
       expect(queues.crypto.cooldownUntil).toBe(0); // non-retryable → no backoff
-      expect(await repos.coverage.list('crypto:BTC', '1h')).toEqual([[NOW - 2 * DAY, EDGE_1H]]);
+      expect(await repos.coverage.list('crypto:BTC', '1h')).toEqual([[H(NOW - 2 * DAY), EDGE_1H]]);
     });
 
     it('network failure (non-ProviderError) → stale, not thrown', async () => {
