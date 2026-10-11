@@ -76,6 +76,10 @@ function mergeMarkers(a: Marker[], b: Marker[]): Marker[] {
   return out.sort((x, y) => x.ts - y.ts);
 }
 
+/** Backoff between failed initial loads: 2 s, 5 s, 10 s, then every 30 s. */
+const INIT_RETRY_MS = [2000, 5000, 10_000];
+const INIT_RETRY_MS_MAX = 30_000;
+
 const mergeNotices = (a: string[], b: string[]) => [...new Set([...a, ...b])];
 
 /**
@@ -85,6 +89,9 @@ const mergeNotices = (a: string[], b: string[]) => [...new Set([...a, ...b])];
  *   (listing gaps, weekends on short intraday windows). An empty result always reports no more older data.
  * - 'backward' (newer data) is answered empty: real-time updates come from polling via subscribeBar.
  * - Each 'init' starts a new generation; responses from an older generation are dropped.
+ * - Errors (never AbortErrors) go to onError. A failed 'forward' page answers empty with more.forward kept, so the
+ *   next scroll retries; a failed 'init' retries with backoff until it succeeds or is superseded (new init,
+ *   unsubscribeBar/reset, dispose), because KLineChart stays "loading" until the callback runs.
  */
 export function createDataLoader(ctx: LoaderContext, events: LoaderEvents): DataLoaderImpl {
   const now = ctx.now ?? Date.now;
@@ -103,13 +110,49 @@ export function createDataLoader(ctx: LoaderContext, events: LoaderEvents): Data
   let subGen = 0;
   let polling: AbortController | null = null;
 
+  /** Pending init-retry delays: timer → resolver (resolving early lets the waiting load exit). */
+  const retryWaits = new Map<ReturnType<typeof setTimeout>, () => void>();
+
   function abortAll() {
     for (const c of inFlight) c.abort();
     inFlight.clear();
   }
 
+  function cancelRetries() {
+    for (const [t, resolve] of retryWaits) {
+      clearTimeout(t);
+      resolve();
+    }
+    retryWaits.clear();
+  }
+
+  /** Supersedes every pending load: their results are dropped and their retries stop. */
+  function cancelLoads() {
+    gen++;
+    abortAll();
+    cancelRetries();
+  }
+
+  function wait(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const t = setTimeout(() => { retryWaits.delete(t); resolve(); }, ms);
+      retryWaits.set(t, resolve);
+    });
+  }
+
   async function load(symbol: string, tf: Timeframe, from: number, to: number, signal: AbortSignal): Promise<BarsResponse> {
     return fetchBars({ symbol, tf, session: ctx.session(), from, to }, signal);
+  }
+
+  /** One page ending at `to`, retried once with a wider window when empty but more exists (listing gaps, weekends). */
+  async function page(symbol: string, tf: Timeframe, to: number, signal: AbortSignal, current: () => boolean) {
+    let res = await load(symbol, tf, to - initialWindowMs(tf), to, signal);
+    let bars = res.bars.filter((b) => b.ts < to);
+    if (current() && bars.length === 0 && res.hasMoreBefore) {
+      res = await load(symbol, tf, to - forwardRetryWindowMs(tf), to, signal);
+      bars = res.bars.filter((b) => b.ts < to);
+    }
+    return { res, bars };
   }
 
   async function getBars(p: GetBarsParams): Promise<void> {
@@ -119,10 +162,7 @@ export function createDataLoader(ctx: LoaderContext, events: LoaderEvents): Data
       return;
     }
     const isInit = p.type === 'init' || p.timestamp === null;
-    if (isInit) {
-      gen++;
-      abortAll();
-    }
+    if (isInit) cancelLoads();
     const myGen = gen;
     const ctrl = new AbortController();
     inFlight.add(ctrl);
@@ -130,16 +170,26 @@ export function createDataLoader(ctx: LoaderContext, events: LoaderEvents): Data
     try {
       const tf = fromPeriod(p.period);
       const symbol = p.symbol.ticker;
-      const to = isInit ? now() : p.timestamp!;
-      let res = await load(symbol, tf, to - initialWindowMs(tf), to, ctrl.signal);
-      if (!current()) return;
-      let bars = res.bars.filter((b) => b.ts < to);
-      if (bars.length === 0 && res.hasMoreBefore) {
-        // Listing gap / weekend: one retry with a wider (still server-cap-safe) window.
-        res = await load(symbol, tf, to - forwardRetryWindowMs(tf), to, ctrl.signal);
-        if (!current()) return;
-        bars = res.bars.filter((b) => b.ts < to);
+      let result: Awaited<ReturnType<typeof page>> | null = null;
+      for (let attempt = 0; result === null; attempt++) {
+        try {
+          result = await page(symbol, tf, isInit ? now() : p.timestamp!, ctrl.signal, current);
+        } catch (err) {
+          if (!current() || isAbort(err)) return;
+          events.onError(toError(err));
+          if (!isInit) {
+            // KLineChart stays "loading" until the callback runs. An empty page keeping more.forward
+            // does not re-trigger a load, so the next scroll to the left edge retries.
+            p.callback([], { forward: true, backward: false });
+            return;
+          }
+          // Init must eventually succeed (it also starts polling): retry until superseded.
+          await wait(INIT_RETRY_MS[attempt] ?? INIT_RETRY_MS_MAX);
+          if (!current()) return;
+        }
       }
+      if (!current()) return;
+      const { res, bars } = result;
       // After an empty page the next 'forward' request would reuse the same anchor, so stop there.
       const hasMore = bars.length > 0 && res.hasMoreBefore;
       if (isInit) {
@@ -150,15 +200,12 @@ export function createDataLoader(ctx: LoaderContext, events: LoaderEvents): Data
       }
       p.callback(bars.map(toKLineData), { forward: hasMore, backward: false });
       events.onMeta(meta);
-    } catch (err) {
-      if (!current() || isAbort(err)) return;
-      events.onError(toError(err));
     } finally {
       inFlight.delete(ctrl);
     }
   }
 
-  function unsubscribeBar(): void {
+  function stopPolling(): void {
     subGen++;
     if (timer !== null) {
       clearTimer(timer);
@@ -168,8 +215,14 @@ export function createDataLoader(ctx: LoaderContext, events: LoaderEvents): Data
     polling = null;
   }
 
+  /** Called by KLineChart on reset (symbol/period/loader change): stops polling and cancels pending loads. */
+  function unsubscribeBar(): void {
+    stopPolling();
+    cancelLoads();
+  }
+
   function subscribeBar(p: SubscribeBarParams): void {
-    unsubscribeBar();
+    stopPolling();
     if (disposed) return;
     const mySub = subGen;
     const symbol = p.symbol.ticker;
@@ -202,9 +255,8 @@ export function createDataLoader(ctx: LoaderContext, events: LoaderEvents): Data
 
   function dispose(): void {
     disposed = true;
-    gen++;
-    abortAll();
-    unsubscribeBar();
+    stopPolling();
+    cancelLoads();
   }
 
   return { getBars, subscribeBar, unsubscribeBar, dispose };

@@ -197,10 +197,15 @@ export class ChartAdapter {
     const override: IndicatorCreate = { id, name: existing.name };
     if (spec.calcParams) override.calcParams = spec.calcParams;
     if (spec.visible !== undefined) override.visible = spec.visible;
-    const styles = lineStyles(spec.lineColors);
-    if (styles) override.styles = styles;
+    if (spec.lineColors) {
+      override.styles = lineStyles(spec.lineColors);
+    } else if (this.lineColors.has(id)) {
+      // No colours any more: KLineChart merges override styles, so write the default line colours back explicitly.
+      override.styles = lineStyles(this.chart.getStyles().indicator.lines.map((l) => l.color));
+    }
     this.chart.overrideIndicator(override);
     if (spec.lineColors) this.lineColors.set(id, spec.lineColors);
+    else this.lineColors.delete(id);
   }
 
   removeIndicator(id: string): void {
