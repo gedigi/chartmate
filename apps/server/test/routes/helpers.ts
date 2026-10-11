@@ -17,7 +17,7 @@ export function isoDate(ts: number): string {
 
 export interface TestApp { app: FastifyInstance; market: MarketDataService; baskets: BasketService; close(): Promise<void> }
 
-export async function makeApp(overrides: Partial<Config> = {}): Promise<TestApp> {
+export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () => number } = {}): Promise<TestApp> {
   const h = createDb('sqlite::memory:');
   await migrate(h.db);
   const repos = createRepos(h.db, h.dialect);
@@ -37,9 +37,10 @@ export async function makeApp(overrides: Partial<Config> = {}): Promise<TestApp>
     binanceBaseUrl: 'http://unused',
     providers: 'fixture',
     webDist: null,
+    trustProxy: false,
     ...overrides,
   };
-  const app = await buildApp({ config, repos, market, baskets, logger: false });
+  const app = await buildApp({ config, repos, market, baskets, logger: false, now: opts.now });
   return {
     app,
     market,

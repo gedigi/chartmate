@@ -189,6 +189,15 @@ describe('market routes', () => {
       expect(big.json()).toMatchObject({ code: 'invalid_request' });
     });
 
+    it('/api/quotes omits the market part when it fails but keeps basket quotes', async () => {
+      const created = await t.app.inject({ method: 'POST', url: '/api/baskets', payload: basketBody() });
+      const id = `basket:${created.json<{ id: string }>().id}`;
+      vi.spyOn(t.market, 'quotes').mockRejectedValue(new ProviderError('yahoo', 'down', true));
+      const r = await get(`/api/quotes?symbols=stock:AAPL,${id}`);
+      expect(r.statusCode).toBe(200);
+      expect(r.json<Quote[]>().map((q) => q.id)).toEqual([id]);
+    });
+
     it('search degrades to basket matches when the provider is down', async () => {
       await t.app.inject({ method: 'POST', url: '/api/baskets', payload: basketBody('Apple Pie') });
       vi.spyOn(t.market, 'search').mockRejectedValue(new ProviderError('yahoo', 'down', true));

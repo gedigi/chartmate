@@ -25,4 +25,12 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ALTV_PROVIDERS: 'mock' })).toThrow();
     expect(() => loadConfig({ CRYPTO_PROVIDER: 'kraken' })).toThrow();
   });
+
+  it('parses ALTV_TRUST_PROXY', () => {
+    expect(loadConfig({}).trustProxy).toBe(false);
+    expect(loadConfig({ ALTV_TRUST_PROXY: 'false' }).trustProxy).toBe(false);
+    expect(loadConfig({ ALTV_TRUST_PROXY: 'true' }).trustProxy).toBe(true);
+    expect(loadConfig({ ALTV_TRUST_PROXY: '2' }).trustProxy).toBe(2);
+    expect(loadConfig({ ALTV_TRUST_PROXY: '10.0.0.0/8,127.0.0.1' }).trustProxy).toBe('10.0.0.0/8,127.0.0.1');
+  });
 });

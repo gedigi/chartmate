@@ -13,6 +13,8 @@ export interface Config {
   binanceBaseUrl: string;
   providers: 'live' | 'fixture';
   webDist: string | null;
+  /** Fastify `trustProxy`: false (default), true, hop count, or an IP/CIDR list. */
+  trustProxy: boolean | number | string;
 }
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -30,10 +32,19 @@ const EnvSchema = z.object({
   BINANCE_BASE_URL: z.preprocess(blankToUndefined, z.url().default('https://data-api.binance.vision')),
   ALTV_PROVIDERS: z.preprocess(blankToUndefined, z.enum(['live', 'fixture']).default('live')),
   ALTV_WEB_DIST: z.preprocess(blankToUndefined, z.string().optional()),
+  ALTV_TRUST_PROXY: z.preprocess(blankToUndefined, z.string().optional()),
 });
 
 function sha256Hex(s: string): string {
   return createHash('sha256').update(s).digest('hex');
+}
+
+function parseTrustProxy(v: string | undefined): boolean | number | string {
+  const s = v?.trim();
+  if (s === undefined || s === '' || s.toLowerCase() === 'false') return false;
+  if (s.toLowerCase() === 'true') return true;
+  if (/^\d+$/.test(s)) return Number(s);
+  return s;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -53,6 +64,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     cryptoProvider: e.CRYPTO_PROVIDER,
     binanceBaseUrl: e.BINANCE_BASE_URL.replace(/\/+$/, ''),
     providers: e.ALTV_PROVIDERS,
+    trustProxy: parseTrustProxy(e.ALTV_TRUST_PROXY),
     webDist: existsSync(join(webDistCandidate, 'index.html')) ? webDistCandidate : null,
   };
 }

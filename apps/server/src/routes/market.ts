@@ -107,11 +107,15 @@ export async function marketRoutes(app: FastifyInstance, deps: MarketRouteDeps):
   app.get('/api/quotes', async (request): Promise<Quote[]> => {
     const { symbols } = parse(SymbolsQuery, request.query);
     const basketIds = symbols.filter(isBasket);
-    const [marketQuotes, basketQuotes] = await Promise.all([
-      market.quotes(symbols.filter((id) => !isBasket(id))),
-      Promise.allSettled(basketIds.map(basketQuote)),
+    const marketIds = symbols.filter((id) => !isBasket(id));
+    const [marketQuotes, ...basketQuotes] = await Promise.allSettled([
+      marketIds.length > 0 ? market.quotes(marketIds) : Promise.resolve([]),
+      ...basketIds.map(basketQuote),
     ]);
-    const byId = new Map<SymbolId, Quote>(marketQuotes.map((q) => [q.id, q]));
+    // Any part that fails is omitted rather than failing the whole request.
+    const byId = new Map<SymbolId, Quote>();
+    if (marketQuotes.status === 'fulfilled') for (const q of marketQuotes.value) byId.set(q.id, q);
+    else request.log.warn({ err: marketQuotes.reason }, 'market quotes failed');
     basketQuotes.forEach((r) => { if (r.status === 'fulfilled' && r.value) byId.set(r.value.id, r.value); });
     return symbols.flatMap((id) => byId.get(id) ?? []);
   });
