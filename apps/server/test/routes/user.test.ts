@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import type { DrawingState, Layout } from '@altv/shared';
+import { MAX_INDICATORS, type DrawingState, type Layout } from '@altv/shared';
 import { makeApp, type TestApp } from './helpers.js';
 
 const layout: Layout = {
@@ -48,6 +48,14 @@ describe('user routes', () => {
     expect((await t.app.inject({ method: 'GET', url: '/api/layouts/whatever' })).statusCode).toBe(400);
     expect((await t.app.inject({ method: 'PUT', url: '/api/layouts/default', payload: { ...layout, tf: '7m' } })).statusCode).toBe(400);
     expect((await t.app.inject({ method: 'PUT', url: '/api/layouts/default', payload: { ...layout, chartType: 'renko' } })).statusCode).toBe(400);
+  });
+
+  it(`layouts accept exactly MAX_INDICATORS (${MAX_INDICATORS}) indicators and reject one more`, async () => {
+    const ind = { name: 'MA', pane: 'main' as const, calcParams: [5], visible: true };
+    const at = { ...layout, indicators: Array.from({ length: MAX_INDICATORS }, () => ind) };
+    expect((await t.app.inject({ method: 'PUT', url: '/api/layouts/default', payload: at })).statusCode).toBe(200);
+    const over = { ...layout, indicators: [...at.indicators, ind] };
+    expect((await t.app.inject({ method: 'PUT', url: '/api/layouts/default', payload: over })).statusCode).toBe(400);
   });
 
   it('drawings PUT/GET', async () => {

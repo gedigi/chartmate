@@ -1,4 +1,6 @@
-/* ChartView: chart canvas host + overlays inside .chart-area */
+/* ChartView: .chart-area = indicator chip strip (in flow) + .chart-stage (canvas host + overlays) */
+.chart-area { display: flex; flex-direction: column; }
+.chart-stage { position: relative; flex: 1; min-height: 0; }
 .chart-host { position: absolute; inset: 0; }
 .chart-init-error { position: absolute; inset: 0; color: var(--error); }
 

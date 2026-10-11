@@ -9,7 +9,7 @@ export interface IndicatorChipsProps {
   setLayout: (fn: (l: Layout) => Layout) => void;
 }
 
-const svg = { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, 'aria-hidden': true } as const;
+const svg = { width: 12, height: 12, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, 'aria-hidden': true } as const;
 
 const EyeIcon = ({ open }: { open: boolean }) => (
   <svg {...svg}>
@@ -26,14 +26,15 @@ const GearIcon = () => (
   </svg>
 );
 
-/** Height of one row of KLineChart's candle-pane legend (OHLC line, then one line per visible overlay). */
-const LEGEND_ROW_PX = 22;
+const chipTitle = (name: string) => {
+  const e = catalogEntry(name);
+  return e ? (e.description ? `${e.label} — ${e.description}` : e.label) : name;
+};
 
-/** Pushes the chips below KLineChart's own candle-pane legend so they don't cover its values. */
-const legendOffset = (indicators: IndicatorState[]) =>
-  (1 + indicators.filter((s) => s.pane === 'main' && s.visible).length) * LEGEND_ROW_PX;
-
-/** Active-indicator chips (chart top-left): label(params) with show/hide, settings and remove buttons. */
+/**
+ * Active-indicator chips: a wrapping strip above the chart canvas (no space when empty) — label(params) with
+ * show/hide, settings and remove buttons.
+ */
 export function IndicatorChips({ layout, setLayout }: IndicatorChipsProps): JSX.Element | null {
   const [editing, setEditing] = useState<{ index: number; state: IndicatorState } | null>(null);
   const { indicators } = layout;
@@ -50,12 +51,12 @@ export function IndicatorChips({ layout, setLayout }: IndicatorChipsProps): JSX.
   return (
     <>
       {indicators.length > 0 && (
-        <ul className="indicator-chips" aria-label="Active indicators" style={{ marginTop: legendOffset(indicators) }}>
+        <ul className="indicator-chips" aria-label="Active indicators">
           {indicators.map((s, i) => {
             const label = indicatorLabel(s);
             return (
               // Index keys match ChartView's index-based indicator diff.
-              <li key={i} className={`indicator-chip${s.visible ? '' : ' is-hidden'}`} title={catalogEntry(s.name)?.label ?? s.name}>
+              <li key={i} className={`indicator-chip${s.visible ? '' : ' is-hidden'}`} title={chipTitle(s.name)}>
                 <span className="indicator-chip-label">{label}</span>
                 <button
                   type="button"

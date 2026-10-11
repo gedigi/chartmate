@@ -63,6 +63,9 @@ export function indicatorLabel(s: { name: string; calcParams: readonly number[] 
   return s.calcParams.length > 0 ? `${s.name}(${s.calcParams.join(', ')})` : s.name;
 }
 
+/** Largest accepted integer (period) param. */
+export const MAX_PERIOD = 1000;
+
 /** Validates the raw text of param `index` of indicator `name`; returns an error message or null. */
 export function validateParam(name: string, index: number, raw: string): string | null {
   const text = raw.trim();
@@ -71,5 +74,6 @@ export function validateParam(name: string, index: number, raw: string): string 
   if (!Number.isFinite(v)) return 'Must be a number';
   const decimal = catalogEntry(name)?.decimalParams?.includes(index) ?? false;
   if (decimal) return v > 0 ? null : 'Must be greater than 0';
-  return Number.isInteger(v) && v >= 1 ? null : 'Must be a whole number ≥ 1';
+  if (!Number.isInteger(v) || v < 1) return 'Must be a whole number ≥ 1';
+  return v <= MAX_PERIOD ? null : `Must be at most ${MAX_PERIOD}`;
 }

@@ -13,6 +13,8 @@ export interface BarsResponse { symbol: SymbolId; tf: Timeframe; session: Sessio
 export interface LatestResponse { bar: Bar | null; stale: boolean }
 export interface IndicatorState { name: string; pane: 'main'|'sub'; calcParams: number[]; visible: boolean; lineColors?: string[] }
 export type ChartType = 'candle'|'ohlc'|'line'|'area';
+/** Most indicators a layout may hold (enforced by the server's layout schema and the indicator picker). */
+export const MAX_INDICATORS = 30;
 export interface Layout { symbol: SymbolId; tf: Timeframe; session: SessionMode; chartType: ChartType; indicators: IndicatorState[] }
 export interface DrawingState { name: string; points: { timestamp: number; value: number }[]; lock: boolean; text?: string; styles?: unknown }
 export interface WatchlistItem { id: SymbolId; position: number }
