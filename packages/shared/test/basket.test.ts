@@ -122,4 +122,39 @@ describe('computeVersionUnits + buildBasketBars', () => {
     const out = buildBasketBars(u, [{ id: 'stock:A', bars: [bar(t + 5 * 3_600_000, 20)] }, { id: 'crypto:B', bars: [bar(t, 100), bar(t + 5 * 3_600_000, 100)] }]);
     expect(out.map(b => b.ts)).toEqual([t + 5 * 3_600_000]);
   });
+
+  it('emits only when an active-version constituent has a real bar (crypto -> stock switch)', () => {
+    const d = { 'stock:A': dailies('2024-01-01', [10, 20, 20, 40, 40, 40]), 'crypto:B': dailies('2024-01-01', [100, 100, 50, 50, 50, 50]) };
+    const u = computeVersionUnits([{ effectiveFrom: '2024-01-02', weights: { 'crypto:B': 1 } }, { effectiveFrom: '2024-01-04', weights: { 'stock:A': 1 } }], d, 100);
+    const H = 3_600_000;
+    const sw = day('2024-01-04');
+    const stock = [bar(sw - 2 * D, 20), bar(sw, 40), bar(sw + 14 * H, 41)];
+    const crypto = [bar(sw - D, 50), bar(sw, 50), bar(sw + 6 * H, 50), bar(sw + 20 * H, 50), bar(sw + D, 50)];
+    const out = buildBasketBars(u, [{ id: 'stock:A', bars: stock }, { id: 'crypto:B', bars: crypto }]);
+    expect(out.filter(b => b.ts >= sw).map(b => b.ts)).toEqual([sw, sw + 14 * H]);
+  });
+
+  it('a stock entering only in v2 creates no bars during v1', () => {
+    const d = { 'stock:A': dailies('2024-01-01', [10, 20, 20, 40]), 'crypto:B': dailies('2024-01-01', [100, 100, 50, 50]) };
+    const u = computeVersionUnits([{ effectiveFrom: '2024-01-02', weights: { 'crypto:B': 1 } }, { effectiveFrom: '2024-01-04', weights: { 'stock:A': 1 } }], d, 100);
+    const H = 3_600_000;
+    const t = day('2024-01-03');
+    const out = buildBasketBars(u, [{ id: 'stock:A', bars: [bar(t + 2 * H, 20)] }, { id: 'crypto:B', bars: [bar(t, 100), bar(t + H, 100)] }]);
+    expect(out.map(b => b.ts)).toEqual([t, t + H]);
+  });
+
+  it('tolerates duplicate timestamps (last wins) without freezing', () => {
+    const u = computeVersionUnits([v0], daily, 100);
+    const t = day('2024-01-03');
+    const H = 3_600_000;
+    const stock = [bar(t, 20), bar(t, 22), bar(t + H, 20)];
+    const out = buildBasketBars(u, [{ id: 'stock:A', bars: stock }, { id: 'crypto:B', bars: [bar(t, 100), bar(t + H, 100)] }]);
+    expect(out.map(b => b.close)).toEqual([5 * 22 + 50, 5 * 20 + 50]);
+  });
+
+  it('rejects invalid baseValue and non-positive level', () => {
+    for (const bv of [0, -1, NaN, Infinity]) expect(() => computeVersionUnits([v0], daily, bv)).toThrow(BasketValidationError);
+    const z = { 'stock:A': dailies('2024-01-01', [10, 0, 0, 0]), 'crypto:B': dailies('2024-01-01', [100, 0, 0, 0]) };
+    expect(() => computeVersionUnits([{ ...v0, effectiveFrom: '2024-01-02' }, { effectiveFrom: '2024-01-04', weights: { 'stock:A': 1 } }], z, 100)).toThrow(BasketValidationError);
+  });
 });

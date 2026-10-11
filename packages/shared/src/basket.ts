@@ -74,6 +74,7 @@ function priorClose(bars: Bar[] | undefined, ts: number): number | undefined {
 }
 
 export function computeVersionUnits(versions: BasketVersion[], daily: DailySeries, baseValue: number): UnitsResult {
+  if (!Number.isFinite(baseValue) || !(baseValue > 0)) throw new BasketValidationError('baseValue must be a positive finite number');
   const v0 = versions[0];
   if (!v0) throw new BasketValidationError('Basket needs at least one version');
   const notices: string[] = [];
@@ -113,6 +114,7 @@ export function computeVersionUnits(versions: BasketVersion[], daily: DailySerie
       if (pc === undefined) throw new BasketValidationError('No data for ' + id + ' before ' + v.effectiveFrom);
       L += u * pc;
     }
+    if (!Number.isFinite(L) || !(L > 0)) throw new BasketValidationError('Version ' + (k + 1) + ' has non-positive index level before ' + v.effectiveFrom);
     const units: Record<SymbolId, number> = {};
     for (const [id, w] of Object.entries(v.weights)) {
       const pc = priorClose(daily[id], Tk);
@@ -150,20 +152,25 @@ export function buildBasketBars(units: UnitsResult, series: ConstituentSeries[])
     while (vi + 1 < versions.length && versions[vi + 1]!.effectiveTs <= t) vi++;
     for (let j = 0; j < series.length; j++) {
       const bars = series[j]!.bars;
-      const b = bars[idx[j]!];
-      if (b && b.ts === t) {
-        cur[j] = b;
-        idx[j]!++;
-      } else cur[j] = undefined;
+      let b: Bar | undefined;
+      let i = idx[j]!;
+      while (i < bars.length && bars[i]!.ts <= t) {
+        if (bars[i]!.ts === t) b = bars[i];
+        i++;
+      }
+      idx[j] = i;
+      cur[j] = b;
     }
     let o = 0, h = 0, l = 0, c = 0;
     let complete = true;
+    let real = false;
     const ver = versions[vi]!;
     for (const [id, u] of Object.entries(ver.units)) {
       const j = byId.get(id);
       if (j === undefined) { complete = false; break; }
       const b = cur[j];
       if (b) {
+        real = true;
         o += u * b.open; h += u * b.high; l += u * b.low; c += u * b.close;
       } else {
         const lc = last[j];
@@ -173,7 +180,7 @@ export function buildBasketBars(units: UnitsResult, series: ConstituentSeries[])
     }
     // Update last closes for every series that had a bar at t.
     for (let j = 0; j < series.length; j++) if (cur[j]) last[j] = cur[j]!.close;
-    if (complete) out.push({ ts: t, open: o, high: h, low: l, close: c, volume: 0 });
+    if (complete && real) out.push({ ts: t, open: o, high: h, low: l, close: c, volume: 0 });
   }
   return out;
 }
