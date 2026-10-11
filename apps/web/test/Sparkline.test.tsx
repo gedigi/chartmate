@@ -25,4 +25,9 @@ describe('Sparkline', () => {
     const { container } = render(<Sparkline values={[2, 2, 2]} />);
     expect(container.querySelector('polyline')!.getAttribute('points')).not.toContain('NaN');
   });
+  it('drops non-finite values', () => {
+    const { container } = render(<Sparkline values={[1, NaN, 3, Infinity]} />);
+    expect(container.querySelector('polyline')!.getAttribute('points')!.trim().split(/\s+/)).toHaveLength(2);
+    expect(render(<Sparkline values={[1, NaN]} />).container.querySelector('svg')).toBeNull();
+  });
 });

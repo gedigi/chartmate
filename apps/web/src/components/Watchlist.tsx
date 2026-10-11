@@ -18,8 +18,11 @@ function fmtPrice(price: number, precision: number): string {
   return price.toLocaleString('en-US', { minimumFractionDigits: precision, maximumFractionDigits: precision });
 }
 
-function fmtChange(pct: number): string {
-  return `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+/** Rounds first so a tiny move never shows "-0.00%"; returns text and direction ('' = neutral). */
+function fmtChange(pct: number): { text: string; dir: 'up' | 'down' | '' } {
+  const r = Math.round(pct * 100) / 100;
+  if (r === 0) return { text: '0.00%', dir: '' };
+  return { text: `${r > 0 ? '+' : ''}${r.toFixed(2)}%`, dir: r > 0 ? 'up' : 'down' };
 }
 
 function fallbackTicker(id: SymbolId): string {
@@ -39,6 +42,7 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
   const listRef = useRef<HTMLUListElement>(null);
 
   const key = ids.join(',');
+  const setKey = ids.slice().sort().join(',');
 
   // Symbol info (names, price precision), cached per id.
   useEffect(() => {
@@ -53,48 +57,45 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  // Quote polling.
+  // Quote + sparkline polling. Keyed on the id *set* so reordering does not refetch.
   useEffect(() => {
-    if (ids.length === 0) return;
+    if (setKey === '') return;
+    const list = setKey.split(',');
     let cancelled = false;
-    const poll = () => {
+    const pollQuotes = () => {
       if (document.hidden) return;
-      api.quotes(ids).then(
-        (list) => {
+      api.quotes(list).then(
+        (res) => {
           if (cancelled) return;
           setQuotes((cur) => {
             const next = { ...cur };
-            for (const q of list) next[q.id] = q;
+            for (const q of res) next[q.id] = q;
             return next;
           });
         },
         () => { /* keep previous quotes */ },
       );
     };
-    poll();
-    const t = setInterval(poll, QUOTE_POLL_MS);
-    const onVis = () => { if (!document.hidden) poll(); };
-    document.addEventListener('visibilitychange', onVis);
-    return () => { cancelled = true; clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-
-  // Sparkline polling.
-  useEffect(() => {
-    if (ids.length === 0) return;
-    let cancelled = false;
-    const poll = () => {
+    const pollSparks = () => {
       if (document.hidden) return;
-      api.sparklines(ids).then(
+      api.sparklines(list).then(
         (map) => { if (!cancelled) setSparks((cur) => ({ ...cur, ...map })); },
         () => { /* keep previous sparklines */ },
       );
     };
-    poll();
-    const t = setInterval(poll, SPARK_POLL_MS);
-    return () => { cancelled = true; clearInterval(t); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+    pollQuotes();
+    pollSparks();
+    const qt = setInterval(pollQuotes, QUOTE_POLL_MS);
+    const st = setInterval(pollSparks, SPARK_POLL_MS);
+    const onVis = () => { if (!document.hidden) { pollQuotes(); pollSparks(); } };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      cancelled = true;
+      clearInterval(qt);
+      clearInterval(st);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [setKey]);
 
   // Restore focus to the moved row after a keyboard reorder.
   useEffect(() => {
@@ -118,6 +119,7 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
       e.preventDefault();
       onSelect(id);
     } else if (e.key === 'Delete') {
+      focusId.current = ids[index + 1] ?? ids[index - 1] ?? null;
       remove(id);
     }
   }
@@ -139,7 +141,7 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
           const info = infos[id];
           const q = quotes[id];
           const label = info ? (info.assetClass === 'basket' ? info.name : info.ticker) : fallbackTicker(id);
-          const dir = q?.changePct == null ? '' : q.changePct >= 0 ? 'up' : 'down';
+          const chg = q?.changePct == null ? null : fmtChange(q.changePct);
           const classes = ['watchlist-row'];
           if (id === currentSymbol) classes.push('current');
           if (dragFrom === i) classes.push('dragging');
@@ -166,8 +168,8 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
               <span className="wl-symbol" title={info?.name}>{label}</span>
               <span className="wl-spark"><Sparkline values={sparks[id] ?? []} /></span>
               <span className="wl-quote">
-                <span className="wl-price">{q ? fmtPrice(q.price, info?.pricePrecision ?? 2) : '—'}</span>
-                <span className={`wl-change ${dir}`}>{q?.changePct == null ? '—' : fmtChange(q.changePct)}</span>
+                <span className="wl-price">{q && info ? fmtPrice(q.price, info.pricePrecision) : '—'}</span>
+                <span className={`wl-change ${chg?.dir ?? ''}`}>{chg ? chg.text : '—'}</span>
               </span>
               <button
                 type="button"

@@ -62,17 +62,19 @@ describe('Watchlist', () => {
 
   it('ignores duplicate adds, saves new ones (debounced)', async () => {
     setup(['stock:AAPL']);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
     await screen.findByText('AAPL');
     vi.mocked(api.search).mockResolvedValue([INFO['stock:AAPL']!, INFO['stock:MSFT']!]);
     const box = screen.getByRole('combobox');
-    await userEvent.type(box, 'a');
-    await userEvent.click(await screen.findByRole('option', { name: /Apple/ }));
-    await new Promise((r) => setTimeout(r, 700));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await user.type(box, 'a');
+    await user.click(await screen.findByRole('option', { name: /Apple/ }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(700); });
     expect(put).not.toHaveBeenCalled();
     expect(rows()).toHaveLength(1);
-    await userEvent.type(box, 'm');
-    await userEvent.click(await screen.findByRole('option', { name: /Microsoft/ }));
+    await user.type(box, 'm');
+    await user.click(await screen.findByRole('option', { name: /Microsoft/ }));
     expect(rows()).toHaveLength(2);
     await waitFor(() => expect(put).toHaveBeenCalledWith(['stock:AAPL', 'stock:MSFT']), { timeout: 2000 });
     expect(put).toHaveBeenCalledTimes(1);
@@ -148,5 +150,72 @@ describe('Watchlist', () => {
     const before = vi.mocked(api.sparklines).mock.calls.length;
     await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60_000); });
     expect(vi.mocked(api.sparklines).mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it('a failed watchlist.get never calls put', async () => {
+    setup(['stock:AAPL']);
+    vi.mocked(api.watchlist.get).mockRejectedValue(new Error('boom'));
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/boom/);
+    await act(async () => { await new Promise((r) => setTimeout(r, 800)); });
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('polling stops on unmount, restarts on set change, not on reorder', async () => {
+    setup(['stock:AAPL', 'crypto:BTC']);
+    vi.useFakeTimers();
+    const { unmount } = render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(quotes).toHaveBeenCalledTimes(1);
+    const first = rows()[0]!;
+    fireEvent.keyDown(first, { key: 'ArrowDown', altKey: true });
+    expect(order()).toEqual(['crypto:BTC', 'stock:AAPL']);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(quotes).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove BTC' }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(quotes).toHaveBeenCalledTimes(2);
+    unmount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(quotes).toHaveBeenCalledTimes(2);
+  });
+
+  it('sparkline poll respects hidden and fetches when becoming visible', async () => {
+    setup(['stock:AAPL']);
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    vi.useFakeTimers();
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(api.sparklines).not.toHaveBeenCalled();
+    expect(quotes).not.toHaveBeenCalled();
+    hidden.mockReturnValue(false);
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(api.sparklines).toHaveBeenCalledTimes(1);
+    expect(quotes).toHaveBeenCalledTimes(1);
+  });
+
+  it('tiny negative change is neutral "0.00%"; price shows em dash until info loads', async () => {
+    setup(['stock:AAPL']);
+    quotes.mockResolvedValue([{ id: 'stock:AAPL', price: 10, changePct: -0.001, ts: 1 }]);
+    let resolve!: (i: SymbolInfo) => void;
+    vi.mocked(api.symbol).mockReturnValue(new Promise((r) => { resolve = r; }));
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    const chg = await screen.findByText('0.00%');
+    expect(chg).not.toHaveClass('down');
+    expect(rows()[0]!.querySelector('.wl-price')).toHaveTextContent('—');
+    await act(async () => { resolve(INFO['stock:AAPL']!); });
+    expect(rows()[0]!.querySelector('.wl-price')).toHaveTextContent('10.00');
+  });
+
+  it('Delete removes the row and focuses the neighbor (previous if last)', async () => {
+    setup(['stock:AAPL', 'crypto:BTC', 'stock:MSFT']);
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('MSFT');
+    rows()[1]!.focus();
+    fireEvent.keyDown(rows()[1]!, { key: 'Delete' });
+    expect(order()).toEqual(['stock:AAPL', 'stock:MSFT']);
+    expect(rows()[1]).toHaveFocus();
+    fireEvent.keyDown(rows()[1]!, { key: 'Delete' });
+    expect(rows()[0]).toHaveFocus();
   });
 });

@@ -14,11 +14,6 @@ function setFlag(): void {
   try { localStorage.setItem(INITIALIZED_KEY, '1'); } catch { /* storage unavailable */ }
 }
 
-async function saveList(ids: SymbolId[]): Promise<void> {
-  await api.watchlist.put(ids);
-  setFlag();
-}
-
 export interface UseWatchlist {
   ids: SymbolId[];
   loaded: boolean;
@@ -33,6 +28,13 @@ export function useWatchlist(): UseWatchlist {
   const [ids, setIds] = useState<SymbolId[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [seedError, setSeedError] = useState<string | null>(null);
+
+  const saveList = useCallback(async (list: SymbolId[]): Promise<void> => {
+    await api.watchlist.put(list);
+    setFlag();
+    setSeedError(null);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,7 +44,7 @@ export function useWatchlist(): UseWatchlist {
         if (list.length === 0 && !readFlag()) {
           setIds(DEFAULT_WATCHLIST);
           setLoaded(true);
-          saveList(DEFAULT_WATCHLIST).catch((err: unknown) => { if (!cancelled) setLoadError(errorMessage(err)); });
+          saveList(DEFAULT_WATCHLIST).catch((err: unknown) => { if (!cancelled) setSeedError(errorMessage(err)); });
         } else {
           setIds(list);
           setLoaded(true);
@@ -51,7 +53,7 @@ export function useWatchlist(): UseWatchlist {
       (err: unknown) => { if (!cancelled) setLoadError(errorMessage(err)); },
     );
     return () => { cancelled = true; };
-  }, []);
+  }, [saveList]);
 
   // Saving stays disabled until the server list is loaded (so a failed load never overwrites it).
   const { error: saveError } = useDebouncedSave(ids, saveList, SAVE_DELAY_MS, loaded);
@@ -72,5 +74,5 @@ export function useWatchlist(): UseWatchlist {
     });
   }, []);
 
-  return { ids, loaded, error: loadError ?? saveError, add, remove, move };
+  return { ids, loaded, error: loadError ?? saveError ?? seedError, add, remove, move };
 }
