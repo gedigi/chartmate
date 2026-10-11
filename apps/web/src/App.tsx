@@ -6,6 +6,7 @@ import { ChartView } from './components/ChartView';
 import { Login } from './components/Login';
 import { TopBar, type Theme, type View } from './components/TopBar';
 import { Watchlist } from './components/Watchlist';
+import { onBasketChanged } from './state/useBaskets';
 import { useLayout } from './state/useLayout';
 
 const THEME_KEY = 'altv.theme';
@@ -46,28 +47,39 @@ function useHashView(): [View, (v: View) => void] {
   return [view, setView];
 }
 
-/** Info for the current symbol; null while loading or on error. */
-function useSymbolInfo(symbol: SymbolId): SymbolInfo | null {
-  const [state, setState] = useState<{ id: SymbolId; info: SymbolInfo | null } | null>(null);
+type SymbolInfoState =
+  | { status: 'loading' }
+  | { status: 'ready'; info: SymbolInfo }
+  | { status: 'error'; message: string };
+
+/** Info for the current symbol, distinguishing loading from a failed load. */
+function useSymbolInfo(symbol: SymbolId): SymbolInfoState {
+  const [state, setState] = useState<{ id: SymbolId; value: SymbolInfoState } | null>(null);
   useEffect(() => {
     let cancelled = false;
     api.symbol(symbol).then(
-      (info) => { if (!cancelled) setState({ id: symbol, info }); },
-      () => { if (!cancelled) setState({ id: symbol, info: null }); },
+      (info) => { if (!cancelled) setState({ id: symbol, value: { status: 'ready', info } }); },
+      (err: unknown) => { if (!cancelled) setState({ id: symbol, value: { status: 'error', message: errorMessage(err) } }); },
     );
     return () => { cancelled = true; };
   }, [symbol]);
-  return state?.id === symbol ? state.info : null;
+  return state?.id === symbol ? state.value : { status: 'loading' };
 }
 
-/** RTH/ETH only matters for stocks and for baskets containing at least one stock. */
+/** RTH/ETH only matters for stocks and for baskets containing at least one stock (re-checked when the basket is edited). */
 function useShowSession(symbol: SymbolId): boolean {
   const [basketHasStock, setBasketHasStock] = useState<{ id: SymbolId; value: boolean } | null>(null);
+  const [basketRev, setBasketRev] = useState(0);
   let assetClass: string | null = null;
   let code = '';
   try {
     ({ assetClass, code } = parseSymbolId(symbol));
   } catch { /* invalid id → no session toggle */ }
+
+  useEffect(() => {
+    if (assetClass !== 'basket') return;
+    return onBasketChanged((id) => { if (id === code) setBasketRev((r) => r + 1); });
+  }, [assetClass, code]);
 
   useEffect(() => {
     if (assetClass !== 'basket') return;
@@ -80,7 +92,7 @@ function useShowSession(symbol: SymbolId): boolean {
       () => { if (!cancelled) setBasketHasStock({ id: symbol, value: false }); },
     );
     return () => { cancelled = true; };
-  }, [symbol, assetClass, code]);
+  }, [symbol, assetClass, code, basketRev]);
 
   if (assetClass === 'stock') return true;
   if (assetClass === 'basket') return basketHasStock?.id === symbol && basketHasStock.value;
@@ -91,7 +103,9 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
   const { layout, setLayout, loaded } = useLayout();
   const [view, setView] = useHashView();
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= SIDEBAR_BREAKPOINT);
-  const symbolInfo = useSymbolInfo(layout.symbol);
+  const symbolInfoState = useSymbolInfo(layout.symbol);
+  const symbolInfo = symbolInfoState.status === 'ready' ? symbolInfoState.info : null;
+  const symbolError = symbolInfoState.status === 'error' ? symbolInfoState.message : null;
   const showSession = useShowSession(layout.symbol);
 
   const selectSymbol = useCallback((id: SymbolId) => setLayout((l) => (l.symbol === id ? l : { ...l, symbol: id })), [setLayout]);
@@ -118,7 +132,7 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
         <>
           <main className="chart-main">
             {loaded
-              ? <ChartView layout={layout} setLayout={setLayout} symbolInfo={symbolInfo} theme={theme} />
+              ? <ChartView layout={layout} setLayout={setLayout} symbolInfo={symbolInfo} symbolError={symbolError} theme={theme} />
               : <div className="center-message">Loading layout…</div>}
           </main>
           {sidebarOpen && (

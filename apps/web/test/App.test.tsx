@@ -1,8 +1,9 @@
-import type { Layout } from '@altv/shared';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import type { Basket, Layout } from '@altv/shared';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api } from '../src/api/client';
+import { api, ApiError } from '../src/api/client';
+import { notifyBasketChanged } from '../src/state/useBaskets';
 import { App } from '../src/App';
 
 beforeEach(() => {
@@ -93,5 +94,39 @@ describe('App', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('refreshes the RTH/ETH toggle when the current basket is edited', async () => {
+    vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+    const layout: Layout = { symbol: 'basket:b1', tf: '1h', session: 'rth', chartType: 'candle', indicators: [] };
+    vi.mocked(api.layouts.get).mockImplementation(async (key) => (key === 'default' ? layout : null));
+    vi.mocked(api.symbol).mockResolvedValue({ id: 'basket:b1', assetClass: 'basket', ticker: 'B1', name: 'B1', pricePrecision: 2 });
+    const cryptoOnly: Basket = { id: 'b1', name: 'B1', baseValue: 100, createdAt: 0, updatedAt: 0,
+      versions: [{ effectiveFrom: '2024-01-02', weights: { 'crypto:BTC': 1 } }] };
+    const withStock: Basket = { ...cryptoOnly, versions: [...cryptoOnly.versions, { effectiveFrom: '2024-02-01', weights: { 'stock:AAPL': 1 } }] };
+    const get = vi.spyOn(api.baskets, 'get').mockResolvedValue(cryptoOnly);
+    render(<App />);
+    await screen.findByTestId('chart-view');
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'RTH' })).not.toBeInTheDocument();
+    get.mockResolvedValue(withStock);
+    act(() => notifyBasketChanged('other'));
+    act(() => notifyBasketChanged('b1'));
+    expect(await screen.findByRole('button', { name: 'RTH' })).toBeInTheDocument();
+  });
+
+  it('shows an inline error in the chart when the symbol info fails to load', async () => {
+    vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+    vi.mocked(api.symbol).mockRejectedValue(new ApiError(404, 'not_found', 'Unknown symbol'));
+    render(<App />);
+    expect(await screen.findByText("Couldn't load symbol crypto:BTC: Unknown symbol")).toBeInTheDocument();
+  });
+
+  it('shows no symbol error while the symbol info is still loading', async () => {
+    vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+    vi.mocked(api.symbol).mockImplementation(() => new Promise(() => {}));
+    render(<App />);
+    await screen.findByTestId('chart-view');
+    expect(screen.queryByText(/Couldn't load symbol/)).not.toBeInTheDocument();
   });
 });

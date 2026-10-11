@@ -15,6 +15,8 @@ export interface ChartViewProps {
   setLayout: (fn: (l: Layout) => Layout) => void;
   /** Null while the symbol's info is loading or failed to load. */
   symbolInfo: SymbolInfo | null;
+  /** Set when the current symbol's info failed to load (shown inline instead of a blank chart). */
+  symbolError?: string | null;
   theme: 'dark' | 'light';
 }
 
@@ -55,7 +57,7 @@ const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringif
  * stale badge, etc.). The root fills its grid cell; `.chart-view` is itself a 2-column grid.
  * One ChartAdapter lives for the component's lifetime and is driven from `layout`.
  */
-export function ChartView({ layout, setLayout, symbolInfo, theme }: ChartViewProps): JSX.Element {
+export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, theme }: ChartViewProps): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
   const [adapter, setAdapter] = useState<ChartAdapter | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
@@ -199,6 +201,9 @@ export function ChartView({ layout, setLayout, symbolInfo, theme }: ChartViewPro
         <div className="chart-stage">
           <div className="chart-host" ref={hostRef} data-testid="chart-host" />
           {initError && <div className="center-message chart-init-error" role="alert">Chart failed to start: {initError}</div>}
+          {!initError && symbolError !== null && !info && (
+            <div className="center-message chart-init-error" role="alert">Couldn&apos;t load symbol {symbol}: {symbolError}</div>
+          )}
           <div className="chart-overlay-top-left">
             <StaleBadge stale={meta.stale} />
             {notices.map((n) => (

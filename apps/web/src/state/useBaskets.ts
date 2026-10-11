@@ -19,6 +19,20 @@ export interface UseBaskets {
 
 export const basketSymbol = (id: string): SymbolId => `basket:${id}`;
 
+type BasketListener = (id: string) => void;
+const basketListeners = new Set<BasketListener>();
+
+/** Subscribes to "basket `id` was created, edited or deleted". Returns the unsubscribe function. */
+export function onBasketChanged(cb: BasketListener): () => void {
+  basketListeners.add(cb);
+  return () => { basketListeners.delete(cb); };
+}
+
+/** Tells subscribers (e.g. the chart's RTH/ETH toggle) that a basket changed on the server. */
+export function notifyBasketChanged(id: string): void {
+  for (const cb of [...basketListeners]) cb(id);
+}
+
 /** Basket list + current values for the Baskets page. Quote failures are non-fatal (values show as "—"). */
 export function useBaskets(): UseBaskets {
   const [baskets, setBaskets] = useState<Basket[]>([]);
@@ -69,6 +83,7 @@ export function useBaskets(): UseBaskets {
   const upsert = useCallback((b: Basket) => {
     setBaskets((list) => (list.some((x) => x.id === b.id) ? list.map((x) => (x.id === b.id ? b : x)) : [...list, b]));
     loadQuotes([b.id], gen.current);
+    notifyBasketChanged(b.id);
   }, [loadQuotes]);
 
   const remove = useCallback(async (id: string) => {
@@ -79,6 +94,7 @@ export function useBaskets(): UseBaskets {
       delete next[basketSymbol(id)];
       return next;
     });
+    notifyBasketChanged(id);
   }, []);
 
   return { baskets, quotes, status, error, reload, upsert, remove };
