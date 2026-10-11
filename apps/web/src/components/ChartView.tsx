@@ -176,10 +176,13 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, t
     setDrawingsValue({ symbol: s, drawings: adapter.serializeDrawings() });
   }), [adapter]);
 
+  // Enabled only while the current symbol's drawings are loaded: a symbol switch disables it in the same
+  // render, which flushes the previous symbol's pending save immediately instead of losing it.
   const { error: saveError } = useDebouncedSave(
     drawingsValue,
     (v) => (v ? api.drawings.put(v.symbol, v.drawings) : Promise.resolve()),
     DRAWINGS_SAVE_MS,
+    drawingsFor === symbol,
   );
   useEffect(() => { if (saveError) setToast(`Could not save drawings: ${saveError}`); }, [saveError]);
 

@@ -138,6 +138,24 @@ describe('ChartView', () => {
     expect(api.drawings.put).toHaveBeenCalledWith('stock:AAPL', [{ name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false }]);
   });
 
+  it('flushes the pending drawings save for the previous symbol immediately on a symbol switch', async () => {
+    const { rerenderWith } = renderView();
+    await flush();
+    await flush();
+    vi.useFakeTimers();
+    act(() => adapter().changeCb!());
+    act(() => { vi.advanceTimersByTime(300); });
+    expect(api.drawings.put).not.toHaveBeenCalled();
+    rerenderWith({ ...LAYOUT, symbol: 'crypto:BTC' }, BTC);
+    expect(api.drawings.put).toHaveBeenCalledTimes(1);
+    expect(api.drawings.put).toHaveBeenCalledWith('stock:AAPL', [{ name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false }]);
+    // B's load + an immediate edit on B must not resurrect or overwrite A's save.
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    act(() => adapter().changeCb!());
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(vi.mocked(api.drawings.put).mock.calls.map((c) => c[0])).toEqual(['stock:AAPL', 'crypto:BTC']);
+  });
+
   it('destroys the adapter on unmount', async () => {
     const { unmount } = renderView();
     await flush();
