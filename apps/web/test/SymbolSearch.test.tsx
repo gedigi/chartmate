@@ -1,5 +1,5 @@
 import type { SymbolInfo } from '@altv/shared';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../src/api/client';
@@ -82,5 +82,64 @@ describe('SymbolSearch', () => {
     await waitFor(() => expect(signals).toHaveLength(2));
     expect(signals[0]!.aborted).toBe(true);
     expect(await screen.findAllByRole('option')).toHaveLength(3);
+  });
+
+  it('sets aria-controls only while the listbox is rendered', async () => {
+    vi.spyOn(api, 'search').mockResolvedValue(RESULTS);
+    render(<SymbolSearch onSelect={() => {}} />);
+    const input = screen.getByRole('combobox');
+    expect(input).not.toHaveAttribute('aria-controls');
+    await userEvent.type(input, 'aa');
+    const listbox = await screen.findByRole('listbox');
+    expect(input).toHaveAttribute('aria-controls', listbox.id);
+    await userEvent.keyboard('{Escape}');
+    expect(input).not.toHaveAttribute('aria-controls');
+  });
+
+  it('Enter with results and nothing highlighted selects the first result', async () => {
+    vi.spyOn(api, 'search').mockResolvedValue(RESULTS);
+    const onSelect = vi.fn();
+    render(<SymbolSearch onSelect={onSelect} />);
+    await userEvent.type(screen.getByRole('combobox'), 'aa');
+    await screen.findAllByRole('option');
+    await userEvent.keyboard('{Enter}');
+    expect(onSelect).toHaveBeenCalledWith('stock:AAPL');
+  });
+
+  it('re-focusing before the blur timeout keeps the dropdown open', async () => {
+    vi.spyOn(api, 'search').mockResolvedValue(RESULTS);
+    render(<SymbolSearch onSelect={() => {}} />);
+    const input = screen.getByRole('combobox');
+    await userEvent.type(input, 'aa');
+    await screen.findAllByRole('option');
+    vi.useFakeTimers();
+    try {
+      fireEvent.blur(input);
+      act(() => { vi.advanceTimersByTime(50); });
+      fireEvent.focus(input);
+      act(() => { vi.advanceTimersByTime(500); });
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps previous results visible (with a loading indicator) while a new search is in flight', async () => {
+    let resolveSecond!: (v: SymbolInfo[]) => void;
+    vi.spyOn(api, 'search')
+      .mockResolvedValueOnce(RESULTS)
+      .mockImplementationOnce(() => new Promise((r) => { resolveSecond = r; }));
+    render(<SymbolSearch onSelect={() => {}} />);
+    const input = screen.getByRole('combobox');
+    await userEvent.type(input, 'aa');
+    expect(await screen.findAllByRole('option')).toHaveLength(3);
+    await userEvent.type(input, 'p');
+    await waitFor(() => expect(api.search).toHaveBeenCalledTimes(2));
+    expect(screen.getAllByRole('option')).toHaveLength(3);
+    expect(screen.getByRole('listbox')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByText('Searching…')).toBeInTheDocument();
+    await act(async () => { resolveSecond([RESULTS[0]!]); await Promise.resolve(); });
+    expect(screen.getAllByRole('option')).toHaveLength(1);
+    expect(screen.queryByText('Searching…')).not.toBeInTheDocument();
   });
 });
