@@ -86,6 +86,10 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
   const box = await host.boundingBox();
   if (!box) throw new Error('chart host has no bounding box');
   // Upper third of the chart: inside the candle pane (RSI and VOL panes sit below it), left of the price axis.
+  // These fractions depend on the pinned 1440x900 viewport (playwright.config.ts) and on the pane layout at
+  // this point (candle pane + VOL + RSI sub-panes, chip strip above the canvas). If either changes — a
+  // different viewport, another default sub-pane, taller toolbars — re-check that this point still lands in
+  // the candle pane, otherwise the click creates no drawing and the PUT below never happens.
   await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.3);
   const put = await drawingsPut;
   expect(put.ok()).toBe(true);
