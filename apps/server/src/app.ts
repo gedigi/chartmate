@@ -1,7 +1,7 @@
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { ZodError } from 'zod';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { registerAuth } from './auth.js';
 import type { BasketService } from './baskets/service.js';
@@ -35,20 +35,59 @@ function toFastifyTrustProxy(tp: Config['trustProxy']): boolean | string | ((add
   return typeof tp === 'number' ? (_addr: string, hop: number) => hop < tp : tp;
 }
 
+/**
+ * Router-level failures (e.g. undecodable URL) never reach onRequest hooks: fail closed here. Messages are mapped by
+ * Fastify error code so internal details never leak.
+ */
+export function frameworkErrorHandler(password: string | null) {
+  return (error: FastifyError, request: FastifyRequest, reply: FastifyReply) => {
+    if (password !== null && looksLikeApi(request.url)) {
+      return reply.code(401).send({ code: 'unauthorized', message: 'Login required' });
+    }
+    const status = typeof error.statusCode === 'number' && error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 400;
+    const message = error.code === 'FST_ERR_BAD_URL' ? 'Malformed URL' : 'Bad request';
+    return reply.code(status).send({ code: 'invalid_request', message });
+  };
+}
+
+/**
+ * The SPA's index.html, read once at startup and kept in memory; re-read only when its mtime changes (a rebuilt web
+ * bundle is picked up without a restart). `get()` resolves to null when the file is missing/unreadable.
+ */
+class IndexHtml {
+  private html: Buffer | null = null;
+  private mtimeMs = -1;
+  constructor(private readonly path: string) {}
+
+  async get(): Promise<Buffer | null> {
+    let m: number;
+    try {
+      m = (await stat(this.path)).mtimeMs;
+    } catch {
+      this.html = null;
+      this.mtimeMs = -1;
+      return null;
+    }
+    if (this.html === null || m !== this.mtimeMs) {
+      try {
+        this.html = await readFile(this.path);
+        this.mtimeMs = m;
+      } catch {
+        this.html = null;
+        this.mtimeMs = -1;
+      }
+    }
+    return this.html;
+  }
+}
+
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const { config, repos, market, baskets } = deps;
   const app = Fastify({
     logger: deps.logger ?? false,
     trustProxy: toFastifyTrustProxy(config.trustProxy),
     bodyLimit: BODY_LIMIT,
-    // Router-level failures (e.g. undecodable URL) never reach onRequest hooks: fail closed here.
-    frameworkErrors: (error: FastifyError, request: FastifyRequest, reply: FastifyReply) => {
-      if (config.password !== null && looksLikeApi(request.url)) {
-        return reply.code(401).send({ code: 'unauthorized', message: 'Login required' });
-      }
-      const status = typeof error.statusCode === 'number' && error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 400;
-      return reply.code(status).send({ code: 'invalid_request', message: 'Malformed URL' });
-    },
+    frameworkErrors: frameworkErrorHandler(config.password),
   });
 
   app.setErrorHandler((error: unknown, request, reply) => {
@@ -82,17 +121,26 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(userRoutes, { repos });
 
   const webDist = config.webDist;
+  const indexHtml = webDist ? new IndexHtml(join(webDist, 'index.html')) : null;
+  await indexHtml?.get(); // read once at startup (missing is tolerated)
   if (webDist) {
     // Encapsulated so only the static plugin's routes get tagged as SPA routes (see auth guard).
     await app.register(async (scope) => {
       scope.addHook('onRoute', (route) => { route.config = { ...route.config, spa: true }; });
+      // Static/SPA routes never answer API-looking paths (e.g. `/\api/x`, `/api;x/y`): JSON 404 instead.
+      scope.addHook('onRequest', async (request, reply) => {
+        if (isApiPath(request.url)) return reply.callNotFound();
+      });
       await scope.register(fastifyStatic, { root: webDist, prefix: '/' });
     });
   }
 
   app.setNotFoundHandler(async (request, reply) => {
-    if (webDist && (request.method === 'GET' || request.method === 'HEAD') && !isApiPath(request.url)) {
-      const html = await readFile(join(webDist, 'index.html'));
+    if (indexHtml && (request.method === 'GET' || request.method === 'HEAD') && !isApiPath(request.url)) {
+      const html = await indexHtml.get();
+      if (html === null) {
+        return reply.code(404).send({ code: 'web_not_built', message: 'Web UI not built (index.html missing)' });
+      }
       return reply.type('text/html; charset=utf-8').header('cache-control', 'no-cache').send(html);
     }
     const path = decodedPath(request.url) ?? request.url.split('?')[0];

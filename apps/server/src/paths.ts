@@ -9,16 +9,25 @@ export function decodedPath(url: string): string | null {
   }
 }
 
-/** True for `/api` and anything under it (case-insensitive), judged on the decoded path; undecodable paths that look like API paths count too. */
+/**
+ * True when the first path segment is `api` (case-insensitive), judged on the decoded path with backslashes treated
+ * as slashes (as browsers do) and matrix parameters (`;…`) stripped from the segment: `/api`, `/api/x`, `/api;x/y`,
+ * `/\api/y` all count. Undecodable paths that look like API paths count too.
+ */
 export function isApiPath(url: string): boolean {
   const path = decodedPath(url);
   if (path === null) return looksLikeApi(url);
-  const p = path.toLowerCase();
-  return p === '/api' || p.startsWith('/api/');
+  return firstSegment(path) === 'api';
 }
 
-/** Conservative check for raw (undecodable) URLs: `/api…` or an encoded first segment. */
+function firstSegment(path: string): string {
+  const p = path.replace(/\\/g, '/').replace(/^\/+/, '');
+  const seg = p.split('/', 1)[0] ?? '';
+  return seg.split(';', 1)[0]!.toLowerCase();
+}
+
+/** Conservative check for raw (undecodable) URLs: `/api…` (after slashes/backslashes) or an encoded first segment. */
 export function looksLikeApi(url: string): boolean {
-  const p = url.toLowerCase().replace(/^\/+/, '/');
+  const p = url.toLowerCase().replace(/^[\/\\]+/, '/');
   return p.startsWith('/api') || p.startsWith('/%');
 }
