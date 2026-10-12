@@ -49,15 +49,22 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'ETH' })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('hides the session toggle for crypto and switches to the baskets view via tabs and hash', async () => {
+  it('hides the session toggle for crypto and switches to the baskets view via the view nav and hash', async () => {
     vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
     render(<App />);
     await screen.findByTestId('chart-view');
     await screen.findByText('crypto:BTC name');
     expect(screen.queryByRole('button', { name: 'RTH' })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('tab', { name: 'Baskets' }));
+    // View switcher: nav buttons with aria-current="page" (not an incomplete tabs pattern).
+    const nav = screen.getByRole('navigation', { name: 'View' });
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    expect(within(nav).getByRole('button', { name: 'Chart' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getByRole('button', { name: 'Baskets' })).not.toHaveAttribute('aria-current');
+    await userEvent.click(within(nav).getByRole('button', { name: 'Baskets' }));
     expect(screen.getByTestId('baskets-page')).toBeInTheDocument();
     expect(window.location.hash).toBe('#/baskets');
+    expect(within(nav).getByRole('button', { name: 'Baskets' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getByRole('button', { name: 'Chart' })).not.toHaveAttribute('aria-current');
   });
 
   it('disables the top-bar chart controls until the default layout has loaded', async () => {

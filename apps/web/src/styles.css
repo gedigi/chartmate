@@ -61,7 +61,7 @@ button, select, input {
 button { cursor: pointer; }
 button:hover:not(:disabled) { background: var(--bg-hover); }
 button:disabled { opacity: 0.5; cursor: default; }
-button[aria-pressed='true'], button[aria-selected='true'] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+button[aria-pressed='true'], button[aria-selected='true'], button[aria-current='page'] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 

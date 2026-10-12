@@ -133,7 +133,7 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
   expect(drawings).toHaveLength(1);
 
   // 6. Create "E2E Basket" 50% AAPL / 50% BTC from 2024-01-02 and open its chart.
-  await page.getByRole('tab', { name: 'Baskets', exact: true }).click();
+  await page.getByRole('navigation', { name: 'View' }).getByRole('button', { name: 'Baskets', exact: true }).click();
   await page.getByRole('button', { name: 'New basket' }).click();
   const create = page.getByRole('form', { name: 'Create basket' });
   await create.getByLabel('Name').fill(BASKET_NAME);
@@ -158,7 +158,7 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
 
   // 7. Append a version (100% BTC from yesterday UTC) → the basket chart's bars carry a version marker.
   const effective = yesterdayUtc();
-  await page.getByRole('tab', { name: 'Baskets', exact: true }).click();
+  await page.getByRole('navigation', { name: 'View' }).getByRole('button', { name: 'Baskets', exact: true }).click();
   await row.getByRole('button', { name: 'Edit' }).click();
   await page.getByRole('button', { name: 'Change weights' }).click();
   const change = page.getByRole('form', { name: 'Change weights' });
@@ -205,7 +205,7 @@ test('chart appearance persists; a basket starting today shows simulated history
   await page.getByRole('dialog', { name: 'Chart appearance' }).getByRole('button', { name: 'Done' }).click();
 
   // A basket created with the default start date (today) has bars: simulated history before its start.
-  await page.getByRole('tab', { name: 'Baskets', exact: true }).click();
+  await page.getByRole('navigation', { name: 'View' }).getByRole('button', { name: 'Baskets', exact: true }).click();
   await page.getByRole('button', { name: 'New basket' }).click();
   const create = page.getByRole('form', { name: 'Create basket' });
   await expect(create.getByLabel('Start date (UTC)')).toHaveValue(new Date().toISOString().slice(0, 10));
