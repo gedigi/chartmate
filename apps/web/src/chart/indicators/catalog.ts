@@ -66,6 +66,17 @@ export function defaultLineColor(i: number, name?: string): string {
   return own ?? DEFAULT_LINE_COLORS[i % DEFAULT_LINE_COLORS.length]!;
 }
 
+/**
+ * Stored-params migration: older layouts may hold fewer params than the catalog now defines (e.g. a param
+ * added later). Missing trailing params get the catalog defaults; extra ones are dropped. Unknown indicators
+ * keep their stored params.
+ */
+export function migrateCalcParams(name: string, stored: readonly number[]): number[] {
+  const entry = catalogEntry(name);
+  if (!entry) return [...stored];
+  return entry.defaultParams.map((d, i) => stored[i] ?? d);
+}
+
 /** Short chip label: `RSI(6, 12, 24)`, or just the name when there are no params. */
 export function indicatorLabel(s: { name: string; calcParams: readonly number[] }): string {
   return s.calcParams.length > 0 ? `${s.name}(${s.calcParams.join(', ')})` : s.name;

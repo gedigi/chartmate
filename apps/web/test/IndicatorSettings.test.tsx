@@ -70,8 +70,27 @@ describe('IndicatorSettings', () => {
     await userEvent.click(save());
     const saved = onSave.mock.calls[0]![0] as IndicatorState;
     expect(saved.calcParams).toEqual([6, 12, 24]);
-    // Colours were customised before, so the defaults are written explicitly to override the chart's styles.
-    expect(saved.lineColors).toEqual(['#ff9600', '#935ebd', '#1677ff']);
+    // Clean shape: colours equal to the defaults are dropped (the adapter writes the defaults back itself).
+    expect(saved).not.toHaveProperty('lineColors');
+  });
+
+  it('stored colours that all equal the defaults are dropped on save (clean shape)', async () => {
+    const onSave = vi.fn();
+    render(<IndicatorSettings state={{ ...RSI, lineColors: ['#ff9600', '#935ebd', '#1677ff'] }} onSave={onSave} onClose={() => {}} />);
+    await userEvent.click(save());
+    expect(onSave.mock.calls[0]![0]).not.toHaveProperty('lineColors');
+  });
+
+  it('migrates stored calcParams shorter than the param labels: padded with defaults, silently, saved clean', async () => {
+    const onSave = vi.fn();
+    render(<IndicatorSettings state={{ ...RSI, calcParams: [7] }} onSave={onSave} onClose={() => {}} />);
+    expect(screen.getByLabelText('RSI1 period')).toHaveValue('7');
+    expect(screen.getByLabelText('RSI2 period')).toHaveValue('12');
+    expect(screen.getByLabelText('RSI3 period')).toHaveValue('24');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(document.querySelector('.settings-error')).toBeNull();
+    await userEvent.click(save());
+    expect(onSave.mock.calls[0]![0].calcParams).toEqual([7, 12, 24]);
   });
 
   it('Cancel / Escape close without saving', async () => {
