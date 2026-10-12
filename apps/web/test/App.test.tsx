@@ -49,15 +49,22 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'ETH' })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('hides the session toggle for crypto and switches to the baskets view via tabs and hash', async () => {
+  it('hides the session toggle for crypto and switches to the baskets view via the view nav and hash', async () => {
     vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
     render(<App />);
     await screen.findByTestId('chart-view');
     await screen.findByText('crypto:BTC name');
     expect(screen.queryByRole('button', { name: 'RTH' })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('tab', { name: 'Baskets' }));
+    // View switcher: nav buttons with aria-current="page" (not an incomplete tabs pattern).
+    const nav = screen.getByRole('navigation', { name: 'View' });
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    expect(within(nav).getByRole('button', { name: 'Chart' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getByRole('button', { name: 'Baskets' })).not.toHaveAttribute('aria-current');
+    await userEvent.click(within(nav).getByRole('button', { name: 'Baskets' }));
     expect(screen.getByTestId('baskets-page')).toBeInTheDocument();
     expect(window.location.hash).toBe('#/baskets');
+    expect(within(nav).getByRole('button', { name: 'Baskets' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getByRole('button', { name: 'Chart' })).not.toHaveAttribute('aria-current');
   });
 
   it('disables the top-bar chart controls until the default layout has loaded', async () => {
@@ -136,7 +143,7 @@ describe('App', () => {
     await waitFor(() => expect(vi.mocked(api.symbol).mock.calls.length).toBeGreaterThan(n));
     // Re-selecting the same symbol in the watchlist retries too; this time it works.
     vi.mocked(api.symbol).mockImplementation(ok);
-    const row = await screen.findByRole('option', { name: /BTC/ });
+    const row = await screen.findByRole('button', { name: /^BTC/ });
     await userEvent.click(row);
     await waitFor(() => expect(screen.queryByTestId('symbol-error')).not.toBeInTheDocument());
     expect(await screen.findByText('crypto:BTC name')).toBeInTheDocument();
@@ -166,7 +173,7 @@ describe('App', () => {
     vi.mocked(api.layouts.get).mockImplementation((key) =>
       key === 'default' ? new Promise((r) => { resolveDefault = r; }) : Promise.resolve(null));
     render(<App />);
-    await userEvent.click(await screen.findByRole('option', { name: /MSFT/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /^MSFT/ }));
     resolveDefault({ symbol: 'stock:AAPL', tf: '1h', session: 'rth', chartType: 'candle', indicators: [] });
     expect(await screen.findByText('stock:MSFT name')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '1h' })).toHaveAttribute('aria-pressed', 'true');
@@ -228,5 +235,23 @@ describe('App', () => {
     render(<App />);
     await screen.findByTestId('chart-view');
     expect(screen.queryByText(/Couldn't load symbol/)).not.toBeInTheDocument();
+  });
+  it('shows a small "Layout not saved — retrying" status while layout saves fail, gone once a retry succeeds', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+      vi.mocked(api.layouts.put).mockRejectedValueOnce(new ApiError(503, 'unavailable', 'down'));
+      render(<App />);
+      await screen.findByTestId('chart-view');
+      await userEvent.click(screen.getByRole('button', { name: '1h' }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
+      const status = await screen.findByText('Layout not saved — retrying');
+      expect(status).toHaveAttribute('role', 'status');
+      expect(status).toHaveAttribute('title', expect.stringContaining('down'));
+      await act(async () => { await vi.advanceTimersByTimeAsync(2100); });
+      await waitFor(() => expect(screen.queryByText('Layout not saved — retrying')).not.toBeInTheDocument());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

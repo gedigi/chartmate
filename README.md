@@ -130,8 +130,9 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   ETH adds pre- and post-market bars, shaded on intraday stock charts (basket charts are not shaded).
   It is hidden for crypto, which trades around the clock.
 - **Indicators**: up to **30** per chart (the picker stops adding beyond that and the server rejects
-  larger layouts). The indicator set is remembered per symbol; timeframe, session and chart type are
-  global.
+  larger layouts). Indicators are a **single global set**, configured once and shown on every ticker;
+  timeframe, session, chart type and appearance are global too (all stored in the `default` layout).
+  Older per-symbol `sym:<id>` layouts from earlier versions are ignored.
 - **Drawings** are saved per symbol on the server (debounced ~1 s after each change). Points are stored in
   time/price coordinates (bar timestamp + price), not pixels, so they stay anchored to the same price and
   time across timeframes, zoom levels and window sizes.
@@ -167,8 +168,10 @@ A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
 - **Simulated history before the start**: bars before the basket's start are computed with the
   *starting* holdings (version 0's units) held fixed backwards, so a basket created today still shows
   history. They begin once every starting constituent has data, reach the base value at the start (no
-  jump), are shaded on the chart, and a `Start` marker plus a notice ("Before <date>: simulated with the
-  starting holdings.") make the boundary explicit. Resampled bars (weekly, monthly, 2h/4h) count as
+  jump) and are drawn like any other bars (no background shading). A dashed vertical `Start` line (in the
+  chart and the editor preview) plus a notice ("Before <date>: simulated with the starting holdings.") make
+  the boundary explicit. Start and version markers use a fixed, muted theme style, independent of the
+  default drawing style. Resampled bars (weekly, monthly, 2h/4h) count as
   simulated only when all their input bars are. Quotes and sparklines include this history.
 - A basket with a single version can change its start date in the editor.
 - Intraday basket bars use the NYSE session grid when every constituent is a stock, and the UTC grid

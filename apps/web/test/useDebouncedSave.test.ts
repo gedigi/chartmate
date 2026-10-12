@@ -70,6 +70,59 @@ describe('useDebouncedSave', () => {
     expect(save).toHaveBeenCalledWith(4);
   });
 
+  it('with retry: re-saves a failed value with backoff (2 s, 5 s) and clears the error on success', async () => {
+    const save = vi.fn<(v: number) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('down')).mockRejectedValueOnce(new Error('down')).mockResolvedValue(undefined);
+    const { rerender, result } = renderHook(({ v }) => useDebouncedSave(v, save, 1000, true, { retry: true }), { initialProps: { v: 1 } });
+    rerender({ v: 2 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBe('down');
+    await act(async () => { await vi.advanceTimersByTimeAsync(1999); });
+    expect(save).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(save).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(save).toHaveBeenCalledTimes(3);
+    expect(save.mock.calls.map((c) => c[0])).toEqual([2, 2, 2]);
+    expect(result.current.error).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(save).toHaveBeenCalledTimes(3);
+  });
+
+  it('with retry: a newer value supersedes the retry; an older failure never re-saves over a newer value', async () => {
+    let rejectFirst!: (e: Error) => void;
+    const save = vi.fn<(v: number) => Promise<void>>()
+      .mockImplementationOnce(() => new Promise((_, rej) => { rejectFirst = rej; }))
+      .mockResolvedValue(undefined);
+    const { rerender } = renderHook(({ v }) => useDebouncedSave(v, save, 1000, true, { retry: true }), { initialProps: { v: 1 } });
+    rerender({ v: 2 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); }); // save(2) in flight
+    rerender({ v: 3 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); }); // save(3) succeeds
+    await act(async () => { rejectFirst(new Error('late failure')); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(save.mock.calls.map((c) => c[0])).toEqual([2, 3]);
+  });
+
+  it('without retry, a failed save is not retried', async () => {
+    const save = vi.fn<(v: number) => Promise<void>>().mockRejectedValue(new Error('x'));
+    const { rerender } = renderHook(({ v }) => useDebouncedSave(v, save, 1000), { initialProps: { v: 1 } });
+    rerender({ v: 2 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the save function of the latest committed render', async () => {
+    const first = vi.fn<(v: number) => Promise<void>>().mockResolvedValue(undefined);
+    const second = vi.fn<(v: number) => Promise<void>>().mockResolvedValue(undefined);
+    const { rerender } = renderHook(({ v, s }) => useDebouncedSave(v, s, 1000), { initialProps: { v: 1, s: first } });
+    rerender({ v: 2, s: second });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledWith(2);
+  });
+
   it('flushes a pending save when disabled', () => {
     const { save, rerender } = setup(1);
     rerender({ v: 5, en: true });

@@ -1,7 +1,8 @@
 import type { Bar, BarsResponse, LatestResponse, SessionMode } from '@altv/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BarsParams, LatestParams } from '../../src/api/client';
-import { createDataLoader, type LoaderEvents } from '../../src/chart/dataLoader';
+import { ApiError } from '../../src/api/client';
+import { createDataLoader, isPermanentError, type LoaderEvents } from '../../src/chart/dataLoader';
 import { forwardRetryWindowMs, initialWindowMs } from '../../src/chart/periods';
 
 const NOW = Date.UTC(2026, 9, 9, 15, 0);
@@ -19,7 +20,7 @@ function barsRes(bars: Bar[], over: Partial<BarsResponse> = {}): BarsResponse {
 function setup(opts: { session?: () => SessionMode; pollMs?: number } = {}) {
   const fetchBars = vi.fn<(p: BarsParams, signal?: AbortSignal) => Promise<BarsResponse>>();
   const fetchLatest = vi.fn<(p: LatestParams, signal?: AbortSignal) => Promise<LatestResponse>>();
-  const events = { onMeta: vi.fn(), onError: vi.fn(), onConnection: vi.fn(), onReload: vi.fn() } satisfies LoaderEvents;
+  const events = { onMeta: vi.fn(), onError: vi.fn(), onConnection: vi.fn(), onReload: vi.fn(), onFatal: vi.fn() } satisfies LoaderEvents;
   const loader = createDataLoader({
     session: opts.session ?? (() => 'eth'),
     pollMs: opts.pollMs ?? 5000,
@@ -193,6 +194,25 @@ describe('createDataLoader getBars', () => {
     expect(fetchBars).toHaveBeenCalledTimes(2);
     expect(cb).toHaveBeenCalledWith([expect.objectContaining({ timestamp: NOW - MIN5 })], { forward: true, backward: false });
     expect(events.onConnection).toHaveBeenLastCalledWith(false);
+  });
+
+  it('a permanent 4xx on init is terminal: onFatal once, no connection-lost, no retries, the chart stops loading', async () => {
+    const { loader, fetchBars, events } = setup();
+    fetchBars.mockRejectedValue(new ApiError(400, 'invalid_request', 'Basket has no constituents'));
+    const cb = vi.fn();
+    await loader.getBars({ type: 'init', timestamp: null, symbol, period: period5m, callback: cb });
+    expect(events.onFatal).toHaveBeenCalledTimes(1);
+    expect(events.onFatal).toHaveBeenCalledWith(expect.objectContaining({ message: 'Basket has no constituents' }));
+    expect(events.onConnection).not.toHaveBeenCalled();
+    expect(cb).toHaveBeenCalledWith([], { forward: false, backward: false });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(fetchBars).toHaveBeenCalledTimes(1);
+  });
+
+  it('isPermanentError: 4xx except 401/408/429; never network errors or 5xx', () => {
+    for (const s of [400, 403, 404, 409, 422, 499]) expect(isPermanentError(new ApiError(s, 'x', 'x')), String(s)).toBe(true);
+    for (const s of [0, 401, 408, 429, 500, 503]) expect(isPermanentError(new ApiError(s, 'x', 'x')), String(s)).toBe(false);
+    expect(isPermanentError(new Error('plain'))).toBe(false);
   });
 
   it('init retries back off 2 s, 5 s, 10 s, then every 30 s, reporting the outage once', async () => {

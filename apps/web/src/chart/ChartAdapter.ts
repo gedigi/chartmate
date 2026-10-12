@@ -4,7 +4,7 @@ import {
   type OverlayMode, type Styles,
 } from 'klinecharts';
 import {
-  isIntraday, tfMs,
+  isIntraday, nyToUtc, tfMs,
   type ChartAppearance, type ChartType, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker,
   type SessionMode, type SymbolInfo, type Timeframe,
 } from '@altv/shared';
@@ -18,8 +18,9 @@ import { PRICE_PRECISION_INDICATORS } from './indicators/extensions';
 import { registerCustomIndicators } from './indicators/register';
 import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
-import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS, SIMULATED_SHADE } from './sessionShade';
-import { candleStyles, chartStyles, DEFAULT_TEXT_SIZE, overlayStyles, resolveAppearance, type ThemeName } from './theme';
+import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
+import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS } from './sessionShade';
+import { candleStyles, chartStyles, DEFAULT_TEXT_SIZE, overlayStyles, refreshThemeTokens, resolveAppearance, type ThemeName } from './theme';
 
 export type DrawingTool =
   | 'segment' | 'rayLine' | 'straightLine' | 'horizontalStraightLine' | 'verticalStraightLine'
@@ -43,6 +44,9 @@ const INDICATOR_DASH = [4, 4];
 export interface LoadParams { symbol: SymbolInfo; tf: Timeframe; session: SessionMode; pollMs: number }
 
 const CANDLE_PANE = 'candle_pane';
+/** KLineChart's double-click window and distance (Delay.ResetClick, ManhattanDistance.DoubleClick). */
+const DOUBLE_CLICK_MS = 500;
+const DOUBLE_CLICK_PX = 5;
 const MARKERS = 'markers';
 /** Chart timezone: exchange time for intraday stock/basket charts, UTC otherwise (daily+ bars are UTC dates). */
 function timezoneFor(symbol: SymbolInfo, tf: Timeframe): string {
@@ -65,6 +69,23 @@ function sanitizeDrawing(d: DrawingState): DrawingState {
   const clean = sanitizeDrawingStyles(styles);
   return clean ? { ...rest, styles: clean } : rest;
 }
+
+type Point = { timestamp: number; value: number };
+type AnchorTf = NonNullable<DrawingState['anchorTf']>;
+
+/** Daily-or-longer timeframes, whose bars are stamped at UTC midnight of their date. */
+function anchorTfOf(tf: Timeframe): AnchorTf | null {
+  return tf === '1D' || tf === '1W' || tf === '1M' ? tf : null;
+}
+
+/** A daily bar time (UTC midnight of a date) → that date's 09:30 New York session open. */
+function toSessionOpen(ts: number): number {
+  const d = new Date(ts);
+  return nyToUtc(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), 9, 30);
+}
+
+const samePoints = (a: Point[], b: Point[]) =>
+  a.length === b.length && a.every((p, i) => p.timestamp === b[i]!.timestamp && p.value === b[i]!.value);
 
 /** First index whose timestamp is ≥ ts (data sorted ascending). */
 function lowerBound(data: KLineData[], ts: number): number {
@@ -89,6 +110,7 @@ export class ChartAdapter {
   private tf: Timeframe | null = null;
   private loader: DataLoaderImpl | null = null;
   private markers: Marker[] = [];
+  private assetClass: SymbolInfo['assetClass'] | null = null;
   /** Passed to every indicator as `extendData` (VWAP picks its session day from it). */
   private indicatorExt: IndicatorExtendData = {};
   private readonly overrides = new Map<string, IndicatorOverrides>();
@@ -99,12 +121,16 @@ export class ChartAdapter {
 
   constructor(el: HTMLElement, opts: { theme: ThemeName }) {
     registerSessionShade();
+    registerMarkerOverlay();
     registerCustomIndicators();
     this.el = el;
     this.theme = opts.theme;
+    refreshThemeTokens(opts.theme); // chart colours come from the CSS tokens (constants as fallback)
     const chart = init(el, { styles: this.styles() });
     if (!chart) throw new Error('Failed to initialise the chart');
     this.chart = chart;
+    // Capture phase on the host: runs before KLineChart's own mousedown handler on its inner container.
+    el.addEventListener('mousedown', this.onPressCapture, true);
   }
 
   private styles(): DeepPartial<Styles> {
@@ -125,6 +151,8 @@ export class ChartAdapter {
   // ── data ──────────────────────────────────────────────────────────────────
 
   load(p: LoadParams, events: LoaderEvents): void {
+    const prevSymbol = this.loadSymbol;
+    const prevMapping = this.mapsDailyAnchors();
     this.loader?.dispose(); // its pending results and polling become no-ops while the chart resets below
     this.dataSymbol = null;
     this.loadSymbol = p.symbol.id;
@@ -136,10 +164,14 @@ export class ChartAdapter {
       onMeta: (m) => events.onMeta(m),
       onError: (e) => { ready(); events.onError(e); }, // never keep drawings hidden because a page failed
       onConnection: (lost, e) => { if (lost) ready(); events.onConnection?.(lost, e); },
+      onFatal: (e) => { ready(); events.onFatal?.(e); },
       onReload: () => { if (this.loader === loader) this.chart.resetData(); }, // gap too large to backfill
     });
     this.loader = loader;
     this.tf = p.tf;
+    this.assetClass = p.symbol.assetClass;
+    // Same symbol, but daily-anchored drawings now display differently (daily ↔ intraday): re-place them.
+    if (prevSymbol === p.symbol.id && prevMapping !== this.mapsDailyAnchors()) this.replaceForAnchorMapping(p.symbol.id);
     this.markers = [];
     this.renderMarkers();
     this.setIndicatorContext({ assetClass: p.symbol.assetClass, intraday: isIntraday(p.tf), pricePrecision: p.symbol.pricePrecision });
@@ -187,7 +219,9 @@ export class ChartAdapter {
 
   setTheme(t: ThemeName): void {
     this.theme = t;
+    refreshThemeTokens(t);
     this.chart.setStyles(this.styles());
+    for (const o of this.chart.getOverlays({ groupId: MARKERS })) this.chart.overrideOverlay({ id: o.id, styles: markerStyles(t) });
   }
 
   setChartType(t: ChartType): void {
@@ -203,11 +237,6 @@ export class ChartAdapter {
 
   setSessionShading(enabled: boolean): void {
     this.setShade(SESSION_SHADE, enabled);
-  }
-
-  /** Shades simulated basket history (bars flagged `simulated`). */
-  setSimulatedShading(enabled: boolean): void {
-    this.setShade(SIMULATED_SHADE, enabled);
   }
 
   private setShade(name: string, enabled: boolean): void {
@@ -240,7 +269,8 @@ export class ChartAdapter {
       const bar = data[i];
       if (!bar) continue;
       overlays.push({
-        name: 'simpleAnnotation', groupId: MARKERS, lock: true, extendData: m.label,
+        // Fixed theme style: markers never follow the user's default drawing style.
+        name: MARKER_OVERLAY, groupId: MARKERS, lock: true, extendData: m.label, styles: markerStyles(this.theme),
         points: [{ timestamp: bar.timestamp, value: bar.high }],
       });
     }
@@ -408,6 +438,7 @@ export class ChartAdapter {
         this.drawing = null;
         if (this.lockAll) this.chart.overrideOverlay({ id: overlay.id, lock: true });
         this.revertMode(overlay.id);
+        this.anchorAfterEdit(overlay.id);
         onEnd?.();
         this.emitSelection(); // the style bar is hidden while a drawing is being placed
       }
@@ -420,6 +451,7 @@ export class ChartAdapter {
     onPressedMoveEnd: ({ overlay }) => {
       if (this.draggingId === overlay.id) this.draggingId = null;
       this.revertMode(overlay.id);
+      this.anchorAfterEdit(overlay.id);
       this.emitChange();
     },
     onRemoved: ({ overlay }) => {
@@ -427,11 +459,70 @@ export class ChartAdapter {
       if (this.drawing?.id === overlay.id) this.endDrawing();
       if (this.draggingId === overlay.id) this.draggingId = null;
       this.strongIds.delete(overlay.id);
+      this.anchors.delete(overlay.id);
       this.removing.add(overlay.id);
       try { this.emitChange(); } finally { this.removing.delete(overlay.id); }
     },
     onSelected: ({ overlay }) => { this.select(overlay.id); },
     onDeselected: ({ overlay }) => { if (this.selectedId === overlay.id) this.select(null); },
+  };
+
+  // ── daily-anchored drawings ──
+  // Daily+ bars of stocks/baskets are stamped at UTC midnight (20:00 New York the evening before). A drawing
+  // placed on such a chart stores `anchorTf`; on intraday stock/basket charts its points are shown at 09:30
+  // New York of their dates and saved back unchanged unless the user moves it there (then anchorTf is dropped).
+
+  /** Per user overlay: its anchor and, while shown remapped, the stored points and the displayed ones. */
+  private readonly anchors = new Map<string, { anchorTf: AnchorTf; original?: Point[]; display?: Point[] }>();
+
+  private stockLike(): boolean {
+    return this.assetClass === 'stock' || this.assetClass === 'basket';
+  }
+
+  /** True when daily-anchored points are remapped for display (intraday stock/basket chart). */
+  private mapsDailyAnchors(): boolean {
+    return this.stockLike() && this.tf !== null && isIntraday(this.tf);
+  }
+
+  /** After a user draws or moves `id`: daily semantics on a daily+ stock/basket chart, else plain points. */
+  private anchorAfterEdit(id: string): void {
+    const anchorTf = this.stockLike() && this.tf ? anchorTfOf(this.tf) : null;
+    if (anchorTf) this.anchors.set(id, { anchorTf });
+    else this.anchors.delete(id);
+  }
+
+  /** Re-creates the user drawings (once data is in) so anchored ones follow the new display mapping. */
+  private replaceForAnchorMapping(symbol: string): void {
+    if (this.pendingRestore === null && this.anchors.size === 0) return;
+    const saved = this.pendingRestore?.drawings ?? this.serializeDrawings();
+    this.cancelDrawing();
+    this.withSilence(() => this.removeUserOverlays());
+    this.dataSymbol = null;
+    this.pendingRestore = { drawings: saved, symbol };
+  }
+
+  // ── quick clicks while placing a drawing ──
+  // KLineChart 10 treats a second press within 500 ms of the first as a double-click. If it is ≥ 5 px away it
+  // fires neither a click nor a double-click, so the second point of a quick two-click trend line was lost.
+  // While a drawing is being placed, a press that is not a deliberate double-click (same spot, < 500 ms)
+  // restarts KLineChart's click sequence first, so its mouseup counts as an ordinary click.
+
+  private lastPress: { x: number; y: number; t: number } | null = null;
+
+  private readonly onPressCapture = (e: MouseEvent): void => {
+    if (e.button !== 0) return;
+    const prev = this.lastPress;
+    const now = Date.now();
+    this.lastPress = { x: e.clientX, y: e.clientY, t: now };
+    if (!this.drawing) return;
+    const doubleClick = prev !== null && now - prev.t < DOUBLE_CLICK_MS
+      && Math.abs(e.clientX - prev.x) + Math.abs(e.clientY - prev.y) < DOUBLE_CLICK_PX;
+    if (doubleClick) return;
+    // Internal (KLineChart 10.0.3: chart._chartEvent._event._resetClickTimeout); a no-op if it ever changes.
+    const handler = (this.chart as unknown as { _chartEvent?: { _event?: { _resetClickTimeout?: unknown } } })._chartEvent?._event;
+    if (handler && typeof handler._resetClickTimeout === 'function') {
+      try { (handler._resetClickTimeout as () => void).call(handler); } catch { /* keep KLineChart's behaviour */ }
+    }
   };
 
   private baseMode(): OverlayMode {
@@ -631,6 +722,16 @@ export class ChartAdapter {
       const points = completePoints(o); // skips an overlay that is still being drawn
       if (!points || o.id === this.drawing?.id) continue;
       const d: DrawingState = { name: o.name, points, lock: o.lock };
+      const anchor = this.anchors.get(o.id);
+      if (anchor?.display && anchor.original) {
+        // Shown remapped: unmoved → the stored daily points; moved here → plain intraday points.
+        if (samePoints(points, anchor.display)) {
+          d.points = anchor.original;
+          d.anchorTf = anchor.anchorTf;
+        }
+      } else if (anchor) {
+        d.anchorTf = anchor.anchorTf;
+      }
       if (typeof o.extendData === 'string') d.text = o.extendData;
       const styles = normalizeOverlayStyles(o.name, o.styles);
       if (styles) d.styles = styles;
@@ -661,12 +762,17 @@ export class ChartAdapter {
 
   private createDrawings(drawings: DrawingState[]): void {
     this.withSilence(() => {
+      const remap = this.mapsDailyAnchors();
       for (const d of drawings) {
-        const create: OverlayCreate = { name: d.name, points: d.points, lock: d.lock, ...this.handlers };
+        const display = d.anchorTf && remap ? d.points.map((p) => ({ ...p, timestamp: toSessionOpen(p.timestamp) })) : d.points;
+        const create: OverlayCreate = { name: d.name, points: display, lock: d.lock, ...this.handlers };
         if (d.text !== undefined) create.extendData = d.text;
         const styles = toOverlayStyles(sanitizeDrawingStyles(d.styles));
         if (styles) create.styles = styles;
-        this.chart.createOverlay(create);
+        const id = this.chart.createOverlay(create);
+        if (typeof id === 'string' && d.anchorTf) {
+          this.anchors.set(id, display === d.points ? { anchorTf: d.anchorTf } : { anchorTf: d.anchorTf, original: d.points, display });
+        }
       }
     });
   }
@@ -690,6 +796,7 @@ export class ChartAdapter {
 
   private removeUserOverlays(): void {
     for (const o of this.userOverlays()) this.chart.removeOverlay({ id: o.id });
+    this.anchors.clear();
   }
 
   /** Fired on draw end, move end and removal of user drawings. Returns an unsubscribe function. */
@@ -707,6 +814,7 @@ export class ChartAdapter {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.el.removeEventListener('mousedown', this.onPressCapture, true);
     this.loader?.dispose();
     this.loader = null;
     this.changeListeners.clear();

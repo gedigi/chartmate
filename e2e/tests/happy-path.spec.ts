@@ -31,7 +31,6 @@ async function resetServerState(request: APIRequestContext): Promise<void> {
   expect((await request.put(`/api/drawings/${encodeURIComponent(AAPL)}`, { data: [] })).ok()).toBe(true);
   const layout = { symbol: 'crypto:BTC', tf: '1D', session: 'rth', chartType: 'candle', indicators: [] };
   expect((await request.put('/api/layouts/default', { data: layout })).ok()).toBe(true);
-  expect((await request.put(`/api/layouts/${encodeURIComponent(`sym:${AAPL}`)}`, { data: { ...layout, symbol: AAPL } })).ok()).toBe(true);
 }
 
 /** Picks `ticker` in the symbol-search combobox named `comboboxName` inside `scope`. */
@@ -57,10 +56,14 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
 
   // 1. Open the app, search AAPL and select it.
   await page.goto('/');
-  const aaplLayoutLoaded = page.waitForResponse((r) => isApi(r, 'GET', `/api/layouts/${encodeURIComponent(`sym:${AAPL}`)}`));
+  // Indicators are one global set: no per-symbol layout is ever requested.
+  const symLayoutRequests: string[] = [];
+  page.on('request', (r) => {
+    const path = new URL(r.url()).pathname;
+    if (path.startsWith('/api/layouts/') && path !== '/api/layouts/default') symLayoutRequests.push(`${r.method()} ${path}`);
+  });
   const aaplDailyBars = page.waitForResponse((r) => isBars(r, { symbol: AAPL, tf: '1D' }));
   await pickSymbol(page.locator('header.top-bar'), 'Search symbol', 'AAPL');
-  await aaplLayoutLoaded;
   await aaplDailyBars;
   await expect(page.getByTestId('chart-host').locator('canvas').first()).toBeVisible();
   await expect(page.locator('header .symbol-label strong')).toHaveText('AAPL');
@@ -106,9 +109,8 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
   const p2 = { x: box.x + box.width * 0.55, y: box.y + box.height * 0.22 };
   await page.mouse.move(p1.x, p1.y);
   await page.mouse.click(p1.x, p1.y);
-  // A second press right after the first does not reliably register with KLineChart: move, pause, then click.
-  await page.mouse.move(p2.x, p2.y, { steps: 8 });
-  await page.waitForTimeout(400);
+  // A quick second click (inside KLineChart's 500 ms double-click window) must still place the second point.
+  await page.mouse.move(p2.x, p2.y, { steps: 4 });
   await page.mouse.click(p2.x, p2.y);
   const put = await drawingsPut;
   expect(put.ok()).toBe(true);
@@ -120,20 +122,25 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
   await expect(trendLine).toHaveAttribute('aria-pressed', 'false');
 
   // 5. Layout (with RSI) is persisted → reload keeps the chip; the drawing is on the server.
-  for (const key of ['default', `sym:${AAPL}`]) {
-    await expect.poll(async () => {
-      const l = (await (await request.get(`/api/layouts/${encodeURIComponent(key)}`)).json()) as { indicators?: Array<{ name: string }> };
-      return (l.indicators ?? []).some((i) => i.name === 'RSI');
-    }, { message: `layout ${key} saved with RSI` }).toBe(true);
-  }
+  await expect.poll(async () => {
+    const l = (await (await request.get('/api/layouts/default')).json()) as { indicators?: Array<{ name: string }> };
+    return (l.indicators ?? []).some((i) => i.name === 'RSI');
+  }, { message: 'default layout saved with RSI' }).toBe(true);
   await page.reload();
   await expect(page.locator('header .symbol-label strong')).toHaveText('AAPL');
   await expect(page.getByRole('list', { name: 'Active indicators' }).getByText(/^RSI\b/)).toBeVisible();
+  // The same (global) indicator set shows on another ticker.
+  await pickSymbol(page.locator('header.top-bar'), 'Search symbol', 'BTC');
+  await expect(page.locator('header .symbol-label strong')).toHaveText('BTC');
+  await expect(page.getByRole('list', { name: 'Active indicators' }).getByText(/^RSI\b/)).toBeVisible();
+  expect(symLayoutRequests).toEqual([]);
+  await pickSymbol(page.locator('header.top-bar'), 'Search symbol', 'AAPL');
+  await expect(page.locator('header .symbol-label strong')).toHaveText('AAPL');
   const drawings = (await (await request.get(`/api/drawings/${encodeURIComponent(AAPL)}`)).json()) as unknown[];
   expect(drawings).toHaveLength(1);
 
   // 6. Create "E2E Basket" 50% AAPL / 50% BTC from 2024-01-02 and open its chart.
-  await page.getByRole('tab', { name: 'Baskets', exact: true }).click();
+  await page.getByRole('navigation', { name: 'View' }).getByRole('button', { name: 'Baskets', exact: true }).click();
   await page.getByRole('button', { name: 'New basket' }).click();
   const create = page.getByRole('form', { name: 'Create basket' });
   await create.getByLabel('Name').fill(BASKET_NAME);
@@ -158,7 +165,7 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
 
   // 7. Append a version (100% BTC from yesterday UTC) → the basket chart's bars carry a version marker.
   const effective = yesterdayUtc();
-  await page.getByRole('tab', { name: 'Baskets', exact: true }).click();
+  await page.getByRole('navigation', { name: 'View' }).getByRole('button', { name: 'Baskets', exact: true }).click();
   await row.getByRole('button', { name: 'Edit' }).click();
   await page.getByRole('button', { name: 'Change weights' }).click();
   const change = page.getByRole('form', { name: 'Change weights' });
@@ -205,7 +212,7 @@ test('chart appearance persists; a basket starting today shows simulated history
   await page.getByRole('dialog', { name: 'Chart appearance' }).getByRole('button', { name: 'Done' }).click();
 
   // A basket created with the default start date (today) has bars: simulated history before its start.
-  await page.getByRole('tab', { name: 'Baskets', exact: true }).click();
+  await page.getByRole('navigation', { name: 'View' }).getByRole('button', { name: 'Baskets', exact: true }).click();
   await page.getByRole('button', { name: 'New basket' }).click();
   const create = page.getByRole('form', { name: 'Create basket' });
   await expect(create.getByLabel('Start date (UTC)')).toHaveValue(new Date().toISOString().slice(0, 10));

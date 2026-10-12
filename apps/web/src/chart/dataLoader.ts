@@ -1,5 +1,5 @@
 import { tfMs, type Bar, type BarsResponse, type Marker, type SessionMode, type Timeframe } from '@altv/shared';
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 import { retryDelayMs } from '../state/retry';
 import { forwardRetryWindowMs, fromPeriod, initialWindowMs } from './periods';
 
@@ -28,6 +28,16 @@ export interface LoaderEvents {
   onConnection?(lost: boolean, e?: Error): void;
   /** Polling found a gap too large to backfill: the chart should reset and load from scratch. */
   onReload?(): void;
+  /**
+   * The initial load failed permanently (a 4xx other than 401/408/429, e.g. an invalid basket): nothing is
+   * retried automatically; the user can retry by loading again.
+   */
+  onFatal?(e: Error): void;
+}
+
+/** A client error retrying cannot fix: 4xx except 401 (session; handled globally), 408 and 429 (transient). */
+export function isPermanentError(err: unknown): boolean {
+  return err instanceof ApiError && err.status >= 400 && err.status <= 499 && err.status !== 401 && err.status !== 408 && err.status !== 429;
 }
 
 export interface LoaderContext {
@@ -69,7 +79,7 @@ export interface DataLoaderImpl {
 export function toKLineData(b: Bar): KLineData {
   const d: KLineData = { timestamp: b.ts, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume };
   if (b.session !== undefined) d.session = b.session;
-  if (b.simulated) d.simulated = true; // simulated basket history (shaded by SIMULATED_SHADE)
+  if (b.simulated) d.simulated = true; // simulated basket history (pre-start)
   return d;
 }
 
@@ -102,7 +112,8 @@ export const MAX_BACKFILL_BARS = 3900;
  * - A failed 'forward' page goes to onError and answers empty with more.forward kept, so the next scroll retries.
  *   A failed 'init' or poll is reported once through onConnection(true) (and onConnection(false) on recovery);
  *   'init' retries with backoff until it succeeds or is superseded (new init, unsubscribeBar/reset, dispose),
- *   because KLineChart stays "loading" until the callback runs. AbortErrors are never reported.
+ *   because KLineChart stays "loading" until the callback runs. A permanent 4xx (isPermanentError) on 'init' is
+ *   terminal instead: onFatal, an empty answer, no retries. AbortErrors are never reported.
  * - Polling: a polled bar newer than the last known one first backfills [lastTs, bar.ts + tf) through /api/bars and
  *   pushes every bar in order (this finalises the previously forming bar and fills gaps after sleep/outages);
  *   a gap over MAX_BACKFILL_BARS fires onReload instead. Polling pauses while the document is hidden and polls
@@ -204,6 +215,12 @@ export function createDataLoader(ctx: LoaderContext, events: LoaderEvents): Data
             // KLineChart stays "loading" until the callback runs. An empty page keeping more.forward
             // does not re-trigger a load, so the next scroll to the left edge retries.
             p.callback([], { forward: true, backward: false });
+            return;
+          }
+          if (isPermanentError(err)) {
+            // Terminal: retrying cannot help. End KLineChart's loading state and let the UI offer a Retry.
+            p.callback([], { forward: false, backward: false });
+            events.onFatal?.(toError(err));
             return;
           }
           // Init must eventually succeed (it also starts polling): retry until superseded.

@@ -40,6 +40,13 @@ describe('api client', () => {
     expect(f.mock.calls[0]![0]).toBe('/api/layouts/sym%3Astock%3AAAPL');
   });
 
+  it('layouts.get treats a 200 with a null (or empty) body as "no layout", like a 404', async () => {
+    mockFetch(jsonResponse(200, null), new Response('', { status: 200 }), jsonResponse(404, { code: 'not_found', message: 'x' }));
+    await expect(api.layouts.get('default')).resolves.toBeNull();
+    await expect(api.layouts.get('default')).resolves.toBeNull();
+    await expect(api.layouts.get('default')).resolves.toBeNull();
+  });
+
   it('layouts.get still throws on other errors', async () => {
     mockFetch(jsonResponse(500, { code: 'internal', message: 'boom' }));
     await expect(api.layouts.get('default')).rejects.toBeInstanceOf(ApiError);

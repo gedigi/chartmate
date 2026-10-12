@@ -1,5 +1,5 @@
 import { parseSymbolId, type SymbolId, type SymbolInfo } from '@altv/shared';
-import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react';
 import { api, errorMessage, setUnauthorizedHandler } from './api/client';
 import { BasketsPage } from './components/BasketsPage';
 import { ChartView } from './components/ChartView';
@@ -23,7 +23,8 @@ function readTheme(): Theme {
 
 function useTheme(): [Theme, () => void] {
   const [theme, setTheme] = useState<Theme>(readTheme);
-  useEffect(() => {
+  // A layout effect: data-theme must be current before the chart's (passive) effects read the CSS tokens.
+  useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
     try { localStorage.setItem(THEME_KEY, theme); } catch { /* storage unavailable */ }
   }, [theme]);
@@ -117,7 +118,7 @@ function useShowSession(symbol: SymbolId): boolean {
 }
 
 function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme: () => void; onLogout?: () => void }): JSX.Element {
-  const { layout, setLayout, selectSymbol: selectLayoutSymbol, loaded, loadError, retry: retryLayout } = useLayout();
+  const { layout, setLayout, selectSymbol: selectLayoutSymbol, loaded, loadError, retry: retryLayout, saveError: layoutSaveError } = useLayout();
   const [view, setView] = useHashView();
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= SIDEBAR_BREAKPOINT);
   const { state: symbolInfoState, retry: retrySymbolInfo } = useSymbolInfo(layout.symbol);
@@ -153,6 +154,9 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
         onLogout={onLogout}
         controlsDisabled={!loaded}
       />
+      {layoutSaveError !== null && (
+        <div className="save-status" role="status" title={`Last error: ${layoutSaveError}`}>Layout not saved — retrying</div>
+      )}
       {view === 'chart' ? (
         <>
           <main className="chart-main">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CATALOG, catalogEntry, defaultLineColor, indicatorLabel, validateParam } from '../../src/chart/indicators/catalog';
+import { CATALOG, catalogEntry, defaultLineColor, indicatorLabel, migrateCalcParams, validateParam } from '../../src/chart/indicators/catalog';
 import { CUSTOM_INDICATORS } from '../../src/chart/indicators/extensions';
 
 describe('CATALOG', () => {
@@ -71,5 +71,20 @@ describe('validateParam', () => {
     expect(validateParam('BOLL', 0, '2.5')).toMatch(/whole number/i);
     expect(validateParam('SAR', 0, '0.5')).toBeNull();
     expect(validateParam('SAR', 2, '-1')).toMatch(/greater than 0/i);
+  });
+});
+
+describe('migrateCalcParams', () => {
+  it('pads stored params shorter than the catalog labels with the defaults', () => {
+    expect(migrateCalcParams('RSI', [7])).toEqual([7, 12, 24]);
+    expect(migrateCalcParams('RSI', [])).toEqual([6, 12, 24]);
+  });
+  it('drops extra params beyond the catalog labels and keeps complete ones unchanged', () => {
+    expect(migrateCalcParams('RSI', [1, 2, 3, 4])).toEqual([1, 2, 3]);
+    const full = [5, 6, 7];
+    expect(migrateCalcParams('RSI', full)).toEqual(full);
+  });
+  it('leaves unknown indicators as stored', () => {
+    expect(migrateCalcParams('NOPE', [1])).toEqual([1]);
   });
 });

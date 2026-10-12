@@ -4,11 +4,55 @@ import { DRAWING_DASH } from './drawingStyles';
 
 export type ThemeName = 'dark' | 'light';
 
-/** Mirrors the CSS tokens in src/styles.css (canvas cannot read CSS variables cheaply). */
+/**
+ * Fallback chart tokens. The ones with a CSS custom property (THEME_CSS_VARS) are read from src/styles.css at
+ * runtime (refreshThemeTokens); these constants are only used when that is not possible, and a parity test
+ * keeps them equal to styles.css. `grid` and `crossBg` are chart-only.
+ */
 export const THEME_TOKENS = {
   dark: { bg: '#131722', panel: '#1e222d', elevated: '#2a2e39', border: '#363a45', grid: '#1f2330', text: '#d1d4dc', muted: '#868b98', accent: '#2962ff', crossBg: '#363a45' },
   light: { bg: '#ffffff', panel: '#f8f9fd', elevated: '#ffffff', border: '#e0e3eb', grid: '#f0f3fa', text: '#131722', muted: '#6a6d78', accent: '#2962ff', crossBg: '#131722' },
 } as const;
+
+type ThemeTokens = { -readonly [K in keyof typeof THEME_TOKENS.dark]: string };
+
+/** Chart token → CSS custom property in styles.css. */
+export const THEME_CSS_VARS: Readonly<Partial<Record<keyof ThemeTokens, string>>> = {
+  bg: '--bg', panel: '--bg-panel', elevated: '--bg-elevated', border: '--border', text: '--text', muted: '--text-muted', accent: '--accent',
+};
+
+const live: Partial<Record<ThemeName, ThemeTokens>> = {};
+
+/** The chart tokens of `theme`: the last values read from the CSS (refreshThemeTokens), else the constants. */
+export function themeTokens(theme: ThemeName): ThemeTokens {
+  return live[theme] ?? THEME_TOKENS[theme];
+}
+
+const isHexColour = (v: string) => /^#[0-9a-f]{6}$/i.test(v);
+
+/**
+ * Re-reads the CSS custom properties for `theme` (adapter init / theme change). Only reads while the document
+ * shows that theme (`data-theme`, dark by default), since the variables on :root belong to the active theme;
+ * missing or non-hex values fall back to the constants.
+ */
+export function refreshThemeTokens(theme: ThemeName): void {
+  const fallback = THEME_TOKENS[theme];
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  if ((root.dataset['theme'] ?? 'dark') !== theme) return;
+  let style: CSSStyleDeclaration;
+  try {
+    style = getComputedStyle(root);
+  } catch {
+    return;
+  }
+  const next: ThemeTokens = { ...fallback };
+  for (const [key, cssVar] of Object.entries(THEME_CSS_VARS) as Array<[keyof ThemeTokens, string]>) {
+    const v = style.getPropertyValue(cssVar).trim();
+    if (isHexColour(v)) next[key] = v.toLowerCase();
+  }
+  live[theme] = next;
+}
 
 export const UP = '#26a69a';
 export const DOWN = '#ef5350';
@@ -19,7 +63,7 @@ export interface ResolvedAppearance {
 }
 
 export function defaultAppearance(theme: ThemeName): ResolvedAppearance {
-  const accent = THEME_TOKENS[theme].accent;
+  const accent = themeTokens(theme).accent;
   return { upColor: UP, downColor: DOWN, candleBody: 'solid', lineColor: accent, lineWidth: 2, drawing: { color: accent, size: 1, style: 'solid' } };
 }
 
@@ -68,7 +112,7 @@ export function overlayStyles(d: DrawingLineStyle): DeepPartial<Styles['overlay'
 /** Candle-series styles for a chart type with the (theme-resolved) appearance applied. */
 export function candleStyles(type: ChartType, theme: ThemeName, appearance: ChartAppearance | undefined): DeepPartial<Styles['candle']> {
   const a = resolveAppearance(theme, appearance);
-  const muted = THEME_TOKENS[theme].muted;
+  const muted = themeTokens(theme).muted;
   const colours: DeepPartial<Styles['candle']> = {
     bar: {
       upColor: a.upColor, downColor: a.downColor, noChangeColor: muted,
@@ -91,7 +135,7 @@ export function candleStyles(type: ChartType, theme: ThemeName, appearance: Char
 }
 
 export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
-  const t = THEME_TOKENS[theme];
+  const t = themeTokens(theme);
   const axis = {
     axisLine: { color: t.border },
     tickLine: { color: t.border },

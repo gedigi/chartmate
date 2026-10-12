@@ -32,13 +32,14 @@ export function TopBar(p: TopBarProps): JSX.Element {
   return (
     <header className="top-bar">
       <span className="brand">altv</span>
-      <div className="tabs" role="tablist" aria-label="View">
+      {/* Page navigation (not tabs): each button switches the whole view; aria-current marks the open one. */}
+      <nav className="tabs" aria-label="View">
         {(['chart', 'baskets'] as const).map((v) => (
-          <button key={v} type="button" role="tab" aria-selected={p.view === v} onClick={() => p.onView(v)}>
+          <button key={v} type="button" aria-current={p.view === v ? 'page' : undefined} onClick={() => p.onView(v)}>
             {v === 'chart' ? 'Chart' : 'Baskets'}
           </button>
         ))}
-      </div>
+      </nav>
       {p.view === 'chart' && (
         <>
           <SymbolSearch onSelect={p.onSelectSymbol} disabled={p.controlsDisabled} />

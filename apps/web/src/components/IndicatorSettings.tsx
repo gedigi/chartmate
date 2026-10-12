@@ -1,6 +1,6 @@
 import { MAX_LINE_WIDTH, MIN_LINE_WIDTH, type IndicatorState, type LineStyleKind } from '@altv/shared';
 import { useId, useState, type FormEvent, type JSX } from 'react';
-import { catalogEntry, DEFAULT_BAR_COLORS, defaultLineColor, validateParam } from '../chart/indicators/catalog';
+import { catalogEntry, DEFAULT_BAR_COLORS, defaultLineColor, migrateCalcParams, validateParam } from '../chart/indicators/catalog';
 import { Modal } from './Modal';
 import './Indicators.css';
 
@@ -14,8 +14,8 @@ const WIDTHS = Array.from({ length: MAX_LINE_WIDTH - MIN_LINE_WIDTH + 1 }, (_, i
 
 /**
  * Edits one indicator's params (validated: integers ≥ 1, except params the catalog marks as decimal, which
- * must be > 0) and line colours. Colours are only saved once they differ from the defaults (or were
- * customised before), so untouched indicators keep following KLineChart's palette. The same applies to line widths
+ * must be > 0) and line colours. Colours are only saved while they differ from the defaults, so untouched
+ * (or reset) indicators keep following KLineChart's palette. The same applies to line widths
  * (1–4) / styles (solid, dashed) and, for histogram indicators, the up/down bar colours.
  */
 export function IndicatorSettings({ state, onSave, onClose }: IndicatorSettingsProps): JSX.Element {
@@ -25,7 +25,12 @@ export function IndicatorSettings({ state, onSave, onClose }: IndicatorSettingsP
   const lines = entry?.lines ?? [];
   const defaultColors = lines.map((_, i) => defaultLineColor(i, state.name));
 
-  const [values, setValues] = useState(() => labels.map((_, i) => String(state.calcParams[i] ?? defaults[i] ?? '')));
+  // Explicit migration of stored params (shorter lists are padded with defaults); the user sees complete values
+  // and Save writes the clean, complete list.
+  const [values, setValues] = useState(() => {
+    const params = entry ? migrateCalcParams(state.name, state.calcParams) : state.calcParams;
+    return labels.map((_, i) => String(params[i] ?? ''));
+  });
   const [colors, setColors] = useState(() => lines.map((_, i) => state.lineColors?.[i] ?? defaultLineColor(i, state.name)));
   const [widths, setWidths] = useState(() => lines.map((_, i) => state.lineWidths?.[i] ?? 1));
   const [styles, setStyles] = useState<LineStyleKind[]>(() => lines.map((_, i) => state.lineStyles?.[i] ?? 'solid'));
@@ -40,9 +45,9 @@ export function IndicatorSettings({ state, onSave, onClose }: IndicatorSettingsP
     e.preventDefault();
     if (!valid) return;
     const next: IndicatorState = { name: state.name, pane: state.pane, calcParams: values.map(Number), visible: state.visible };
-    const customised = colors.some((c, i) => c !== defaultColors[i]);
-    if (lines.length > 0 && (customised || state.lineColors)) next.lineColors = colors;
-    // Only saved while they differ from the defaults (the adapter writes the defaults back when an override goes).
+    // Style overrides are only saved while they differ from the defaults (clean shape; the adapter writes the
+    // defaults back when an override goes away).
+    if (lines.length > 0 && colors.some((c, i) => c !== defaultColors[i])) next.lineColors = colors;
     if (lines.length > 0 && widths.some((w) => w !== 1)) next.lineWidths = widths;
     if (lines.length > 0 && styles.some((s) => s !== 'solid')) next.lineStyles = styles;
     if (hasBars && (bars.up !== DEFAULT_BAR_COLORS.up || bars.down !== DEFAULT_BAR_COLORS.down)) next.barColors = { ...bars };

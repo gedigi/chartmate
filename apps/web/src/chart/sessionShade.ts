@@ -1,16 +1,12 @@
 import { registerIndicator, type KLineData } from 'klinecharts';
 
 export const SESSION_SHADE = 'SESSION_SHADE';
-/** Shades simulated basket history (bars before the basket's start). */
-export const SIMULATED_SHADE = 'SIMULATED_SHADE';
 /** Background indicators the app manages itself (never listed or overridden as user indicators). */
-export const SHADE_INDICATORS: ReadonlySet<string> = new Set([SESSION_SHADE, SIMULATED_SHADE]);
+export const SHADE_INDICATORS: ReadonlySet<string> = new Set([SESSION_SHADE]);
 
 const SESSION_FILL = 'rgba(120,120,160,0.10)';
-const SIMULATED_FILL = 'rgba(255,170,0,0.07)';
 
 export const isExtendedSession = (d: KLineData | undefined) => d?.session === 'pre' || d?.session === 'post';
-export const isSimulated = (d: KLineData | undefined) => d?.simulated === true;
 
 /** Runs [start, end) of adjacent bars in data[from, to) matching `pred`. */
 export function shadeRuns(data: readonly KLineData[], from: number, to: number, pred: (d: KLineData | undefined) => boolean): Array<[number, number]> {
@@ -53,8 +49,9 @@ function registerShade(name: string, fill: string, pred: (d: KLineData | undefin
       ctx.save();
       ctx.fillStyle = fill;
       for (const [s, e] of shadeRuns(data, from, to, pred)) {
-        const x0 = xAxis.convertTimestampToPixel(data[s]!.timestamp) - halfBar;
-        const x1 = xAxis.convertTimestampToPixel(data[e - 1]!.timestamp) - halfBar + bar;
+        // The data index is known: convert it directly (convertTimestampToPixel would binary-search it again).
+        const x0 = xAxis.convertToPixel(s) - halfBar;
+        const x1 = xAxis.convertToPixel(e - 1) - halfBar + bar;
         ctx.fillRect(x0, 0, x1 - x0, bounding.height);
       }
       ctx.restore();
@@ -63,8 +60,7 @@ function registerShade(name: string, fill: string, pred: (d: KLineData | undefin
   });
 }
 
-/** Registers SESSION_SHADE (pre-/post-market columns) and SIMULATED_SHADE (simulated basket history), once. */
+/** Registers SESSION_SHADE (pre-/post-market columns), once. */
 export function registerSessionShade(): void {
   registerShade(SESSION_SHADE, SESSION_FILL, isExtendedSession);
-  registerShade(SIMULATED_SHADE, SIMULATED_FILL, isSimulated);
 }

@@ -156,11 +156,10 @@ function PreviewChart({ result, baseValue }: { result: PreviewResult; baseValue:
   const x = (ts: number) => ((ts - t0) / span) * W;
   const y = (v: number) => PAD_Y + (1 - (v - min) / range) * (H - 2 * PAD_Y);
   const pt = (b: Bar) => `${x(b.ts).toFixed(1)},${y(b.close).toFixed(1)}`;
-  // Simulated history (dashed, lighter) joins the real line at the last simulated point.
-  const split = bars.findIndex((b) => !b.simulated);
-  const simulated = split < 0 ? bars : bars.slice(0, split);
-  const real = split < 0 ? [] : bars.slice(Math.max(0, split - 1));
+  // One line throughout: simulated pre-start history is marked only by the Start line and the notice.
+  const simulated = bars.some((b) => b.simulated);
   const startTs = result.startTs;
+  const showStart = startTs > t0 && startTs <= last.ts;
   const change = (last.close / baseValue - 1) * 100;
   const up = last.close >= baseValue; // performance since the start (simulated history excluded)
 
@@ -176,27 +175,32 @@ function PreviewChart({ result, baseValue }: { result: PreviewResult; baseValue:
           <span>{fmt(max)}</span>
           <span>{fmt(min)}</span>
         </div>
+        <div className="preview-plot">
         <svg
           data-testid="basket-preview-chart"
           className={`preview-chart ${up ? 'up' : 'down'}`}
           viewBox={`0 0 ${W} ${H}`}
           preserveAspectRatio="none"
           role="img"
-          aria-label={`Basket preview from ${utcDateString(first.ts)} to ${utcDateString(last.ts)} (starts ${utcDateString(startTs)}${simulated.length > 0 ? ', simulated before' : ''}): low ${fmt(min)}, high ${fmt(max)}`}
+          aria-label={`Basket preview from ${utcDateString(first.ts)} to ${utcDateString(last.ts)} (starts ${utcDateString(startTs)}${simulated ? ', simulated before' : ''}): low ${fmt(min)}, high ${fmt(max)}`}
         >
           {markers.filter((m) => m >= t0 && m <= last.ts).map((m) => (
             <line key={m} className="preview-marker" x1={x(m)} x2={x(m)} y1={0} y2={H} vectorEffect="non-scaling-stroke" />
           ))}
-          {startTs > t0 && startTs <= last.ts && (
-            <line className="preview-start-marker" x1={x(startTs)} x2={x(startTs)} y1={0} y2={H} vectorEffect="non-scaling-stroke">
+          {showStart && (
+            <line className="preview-start-marker" x1={x(startTs)} x2={x(startTs)} y1={0} y2={H} strokeDasharray="4 3"
+              vectorEffect="non-scaling-stroke">
               <title>Start {utcDateString(startTs)}</title>
             </line>
           )}
-          {simulated.length > 1 && (
-            <polyline className="preview-simulated" points={simulated.map(pt).join(' ')} fill="none" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
-          )}
-          {real.length > 1 && <polyline className="preview-real" points={real.map(pt).join(' ')} fill="none" vectorEffect="non-scaling-stroke" />}
+          <polyline className="preview-line" points={bars.map(pt).join(' ')} fill="none" vectorEffect="non-scaling-stroke" />
         </svg>
+        {/* HTML, not SVG text: the SVG is stretched (preserveAspectRatio="none"). */}
+        {showStart && (
+          <span className="preview-start-label" data-testid="basket-preview-start-label" aria-hidden="true"
+            style={{ left: `${(x(startTs) / W) * 100}%` }}>Start</span>
+        )}
+        </div>
       </div>
       <div className="preview-dates">
         <span>{utcDateString(first.ts)}</span>

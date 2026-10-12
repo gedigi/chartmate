@@ -56,6 +56,12 @@ function isTyping(target: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 }
 
+/** True when the event comes from inside a dialog / modal / popup: its Escape closes that, nothing else. */
+function isInPopup(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return target.closest('[role="dialog"], [role="alertdialog"], dialog, [aria-modal="true"], [role="listbox"], [role="menu"], [role="tooltip"]') !== null;
+}
+
 /** macOS (and iOS) use Meta (⌘) as the snap modifier; other platforms Ctrl. */
 function isApplePlatform(): boolean {
   const uaPlatform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform;
@@ -111,7 +117,7 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (!isTyping(e.target)) {
+        if (!isTyping(e.target) && !isInPopup(e.target) && !e.defaultPrevented) {
           cancel();
           controlsRef.current?.deselect(); // closes the drawing style bar
         }

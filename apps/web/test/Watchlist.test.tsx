@@ -47,8 +47,8 @@ describe('Watchlist', () => {
     expect(screen.getByText('-2.00%')).toHaveClass('down');
     expect(await screen.findByText('My Basket')).toBeInTheDocument();
     expect(rows()[2]!.textContent).toContain('—');
-    expect(rows()[1]).toHaveAttribute('aria-selected', 'true');
-    expect(rows()[0]).toHaveAttribute('aria-selected', 'false');
+    expect(rows()[1]).toHaveAttribute('aria-current', 'true');
+    expect(rows()[0]).not.toHaveAttribute('aria-current');
     await waitFor(() => expect(document.querySelectorAll('polyline')).toHaveLength(2));
   });
 
@@ -207,18 +207,45 @@ describe('Watchlist', () => {
     expect(rows()[0]!.querySelector('.wl-price')).toHaveTextContent('10.00');
   });
 
-  it('is a listbox of options; Delete on a row does not reach document-level shortcuts', async () => {
+  it('is a list of rows: a focusable select control (aria-current) and a sibling remove button; no nested interactives', async () => {
+    setup(['stock:AAPL', 'crypto:BTC']);
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('BTC');
+    const list = screen.getByRole('list', { name: 'Watchlist symbols' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('option')).not.toBeInTheDocument();
+    for (const row of rows()) {
+      expect(row).toHaveAttribute('role', 'button');
+      expect(row).toHaveAttribute('tabindex', '0');
+      expect(row.querySelector('button, [role="button"], a, input, [tabindex]')).toBeNull();
+    }
+    expect(rows()[0]).toHaveAttribute('aria-current', 'true');
+    expect(rows()[1]).not.toHaveAttribute('aria-current');
+    const remove = screen.getByRole('button', { name: 'Remove BTC' });
+    expect(rows()[1]!.contains(remove)).toBe(false);
+    expect(rows()[1]!.parentElement!.contains(remove)).toBe(true);
+    expect(rows()[1]).toHaveAccessibleDescription(/Delete removes, Alt\+Arrow keys reorder/);
+  });
+
+  it('Enter and Space on a row select it', async () => {
+    setup(['stock:AAPL', 'crypto:BTC']);
+    const onSelect = vi.fn();
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={onSelect} />);
+    await screen.findByText('BTC');
+    fireEvent.keyDown(rows()[1]!, { key: 'Enter' });
+    fireEvent.keyDown(rows()[0]!, { key: ' ' });
+    expect(onSelect.mock.calls).toEqual([['crypto:BTC'], ['stock:AAPL']]);
+  });
+
+  it('Delete on a row does not reach document-level shortcuts', async () => {
     setup(['stock:AAPL', 'crypto:BTC']);
     const onDoc = vi.fn();
     document.addEventListener('keydown', onDoc);
     try {
       render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
       await screen.findByText('BTC');
-      const list = screen.getByRole('listbox', { name: 'Watchlist symbols' });
-      const opts = within(list).getAllByRole('option');
-      expect(opts).toHaveLength(2);
-      expect(within(list).getByRole('option', { selected: true })).toHaveAttribute('data-symbol', 'stock:AAPL');
-      fireEvent.keyDown(opts[1]!, { key: 'Delete' });
+      fireEvent.keyDown(rows()[1]!, { key: 'Delete' });
       expect(order()).toEqual(['stock:AAPL']);
       expect(onDoc).not.toHaveBeenCalled();
     } finally {
@@ -238,6 +265,52 @@ describe('Watchlist', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
     expect(api.symbol).toHaveBeenCalledTimes(3);
     await waitFor(() => expect(rows()[0]!.querySelector('.wl-symbol')).toHaveAttribute('title', 'Apple Inc.'));
+  });
+
+  it('stops retrying symbol info after unmount (incl. a request in flight at unmount)', async () => {
+    setup(['stock:AAPL', 'crypto:BTC']);
+    vi.useFakeTimers();
+    let rejectInFlight!: (e: Error) => void;
+    vi.mocked(api.symbol).mockImplementation((id) => (id === 'crypto:BTC'
+      ? new Promise<SymbolInfo>((_, rej) => { rejectInFlight = rej; })
+      : Promise.reject(new Error('down'))));
+    const { unmount } = render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(api.symbol).toHaveBeenCalledTimes(2);
+    unmount();
+    rejectInFlight(new Error('down'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000); });
+    expect(api.symbol).toHaveBeenCalledTimes(2);
+  });
+
+  it('remounting does not add a second retry chain for the same id', async () => {
+    setup(['stock:AAPL']);
+    vi.useFakeTimers();
+    vi.mocked(api.symbol).mockRejectedValue(new Error('down'));
+    const first = render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    first.unmount();
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    vi.mocked(api.symbol).mockClear();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(api.symbol).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops retrying symbol info for ids removed from the list', async () => {
+    setup(['stock:AAPL', 'crypto:BTC']);
+    vi.useFakeTimers();
+    vi.mocked(api.symbol).mockImplementation(async (id) => {
+      if (id === 'crypto:BTC') throw new Error('down');
+      return INFO[id]!;
+    });
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove BTC' }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    vi.mocked(api.symbol).mockClear();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000); });
+    expect(api.symbol).not.toHaveBeenCalled();
   });
 
   it('Delete removes the row and focuses the neighbor (previous if last)', async () => {
