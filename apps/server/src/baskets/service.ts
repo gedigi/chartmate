@@ -125,12 +125,15 @@ export class BasketService {
   }
 
   async getBars(a: BasketBarsArgs): Promise<BarsResponseCore> {
-    const { unseededStocks: _u, ...core } = await this.buildBars(a);
+    const { unseeded: _u, realInWindow: _r, ...core } = await this.buildBars(a);
     return core;
   }
 
-  /** getBars plus the stock constituents (of the version active at the window start) with no bar inside the pad. */
-  private async buildBars(a: BasketBarsArgs): Promise<BarsResponseCore & { unseededStocks: SymbolId[] }> {
+  /**
+   * getBars plus: the constituents (of the version active at the window start) with no bar inside the pad, and
+   * whether any fetched series has a real bar inside [from, to).
+   */
+  private async buildBars(a: BasketBarsArgs): Promise<BarsResponseCore & { unseeded: SymbolId[]; realInWindow: boolean }> {
     const basket = await this.get(a.id);
     const { units, stale: unitsStale } = await this.unitsFor(basket);
     const S = units.startTs;
@@ -187,11 +190,13 @@ export class BasketService {
 
     let active = vs[0]!;
     for (const ver of vs) if (ver.effectiveTs <= baseFrom) active = ver;
-    const unseededStocks = Object.keys(active.units).filter((id) => parseSymbolId(id).assetClass === 'stock'
-      && !(fetched.find((f) => f.id === id)?.bars.some((b) => b.ts < baseFrom) ?? false));
+    const unseeded = Object.keys(active.units)
+      .filter((id) => !(fetched.find((f) => f.id === id)?.bars.some((b) => b.ts < baseFrom) ?? false));
+    const realInWindow = fetched.some((f) => f.bars.some((b) => b.ts >= a.from && b.ts < a.to));
 
     return {
-      unseededStocks,
+      unseeded,
+      realInWindow,
       bars,
       stale: unitsStale || fetched.some((s) => s.stale),
       // Unknown history (no earliest for any constituent): keep paging while pages still have bars.
@@ -213,8 +218,10 @@ export class BasketService {
     const padMs = !isIntraday(base) ? undefined : classes.includes('stock') ? LATEST_STOCK_PAD_MS : 2 * tfMs(base);
     const args = { id, tf, session, from: bucketStart(now, tf, cal) - back, to: now + tfMs(tf) };
     let r = await this.buildBars(padMs !== undefined ? { ...args, padMs } : args);
-    // The small pad can miss a stock's last close (e.g. a halt or long closure): retry with the full pad.
-    if (padMs !== undefined && (r.bars.length === 0 || r.unseededStocks.length > 0)) r = await this.buildBars(args);
+    // The small pad can miss a constituent's last close (e.g. a halt or long closure): retry with the full pad, but
+    // only when that could change the answer (an empty off-hours window must not double provider traffic).
+    const retry = r.unseeded.length > 0 || (r.bars.length === 0 && r.realInWindow);
+    if (padMs !== undefined && retry) r = await this.buildBars(args);
     return { bar: r.bars.at(-1) ?? null, stale: r.stale };
   }
 

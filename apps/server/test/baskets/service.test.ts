@@ -561,7 +561,16 @@ describe('BasketService', () => {
       expect(latest.bar).toEqual(full);
     });
 
-    it('falls back to the full pad when the small-pad result is empty', async () => {
+    it('off-hours poll with an empty result does not refetch with the full pad (no extra provider traffic)', async () => {
+      const b = await svc.create({ name: 's', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'stock:BBB': 0.5 })] });
+      now = D(10, 10, 15); // Saturday: nothing in the current 5m bucket window
+      const spy = vi.spyOn(market, 'getNativeBars');
+      const r = await svc.getLatest(b.id, '5m', 'eth');
+      expect(r.bar).toBeNull();
+      expect(spy.mock.calls.filter((c) => c[1] === '5m')).toHaveLength(2); // one per constituent, no retry
+    });
+
+    it('an unseeded constituent (empty small-pad result) falls back to the full pad', async () => {
       const b = await svc.create({ name: 's', versions: [v('2026-09-14', { 'stock:AAA': 1 })] });
       now = D(10, 9, 15);
       const orig = market.getNativeBars.bind(market);
