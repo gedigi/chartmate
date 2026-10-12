@@ -810,6 +810,58 @@ describe('ChartAdapter', () => {
   });
 });
 
+describe('ChartAdapter quick second click while drawing (KLineChart 500 ms double-click window)', () => {
+  const press = (x: number, y = 10) => el.dispatchEvent(new MouseEvent('mousedown', { button: 0, clientX: x, clientY: y, bubbles: true }));
+  function withClickState() {
+    const reset = vi.fn();
+    (chart() as unknown as Record<string, unknown>)['_chartEvent'] = { _event: { _resetClickTimeout: reset } };
+    return reset;
+  }
+
+  it('while a drawing is placed, a press away from the previous one starts a fresh click sequence', () => {
+    vi.useFakeTimers();
+    try {
+      const a = make();
+      const reset = withClickState();
+      a.startDrawing('segment');
+      press(100);
+      vi.advanceTimersByTime(200);
+      press(300); // far from the first press → would be swallowed as a "double-click"
+      expect(reset).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a deliberate double-click (same spot, < 500 ms) is left to KLineChart; nothing happens when not drawing', () => {
+    vi.useFakeTimers();
+    try {
+      const a = make();
+      const reset = withClickState();
+      press(100);
+      press(300);
+      expect(reset).not.toHaveBeenCalled(); // not drawing
+      a.startDrawing('segment');
+      press(100);
+      vi.advanceTimersByTime(150);
+      reset.mockClear();
+      press(102); // 2 px away within 500 ms: a double-click
+      expect(reset).not.toHaveBeenCalled();
+      a.cancelDrawing();
+      press(400);
+      expect(reset).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('is a no-op when the KLineChart internals are not there', () => {
+    const a = make();
+    a.startDrawing('segment');
+    expect(() => { press(1); press(200); }).not.toThrow();
+  });
+});
+
 describe('ChartAdapter daily-anchored drawings (anchorTf)', () => {
   const D1 = Date.UTC(2024, 2, 4); // Mon 2024-03-04 (EST)
   const D2 = Date.UTC(2024, 6, 8); // Mon 2024-07-08 (EDT)

@@ -109,9 +109,8 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
   const p2 = { x: box.x + box.width * 0.55, y: box.y + box.height * 0.22 };
   await page.mouse.move(p1.x, p1.y);
   await page.mouse.click(p1.x, p1.y);
-  // A second press right after the first does not reliably register with KLineChart: move, pause, then click.
-  await page.mouse.move(p2.x, p2.y, { steps: 8 });
-  await page.waitForTimeout(400);
+  // A quick second click (inside KLineChart's 500 ms double-click window) must still place the second point.
+  await page.mouse.move(p2.x, p2.y, { steps: 4 });
   await page.mouse.click(p2.x, p2.y);
   const put = await drawingsPut;
   expect(put.ok()).toBe(true);

@@ -44,6 +44,9 @@ const INDICATOR_DASH = [4, 4];
 export interface LoadParams { symbol: SymbolInfo; tf: Timeframe; session: SessionMode; pollMs: number }
 
 const CANDLE_PANE = 'candle_pane';
+/** KLineChart's double-click window and distance (Delay.ResetClick, ManhattanDistance.DoubleClick). */
+const DOUBLE_CLICK_MS = 500;
+const DOUBLE_CLICK_PX = 5;
 const MARKERS = 'markers';
 /** Chart timezone: exchange time for intraday stock/basket charts, UTC otherwise (daily+ bars are UTC dates). */
 function timezoneFor(symbol: SymbolInfo, tf: Timeframe): string {
@@ -126,6 +129,8 @@ export class ChartAdapter {
     const chart = init(el, { styles: this.styles() });
     if (!chart) throw new Error('Failed to initialise the chart');
     this.chart = chart;
+    // Capture phase on the host: runs before KLineChart's own mousedown handler on its inner container.
+    el.addEventListener('mousedown', this.onPressCapture, true);
   }
 
   private styles(): DeepPartial<Styles> {
@@ -496,6 +501,30 @@ export class ChartAdapter {
     this.pendingRestore = { drawings: saved, symbol };
   }
 
+  // ── quick clicks while placing a drawing ──
+  // KLineChart 10 treats a second press within 500 ms of the first as a double-click. If it is ≥ 5 px away it
+  // fires neither a click nor a double-click, so the second point of a quick two-click trend line was lost.
+  // While a drawing is being placed, a press that is not a deliberate double-click (same spot, < 500 ms)
+  // restarts KLineChart's click sequence first, so its mouseup counts as an ordinary click.
+
+  private lastPress: { x: number; y: number; t: number } | null = null;
+
+  private readonly onPressCapture = (e: MouseEvent): void => {
+    if (e.button !== 0) return;
+    const prev = this.lastPress;
+    const now = Date.now();
+    this.lastPress = { x: e.clientX, y: e.clientY, t: now };
+    if (!this.drawing) return;
+    const doubleClick = prev !== null && now - prev.t < DOUBLE_CLICK_MS
+      && Math.abs(e.clientX - prev.x) + Math.abs(e.clientY - prev.y) < DOUBLE_CLICK_PX;
+    if (doubleClick) return;
+    // Internal (KLineChart 10.0.3: chart._chartEvent._event._resetClickTimeout); a no-op if it ever changes.
+    const handler = (this.chart as unknown as { _chartEvent?: { _event?: { _resetClickTimeout?: unknown } } })._chartEvent?._event;
+    if (handler && typeof handler._resetClickTimeout === 'function') {
+      try { (handler._resetClickTimeout as () => void).call(handler); } catch { /* keep KLineChart's behaviour */ }
+    }
+  };
+
   private baseMode(): OverlayMode {
     return this.magnet ? 'weak_magnet' : 'normal';
   }
@@ -785,6 +814,7 @@ export class ChartAdapter {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.el.removeEventListener('mousedown', this.onPressCapture, true);
     this.loader?.dispose();
     this.loader = null;
     this.changeListeners.clear();
