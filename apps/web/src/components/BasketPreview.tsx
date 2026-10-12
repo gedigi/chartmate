@@ -8,8 +8,11 @@ import { api, errorMessage } from '../api/client';
 const DAY = 86_400_000;
 /** Server cap is 4000 bars per request; stay a little under it for 1D. */
 const MAX_SPAN = 3990 * DAY;
-/** Lookback before T0 so the prior close of the start date is available. */
-const LOOKBACK = 10 * DAY;
+/**
+ * History fetched before T0: covers the prior close of the start date and a year of simulated pre-start history
+ * (version 0's holdings applied to earlier prices, as the server does).
+ */
+export const PREVIEW_HISTORY_MS = 365 * DAY;
 export const PREVIEW_DEBOUNCE_MS = 600;
 
 const isAbort = (e: unknown) => e instanceof DOMException && e.name === 'AbortError';
@@ -108,15 +111,17 @@ export function BasketPreview({ versions, baseValue }: BasketPreviewProps): JSX.
 
 async function run(versions: BasketVersion[], baseValue: number, cache: Cache, signal: AbortSignal): Promise<PreviewResult> {
   const t0 = parseDateString(versions[0]!.effectiveFrom);
-  const from = t0 - LOOKBACK;
+  const from = t0 - PREVIEW_HISTORY_MS;
   const to = Math.ceil((Date.now() + DAY) / DAY) * DAY;
   const ids = [...new Set(versions.flatMap((v) => Object.keys(v.weights)))];
   const loaded = await Promise.all(ids.map((id) => loadDaily(cache, id, from, to, signal)));
   const daily: Record<SymbolId, Bar[]> = {};
   ids.forEach((id, i) => { daily[id] = loaded[i]!; });
   const units = computeVersionUnits(versions, daily, baseValue);
-  const bars = buildBasketBars(units, ids.map((id) => ({ id, bars: daily[id]! })));
-  return { bars, notices: units.notices, markers: versionMarkers(units).map((m) => m.ts), startTs: units.startTs };
+  const bars = buildBasketBars(units, ids.map((id) => ({ id, bars: daily[id]! })), { simulate: true });
+  const notices = [...units.notices];
+  if (bars.some((b) => b.simulated)) notices.push(`Before ${utcDateString(units.startTs)}: simulated with the starting holdings.`);
+  return { bars, notices, markers: versionMarkers(units).map((m) => m.ts), startTs: units.startTs };
 }
 
 const W = 600;
@@ -150,9 +155,14 @@ function PreviewChart({ result, baseValue }: { result: PreviewResult; baseValue:
   const range = max - min || 1;
   const x = (ts: number) => ((ts - t0) / span) * W;
   const y = (v: number) => PAD_Y + (1 - (v - min) / range) * (H - 2 * PAD_Y);
-  const points = bars.map((b) => `${x(b.ts).toFixed(1)},${y(b.close).toFixed(1)}`).join(' ');
+  const pt = (b: Bar) => `${x(b.ts).toFixed(1)},${y(b.close).toFixed(1)}`;
+  // Simulated history (dashed, lighter) joins the real line at the last simulated point.
+  const split = bars.findIndex((b) => !b.simulated);
+  const simulated = split < 0 ? bars : bars.slice(0, split);
+  const real = split < 0 ? [] : bars.slice(Math.max(0, split - 1));
+  const startTs = result.startTs;
   const change = (last.close / baseValue - 1) * 100;
-  const up = last.close >= first.close;
+  const up = last.close >= baseValue; // performance since the start (simulated history excluded)
 
   return (
     <>
@@ -172,12 +182,20 @@ function PreviewChart({ result, baseValue }: { result: PreviewResult; baseValue:
           viewBox={`0 0 ${W} ${H}`}
           preserveAspectRatio="none"
           role="img"
-          aria-label={`Basket preview from ${utcDateString(first.ts)} to ${utcDateString(last.ts)}: low ${fmt(min)}, high ${fmt(max)}`}
+          aria-label={`Basket preview from ${utcDateString(first.ts)} to ${utcDateString(last.ts)} (starts ${utcDateString(startTs)}${simulated.length > 0 ? ', simulated before' : ''}): low ${fmt(min)}, high ${fmt(max)}`}
         >
           {markers.filter((m) => m >= t0 && m <= last.ts).map((m) => (
             <line key={m} className="preview-marker" x1={x(m)} x2={x(m)} y1={0} y2={H} vectorEffect="non-scaling-stroke" />
           ))}
-          <polyline points={points} fill="none" vectorEffect="non-scaling-stroke" />
+          {startTs > t0 && startTs <= last.ts && (
+            <line className="preview-start-marker" x1={x(startTs)} x2={x(startTs)} y1={0} y2={H} vectorEffect="non-scaling-stroke">
+              <title>Start {utcDateString(startTs)}</title>
+            </line>
+          )}
+          {simulated.length > 1 && (
+            <polyline className="preview-simulated" points={simulated.map(pt).join(' ')} fill="none" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
+          )}
+          {real.length > 1 && <polyline className="preview-real" points={real.map(pt).join(' ')} fill="none" vectorEffect="non-scaling-stroke" />}
         </svg>
       </div>
       <div className="preview-dates">

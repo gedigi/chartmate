@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../src/api/client';
 import { BasketEditor } from '../src/components/BasketEditor';
+import { PREVIEW_HISTORY_MS } from '../src/components/BasketPreview';
 
 vi.mock('../src/api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/api/client')>();
@@ -158,7 +159,7 @@ describe('BasketEditor — create', () => {
     expect(preview.querySelector('polyline')).not.toBeNull();
     const calls = vi.mocked(api.bars).mock.calls.map((c) => c[0]);
     expect(calls.every((p) => p.tf === '1D' && p.session === 'rth')).toBe(true);
-    expect(calls.some((p) => p.symbol === 'stock:AAPL' && p.from === Date.UTC(2024, 0, 2) - 10 * DAY)).toBe(true);
+    expect(calls.some((p) => p.symbol === 'stock:AAPL' && p.from === Date.UTC(2024, 0, 2) - PREVIEW_HISTORY_MS)).toBe(true);
     expect(screen.getByTestId('basket-preview')).toHaveTextContent('2024-01-02');
   });
 });
@@ -218,6 +219,37 @@ describe('BasketEditor — edit', () => {
       weights: { 'stock:AAPL': 0.8, 'crypto:BTC': 0.2 },
     });
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(updated));
+  });
+
+  it('a single-version basket can move its start date (PUT versions), with the create bounds', async () => {
+    const single: Basket = { ...BASKET, versions: [BASKET.versions[0]!] };
+    const moved: Basket = { ...single, versions: [{ ...single.versions[0]!, effectiveFrom: '2023-06-01' }] };
+    vi.mocked(api.baskets.update).mockResolvedValue(moved);
+    const onSaved = vi.fn();
+    render(<BasketEditor basket={single} onSaved={onSaved} onCancel={() => {}} />);
+    const date = screen.getByLabelText('Start date (UTC)');
+    expect(date).toHaveValue('2024-01-02');
+    expect(date).toHaveAttribute('min', '1970-01-01');
+    expect(date).toHaveAttribute('max', maxEffectiveDate());
+    const button = screen.getByRole('button', { name: 'Change start date' });
+    expect(button).toBeDisabled(); // unchanged
+    fireEvent.change(date, { target: { value: '1969-12-31' } });
+    expect(screen.getByText(/Start date must be between 1970-01-01/)).toBeInTheDocument();
+    expect(button).toBeDisabled();
+    fireEvent.change(date, { target: { value: '2023-06-01' } });
+    await userEvent.click(button);
+    expect(api.baskets.update).toHaveBeenCalledWith('b1', { versions: [{ effectiveFrom: '2023-06-01', weights: single.versions[0]!.weights }] });
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(moved));
+  });
+
+  it('baskets with several versions cannot move their start date', () => {
+    render(<BasketEditor basket={BASKET} onSaved={() => {}} onCancel={() => {}} />);
+    expect(screen.queryByRole('button', { name: 'Change start date' })).not.toBeInTheDocument();
+  });
+
+  it('the create form defaults the start date to today (UTC)', () => {
+    render(<BasketEditor onSaved={() => {}} onCancel={() => {}} />);
+    expect(screen.getByLabelText('Start date (UTC)')).toHaveValue(new Date().toISOString().slice(0, 10));
   });
 
   it('shows the server error when appending fails', async () => {
