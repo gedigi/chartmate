@@ -24,7 +24,31 @@ export function bucketStart(ts: number, tf: Timeframe, calendar: Calendar): numb
   return anchor + Math.floor((ts - anchor) / ms) * ms;
 }
 
-export function resample(bars: Bar[], tf: Timeframe, calendar: Calendar): Bar[] {
+/**
+ * Returns `bars` ordered by ts with equal-ts duplicates removed (the last occurrence in input
+ * order wins). Already-sorted, duplicate-free input is returned as-is (no copy).
+ */
+export function normalizeBars(bars: Bar[]): Bar[] {
+  let clean = true;
+  for (let i = 1; i < bars.length; i++) {
+    if (bars[i]!.ts <= bars[i - 1]!.ts) { clean = false; break; }
+  }
+  if (clean) return bars;
+  const sorted = bars.slice().sort((a, b) => a.ts - b.ts); // Array#sort is stable
+  const out: Bar[] = [];
+  for (const b of sorted) {
+    if (out.length > 0 && out[out.length - 1]!.ts === b.ts) out[out.length - 1] = b;
+    else out.push(b);
+  }
+  return out;
+}
+
+/**
+ * Aggregates bars into `tf` buckets. Input need not be sorted: it is sorted defensively (stable,
+ * by ts) and bars with equal ts are deduped (last occurrence wins). Gaps yield no empty buckets.
+ */
+export function resample(input: Bar[], tf: Timeframe, calendar: Calendar): Bar[] {
+  const bars = normalizeBars(input);
   const out: Bar[] = [];
   let cur: Bar | null = null;
   let uniform = true;

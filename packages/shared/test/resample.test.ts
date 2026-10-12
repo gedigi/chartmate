@@ -53,5 +53,52 @@ describe('resample', () => {
       [Date.UTC(2026, 9, 12), 7, 7, 8, 6, 1],
     ]);
   });
+  it('gaps produce separate buckets (no empty buckets filled in)', () => {
+    const t = Date.UTC(2026, 0, 1);
+    const out = resample([bar(t, 1, 2, 0, 1), bar(t + 5 * H, 3, 4, 2, 3), bar(t + 9 * H, 5, 6, 4, 5)], '2h', 'utc');
+    expect(out.map(b => [b.ts, b.open, b.close])).toEqual([[t, 1, 1], [t + 4 * H, 3, 3], [t + 8 * H, 5, 5]]);
+  });
+  it('daily → monthly', () => {
+    const d = (m: number, day: number, c: number) => bar(Date.UTC(2026, m, day), c, c + 1, c - 1, c, 2);
+    const out = resample([d(0, 30, 1), d(1, 2, 2), d(1, 27, 3), d(2, 2, 4)], '1M', 'utc');
+    expect(out.map(b => [b.ts, b.open, b.close, b.high, b.low, b.volume])).toEqual([
+      [Date.UTC(2026, 0, 1), 1, 1, 2, 0, 2],
+      [Date.UTC(2026, 1, 1), 2, 3, 4, 1, 4],
+      [Date.UTC(2026, 2, 1), 4, 4, 5, 3, 2],
+    ]);
+  });
+  it('nyse-rth 2h across the spring-forward weekend keeps 09:30 NY anchor on both sides', () => {
+    const fri = Date.UTC(2026, 2, 6, 14, 30); // 09:30 EST
+    const mon = Date.UTC(2026, 2, 9, 13, 30); // 09:30 EDT
+    const bars = [0, 1, 2].flatMap((i) => [bar(fri + i * H, i, i, i, i), bar(mon + i * H, 10 + i, 10 + i, 10 + i, 10 + i)]).sort((a, b) => a.ts - b.ts);
+    const out = resample(bars, '2h', 'nyse-rth');
+    expect(out.map(b => [b.ts, b.open, b.close])).toEqual([
+      [fri, 0, 1], [fri + 2 * H, 2, 2], [mon, 10, 11], [mon + 2 * H, 12, 12],
+    ]);
+  });
+  it('nyse-eth 4h on the fall-back day (2026-11-02 Monday after) anchors 04:00 EST', () => {
+    const a = Date.UTC(2026, 10, 2, 9, 0); // 04:00 EST
+    const out = resample([bar(Date.UTC(2026, 9, 30, 8, 0), 1, 1, 1, 1), bar(a, 2, 2, 2, 2), bar(a + 3 * H, 3, 3, 3, 3)], '4h', 'nyse-eth');
+    expect(out.map(b => [b.ts, b.close])).toEqual([[Date.UTC(2026, 9, 30, 8, 0), 1], [a, 3]]);
+  });
+  it('unsorted input is sorted defensively (stable) and equal ts are deduped (last wins)', () => {
+    const t = Date.UTC(2026, 0, 1);
+    const out = resample([
+      bar(t + H, 20, 21, 19, 20, 1),
+      bar(t, 10, 11, 9, 10, 1),
+      bar(t + H, 30, 31, 29, 30, 5), // duplicate ts: this one wins
+      bar(t + 2 * H, 40, 41, 39, 40, 1),
+    ], '2h', 'utc');
+    expect(out.map(b => [b.ts, b.open, b.high, b.low, b.close, b.volume])).toEqual([
+      [t, 10, 31, 9, 30, 6],
+      [t + 2 * H, 40, 41, 39, 40, 1],
+    ]);
+  });
+  it('does not mutate the input array', () => {
+    const t = Date.UTC(2026, 0, 1);
+    const input = [bar(t + H, 2, 2, 2, 2), bar(t, 1, 1, 1, 1)];
+    resample(input, '2h', 'utc');
+    expect(input.map(b => b.ts)).toEqual([t + H, t]);
+  });
   it('empty', () => { expect(resample([], '4h', 'utc')).toEqual([]); });
 });
