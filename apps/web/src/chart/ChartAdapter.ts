@@ -138,6 +138,7 @@ export class ChartAdapter {
       onMeta: (m) => events.onMeta(m),
       onError: (e) => { ready(); events.onError(e); }, // never keep drawings hidden because a page failed
       onConnection: (lost, e) => { if (lost) ready(); events.onConnection?.(lost, e); },
+      onFatal: (e) => { ready(); events.onFatal?.(e); },
       onReload: () => { if (this.loader === loader) this.chart.resetData(); }, // gap too large to backfill
     });
     this.loader = loader;

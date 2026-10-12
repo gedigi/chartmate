@@ -709,6 +709,19 @@ describe('ChartAdapter', () => {
     });
   });
 
+  it('forwards a permanent init failure to onFatal (no connection-lost)', async () => {
+    const { ApiError } = await import('../../src/api/client');
+    const a = make();
+    const ev = events();
+    const onFatal = vi.fn();
+    a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 1000 }, { ...ev, onFatal });
+    vi.spyOn(api, 'bars').mockRejectedValue(new ApiError(404, 'not_found', 'Unknown symbol'));
+    const loader = chart().setDataLoader.mock.calls.at(-1)![0] as { getBars: (p: unknown) => Promise<void> };
+    await loader.getBars({ type: 'init', timestamp: null, symbol: { ticker: 'stock:AAPL' }, period: { type: 'day', span: 1 }, callback: () => {} });
+    expect(onFatal).toHaveBeenCalledWith(expect.objectContaining({ message: 'Unknown symbol' }));
+    expect(ev.onConnection).not.toHaveBeenCalled();
+  });
+
   describe('markers follow new bars', () => {
     it('a marker after the last bar (e.g. basket Start before the open) appears once a polled bar reaches it', async () => {
       vi.useFakeTimers();

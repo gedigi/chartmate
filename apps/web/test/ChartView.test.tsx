@@ -229,6 +229,23 @@ describe('ChartView', () => {
     expect(screen.queryByText(/Data delayed/)).not.toBeInTheDocument();
   });
 
+  it('a permanent load error shows its message inline in an opaque panel with Retry (no "Connection lost")', async () => {
+    renderView();
+    await flush();
+    expect(adapter().load).toHaveBeenCalledTimes(1);
+    act(() => adapter().events!.onFatal!(new Error('Basket has no constituents')));
+    const panel = screen.getByTestId('load-error');
+    expect(panel).toHaveClass('chart-error-panel');
+    expect(panel).toHaveAttribute('role', 'alert');
+    expect(panel).toHaveTextContent("Couldn't load AAPL: Basket has no constituents");
+    expect(screen.queryByText('Connection lost — retrying…')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('chart-loading')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await flush();
+    expect(adapter().load).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('load-error')).not.toBeInTheDocument();
+  });
+
   it('places notices in the bottom-left stack, away from the top-left OHLC legend', async () => {
     renderView();
     await flush();

@@ -91,6 +91,10 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
   const [dataReceived, setDataReceived] = useState(false);
   /** Error message while initial loads / polls keep failing (one persistent banner instead of toasts). */
   const [connectionLost, setConnectionLost] = useState<string | null>(null);
+  /** The current load failed permanently (e.g. a 4xx): shown inline with Retry; nothing retries on its own. */
+  const [loadFatal, setLoadFatal] = useState<string | null>(null);
+  /** Bumped by that Retry button to run the load again. */
+  const [reloadKey, setReloadKey] = useState(0);
   const themeRef = useRef(theme);
   themeRef.current = theme;
   const indicatorsRef = useRef(new Map<string, { id: string; state: IndicatorState }>());
@@ -138,6 +142,7 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
     setDismissed(new Set());
     setToast(null);
     setConnectionLost(null);
+    setLoadFatal(null);
     setDataSettled(false);
     setDataReceived(false);
     if (!info || pollMs === null) {
@@ -158,9 +163,15 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
         setConnectionLost(lost ? errorMessage(e ?? new Error('Connection lost')) : null);
         if (lost) setDataSettled(true);
       },
+      onFatal: (e) => {
+        if (!active) return;
+        setConnectionLost(null);
+        setLoadFatal(errorMessage(e));
+        setDataSettled(true);
+      },
     });
     return () => { active = false; };
-  }, [adapter, info, tf, session, pollMs]);
+  }, [adapter, info, tf, session, pollMs, reloadKey]);
 
   const shade = session === 'eth' && isIntraday(tf) && info?.assetClass === 'stock'; // only stock bars carry session tags
   useEffect(() => { adapter?.setSessionShading(shade); }, [adapter, shade]);
@@ -276,7 +287,13 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
               <button type="button" onClick={onRetrySymbol}>Retry</button>
             </div>
           )}
-          {!initError && !symbolFailed && !dataReceived && (
+          {!initError && !symbolFailed && loadFatal !== null && (
+            <div className="center-message chart-error-panel" role="alert" data-testid="load-error">
+              <p>Couldn&apos;t load {info?.ticker ?? symbol}: {loadFatal}</p>
+              <button type="button" onClick={() => setReloadKey((k) => k + 1)}>Retry</button>
+            </div>
+          )}
+          {!initError && !symbolFailed && loadFatal === null && !dataReceived && (
             <div className="chart-loading" data-testid="chart-loading" aria-live="polite">Loading…</div>
           )}
           <div className="chart-overlay-bottom-left">
