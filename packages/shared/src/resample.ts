@@ -28,7 +28,13 @@ export function resample(bars: Bar[], tf: Timeframe, calendar: Calendar): Bar[] 
   const out: Bar[] = [];
   let cur: Bar | null = null;
   let uniform = true;
-  const flush = () => { if (cur && !uniform) cur.session = undefined; };
+  /** A bucket is simulated only when every input bar is. */
+  let allSimulated = true;
+  const flush = () => {
+    if (!cur) return;
+    if (!uniform) cur.session = undefined;
+    if (allSimulated) cur.simulated = true;
+  };
   for (const b of bars) {
     const ts = bucketStart(b.ts, tf, calendar);
     if (cur && cur.ts === ts) {
@@ -37,10 +43,12 @@ export function resample(bars: Bar[], tf: Timeframe, calendar: Calendar): Bar[] 
       cur.close = b.close;
       cur.volume += b.volume;
       if (b.session !== cur.session) uniform = false;
+      if (!b.simulated) allSimulated = false;
     } else {
       flush();
       cur = { ts, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume, session: b.session };
       uniform = true;
+      allSimulated = b.simulated === true;
       out.push(cur);
     }
   }

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   BasketValidationError, baseTimeframe, bucketStart, buildBasketBars, computeVersionUnits, filterSession,
-  isIntraday, parseDateString, parseSymbolId, resample, tfMs, validateVersions, versionMarkers,
+  isIntraday, parseDateString, parseSymbolId, resample, tfMs, utcDateString, validateVersions, versionMarkers,
   type Bar, type Basket, type BasketVersion, type Calendar, type ConstituentSeries, type Marker,
   type SessionMode, type SymbolId, type Timeframe, type UnitsResult,
 } from '@altv/shared';
@@ -18,6 +18,9 @@ const DAILY_PAD_MS = 10 * DAY;
 const UNITS_LOOKBACK_MS = 10 * DAY;
 const MAX_NAME = 80;
 export const INTRADAY_HL_NOTICE = 'Basket high/low are approximate (sum of constituent extremes).';
+export const START_MARKER = 'Start';
+export const simulatedNotice = (startTs: number) => `Before ${utcDateString(startTs)}: simulated with the starting holdings.`;
+export const noSessionsNotice = (startTs: number) => `Basket starts ${utcDateString(startTs)}; no completed sessions yet.`;
 
 export type BarsResponseCore = { bars: Bar[]; stale: boolean; hasMoreBefore: boolean; notices: string[]; markers: Marker[] };
 
@@ -117,12 +120,13 @@ export class BasketService {
   async getBars(a: BasketBarsArgs): Promise<BarsResponseCore> {
     const basket = await this.get(a.id);
     const { units, stale: unitsStale } = await this.unitsFor(basket);
-    const markers = versionMarkers(units).filter((m) => m.ts >= a.from && m.ts < a.to);
+    const S = units.startTs;
+    const markers: Marker[] = [
+      ...(S >= a.from && S < a.to ? [{ ts: S, label: START_MARKER }] : []),
+      ...versionMarkers(units).filter((m) => m.ts >= a.from && m.ts < a.to),
+    ];
     const notices = [...units.notices];
     if (isIntraday(a.tf)) notices.push(INTRADAY_HL_NOTICE);
-
-    const from = Math.max(a.from, units.startTs);
-    if (from >= a.to) return { bars: [], stale: unitsStale, hasMoreBefore: false, notices, markers };
 
     const all = constituents(basket.versions);
     const anyCrypto = all.some((id) => parseSymbolId(id).assetClass === 'crypto');
@@ -133,12 +137,14 @@ export class BasketService {
     // A derived bucket starting before `to` needs its base bars up to the bucket's end.
     const baseTo = derived ? Math.max(a.to, bucketEnd(a.to - 1, a.tf, outCal)) : a.to;
     // Build base bars from the start of the bucket containing `a.from` so a kept leading bucket is complete.
-    const baseFrom = derived ? Math.max(bucketStart(a.from, a.tf, outCal), units.startTs) : from;
+    // Before the basket start S the bars are simulated with version 0's units (shared engine).
+    const baseFrom = derived ? bucketStart(a.from, a.tf, outCal) : a.from;
     const fetchFrom = baseFrom - (a.padMs ?? (isIntraday(base) ? INTRADAY_PAD_MS : DAILY_PAD_MS));
 
-    // Only versions active somewhere in [fetchFrom, baseTo) need their constituents' bars.
+    // Only versions active somewhere in [fetchFrom, baseTo) need their constituents' bars (version 0 is also
+    // active for everything before S).
     const vs = units.versions;
-    const relevant = vs.filter((v, k) => v.effectiveTs < baseTo && (vs[k + 1]?.effectiveTs ?? Infinity) > fetchFrom);
+    const relevant = vs.filter((v, k) => (k === 0 || v.effectiveTs < baseTo) && (vs[k + 1]?.effectiveTs ?? Infinity) > fetchFrom);
     const ids = [...new Set(relevant.flatMap((v) => Object.keys(v.units)))];
 
     const fetched = await Promise.all(ids.map(async (id): Promise<ConstituentSeries & { stale: boolean }> => {
@@ -151,17 +157,20 @@ export class BasketService {
       return { id, bars, stale: r.stale };
     }));
 
-    let bars = buildBasketBars(units, fetched).filter((b) => b.ts >= baseFrom); // drop padding
+    let bars = buildBasketBars(units, fetched, { simulate: true }).filter((b) => b.ts >= baseFrom); // drop padding
     if (derived) bars = resample(bars, a.tf, outCal);
-    // [from, to) contract on output timestamps; a basket that genuinely starts mid-bucket keeps that bucket.
-    const startsInside = from === units.startTs && units.startTs > a.from;
-    const lower = derived && startsInside ? bucketStart(units.startTs, a.tf, outCal) : a.from;
-    bars = bars.filter((b) => b.ts >= lower && b.ts < a.to);
+    bars = bars.filter((b) => b.ts >= a.from && b.ts < a.to); // [from, to) contract on output timestamps
 
-    // Earliest available history: constituents of the version active at `from`.
-    const activeAtFrom = [...vs].reverse().find((v) => v.effectiveTs <= from) ?? vs[0]!;
-    const earliest = await Promise.all(Object.keys(activeAtFrom.units).map((id) => this.market.earliest(id, base)));
-    const floor = Math.max(units.startTs, ...earliest.map((e) => e ?? -Infinity));
+    if (bars.some((b) => b.simulated)) notices.push(simulatedNotice(S));
+    if (bars.length === 0 && a.to >= this.now()) {
+      // Nothing to show up to now: a basket starting today / tomorrow before any constituent session completed.
+      const lastTs = Math.max(-Infinity, ...fetched.map((f) => f.bars.at(-1)?.ts ?? -Infinity));
+      if (S >= lastTs) notices.push(noSessionsNotice(S));
+    }
+
+    // Earliest available history: simulated bars reach back to the latest first bar of version 0's constituents.
+    const earliest = await Promise.all(Object.keys(vs[0]!.units).map((id) => this.market.earliest(id, base)));
+    const floor = Math.max(...earliest.map((e) => e ?? -Infinity));
 
     return {
       bars,
