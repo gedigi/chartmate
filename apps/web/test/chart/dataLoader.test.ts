@@ -209,9 +209,9 @@ describe('createDataLoader getBars', () => {
     expect(fetchBars).toHaveBeenCalledTimes(1);
   });
 
-  it('isPermanentError: 4xx except 401/408/429; never network errors or 5xx', () => {
-    for (const s of [400, 403, 404, 409, 422, 499]) expect(isPermanentError(new ApiError(s, 'x', 'x')), String(s)).toBe(true);
-    for (const s of [0, 401, 408, 429, 500, 503]) expect(isPermanentError(new ApiError(s, 'x', 'x')), String(s)).toBe(false);
+  it('isPermanentError: 4xx except 401/408/409/423/425/429; never network errors or 5xx', () => {
+    for (const s of [400, 403, 404, 410, 422, 499]) expect(isPermanentError(new ApiError(s, 'x', 'x')), String(s)).toBe(true);
+    for (const s of [0, 401, 408, 409, 423, 425, 429, 500, 503]) expect(isPermanentError(new ApiError(s, 'x', 'x')), String(s)).toBe(false);
     expect(isPermanentError(new Error('plain'))).toBe(false);
   });
 

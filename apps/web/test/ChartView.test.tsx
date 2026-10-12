@@ -131,7 +131,7 @@ describe('ChartView', () => {
     const { rerenderWith } = renderView();
     await flush();
     rerenderWith({ ...LAYOUT, indicators: [{ name: 'VOL', pane: 'sub', calcParams: [7], visible: false }] });
-    expect(adapter().updateIndicator).toHaveBeenCalledWith('ind_1', { calcParams: [7], visible: false });
+    expect(adapter().updateIndicator).toHaveBeenCalledWith('ind_1', { calcParams: [7, 10, 20], visible: false });
     rerenderWith({ ...LAYOUT, indicators: [] });
     expect(adapter().removeIndicator).toHaveBeenCalledWith('ind_1');
     expect(adapter().addIndicator).toHaveBeenCalledTimes(1);
@@ -229,6 +229,15 @@ describe('ChartView', () => {
     expect(screen.queryByText(/Data delayed/)).not.toBeInTheDocument();
   });
 
+  it('migrates stored indicator params when they reach the chart (short lists padded with defaults)', async () => {
+    const short = { name: 'RSI', pane: 'sub' as const, calcParams: [7], visible: true };
+    const { rerenderWith } = renderView({ ...LAYOUT, indicators: [short] });
+    await flush();
+    expect(adapter().addIndicator).toHaveBeenCalledWith(expect.objectContaining({ name: 'RSI', calcParams: [7, 12, 24] }));
+    rerenderWith({ ...LAYOUT, indicators: [{ ...short, calcParams: [8], visible: false }] });
+    expect(adapter().updateIndicator).toHaveBeenLastCalledWith('ind_1', expect.objectContaining({ calcParams: [8, 12, 24], visible: false }));
+  });
+
   it('a permanent load error shows its message inline in an opaque panel with Retry (no "Connection lost")', async () => {
     renderView();
     await flush();
@@ -295,12 +304,12 @@ describe('ChartView', () => {
     renderView({ ...LAYOUT, symbol: 'basket:b1' }, B);
     await flush();
     await flush();
-    expect(adapter().load.mock.calls.at(-1)![0]).toMatchObject({ pollMs: 15000 });
+    expect(adapter().load.mock.calls.at(-1)![0]).toMatchObject({ pollMs: 15000, basketHasCrypto: false });
     get.mockResolvedValue({ ...stocks, versions: [...stocks.versions, { effectiveFrom: '2024-02-01', weights: { 'crypto:BTC': 1 } }] });
     act(() => notifyBasketChanged('b1'));
     await flush();
     await flush();
-    expect(adapter().load.mock.calls.at(-1)![0]).toMatchObject({ pollMs: 5000 });
+    expect(adapter().load.mock.calls.at(-1)![0]).toMatchObject({ pollMs: 5000, basketHasCrypto: true });
   });
 
   it('applies the appearance and re-applies it only when it changes by value', async () => {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { isPermanentError } from '../api/client';
 import { retryDelayMs } from './retry';
 
 /**
@@ -59,14 +60,18 @@ export function useDebouncedSave<T>(
     }
     result.then(
       () => {
-        if (mySeq === seq.current) attempts.current = 0;
+        // Only the latest save's outcome is shown: an older response arriving late changes nothing.
+        if (mySeq !== seq.current) return;
+        attempts.current = 0;
         if (mounted.current) setError(null);
       },
       (err: unknown) => {
-        if (!mounted.current) return;
+        if (!mounted.current || mySeq !== seq.current) return;
         setError(err instanceof Error ? err.message : String(err));
-        // Retry only the latest value, and only if nothing newer is already queued.
-        if (retryRef.current && mySeq === seq.current && pending.current === null && timer.current === null) {
+        // A permanent client error (e.g. 400) cannot succeed by retrying: keep it shown, do not retry.
+        if (isPermanentError(err)) return;
+        // Retry only if nothing newer is already queued.
+        if (retryRef.current && pending.current === null && timer.current === null) {
           pending.current = p;
           timer.current = setTimeout(flush, retryDelayMs(attempts.current++));
         }
