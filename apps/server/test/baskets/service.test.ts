@@ -572,7 +572,7 @@ describe('BasketService', () => {
         }
       }
       expect(compared).toBeGreaterThan(30);
-    });
+    }, 30_000); // 48 getBars+getLatest pairs: slow under a loaded parallel (Postgres) run
 
     it('falls back to the full pad when a stock constituent has no seed within the small pad', async () => {
       const b = await svc.create({ name: 'm', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
