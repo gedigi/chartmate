@@ -20,7 +20,7 @@ import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
 import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
 import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS } from './sessionShade';
-import { candleStyles, chartStyles, DEFAULT_TEXT_SIZE, overlayStyles, resolveAppearance, type ThemeName } from './theme';
+import { candleStyles, chartStyles, DEFAULT_TEXT_SIZE, overlayStyles, refreshThemeTokens, resolveAppearance, type ThemeName } from './theme';
 
 export type DrawingTool =
   | 'segment' | 'rayLine' | 'straightLine' | 'horizontalStraightLine' | 'verticalStraightLine'
@@ -104,6 +104,7 @@ export class ChartAdapter {
     registerCustomIndicators();
     this.el = el;
     this.theme = opts.theme;
+    refreshThemeTokens(opts.theme); // chart colours come from the CSS tokens (constants as fallback)
     const chart = init(el, { styles: this.styles() });
     if (!chart) throw new Error('Failed to initialise the chart');
     this.chart = chart;
@@ -190,6 +191,7 @@ export class ChartAdapter {
 
   setTheme(t: ThemeName): void {
     this.theme = t;
+    refreshThemeTokens(t);
     this.chart.setStyles(this.styles());
     for (const o of this.chart.getOverlays({ groupId: MARKERS })) this.chart.overrideOverlay({ id: o.id, styles: markerStyles(t) });
   }

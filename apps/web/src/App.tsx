@@ -1,5 +1,5 @@
 import { parseSymbolId, type SymbolId, type SymbolInfo } from '@altv/shared';
-import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react';
 import { api, errorMessage, setUnauthorizedHandler } from './api/client';
 import { BasketsPage } from './components/BasketsPage';
 import { ChartView } from './components/ChartView';
@@ -23,7 +23,8 @@ function readTheme(): Theme {
 
 function useTheme(): [Theme, () => void] {
   const [theme, setTheme] = useState<Theme>(readTheme);
-  useEffect(() => {
+  // A layout effect: data-theme must be current before the chart's (passive) effects read the CSS tokens.
+  useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
     try { localStorage.setItem(THEME_KEY, theme); } catch { /* storage unavailable */ }
   }, [theme]);

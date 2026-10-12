@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { candleStyles, DOWN, overlayStyles, resolveAppearance, THEME_TOKENS, UP } from '../../src/chart/theme';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  candleStyles, chartStyles, DOWN, overlayStyles, refreshThemeTokens, resolveAppearance, THEME_CSS_VARS, THEME_TOKENS, themeTokens, UP,
+} from '../../src/chart/theme';
 
 describe('resolveAppearance', () => {
   it('fills unset fields with theme defaults', () => {
@@ -54,5 +58,51 @@ describe('overlayStyles', () => {
       text: { backgroundColor: d.color, borderColor: d.color, size: 12 },
     });
     expect(overlayStyles({ color: '#ff0000', size: 3, style: 'dashed' }).line).toMatchObject({ color: '#ff0000', size: 3, style: 'dashed', dashedValue: [6, 4] });
+  });
+});
+
+describe('theme tokens from CSS custom properties', () => {
+  const root = document.documentElement;
+  afterEach(() => {
+    for (const v of ['--accent', '--text-muted', '--border']) root.style.removeProperty(v);
+    delete root.dataset['theme'];
+    refreshThemeTokens('dark');
+    refreshThemeTokens('light');
+  });
+
+  it('reads the CSS tokens of the active theme at refresh; constants are the fallback', () => {
+    root.dataset['theme'] = 'dark';
+    root.style.setProperty('--accent', '#ff0000');
+    root.style.setProperty('--text-muted', '#00ff00');
+    refreshThemeTokens('dark');
+    expect(themeTokens('dark')).toMatchObject({ accent: '#ff0000', muted: '#00ff00', border: THEME_TOKENS.dark.border });
+    expect(resolveAppearance('dark', undefined).lineColor).toBe('#ff0000');
+    expect(chartStyles('dark').xAxis).toMatchObject({ tickText: { color: '#00ff00' } });
+    // Not the active theme: never read from the document (its variables belong to the other theme).
+    refreshThemeTokens('light');
+    expect(themeTokens('light')).toEqual(THEME_TOKENS.light);
+  });
+
+  it('falls back to the constants when the variables are missing or not colours', () => {
+    root.dataset['theme'] = 'dark';
+    root.style.setProperty('--accent', 'not a colour');
+    refreshThemeTokens('dark');
+    expect(themeTokens('dark')).toEqual(THEME_TOKENS.dark);
+  });
+
+  it('parity: the fallback constants match the token values in styles.css', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
+    const block = (selector: string) => {
+      const start = css.indexOf(selector);
+      expect(start, selector).toBeGreaterThanOrEqual(0);
+      const body = css.slice(css.indexOf('{', start) + 1, css.indexOf('}', start));
+      return Object.fromEntries([...body.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2]!.trim()]));
+    };
+    const vars = { dark: block(":root[data-theme='dark']"), light: block(":root[data-theme='light']") };
+    for (const theme of ['dark', 'light'] as const) {
+      for (const [key, cssVar] of Object.entries(THEME_CSS_VARS)) {
+        expect(vars[theme][cssVar], `${theme} ${cssVar}`).toBe(THEME_TOKENS[theme][key as keyof typeof THEME_TOKENS.dark]);
+      }
+    }
   });
 });

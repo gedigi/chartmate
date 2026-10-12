@@ -1,5 +1,5 @@
 import { registerOverlay, type DeepPartial, type OverlayStyle } from 'klinecharts';
-import { THEME_TOKENS, type ThemeName } from './theme';
+import { themeTokens, type ThemeName } from './theme';
 
 /** Overlay template of chart markers (basket Start, version changes). Never a user drawing. */
 export const MARKER_OVERLAY = 'altvMarker';
@@ -34,7 +34,7 @@ export function registerMarkerOverlay(): void {
 
 /** Fixed, theme-based marker style (muted text colour, thin dashed line): independent of user drawing defaults. */
 export function markerStyles(theme: ThemeName): DeepPartial<OverlayStyle> {
-  const color = THEME_TOKENS[theme].muted;
+  const color = themeTokens(theme).muted;
   return {
     line: { color, size: 1, style: 'dashed', dashedValue: MARKER_DASH },
     text: {
