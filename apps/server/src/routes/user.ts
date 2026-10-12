@@ -51,7 +51,7 @@ const DrawingSchema = z.object({
   name: z.string().max(40),
   points: z.array(z.object({ timestamp: z.number(), value: z.number() })).max(10),
   lock: z.boolean(),
-  text: z.string().max(500).optional(),
+  text: z.string().max(500).optional(), anchorTf: z.enum(['1D', '1W', '1M']).optional(),
   // Tolerant: invalid / legacy styles are dropped (the drawing itself is still saved).
   styles: DrawingStylesSchema.optional().catch(undefined),
 }) satisfies z.ZodType<DrawingState>;

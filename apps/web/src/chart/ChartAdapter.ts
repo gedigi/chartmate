@@ -4,7 +4,7 @@ import {
   type OverlayMode, type Styles,
 } from 'klinecharts';
 import {
-  isIntraday, tfMs,
+  isIntraday, nyToUtc, tfMs,
   type ChartAppearance, type ChartType, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker,
   type SessionMode, type SymbolInfo, type Timeframe,
 } from '@altv/shared';
@@ -67,6 +67,23 @@ function sanitizeDrawing(d: DrawingState): DrawingState {
   return clean ? { ...rest, styles: clean } : rest;
 }
 
+type Point = { timestamp: number; value: number };
+type AnchorTf = NonNullable<DrawingState['anchorTf']>;
+
+/** Daily-or-longer timeframes, whose bars are stamped at UTC midnight of their date. */
+function anchorTfOf(tf: Timeframe): AnchorTf | null {
+  return tf === '1D' || tf === '1W' || tf === '1M' ? tf : null;
+}
+
+/** A daily bar time (UTC midnight of a date) → that date's 09:30 New York session open. */
+function toSessionOpen(ts: number): number {
+  const d = new Date(ts);
+  return nyToUtc(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), 9, 30);
+}
+
+const samePoints = (a: Point[], b: Point[]) =>
+  a.length === b.length && a.every((p, i) => p.timestamp === b[i]!.timestamp && p.value === b[i]!.value);
+
 /** First index whose timestamp is ≥ ts (data sorted ascending). */
 function lowerBound(data: KLineData[], ts: number): number {
   let lo = 0;
@@ -90,6 +107,7 @@ export class ChartAdapter {
   private tf: Timeframe | null = null;
   private loader: DataLoaderImpl | null = null;
   private markers: Marker[] = [];
+  private assetClass: SymbolInfo['assetClass'] | null = null;
   /** Passed to every indicator as `extendData` (VWAP picks its session day from it). */
   private indicatorExt: IndicatorExtendData = {};
   private readonly overrides = new Map<string, IndicatorOverrides>();
@@ -128,6 +146,8 @@ export class ChartAdapter {
   // ── data ──────────────────────────────────────────────────────────────────
 
   load(p: LoadParams, events: LoaderEvents): void {
+    const prevSymbol = this.loadSymbol;
+    const prevMapping = this.mapsDailyAnchors();
     this.loader?.dispose(); // its pending results and polling become no-ops while the chart resets below
     this.dataSymbol = null;
     this.loadSymbol = p.symbol.id;
@@ -144,6 +164,9 @@ export class ChartAdapter {
     });
     this.loader = loader;
     this.tf = p.tf;
+    this.assetClass = p.symbol.assetClass;
+    // Same symbol, but daily-anchored drawings now display differently (daily ↔ intraday): re-place them.
+    if (prevSymbol === p.symbol.id && prevMapping !== this.mapsDailyAnchors()) this.replaceForAnchorMapping(p.symbol.id);
     this.markers = [];
     this.renderMarkers();
     this.setIndicatorContext({ assetClass: p.symbol.assetClass, intraday: isIntraday(p.tf), pricePrecision: p.symbol.pricePrecision });
@@ -410,6 +433,7 @@ export class ChartAdapter {
         this.drawing = null;
         if (this.lockAll) this.chart.overrideOverlay({ id: overlay.id, lock: true });
         this.revertMode(overlay.id);
+        this.anchorAfterEdit(overlay.id);
         onEnd?.();
         this.emitSelection(); // the style bar is hidden while a drawing is being placed
       }
@@ -422,6 +446,7 @@ export class ChartAdapter {
     onPressedMoveEnd: ({ overlay }) => {
       if (this.draggingId === overlay.id) this.draggingId = null;
       this.revertMode(overlay.id);
+      this.anchorAfterEdit(overlay.id);
       this.emitChange();
     },
     onRemoved: ({ overlay }) => {
@@ -429,12 +454,47 @@ export class ChartAdapter {
       if (this.drawing?.id === overlay.id) this.endDrawing();
       if (this.draggingId === overlay.id) this.draggingId = null;
       this.strongIds.delete(overlay.id);
+      this.anchors.delete(overlay.id);
       this.removing.add(overlay.id);
       try { this.emitChange(); } finally { this.removing.delete(overlay.id); }
     },
     onSelected: ({ overlay }) => { this.select(overlay.id); },
     onDeselected: ({ overlay }) => { if (this.selectedId === overlay.id) this.select(null); },
   };
+
+  // ── daily-anchored drawings ──
+  // Daily+ bars of stocks/baskets are stamped at UTC midnight (20:00 New York the evening before). A drawing
+  // placed on such a chart stores `anchorTf`; on intraday stock/basket charts its points are shown at 09:30
+  // New York of their dates and saved back unchanged unless the user moves it there (then anchorTf is dropped).
+
+  /** Per user overlay: its anchor and, while shown remapped, the stored points and the displayed ones. */
+  private readonly anchors = new Map<string, { anchorTf: AnchorTf; original?: Point[]; display?: Point[] }>();
+
+  private stockLike(): boolean {
+    return this.assetClass === 'stock' || this.assetClass === 'basket';
+  }
+
+  /** True when daily-anchored points are remapped for display (intraday stock/basket chart). */
+  private mapsDailyAnchors(): boolean {
+    return this.stockLike() && this.tf !== null && isIntraday(this.tf);
+  }
+
+  /** After a user draws or moves `id`: daily semantics on a daily+ stock/basket chart, else plain points. */
+  private anchorAfterEdit(id: string): void {
+    const anchorTf = this.stockLike() && this.tf ? anchorTfOf(this.tf) : null;
+    if (anchorTf) this.anchors.set(id, { anchorTf });
+    else this.anchors.delete(id);
+  }
+
+  /** Re-creates the user drawings (once data is in) so anchored ones follow the new display mapping. */
+  private replaceForAnchorMapping(symbol: string): void {
+    if (this.pendingRestore === null && this.anchors.size === 0) return;
+    const saved = this.pendingRestore?.drawings ?? this.serializeDrawings();
+    this.cancelDrawing();
+    this.withSilence(() => this.removeUserOverlays());
+    this.dataSymbol = null;
+    this.pendingRestore = { drawings: saved, symbol };
+  }
 
   private baseMode(): OverlayMode {
     return this.magnet ? 'weak_magnet' : 'normal';
@@ -633,6 +693,16 @@ export class ChartAdapter {
       const points = completePoints(o); // skips an overlay that is still being drawn
       if (!points || o.id === this.drawing?.id) continue;
       const d: DrawingState = { name: o.name, points, lock: o.lock };
+      const anchor = this.anchors.get(o.id);
+      if (anchor?.display && anchor.original) {
+        // Shown remapped: unmoved → the stored daily points; moved here → plain intraday points.
+        if (samePoints(points, anchor.display)) {
+          d.points = anchor.original;
+          d.anchorTf = anchor.anchorTf;
+        }
+      } else if (anchor) {
+        d.anchorTf = anchor.anchorTf;
+      }
       if (typeof o.extendData === 'string') d.text = o.extendData;
       const styles = normalizeOverlayStyles(o.name, o.styles);
       if (styles) d.styles = styles;
@@ -663,12 +733,17 @@ export class ChartAdapter {
 
   private createDrawings(drawings: DrawingState[]): void {
     this.withSilence(() => {
+      const remap = this.mapsDailyAnchors();
       for (const d of drawings) {
-        const create: OverlayCreate = { name: d.name, points: d.points, lock: d.lock, ...this.handlers };
+        const display = d.anchorTf && remap ? d.points.map((p) => ({ ...p, timestamp: toSessionOpen(p.timestamp) })) : d.points;
+        const create: OverlayCreate = { name: d.name, points: display, lock: d.lock, ...this.handlers };
         if (d.text !== undefined) create.extendData = d.text;
         const styles = toOverlayStyles(sanitizeDrawingStyles(d.styles));
         if (styles) create.styles = styles;
-        this.chart.createOverlay(create);
+        const id = this.chart.createOverlay(create);
+        if (typeof id === 'string' && d.anchorTf) {
+          this.anchors.set(id, display === d.points ? { anchorTf: d.anchorTf } : { anchorTf: d.anchorTf, original: d.points, display });
+        }
       }
     });
   }
@@ -692,6 +767,7 @@ export class ChartAdapter {
 
   private removeUserOverlays(): void {
     for (const o of this.userOverlays()) this.chart.removeOverlay({ id: o.id });
+    this.anchors.clear();
   }
 
   /** Fired on draw end, move end and removal of user drawings. Returns an unsubscribe function. */

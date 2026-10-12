@@ -809,3 +809,102 @@ describe('ChartAdapter', () => {
     expect(k.dispose).toHaveBeenCalledWith(el);
   });
 });
+
+describe('ChartAdapter daily-anchored drawings (anchorTf)', () => {
+  const D1 = Date.UTC(2024, 2, 4); // Mon 2024-03-04 (EST)
+  const D2 = Date.UTC(2024, 6, 8); // Mon 2024-07-08 (EDT)
+  const OPEN1 = Date.UTC(2024, 2, 4, 14, 30); // 09:30 New York
+  const OPEN2 = Date.UTC(2024, 6, 8, 13, 30);
+  const userOverlays = () => chart().overlays.filter((o) => o.groupId !== 'markers');
+  const BASKET: SymbolInfo = { id: 'basket:b1', assetClass: 'basket', ticker: 'B1', name: 'B1', pricePrecision: 2 };
+  const anchored = { name: 'segment', points: [{ timestamp: D1, value: 10 }, { timestamp: D2, value: 20 }], lock: false, anchorTf: '1D' as const };
+
+  async function loadAt(a: InstanceType<typeof ChartAdapter>, symbol: SymbolInfo, tf: '1D' | '1W' | '1h' | '5m') {
+    a.load({ symbol, tf, session: 'rth', pollMs: 15000 }, events());
+    vi.spyOn(api, 'bars').mockResolvedValue({
+      symbol: symbol.id, tf, session: 'rth', hasMoreBefore: false, stale: false, notices: [], markers: [],
+      bars: [{ ts: D1, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 }],
+    });
+    const loader = chart().setDataLoader.mock.calls.at(-1)![0] as { getBars: (p: unknown) => Promise<void> };
+    await loader.getBars({
+      type: 'init', timestamp: null, symbol: { ticker: symbol.id }, period: { type: 'day', span: 1 },
+      callback: (d: Array<{ timestamp: number; high: number }>) => { chart().data.splice(0, chart().data.length, ...d); },
+    });
+  }
+
+  /** Simulates the user placing a trend line with KLineChart. */
+  function draw(a: InstanceType<typeof ChartAdapter>, points: Array<{ timestamp: number; value: number }>) {
+    a.startDrawing('segment');
+    const o = userOverlays().at(-1)!;
+    o.points = points;
+    o.onDrawEnd?.({ overlay: o });
+  }
+
+  function move(points: Array<{ timestamp: number; value: number }>) {
+    const o = userOverlays()[0]!;
+    o.points = points;
+    o.onPressedMoveEnd?.({ overlay: o });
+  }
+
+  it('a drawing created on a daily+ timeframe of a stock/basket stores anchorTf; intraday and crypto ones do not', async () => {
+    for (const [symbol, tf, expected] of [
+      [AAPL, '1D', '1D'], [BASKET, '1W', '1W'], [AAPL, '1h', undefined], [BTC, '1D', undefined],
+    ] as const) {
+      const a = make();
+      await loadAt(a, symbol, tf);
+      draw(a, [{ timestamp: D1, value: 1 }, { timestamp: D2, value: 2 }]);
+      expect(a.serializeDrawings()[0]?.anchorTf, `${symbol.id} ${tf}`).toBe(expected);
+    }
+  });
+
+  it('on an intraday stock/basket chart a daily-anchored drawing shows at 09:30 New York of its dates; saved unchanged', async () => {
+    for (const symbol of [AAPL, BASKET]) {
+      const a = make();
+      await loadAt(a, symbol, '1h');
+      a.restoreDrawings([anchored], symbol.id);
+      expect(userOverlays()[0]!.points).toEqual([{ timestamp: OPEN1, value: 10 }, { timestamp: OPEN2, value: 20 }]);
+      expect(a.serializeDrawings()).toEqual([anchored]);
+    }
+  });
+
+  it('crypto and daily charts show anchored drawings as stored', async () => {
+    for (const [symbol, tf] of [[BTC, '1h'], [AAPL, '1D']] as const) {
+      const a = make();
+      await loadAt(a, symbol, tf);
+      a.restoreDrawings([anchored], symbol.id);
+      expect(userOverlays()[0]!.points).toEqual(anchored.points);
+      expect(a.serializeDrawings()).toEqual([anchored]);
+    }
+  });
+
+  it('moving an anchored drawing on an intraday chart stores the new (intraday) points and drops anchorTf', async () => {
+    const a = make();
+    await loadAt(a, AAPL, '5m');
+    a.restoreDrawings([anchored], AAPL.id);
+    const moved = [{ timestamp: OPEN1 + 3_600_000, value: 11 }, { timestamp: OPEN2, value: 20 }];
+    move(moved);
+    expect(a.serializeDrawings()).toEqual([{ name: 'segment', points: moved, lock: false }]);
+  });
+
+  it('moving on a daily+ chart keeps daily semantics with that timeframe as anchor', async () => {
+    const a = make();
+    await loadAt(a, AAPL, '1W');
+    a.restoreDrawings([anchored], AAPL.id);
+    move([{ timestamp: D2, value: 5 }, { timestamp: D2, value: 6 }]);
+    expect(a.serializeDrawings()[0]).toMatchObject({ anchorTf: '1W', points: [{ timestamp: D2, value: 5 }, { timestamp: D2, value: 6 }] });
+  });
+
+  it('switching the same symbol between daily and intraday re-places anchored drawings', async () => {
+    const a = make();
+    await loadAt(a, AAPL, '1D');
+    a.restoreDrawings([anchored, { name: 'segment', points: [{ timestamp: 5, value: 1 }, { timestamp: 6, value: 2 }], lock: false }], AAPL.id);
+    await loadAt(a, AAPL, '1h');
+    expect(userOverlays().map((o) => o.points)).toEqual([
+      [{ timestamp: OPEN1, value: 10 }, { timestamp: OPEN2, value: 20 }],
+      [{ timestamp: 5, value: 1 }, { timestamp: 6, value: 2 }],
+    ]);
+    await loadAt(a, AAPL, '1D');
+    expect(userOverlays()[0]!.points).toEqual(anchored.points);
+    expect(a.serializeDrawings()[0]).toEqual(anchored);
+  });
+});

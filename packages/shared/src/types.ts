@@ -52,7 +52,7 @@ export interface Layout {
 }
 /** Normalized drawing styles: `line` for line tools, `text` (annotation bubble colour + font size) for text. */
 export interface DrawingStyles { line?: DrawingLineStyle; text?: { color: string; size: number } }
-export interface DrawingState { name: string; points: { timestamp: number; value: number }[]; lock: boolean; text?: string; styles?: DrawingStyles }
+export interface DrawingState { name: string; points: { timestamp: number; value: number }[]; lock: boolean; text?: string; styles?: DrawingStyles; anchorTf?: '1D'|'1W'|'1M' }
 export interface WatchlistItem { id: SymbolId; position: number }
 
 const ASSET_CLASSES: readonly AssetClass[] = ['stock', 'crypto', 'basket'];
