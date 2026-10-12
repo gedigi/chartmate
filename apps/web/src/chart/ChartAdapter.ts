@@ -1,56 +1,55 @@
 import {
   dispose, init,
-  type Chart, type DeepPartial, type IndicatorCreate, type KLineData, type Overlay, type OverlayCreate, type Styles,
+  type Chart, type DeepPartial, type IndicatorCreate, type IndicatorStyle, type KLineData, type Overlay, type OverlayCreate,
+  type OverlayMode, type Styles,
 } from 'klinecharts';
 import {
   isIntraday, tfMs,
-  type ChartType, type DrawingState, type Marker, type SessionMode, type SymbolInfo, type Timeframe,
+  type ChartAppearance, type ChartType, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker,
+  type SessionMode, type SymbolInfo, type Timeframe,
 } from '@altv/shared';
+import {
+  lineToOverlay, normalizeOverlayStyles, readLine, readText, textToOverlay, toHex, toOverlayStyles, TEXT_TOOL,
+  type TextStyle,
+} from './drawingStyles';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
 import { catalogEntry } from './indicators/catalog';
 import { PRICE_PRECISION_INDICATORS } from './indicators/extensions';
 import { registerCustomIndicators } from './indicators/register';
 import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
-import { registerSessionShade, SESSION_SHADE } from './sessionShade';
-import { chartStyles, THEME_TOKENS, type ThemeName } from './theme';
+import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS, SIMULATED_SHADE } from './sessionShade';
+import { candleStyles, chartStyles, type ThemeName } from './theme';
 
 export type DrawingTool =
   | 'segment' | 'rayLine' | 'straightLine' | 'horizontalStraightLine' | 'verticalStraightLine'
   | 'priceLine' | 'parallelStraightLine' | 'fibonacciLine' | 'simpleAnnotation';
 
-export interface IndicatorSpec { name: string; pane: 'main' | 'sub'; calcParams?: number[]; visible?: boolean; lineColors?: string[] }
+export interface IndicatorSpec extends Pick<IndicatorState, 'lineColors' | 'lineWidths' | 'lineStyles' | 'barColors'> {
+  name: string; pane: 'main' | 'sub'; calcParams?: number[]; visible?: boolean;
+}
+
+/** Style overrides of an indicator (the IndicatorSpec fields the settings dialog edits). */
+type IndicatorOverrides = Pick<IndicatorSpec, 'lineColors' | 'lineWidths' | 'lineStyles' | 'barColors'>;
+const OVERRIDE_KEYS = ['lineColors', 'lineWidths', 'lineStyles', 'barColors'] as const;
+
+/** Style of the selected drawing, as the floating style bar edits it. */
+export type SelectedDrawing =
+  | { id: string; kind: 'line'; style: DrawingLineStyle }
+  | { id: string; kind: 'text'; style: TextStyle };
+
+const INDICATOR_DASH = [4, 4];
+const FALLBACK_OVERLAY_COLOR = '#1677ff';
 
 export interface LoadParams { symbol: SymbolInfo; tf: Timeframe; session: SessionMode; pollMs: number }
 
 const CANDLE_PANE = 'candle_pane';
 const MARKERS = 'markers';
-const TRANSPARENT = 'rgba(0,0,0,0)';
-
-function candleStyles(type: ChartType, theme: ThemeName): DeepPartial<Styles['candle']> {
-  const accent = THEME_TOKENS[theme].accent;
-  switch (type) {
-    case 'candle': return { type: 'candle_solid' };
-    case 'ohlc': return { type: 'ohlc' };
-    case 'line':
-      return {
-        type: 'area',
-        area: { lineColor: accent, lineSize: 2, backgroundColor: [{ offset: 0, color: TRANSPARENT }, { offset: 1, color: TRANSPARENT }] },
-      };
-    case 'area':
-      return {
-        type: 'area',
-        area: { lineColor: accent, lineSize: 2, backgroundColor: [{ offset: 0, color: 'rgba(41,98,255,0.02)' }, { offset: 1, color: 'rgba(41,98,255,0.28)' }] },
-      };
-  }
-}
-
 /** Chart timezone: exchange time for intraday stock/basket charts, UTC otherwise (daily+ bars are UTC dates). */
 function timezoneFor(symbol: SymbolInfo, tf: Timeframe): string {
   return isIntraday(tf) && symbol.assetClass !== 'crypto' ? 'America/New_York' : 'UTC';
 }
 
-const lineStyles = (colors: string[] | undefined) => (colors ? { lines: colors.map((color) => ({ color })) } : undefined);
 
 function completePoints(o: Overlay): Array<{ timestamp: number; value: number }> | null {
   const pts: Array<{ timestamp: number; value: number }> = [];
@@ -86,7 +85,8 @@ export class ChartAdapter {
   private markers: Marker[] = [];
   /** Passed to every indicator as `extendData` (VWAP picks its session day from it). */
   private indicatorExt: IndicatorExtendData = {};
-  private readonly lineColors = new Map<string, string[]>();
+  private readonly overrides = new Map<string, IndicatorOverrides>();
+  private appearance: ChartAppearance | undefined;
   private readonly changeListeners = new Set<() => void>();
   private silent = 0;
   private destroyed = false;
@@ -103,7 +103,8 @@ export class ChartAdapter {
 
   private styles(): DeepPartial<Styles> {
     const base = chartStyles(this.theme);
-    return { ...base, candle: { ...base.candle, ...candleStyles(this.chartType, this.theme) } };
+    const candle = candleStyles(this.chartType, this.theme, this.appearance);
+    return { ...base, candle: { ...base.candle, ...candle, priceMark: { ...base.candle?.priceMark, ...candle.priceMark } } };
   }
 
   // ── data ──────────────────────────────────────────────────────────────────
@@ -178,12 +179,27 @@ export class ChartAdapter {
     this.chart.setStyles(this.styles());
   }
 
+  /** Global chart appearance (candle colours/body, line colour/width, default drawing style); unset = theme. */
+  setAppearance(a: ChartAppearance | undefined): void {
+    this.appearance = a;
+    this.chart.setStyles(this.styles());
+  }
+
   setSessionShading(enabled: boolean): void {
-    const existing = this.chart.getIndicators({ name: SESSION_SHADE });
+    this.setShade(SESSION_SHADE, enabled);
+  }
+
+  /** Shades simulated basket history (bars flagged `simulated`). */
+  setSimulatedShading(enabled: boolean): void {
+    this.setShade(SIMULATED_SHADE, enabled);
+  }
+
+  private setShade(name: string, enabled: boolean): void {
+    const existing = this.chart.getIndicators({ name });
     if (enabled && existing.length === 0) {
-      this.chart.createIndicator({ name: SESSION_SHADE, paneId: CANDLE_PANE }, true);
+      this.chart.createIndicator({ name, paneId: CANDLE_PANE }, true);
     } else if (!enabled && existing.length > 0) {
-      this.chart.removeIndicator({ name: SESSION_SHADE });
+      this.chart.removeIndicator({ name });
     }
   }
 
@@ -217,39 +233,81 @@ export class ChartAdapter {
 
   // ── indicators ────────────────────────────────────────────────────────────
 
+  /** Default line `i` of indicator `name` (KLineChart palette, or the catalog's own default colour). */
+  private defaultLines(name: string): IndicatorStyle['lines'] {
+    const palette = this.chart.getStyles().indicator.lines;
+    const own = catalogEntry(name)?.defaultColors;
+    return palette.map((l, i) => ({ ...l, color: own?.[i] ?? l.color }));
+  }
+
+  /**
+   * KLineChart styles for the overrides; `reset` lists the kinds (lines / bars) that had overrides before and
+   * must be written back to their defaults explicitly when they are gone (KLineChart merges override styles).
+   */
+  private indicatorStyles(name: string, o: IndicatorOverrides, reset?: IndicatorOverrides): DeepPartial<IndicatorStyle> | undefined {
+    const styles: DeepPartial<IndicatorStyle> = {};
+    const hasLines = Boolean(o.lineColors || o.lineWidths || o.lineStyles);
+    if (hasLines || (reset && (reset.lineColors || reset.lineWidths || reset.lineStyles))) {
+      const defaults = this.defaultLines(name);
+      const n = hasLines ? Math.max(o.lineColors?.length ?? 0, o.lineWidths?.length ?? 0, o.lineStyles?.length ?? 0) : defaults.length;
+      styles.lines = Array.from({ length: n }, (_, i) => {
+        const d = defaults[i % defaults.length]!;
+        const style = o.lineStyles?.[i] ?? 'solid';
+        return {
+          ...d,
+          color: o.lineColors?.[i] ?? d.color,
+          size: o.lineWidths?.[i] ?? 1,
+          style,
+          dashedValue: style === 'dashed' ? INDICATOR_DASH : d.dashedValue,
+        };
+      });
+    }
+    if (o.barColors || reset?.barColors) {
+      const d = this.chart.getStyles().indicator.bars[0]!;
+      styles.bars = [o.barColors ? { ...d, upColor: o.barColors.up, downColor: o.barColors.down } : { ...d }];
+    }
+    return styles.lines || styles.bars ? styles : undefined;
+  }
+
+  private static overridesOf(spec: Partial<IndicatorSpec>): IndicatorOverrides {
+    const o: IndicatorOverrides = {};
+    if (spec.lineColors) o.lineColors = spec.lineColors;
+    if (spec.lineWidths) o.lineWidths = spec.lineWidths;
+    if (spec.lineStyles) o.lineStyles = spec.lineStyles;
+    if (spec.barColors) o.barColors = spec.barColors;
+    return o;
+  }
+
   addIndicator(spec: IndicatorSpec): string {
     const main = spec.pane === 'main';
     const create: IndicatorCreate = { name: spec.name };
     if (main) create.paneId = CANDLE_PANE;
     if (spec.calcParams) create.calcParams = spec.calcParams;
     if (spec.visible !== undefined) create.visible = spec.visible;
-    const styles = lineStyles(spec.lineColors);
+    const overrides = ChartAdapter.overridesOf(spec);
+    const styles = this.indicatorStyles(spec.name, overrides);
     if (styles) create.styles = styles;
     create.extendData = this.indicatorExt;
     if (PRICE_PRECISION_INDICATORS.has(spec.name)) create.precision = this.indicatorExt.pricePrecision ?? 4;
     const id = this.chart.createIndicator(create, main);
     if (!id) throw new Error(`Cannot create indicator ${spec.name}`);
-    if (spec.lineColors) this.lineColors.set(id, spec.lineColors);
+    if (styles) this.overrides.set(id, overrides);
     return id;
   }
 
+  /** Absent style fields in `spec` remove that override (the defaults are written back). */
   updateIndicator(id: string, spec: Partial<IndicatorSpec>): void {
     const existing = this.chart.getIndicators().find((i) => i.id === id);
     if (!existing) return;
     const override: IndicatorCreate = { id, name: existing.name };
     if (spec.calcParams) override.calcParams = spec.calcParams;
     if (spec.visible !== undefined) override.visible = spec.visible;
-    if (spec.lineColors) {
-      override.styles = lineStyles(spec.lineColors);
-    } else if (this.lineColors.has(id)) {
-      // No colours any more: KLineChart merges override styles, so write the default line colours back explicitly.
-      const palette = this.chart.getStyles().indicator.lines.map((l) => l.color);
-      const own = catalogEntry(existing.name)?.defaultColors;
-      override.styles = lineStyles(own ? palette.map((c, i) => own[i] ?? c) : palette);
-    }
+    const next = ChartAdapter.overridesOf(spec);
+    const styles = this.indicatorStyles(existing.name, next, this.overrides.get(id));
+    if (styles) override.styles = styles;
     this.chart.overrideIndicator(override);
-    if (spec.lineColors) this.lineColors.set(id, spec.lineColors);
-    else this.lineColors.delete(id);
+    if (OVERRIDE_KEYS.some((k) => next[k])) this.overrides.set(id, next);
+    else this.overrides.delete(id);
   }
 
   /** Updates the indicators' extendData (asset class, intraday, price precision) when it changes. */
@@ -258,7 +316,7 @@ export class ChartAdapter {
     if (cur.assetClass === ext.assetClass && cur.intraday === ext.intraday && cur.pricePrecision === ext.pricePrecision) return;
     this.indicatorExt = ext;
     for (const i of this.chart.getIndicators()) {
-      if (i.name === SESSION_SHADE) continue;
+      if (SHADE_INDICATORS.has(i.name)) continue;
       const override: IndicatorCreate = { id: i.id, name: i.name, extendData: ext };
       if (PRICE_PRECISION_INDICATORS.has(i.name)) override.precision = ext.pricePrecision;
       this.chart.overrideIndicator(override);
@@ -267,12 +325,12 @@ export class ChartAdapter {
 
   removeIndicator(id: string): void {
     this.chart.removeIndicator({ id });
-    this.lineColors.delete(id);
+    this.overrides.delete(id);
   }
 
   listIndicators(): Array<{ id: string } & IndicatorSpec> {
     return this.chart.getIndicators()
-      .filter((i) => i.name !== SESSION_SHADE)
+      .filter((i) => !SHADE_INDICATORS.has(i.name))
       .map((i) => {
         const spec: { id: string } & IndicatorSpec = {
           id: i.id,
@@ -281,8 +339,7 @@ export class ChartAdapter {
           calcParams: i.calcParams as number[],
           visible: i.visible,
         };
-        const colors = this.lineColors.get(i.id);
-        if (colors) spec.lineColors = colors;
+        Object.assign(spec, this.overrides.get(i.id));
         return spec;
       });
   }
@@ -304,26 +361,125 @@ export class ChartAdapter {
   /** KLineChart fires onRemoved while the overlay is still listed; hide it from serializeDrawings meanwhile. */
   private readonly removing = new Set<string>();
 
-  private readonly handlers: Pick<OverlayCreate, 'onDrawEnd' | 'onPressedMoveEnd' | 'onRemoved' | 'onSelected' | 'onDeselected'> = {
+  /** Meta (macOS) / Ctrl held: the active drawing snaps with 'strong_magnet'. */
+  private strongMagnet = false;
+  /** Overlay being dragged (onPressedMoveStart … onPressedMoveEnd). */
+  private draggingId: string | null = null;
+  /** Overlays whose mode was switched to strong_magnet (reverted when they stop being active). */
+  private readonly strongIds = new Set<string>();
+  private readonly selectionListeners = new Set<(s: SelectedDrawing | null) => void>();
+
+  private readonly handlers: Pick<OverlayCreate, 'onDrawEnd' | 'onPressedMoveStart' | 'onPressedMoveEnd' | 'onRemoved' | 'onSelected' | 'onDeselected'> = {
     onDrawEnd: ({ overlay }) => {
       if (this.drawing?.id === overlay.id) {
         const { onEnd } = this.drawing;
         this.drawing = null;
         if (this.lockAll) this.chart.overrideOverlay({ id: overlay.id, lock: true });
+        this.revertMode(overlay.id);
         onEnd?.();
       }
       this.emitChange();
     },
-    onPressedMoveEnd: () => this.emitChange(),
+    onPressedMoveStart: ({ overlay }) => {
+      this.draggingId = overlay.id;
+      if (this.strongMagnet) this.applyStrong(overlay.id);
+    },
+    onPressedMoveEnd: ({ overlay }) => {
+      if (this.draggingId === overlay.id) this.draggingId = null;
+      this.revertMode(overlay.id);
+      this.emitChange();
+    },
     onRemoved: ({ overlay }) => {
-      if (this.selectedId === overlay.id) this.selectedId = null;
+      if (this.selectedId === overlay.id) this.select(null);
       if (this.drawing?.id === overlay.id) this.endDrawing();
+      if (this.draggingId === overlay.id) this.draggingId = null;
+      this.strongIds.delete(overlay.id);
       this.removing.add(overlay.id);
       try { this.emitChange(); } finally { this.removing.delete(overlay.id); }
     },
-    onSelected: ({ overlay }) => { this.selectedId = overlay.id; },
-    onDeselected: ({ overlay }) => { if (this.selectedId === overlay.id) this.selectedId = null; },
+    onSelected: ({ overlay }) => { this.select(overlay.id); },
+    onDeselected: ({ overlay }) => { if (this.selectedId === overlay.id) this.select(null); },
   };
+
+  private baseMode(): OverlayMode {
+    return this.magnet ? 'weak_magnet' : 'normal';
+  }
+
+  private applyStrong(id: string): void {
+    this.strongIds.add(id);
+    this.chart.overrideOverlay({ id, mode: 'strong_magnet' });
+  }
+
+  private revertMode(id: string): void {
+    if (!this.strongIds.delete(id)) return;
+    this.chart.overrideOverlay({ id, mode: this.baseMode() });
+  }
+
+  /**
+   * While Meta (macOS) / Ctrl is held the drawing being placed or dragged snaps to OHLC values
+   * ('strong_magnet'); on release it reverts to the toolbar magnet mode.
+   */
+  setMagnetOverride(on: boolean): void {
+    if (this.strongMagnet === on) return;
+    this.strongMagnet = on;
+    const active = [this.drawing?.id, this.draggingId].filter((x): x is string => typeof x === 'string');
+    for (const id of new Set(active)) {
+      if (on) this.applyStrong(id);
+      else this.revertMode(id);
+    }
+  }
+
+  // ── selection style ──
+
+  private select(id: string | null): void {
+    this.selectedId = id;
+    this.emitSelection();
+  }
+
+  private emitSelection(): void {
+    if (this.destroyed) return;
+    const s = this.getSelectedDrawing();
+    for (const cb of this.selectionListeners) cb(s);
+  }
+
+  /** Fired when the selected drawing (or its style) changes; null when nothing is selected. */
+  onSelectionChange(cb: (s: SelectedDrawing | null) => void): () => void {
+    this.selectionListeners.add(cb);
+    return () => { this.selectionListeners.delete(cb); };
+  }
+
+  /** Effective (normalized) style of the selected user drawing: its own styles, else the library defaults. */
+  getSelectedDrawing(): SelectedDrawing | null {
+    const id = this.selectedId;
+    const o = id ? this.userOverlays().find((x) => x.id === id) : undefined;
+    if (!o) return null;
+    const defaults = this.chart.getStyles().overlay;
+    if (o.name === TEXT_TOOL) {
+      const style = readText(o.styles) ?? {
+        color: toHex(defaults.text.backgroundColor, FALLBACK_OVERLAY_COLOR),
+        size: Math.round(defaults.text.size),
+      };
+      return { id: o.id, kind: 'text', style };
+    }
+    const style = readLine(o.styles) ?? {
+      color: toHex(defaults.line.color, FALLBACK_OVERLAY_COLOR),
+      size: Math.min(4, Math.max(1, Math.round(defaults.line.size))),
+      style: defaults.line.style === 'dashed' ? 'dashed' : 'solid',
+    };
+    return { id: o.id, kind: 'line', style };
+  }
+
+  /** Changes the selected drawing's style (merged with its current style); saved like any drawing edit. */
+  setSelectedStyle(patch: Partial<DrawingLineStyle> | Partial<TextStyle>): void {
+    const sel = this.getSelectedDrawing();
+    if (!sel) return;
+    const styles = sel.kind === 'text'
+      ? textToOverlay({ ...sel.style, ...(patch as Partial<TextStyle>) })
+      : lineToOverlay({ ...sel.style, ...(patch as Partial<DrawingLineStyle>) });
+    this.chart.overrideOverlay({ id: sel.id, styles });
+    this.emitChange();
+    this.emitSelection();
+  }
 
   private emitChange(): void {
     if (this.silent > 0 || this.destroyed) return;
@@ -345,10 +501,15 @@ export class ChartAdapter {
    */
   startDrawing(tool: DrawingTool, opts?: { text?: string; onEnd?: () => void }): void {
     this.cancelDrawing();
-    const create: OverlayCreate = { name: tool, mode: this.magnet ? 'weak_magnet' : 'normal', ...this.handlers };
+    const create: OverlayCreate = { name: tool, mode: this.strongMagnet ? 'strong_magnet' : this.baseMode(), ...this.handlers };
     if (opts?.text !== undefined) create.extendData = opts.text;
+    const d = this.appearance?.drawing; // only an explicitly chosen default style is written onto new drawings
+    if (d) create.styles = tool === TEXT_TOOL ? textToOverlay({ color: d.color, size: 12 }) : lineToOverlay(d);
     const id = this.chart.createOverlay(create);
-    if (typeof id === 'string') this.drawing = opts?.onEnd ? { id, onEnd: opts.onEnd } : { id };
+    if (typeof id === 'string') {
+      this.drawing = opts?.onEnd ? { id, onEnd: opts.onEnd } : { id };
+      if (this.strongMagnet) this.strongIds.add(id);
+    }
   }
 
   /** Abandons the drawing being placed (if any); its onEnd fires. Finished drawings are untouched. */
@@ -424,7 +585,8 @@ export class ChartAdapter {
       if (!points || o.id === this.drawing?.id) continue;
       const d: DrawingState = { name: o.name, points, lock: o.lock };
       if (typeof o.extendData === 'string') d.text = o.extendData;
-      if (o.styles) d.styles = o.styles;
+      const styles = normalizeOverlayStyles(o.name, o.styles);
+      if (styles) d.styles = styles;
       out.push(d);
     }
     return out;
@@ -455,7 +617,8 @@ export class ChartAdapter {
       for (const d of drawings) {
         const create: OverlayCreate = { name: d.name, points: d.points, lock: d.lock, ...this.handlers };
         if (d.text !== undefined) create.extendData = d.text;
-        if (d.styles) create.styles = d.styles as OverlayCreate['styles'];
+        const styles = toOverlayStyles(d.styles);
+        if (styles) create.styles = styles;
         this.chart.createOverlay(create);
       }
     });
@@ -501,6 +664,7 @@ export class ChartAdapter {
     this.loader = null;
     this.changeListeners.clear();
     this.lockListeners.clear();
+    this.selectionListeners.clear();
     dispose(this.el);
   }
 }

@@ -1,22 +1,44 @@
 import { registerIndicator, type KLineData } from 'klinecharts';
 
 export const SESSION_SHADE = 'SESSION_SHADE';
-const FILL = 'rgba(120,120,160,0.10)';
+/** Shades simulated basket history (bars before the basket's start). */
+export const SIMULATED_SHADE = 'SIMULATED_SHADE';
+/** Background indicators the app manages itself (never listed or overridden as user indicators). */
+export const SHADE_INDICATORS: ReadonlySet<string> = new Set([SESSION_SHADE, SIMULATED_SHADE]);
 
-const isExtended = (d: KLineData | undefined) => d?.session === 'pre' || d?.session === 'post';
+const SESSION_FILL = 'rgba(120,120,160,0.10)';
+const SIMULATED_FILL = 'rgba(255,170,0,0.07)';
 
-let registered = false;
+export const isExtendedSession = (d: KLineData | undefined) => d?.session === 'pre' || d?.session === 'post';
+export const isSimulated = (d: KLineData | undefined) => d?.simulated === true;
+
+/** Runs [start, end) of adjacent bars in data[from, to) matching `pred`. */
+export function shadeRuns(data: readonly KLineData[], from: number, to: number, pred: (d: KLineData | undefined) => boolean): Array<[number, number]> {
+  const runs: Array<[number, number]> = [];
+  let start: number | null = null;
+  for (let i = from; i < to; i++) {
+    if (pred(data[i])) {
+      if (start === null) start = i;
+    } else if (start !== null) {
+      runs.push([start, i]);
+      start = null;
+    }
+  }
+  if (start !== null) runs.push([start, to]);
+  return runs;
+}
+
+const registered = new Set<string>();
 
 /**
- * Registers the SESSION_SHADE indicator (once): a figure-less overlay on the candle pane that shades the
- * columns of pre-/post-market bars. Adjacent extended-hours bars are filled as one rectangle so
- * translucent fills don't produce seams.
+ * Registers a figure-less indicator on the candle pane that shades the columns of bars matching `pred`.
+ * Adjacent matching bars are filled as one rectangle so translucent fills don't produce seams.
  */
-export function registerSessionShade(): void {
-  if (registered) return;
-  registered = true;
+function registerShade(name: string, fill: string, pred: (d: KLineData | undefined) => boolean): void {
+  if (registered.has(name)) return;
+  registered.add(name);
   registerIndicator<{ s: unknown }>({
-    name: SESSION_SHADE,
+    name,
     shortName: '',
     figures: [],
     calc: (dataList) => dataList.map((b) => ({ s: b.session })),
@@ -29,23 +51,20 @@ export function registerSessionShade(): void {
       const from = Math.max(0, Math.floor(realFrom) - 1);
       const to = Math.min(data.length, Math.ceil(realTo) + 1);
       ctx.save();
-      ctx.fillStyle = FILL;
-      let runStart: number | null = null;
-      let runEnd = 0;
-      for (let i = from; i < to; i++) {
-        const d = data[i];
-        if (isExtended(d)) {
-          const x = xAxis.convertTimestampToPixel(d!.timestamp);
-          if (runStart === null) runStart = x - halfBar;
-          runEnd = x - halfBar + bar;
-        } else if (runStart !== null) {
-          ctx.fillRect(runStart, 0, runEnd - runStart, bounding.height);
-          runStart = null;
-        }
+      ctx.fillStyle = fill;
+      for (const [s, e] of shadeRuns(data, from, to, pred)) {
+        const x0 = xAxis.convertTimestampToPixel(data[s]!.timestamp) - halfBar;
+        const x1 = xAxis.convertTimestampToPixel(data[e - 1]!.timestamp) - halfBar + bar;
+        ctx.fillRect(x0, 0, x1 - x0, bounding.height);
       }
-      if (runStart !== null) ctx.fillRect(runStart, 0, runEnd - runStart, bounding.height);
       ctx.restore();
       return false;
     },
   });
+}
+
+/** Registers SESSION_SHADE (pre-/post-market columns) and SIMULATED_SHADE (simulated basket history), once. */
+export function registerSessionShade(): void {
+  registerShade(SESSION_SHADE, SESSION_FILL, isExtendedSession);
+  registerShade(SIMULATED_SHADE, SIMULATED_FILL, isSimulated);
 }

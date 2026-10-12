@@ -63,6 +63,37 @@ describe('useLayout', () => {
   });
 });
 
+describe('useLayout appearance (global, default key only)', () => {
+  const appearance = { upColor: '#00ff00', drawing: { color: '#123456', size: 2, style: 'dashed' as const } };
+
+  it('loads appearance from default, keeps it across symbol switches and never writes it to sym: keys', async () => {
+    vi.mocked(api.layouts.get).mockImplementation(async (key) =>
+      key === 'default' ? { ...saved, appearance } : key === 'sym:stock:MSFT' ? { ...msftSym, appearance: { upColor: '#ff0000' } } : null);
+    const { result } = renderHook(() => useLayout());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.layout.appearance).toEqual(appearance);
+    act(() => result.current.setLayout((l) => ({ ...l, symbol: 'stock:MSFT' })));
+    await waitFor(() => expect(result.current.layout.indicators).toEqual(msftSym.indicators));
+    expect(result.current.layout.appearance).toEqual(appearance); // a sym: layout never brings its own
+    act(() => result.current.setLayout((l) => ({ ...l, indicators: [] })));
+    await settle();
+    const sym = put.mock.calls.filter((c) => c[0] === 'sym:stock:MSFT');
+    expect(sym).toHaveLength(1);
+    expect(sym[0]![1]).not.toHaveProperty('appearance');
+    expect(put.mock.calls.filter((c) => c[0] === 'default').at(-1)![1]).toMatchObject({ appearance });
+  });
+
+  it('an appearance change saves the default key only', async () => {
+    const { result } = renderHook(() => useLayout());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    await settle();
+    act(() => result.current.setLayout((l) => ({ ...l, appearance })));
+    await settle();
+    expect(put.mock.calls.map((c) => c[0])).toEqual(['default']);
+    expect(put.mock.calls[0]![1]).toMatchObject({ appearance });
+  });
+});
+
 /** Promise whose resolution the test controls. */
 function deferred<T>() {
   let resolve!: (v: T) => void;

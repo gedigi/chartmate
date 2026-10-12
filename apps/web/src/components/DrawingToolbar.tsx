@@ -6,6 +6,7 @@ import './DrawingToolbar.css';
 export type DrawingControls = Pick<
   ChartAdapter,
   'startDrawing' | 'cancelDrawing' | 'clearDrawings' | 'removeSelected' | 'setMagnet' | 'setLockAll' | 'onLockAllChange'
+  | 'setMagnetOverride'
 >;
 
 export interface DrawingToolbarProps {
@@ -55,6 +56,11 @@ function isTyping(target: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 }
 
+/** macOS (and iOS) use Meta (⌘) as the snap modifier; other platforms Ctrl. */
+function isApplePlatform(): boolean {
+  return /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+}
+
 /**
  * True when the key event belongs to another widget (watchlist, dialog, button, listbox / option): Delete there
  * means something else (or nothing) and must not remove the selected drawing.
@@ -66,7 +72,8 @@ function isOtherWidget(target: EventTarget | null): boolean {
 
 /**
  * Vertical drawing toolbar (left column of the chart): drawing tools, magnet, lock all, delete selected, clear all.
- * Keyboard: Delete/Backspace removes the selected drawing, Escape cancels the active tool.
+ * Keyboard: Delete/Backspace removes the selected drawing, Escape cancels the active tool, holding ⌘ (macOS) / Ctrl
+ * snaps the drawing being placed or dragged to OHLC values.
  */
 export function DrawingToolbar({ controls, disabled: disabledProp = false, ticker }: DrawingToolbarProps): JSX.Element {
   const [active, setActiveState] = useState<Active>(null);
@@ -113,6 +120,30 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, []);
+
+  // ⌘ (macOS) / Ctrl held: the drawing being placed or dragged snaps to OHLC values (strong magnet).
+  useEffect(() => {
+    if (!controls) return;
+    const modifier = isApplePlatform() ? 'Meta' : 'Control';
+    let held = false;
+    const set = (v: boolean) => {
+      if (held === v) return;
+      held = v;
+      controls.setMagnetOverride(v);
+    };
+    const onDown = (e: KeyboardEvent) => { if (e.key === modifier && !isTyping(e.target)) set(true); };
+    const onUp = (e: KeyboardEvent) => { if (e.key === modifier) set(false); };
+    const onBlur = () => set(false); // e.g. ⌘-Tab away: the keyup never arrives
+    document.addEventListener('keydown', onDown);
+    document.addEventListener('keyup', onUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      document.removeEventListener('keydown', onDown);
+      document.removeEventListener('keyup', onUp);
+      window.removeEventListener('blur', onBlur);
+      set(false);
+    };
+  }, [controls]);
 
   const openTextPrompt = (btn: HTMLElement) => {
     const root = rootRef.current;
