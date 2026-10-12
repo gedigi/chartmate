@@ -153,7 +153,10 @@ export interface ConstituentSeries { id: SymbolId; bars: Bar[] }
  * active version's units. With `simulate`, timestamps before S are emitted too, as `simulated` bars valued with
  * version 0's units held fixed (Σ units0 × price): they begin once every version-0 constituent has a value and
  * reach the base value at S's prior close, so the series is continuous. A bar is only emitted when at least one
- * active constituent has a real bar at that timestamp; the others are forward-filled.
+ * active constituent has a real bar at that timestamp; the others are forward-filled (timestamps where an active
+ * constituent has no value yet, e.g. a later version's constituent before its first bar, are skipped).
+ * Every constituent of a version that is active at some timeline timestamp must have an entry in `series`
+ * (possibly with no bars); an absent entry is a caller bug and throws an Error.
  */
 export function buildBasketBars(units: UnitsResult, series: ConstituentSeries[], opts: { simulate?: boolean } = {}): Bar[] {
   const { startTs, versions } = units;
@@ -195,7 +198,9 @@ export function buildBasketBars(units: UnitsResult, series: ConstituentSeries[],
       const ver = versions[vi]!; // before S this is version 0
       for (const [id, u] of Object.entries(ver.units)) {
         const j = byId.get(id);
-        if (j === undefined) { complete = false; break; }
+        if (j === undefined) {
+          throw new Error(`buildBasketBars: constituent ${id} (version ${vi + 1}) is missing from series`);
+        }
         const b = cur[j];
         if (b) {
           real = true;

@@ -166,6 +166,35 @@ describe('computeVersionUnits + buildBasketBars', () => {
     expect(out.map(b => b.close)).toEqual([5 * 22 + 50, 5 * 20 + 50]);
   });
 
+  it('later-version constituent without intraday bars before Tk: timestamps skipped until its first bar', () => {
+    const d = { 'stock:A': dailies('2024-01-01', [10, 20, 20, 40]), 'crypto:B': dailies('2024-01-01', [100, 100, 50, 50]) };
+    const u = computeVersionUnits([{ effectiveFrom: '2024-01-02', weights: { 'crypto:B': 1 } }, { effectiveFrom: '2024-01-04', weights: { 'crypto:B': 0.5, 'stock:A': 0.5 } }], d, 100);
+    const H = 3_600_000;
+    const sw = day('2024-01-04');
+    const crypto = [bar(sw - H, 50), bar(sw, 50), bar(sw + H, 50), bar(sw + 15 * H, 50)];
+    const stock = [bar(sw + 14 * H, 40)]; // first stock bar only after the switch
+    const out = buildBasketBars(u, [{ id: 'stock:A', bars: stock }, { id: 'crypto:B', bars: crypto }]);
+    expect(out.map(b => b.ts)).toEqual([sw - H, sw + 14 * H, sw + 15 * H]);
+  });
+
+  it('a required id present in series with no bars: its bars are skipped (no output)', () => {
+    const u = computeVersionUnits([v0], daily, 100);
+    const out = buildBasketBars(u, [{ id: 'stock:A', bars: [] }, { id: 'crypto:B', bars: daily['crypto:B'] }]);
+    expect(out).toEqual([]);
+  });
+
+  it('throws a clear Error when a required id is absent from series entirely (caller bug)', () => {
+    const u = computeVersionUnits([v0], daily, 100);
+    expect(() => buildBasketBars(u, [{ id: 'crypto:B', bars: daily['crypto:B'] }])).toThrow(/stock:A.*missing from series/);
+  });
+
+  it('does not throw for an absent id of a version never active in the timeline', () => {
+    const v1 = { effectiveFrom: '2024-01-04', weights: { 'stock:A': 1 } };
+    const u = computeVersionUnits([{ effectiveFrom: '2024-01-02', weights: { 'crypto:B': 1 } }, v1], daily, 100);
+    const out = buildBasketBars(u, [{ id: 'crypto:B', bars: daily['crypto:B'].slice(1, 3) }]);
+    expect(out.map(b => b.ts)).toEqual([day('2024-01-02'), day('2024-01-03')]);
+  });
+
   it('rejects invalid baseValue and non-positive level', () => {
     for (const bv of [0, -1, NaN, Infinity]) expect(() => computeVersionUnits([v0], daily, bv)).toThrow(BasketValidationError);
     const z = { 'stock:A': dailies('2024-01-01', [10, 0, 0, 0]), 'crypto:B': dailies('2024-01-01', [100, 0, 0, 0]) };
