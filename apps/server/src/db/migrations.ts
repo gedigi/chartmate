@@ -64,9 +64,17 @@ const m001: Migration = {
   },
 };
 
+/** Symbol metadata: provider ticker, and when splits were last checked (cache invalidation on stock splits). */
+const m002: Migration = {
+  async up(db: Kysely<any>) {
+    await db.schema.alterTable('symbols').addColumn('ticker', 'text').execute();
+    await db.schema.alterTable('symbols').addColumn('splits_checked_at', 'bigint').execute();
+  },
+};
+
 const provider: MigrationProvider = {
   async getMigrations() {
-    return { '001_init': m001 };
+    return { '001_init': m001, '002_symbol_splits': m002 };
   },
 };
 

@@ -426,6 +426,62 @@ describe('MarketDataService', () => {
     });
   });
 
+  describe('minor fixes (S6)', () => {
+    it('symbolInfo ticker comes from the provider match (persisted for cached reads)', async () => {
+      const orig = stock.info.bind(stock);
+      stock.info = (t: string) => ({ ...orig(t), ticker: `${t}.X` });
+      expect((await svc.symbolInfo('stock:AAPL')).ticker).toBe('AAPL.X');
+      stock.searchCalls = [];
+      expect((await svc.symbolInfo('stock:AAPL')).ticker).toBe('AAPL.X');
+      expect(stock.searchCalls).toEqual([]);
+    });
+
+    it('a retryable failure triggers exactly one queue backoff', async () => {
+      const q = queues.stock;
+      let n = 0;
+      const orig = q.backoff.bind(q);
+      q.backoff = (ms: number) => { n++; orig(ms); };
+      stock.fail = new ProviderError('yahoo', 'down', true);
+      const r = await svc.getNativeBars('stock:AAPL', '1D', NOW - 20 * DAY, NOW - 10 * DAY);
+      expect(r.stale).toBe(true);
+      expect(n).toBe(1);
+    });
+
+    it('NotFound chunk ending within the last 7 days (after firstTs) is stale and NOT covered', async () => {
+      await svc.symbolInfo('stock:AAPL'); // firstTs 2000-01-01
+      stock.noDataBefore = NOW; // transient "no data" for anything ending before now
+      const r = await svc.getNativeBars('stock:AAPL', '1D', NOW - 6 * DAY, NOW - 4 * DAY);
+      expect(r).toEqual({ bars: [], stale: true });
+      expect(await repos.coverage.list('stock:AAPL', '1D')).toEqual([]);
+      stock.noDataBefore = -Infinity;
+      stock.calls = [];
+      const again = await svc.getNativeBars('stock:AAPL', '1D', NOW - 6 * DAY, NOW - 4 * DAY);
+      expect(stock.calls).toHaveLength(1); // the hole is retried
+      expect(again.bars.length).toBeGreaterThan(0);
+    });
+
+    it('NotFound chunk ending more than 7 days ago is covered (not stale)', async () => {
+      await svc.symbolInfo('stock:AAPL');
+      stock.noDataBefore = NOW;
+      const from = Math.floor((NOW - 20 * DAY) / DAY) * DAY;
+      const to = Math.floor((NOW - 8 * DAY) / DAY) * DAY;
+      const r = await svc.getNativeBars('stock:AAPL', '1D', from, to);
+      expect(r).toEqual({ bars: [], stale: false });
+      expect(await repos.coverage.list('stock:AAPL', '1D')).toEqual([[from, to]]);
+    });
+
+    it('NotFound chunk ending before the known listing date (pre-listing) is covered even if recent', async () => {
+      stock.firstTs = Math.floor((NOW - 2 * DAY) / DAY) * DAY; // listed two days ago
+      await svc.symbolInfo('stock:AAPL');
+      stock.noDataBefore = NOW;
+      const from = Math.floor((NOW - 6 * DAY) / DAY) * DAY;
+      const to = Math.floor((NOW - 4 * DAY) / DAY) * DAY;
+      const r = await svc.getNativeBars('stock:AAPL', '1D', from, to);
+      expect(r).toEqual({ bars: [], stale: false });
+      expect(await repos.coverage.list('stock:AAPL', '1D')).toEqual([[from, to]]);
+    });
+  });
+
   it('calendarFor', () => {
     expect(calendarFor('crypto:BTC', 'rth')).toBe('utc');
     expect(calendarFor('stock:AAPL', 'rth')).toBe('nyse-rth');

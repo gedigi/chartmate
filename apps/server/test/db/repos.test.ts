@@ -88,9 +88,30 @@ describe.each(urls)('repos on %s', (url) => {
     expect(await r.symbols.get('stock:A')).toBeNull();
     const row = { id: 'stock:A', name: 'A Inc', exchange: 'NYSE', pricePrecision: 2, firstTs: Date.UTC(1999, 0, 1), updatedAt: Date.UTC(2030, 0, 1) };
     await r.symbols.upsert(row);
-    expect(await r.symbols.get('stock:A')).toEqual(row);
-    await r.symbols.upsert({ ...row, name: 'B', exchange: null, firstTs: null });
-    expect(await r.symbols.get('stock:A')).toEqual({ ...row, name: 'B', exchange: null, firstTs: null });
+    expect(await r.symbols.get('stock:A')).toEqual({ ...row, ticker: null, splitsCheckedAt: null });
+    await r.symbols.upsert({ ...row, name: 'B', exchange: null, firstTs: null, ticker: 'A.X' });
+    expect(await r.symbols.get('stock:A')).toEqual({ ...row, name: 'B', exchange: null, firstTs: null, ticker: 'A.X', splitsCheckedAt: null });
+  });
+  it('symbols splits_checked_at is set separately and survives upserts; bars/coverage deleteSymbol', async () => {
+    const row = { id: 'stock:S', name: 'S', exchange: null, pricePrecision: 2, firstTs: null, updatedAt: 1 };
+    await r.symbols.upsert(row);
+    const at = Date.UTC(2031, 0, 1);
+    await r.symbols.markSplitsChecked('stock:S', at);
+    await r.symbols.upsert({ ...row, updatedAt: 2 });
+    expect((await r.symbols.get('stock:S'))?.splitsCheckedAt).toBe(at);
+    const bar = { ts: 1, open: 1, high: 1, low: 1, close: 1, volume: 1 };
+    await r.bars.upsert('stock:S', '1D', [bar]);
+    await r.bars.upsert('stock:S', '1h', [bar]);
+    await r.bars.upsert('stock:T', '1D', [bar]);
+    await r.coverage.add('stock:S', '1D', 0, 10);
+    await r.coverage.add('stock:T', '1D', 0, 10);
+    await r.bars.deleteSymbol('stock:S');
+    await r.coverage.deleteSymbol('stock:S');
+    expect(await r.bars.range('stock:S', '1D', 0, 10)).toEqual([]);
+    expect(await r.bars.range('stock:S', '1h', 0, 10)).toEqual([]);
+    expect(await r.bars.range('stock:T', '1D', 0, 10)).toHaveLength(1);
+    expect(await r.coverage.list('stock:S', '1D')).toEqual([]);
+    expect(await r.coverage.list('stock:T', '1D')).toEqual([[0, 10]]);
   });
   it('baskets list: ordered by created_at then id, each with its own versions in idx order', async () => {
     const now = vi.spyOn(Date, 'now');

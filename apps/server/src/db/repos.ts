@@ -40,6 +40,11 @@ export class BarRepo {
     return rows.map(toBar);
   }
 
+  /** Deletes every cached bar of `symbol` (all timeframes). */
+  async deleteSymbol(symbol: string): Promise<void> {
+    await this.db.deleteFrom('bars').where('symbol', '=', symbol).execute();
+  }
+
   async lastBefore(symbol: string, tf: NativeTimeframe, ts: number): Promise<Bar | null> {
     const row = await this.db.selectFrom('bars').selectAll()
       .where('symbol', '=', symbol).where('tf', '=', tf).where('ts', '<', ts)
@@ -61,6 +66,11 @@ export class CoverageRepo {
     const rows = await this.db.selectFrom('coverage').select(['from_ts', 'to_ts'])
       .where('symbol', '=', symbol).where('tf', '=', tf).orderBy('from_ts', 'asc').execute();
     return rows.map(r => [Number(r.from_ts), Number(r.to_ts)]);
+  }
+
+  /** Forgets every covered range of `symbol` (all timeframes). */
+  async deleteSymbol(symbol: string): Promise<void> {
+    await this.db.deleteFrom('coverage').where('symbol', '=', symbol).execute();
   }
 
   /** Merges [from, to) into the covered ranges. Empty/inverted ranges are a no-op; non-finite bounds throw. */
@@ -90,7 +100,13 @@ export class CoverageRepo {
   }
 }
 
-export interface SymbolInfoRow { id: string; name: string; exchange: string | null; pricePrecision: number; firstTs: number | null; updatedAt: number }
+export interface SymbolInfoRow {
+  id: string; name: string; exchange: string | null; pricePrecision: number; firstTs: number | null; updatedAt: number;
+  /** Provider ticker; null/absent = derive from the id. */
+  ticker?: string | null;
+  /** Last stock-split check (read-only here; written by `markSplitsChecked`). */
+  splitsCheckedAt?: number | null;
+}
 
 export class SymbolRepo {
   constructor(private db: Kysely<Database>) {}
@@ -98,14 +114,28 @@ export class SymbolRepo {
   async get(id: string): Promise<SymbolInfoRow | null> {
     const r = await this.db.selectFrom('symbols').selectAll().where('id', '=', id).executeTakeFirst();
     if (!r) return null;
-    return { id: r.id, name: r.name, exchange: r.exchange, pricePrecision: r.price_precision, firstTs: r.first_ts == null ? null : Number(r.first_ts), updatedAt: Number(r.updated_at) };
+    return {
+      id: r.id, name: r.name, exchange: r.exchange, pricePrecision: r.price_precision,
+      firstTs: r.first_ts == null ? null : Number(r.first_ts), updatedAt: Number(r.updated_at),
+      ticker: r.ticker ?? null, splitsCheckedAt: r.splits_checked_at == null ? null : Number(r.splits_checked_at),
+    };
   }
 
+  /** Inserts or updates metadata; never touches `splits_checked_at`. */
   async upsert(row: SymbolInfoRow): Promise<void> {
-    const v = { id: row.id, name: row.name, exchange: row.exchange, price_precision: row.pricePrecision, first_ts: row.firstTs, updated_at: row.updatedAt };
+    const v = {
+      id: row.id, name: row.name, exchange: row.exchange, price_precision: row.pricePrecision, first_ts: row.firstTs,
+      updated_at: row.updatedAt, ticker: row.ticker ?? null,
+    };
     await this.db.insertInto('symbols').values(v)
-      .onConflict(oc => oc.column('id').doUpdateSet({ name: v.name, exchange: v.exchange, price_precision: v.price_precision, first_ts: v.first_ts, updated_at: v.updated_at }))
+      .onConflict(oc => oc.column('id').doUpdateSet({
+        name: v.name, exchange: v.exchange, price_precision: v.price_precision, first_ts: v.first_ts, updated_at: v.updated_at, ticker: v.ticker,
+      }))
       .execute();
+  }
+
+  async markSplitsChecked(id: string, ts: number): Promise<void> {
+    await this.db.updateTable('symbols').set({ splits_checked_at: ts }).where('id', '=', id).execute();
   }
 }
 

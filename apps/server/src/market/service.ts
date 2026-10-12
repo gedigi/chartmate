@@ -19,6 +19,8 @@ const SYMBOL_RETRY_MS = 60 * 60_000;
 const NEGATIVE_TTL_MS = 10 * 60_000;
 /** Most unknown ids remembered at once. */
 const MAX_UNKNOWN = 1000;
+/** A provider "no data" answer for a chunk ending longer ago than this is trusted (cached as empty). */
+const NO_DATA_TRUST_MS = 7 * DAY;
 
 export interface GetBarsArgs { symbol: SymbolId; tf: Timeframe; session: SessionMode; from: number; to: number }
 export interface BarsResult { bars: Bar[]; stale: boolean; hasMoreBefore: boolean; earliestTs: number | null; notices: string[] }
@@ -152,27 +154,35 @@ export class MarketDataService {
     let stale = false;
     const notFound: Array<[number, number]> = [];
     let firstNotFound: NotFoundError | null = null;
-    results.forEach((r, i) => {
-      if (r.status === 'fulfilled') return;
-      const err = r.reason;
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i]!;
+      if (r.status === 'fulfilled') continue;
+      const err: unknown = r.reason;
       if (err instanceof NotFoundError) {
         notFound.push(chunks[i]!);
-        firstNotFound ??= err;
-        return;
+        if (firstNotFound === null) firstNotFound = err;
+        continue;
       }
       if (!(err instanceof ProviderError)) throw err; // internal failures propagate
-      stale = true;
-      // The queue's own cooldown rejection must not extend the cooldown.
-      if (err.retryable && err.provider !== 'queue') queue.backoff(BACKOFF_MS);
-    });
+      stale = true; // the cooldown was already applied where the fetch failed
+    }
 
-    if (firstNotFound) {
+    if (firstNotFound !== null) {
       // Providers report "no data" as NotFound for valid symbols too (e.g. a pre-listing window).
       // For a known symbol such a chunk is simply empty; only an unknown symbol is a 404.
       const known = await this.isKnown(symbol, tf);
       if (known === false) throw firstNotFound;
-      if (known === null) stale = true; // couldn't tell (lookup outage): serve the DB, don't mark coverage
-      else for (const [a, b] of notFound) await markCovered(a, b);
+      if (known === null) {
+        stale = true; // couldn't tell (lookup outage): serve the DB, don't mark coverage
+      } else {
+        // Only trust "no data" when it cannot be a transient upstream hiccup: the chunk ends before the listing
+        // date, or long enough ago. Otherwise leave it uncovered (retried next time) and report stale.
+        const firstTs = (await this.repos.symbols.get(symbol))?.firstTs ?? null;
+        for (const [a, b] of notFound) {
+          if ((firstTs !== null && b <= firstTs) || b < now - NO_DATA_TRUST_MS) await markCovered(a, b);
+          else stale = true;
+        }
+      }
     }
     return { bars: await this.repos.bars.range(symbol, tf, Math.max(from, outFrom), Math.min(to, outTo)), stale };
   }
@@ -309,7 +319,7 @@ export class MarketDataService {
     firstTs ??= prev?.firstTs ?? null;
     const now = this.now();
     const row: SymbolInfoRow = {
-      id, name: match.name, exchange: match.exchange ?? null, pricePrecision: match.pricePrecision, firstTs,
+      id, name: match.name, exchange: match.exchange ?? null, pricePrecision: match.pricePrecision, firstTs, ticker: match.ticker,
       // A failed listing-date lookup is retried within the hour instead of caching null for the full TTL.
       updatedAt: lookupFailed && firstTs === null ? now - SYMBOL_TTL_MS + SYMBOL_RETRY_MS : now,
     };
@@ -327,7 +337,7 @@ export class MarketDataService {
 }
 
 function toInfo(row: SymbolInfoRow, assetClass: MarketClass, code: string): SymbolInfo {
-  const info: SymbolInfo = { id: row.id, assetClass, ticker: code, name: row.name, pricePrecision: row.pricePrecision };
+  const info: SymbolInfo = { id: row.id, assetClass, ticker: row.ticker ?? code, name: row.name, pricePrecision: row.pricePrecision };
   if (row.exchange != null) info.exchange = row.exchange;
   return info;
 }
