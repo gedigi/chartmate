@@ -175,7 +175,8 @@ export class BasketService {
     return {
       bars,
       stale: unitsStale || fetched.some((s) => s.stale),
-      hasMoreBefore: a.from > floor,
+      // Unknown history (no earliest for any constituent): keep paging while pages still have bars.
+      hasMoreBefore: floor === -Infinity ? bars.length > 0 : a.from > floor,
       notices,
       markers,
     };

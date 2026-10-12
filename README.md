@@ -140,7 +140,9 @@ size its units off by the split factor. To refetch a symbol, delete its cache (s
 - **Indicator settings** also set each line's width (1–4 px) and solid/dashed style, and the up/down bar
   colours of histogram indicators (VOL, MACD, AO).
 - **Drawing styles**: selecting a drawing shows a small style bar at the top of the chart (colour, width,
-  solid/dashed; text annotations: colour and font size). Styles are saved with the drawing.
+  solid/dashed; text annotations: colour and font size). Styles are saved with the drawing; drawings
+  without their own style follow the default drawing style. Legacy drawings with non-hex colours (or other
+  unsupported style values) fall back to the default style on their next save.
 - **⌘ magnet**: hold **⌘** (macOS) or **Ctrl** (other systems) while placing or dragging a drawing to snap
   it to the nearest open/high/low/close (strong magnet); releasing the key returns to the toolbar's magnet
   setting.

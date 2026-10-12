@@ -72,6 +72,8 @@ describe('user routes', () => {
     expect((await t.app.inject({ method: 'PUT', url: '/api/drawings/stock:AAPL', payload: tooMany })).statusCode).toBe(400);
     expect((await t.app.inject({ method: 'PUT', url: '/api/drawings/bogus', payload: [] })).statusCode).toBe(400);
     const badStyles = [{ ...drawings[0], styles: { line: { color: 'x'.repeat(11_000), size: 1, style: 'solid' } } }];
-    expect((await t.app.inject({ method: 'PUT', url: '/api/drawings/stock:AAPL', payload: badStyles })).statusCode).toBe(400);
+    const dropped = await t.app.inject({ method: 'PUT', url: '/api/drawings/stock:AAPL', payload: badStyles });
+    expect(dropped.statusCode).toBe(200);
+    expect(dropped.json()[0]).not.toHaveProperty('styles');
   });
 });

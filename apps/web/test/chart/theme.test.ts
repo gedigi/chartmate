@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { candleStyles, DOWN, resolveAppearance, THEME_TOKENS, UP } from '../../src/chart/theme';
+import { candleStyles, DOWN, overlayStyles, resolveAppearance, THEME_TOKENS, UP } from '../../src/chart/theme';
 
 describe('resolveAppearance', () => {
   it('fills unset fields with theme defaults', () => {
@@ -42,5 +42,17 @@ describe('candleStyles', () => {
       { offset: 0, color: 'rgba(255,136,0,0.02)' }, { offset: 1, color: 'rgba(255,136,0,0.28)' },
     ]);
     expect(candleStyles('line', 'light', undefined).area).toMatchObject({ lineColor: THEME_TOKENS.light.accent, lineSize: 2 });
+  });
+});
+
+describe('overlayStyles', () => {
+  it('derives the chart overlay defaults from the resolved default drawing style', () => {
+    const d = resolveAppearance('dark', undefined).drawing;
+    expect(overlayStyles(d)).toMatchObject({
+      line: { color: d.color, size: d.size, style: d.style },
+      point: { color: d.color, activeColor: d.color },
+      text: { backgroundColor: d.color, borderColor: d.color, size: 12 },
+    });
+    expect(overlayStyles({ color: '#ff0000', size: 3, style: 'dashed' }).line).toMatchObject({ color: '#ff0000', size: 3, style: 'dashed', dashedValue: [6, 4] });
   });
 });

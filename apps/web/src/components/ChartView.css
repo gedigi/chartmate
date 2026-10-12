@@ -102,3 +102,4 @@
   cursor: pointer;
 }
 .drawing-style-bar select { height: 24px; }
+.drawing-style-locked { font-size: 12px; color: var(--text-muted); padding: 0 2px; }

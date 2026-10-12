@@ -36,6 +36,7 @@ const fake = vi.hoisted(() => {
     setSimulatedShading = vi.fn();
     setMagnetOverride = vi.fn();
     setSelectedStyle = vi.fn();
+    deselect = vi.fn();
     selectionCb: ((s: unknown) => void) | null = null;
     onSelectionChange = vi.fn((cb: (s: unknown) => void) => { this.selectionCb = cb; return () => { this.selectionCb = null; }; });
     constructor() { instances.push(this); }

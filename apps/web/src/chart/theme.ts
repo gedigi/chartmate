@@ -1,5 +1,6 @@
 import type { CandleBodyStyle, ChartAppearance, ChartType, DrawingLineStyle } from '@altv/shared';
 import type { DeepPartial, Styles } from 'klinecharts';
+import { DRAWING_DASH } from './drawingStyles';
 
 export type ThemeName = 'dark' | 'light';
 
@@ -42,6 +43,26 @@ const BODY_TYPE = {
 export function hexToRgba(hex: string, alpha: number): string {
   const n = parseInt(hex.slice(1, 7), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
+/** Default font size of text annotations (KLineChart's own default). */
+export const DEFAULT_TEXT_SIZE = 12;
+
+/**
+ * Chart-level overlay defaults from the (resolved) default drawing style, so drawings without their own
+ * styles render exactly as the appearance dialog says (and follow it when it changes).
+ */
+export function overlayStyles(d: DrawingLineStyle): DeepPartial<Styles['overlay']> {
+  const soft = hexToRgba(d.color, 0.35);
+  return {
+    line: { color: d.color, size: d.size, style: d.style, dashedValue: DRAWING_DASH },
+    point: { color: d.color, borderColor: soft, activeColor: d.color, activeBorderColor: soft },
+    text: { backgroundColor: d.color, borderColor: d.color, size: DEFAULT_TEXT_SIZE },
+    polygon: { color: d.color, borderColor: d.color },
+    rect: { color: hexToRgba(d.color, 0.25), borderColor: d.color },
+    circle: { color: hexToRgba(d.color, 0.25), borderColor: d.color },
+    arc: { color: d.color },
+  };
 }
 
 /** Candle-series styles for a chart type with the (theme-resolved) appearance applied. */

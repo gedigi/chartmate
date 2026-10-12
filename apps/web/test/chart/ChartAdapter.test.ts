@@ -593,6 +593,7 @@ describe('ChartAdapter', () => {
       return a;
     }
     const seg = { name: 'segment', points: [{ timestamp: DAY, value: 1 }, { timestamp: 2 * DAY, value: 2 }], lock: false };
+    const lastStyles = () => chart().setStyles.mock.calls.at(-1)![0] as { overlay: { line: unknown; text: unknown; point: unknown } };
 
     it('restores normalized styles, reports the selection style and saves style changes', async () => {
       const a = await loaded();
@@ -604,7 +605,7 @@ describe('ChartAdapter', () => {
       const o = userOverlays()[0]!;
       expect(o.styles).toEqual({ line: { color: '#ff0000', size: 3, style: 'dashed', dashedValue: [6, 4] } });
       o.onSelected?.({ overlay: o });
-      expect(selection).toHaveBeenLastCalledWith({ id: o.id, kind: 'line', style: { color: '#ff0000', size: 3, style: 'dashed' } });
+      expect(selection).toHaveBeenLastCalledWith({ id: o.id, kind: 'line', style: { color: '#ff0000', size: 3, style: 'dashed' }, locked: false });
       a.setSelectedStyle({ color: '#00ff00' });
       expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: o.id, styles: { line: { color: '#00ff00', size: 3, style: 'dashed', dashedValue: [6, 4] } } });
       expect(changed).toHaveBeenCalledTimes(1);
@@ -613,38 +614,114 @@ describe('ChartAdapter', () => {
       expect(selection).toHaveBeenLastCalledWith(null);
     });
 
-    it('unstyled drawings report the library defaults; serialize drops non-normalized styles', async () => {
+    it('the default drawing style shown is exactly what the chart applies to unstyled drawings', async () => {
       const a = await loaded();
+      // Theme default: overlay styles follow the theme accent (not KLineChart's own blue), from init on.
+      expect((k.init.mock.calls.at(-1) as unknown as [unknown, { styles: { overlay: { line: unknown } } }])[1].styles.overlay.line)
+        .toMatchObject({ color: '#2962ff', size: 1, style: 'solid' });
+      a.setTheme('dark');
+      expect(lastStyles().overlay.line).toMatchObject({ color: '#2962ff', size: 1, style: 'solid' });
+      const drawing = { color: '#abcdef', size: 2, style: 'dashed' as const };
+      a.setAppearance({ drawing });
+      expect(lastStyles().overlay.line).toMatchObject(drawing);
+      expect(lastStyles().overlay.text).toMatchObject({ backgroundColor: '#abcdef', size: 12 });
+      expect(lastStyles().overlay.point).toMatchObject({ color: '#abcdef' });
+      a.setTheme('light'); // survives a theme toggle
+      expect(lastStyles().overlay.line).toMatchObject(drawing);
+
       const selection = vi.fn();
       a.onSelectionChange(selection);
       a.restoreDrawings([seg, { name: 'simpleAnnotation', points: [{ timestamp: DAY, value: 1 }], lock: false, text: 'hi' }]);
       const [line, text] = userOverlays();
       line!.onSelected?.({ overlay: line });
-      expect(selection).toHaveBeenLastCalledWith({ id: line!.id, kind: 'line', style: { color: '#1677ff', size: 1, style: 'solid' } });
+      expect(selection).toHaveBeenLastCalledWith({ id: line!.id, kind: 'line', style: drawing, locked: false });
       text!.onSelected?.({ overlay: text });
-      expect(selection).toHaveBeenLastCalledWith({ id: text!.id, kind: 'text', style: { color: '#1677ff', size: 12 } });
+      expect(selection).toHaveBeenLastCalledWith({ id: text!.id, kind: 'text', style: { color: '#abcdef', size: 12 }, locked: false });
       a.setSelectedStyle({ size: 18 });
       expect(chart().overrideOverlay).toHaveBeenLastCalledWith(expect.objectContaining({
-        id: text!.id, styles: expect.objectContaining({ text: expect.objectContaining({ size: 18, backgroundColor: '#1677ff' }) }),
+        id: text!.id, styles: expect.objectContaining({ text: expect.objectContaining({ size: 18, backgroundColor: '#abcdef' }) }),
       }));
-      expect(a.serializeDrawings()[1]!.styles).toEqual({ text: { color: '#1677ff', size: 18 } });
+      expect(a.serializeDrawings()[1]!.styles).toEqual({ text: { color: '#abcdef', size: 18 } });
       line!.styles = { point: { radius: 3 } };
       expect(a.serializeDrawings()[0]).not.toHaveProperty('styles');
     });
 
-    it('new drawings use the appearance default drawing style', () => {
+    it('new drawings carry no styles of their own (they follow the default drawing style)', () => {
       const a = make();
-      a.startDrawing('segment');
-      expect(chart().createOverlay.mock.calls.at(-1)![0]).not.toHaveProperty('styles');
       a.setAppearance({ drawing: { color: '#abcdef', size: 2, style: 'dashed' } });
       a.startDrawing('rayLine');
-      expect(chart().createOverlay).toHaveBeenLastCalledWith(expect.objectContaining({
-        styles: { line: { color: '#abcdef', size: 2, style: 'dashed', dashedValue: [6, 4] } },
-      }));
-      a.startDrawing('simpleAnnotation', { text: 'x' });
-      expect(chart().createOverlay).toHaveBeenLastCalledWith(expect.objectContaining({
-        styles: expect.objectContaining({ text: expect.objectContaining({ backgroundColor: '#abcdef' }) }),
-      }));
+      expect(chart().createOverlay.mock.calls.at(-1)![0]).not.toHaveProperty('styles');
+    });
+
+    it('a pending restore serializes legacy styles as dropped (never PUTs template styles)', () => {
+      const a = make();
+      a.restoreDrawings([
+        { ...seg, styles: { line: { color: '#fff', size: 1 }, point: { radius: 4 } } as never },
+        { ...seg, styles: { line: { color: '#ff0000', size: 2, style: 'solid' }, extra: 1 } as never },
+      ]);
+      const out = a.serializeDrawings();
+      expect(out[0]).not.toHaveProperty('styles');
+      expect(out[1]!.styles).toEqual({ line: { color: '#ff0000', size: 2, style: 'solid' } });
+    });
+
+    it('no style bar while a drawing is being placed; locked drawings are read-only; deselect closes it', async () => {
+      const a = await loaded();
+      const selection = vi.fn();
+      a.onSelectionChange(selection);
+      a.startDrawing('segment');
+      const o = chart().overlays.at(-1)!;
+      o.onSelected?.({ overlay: o }); // KLineChart selects the overlay as drawing starts
+      expect(selection).toHaveBeenLastCalledWith(null);
+      o.points = [{ timestamp: DAY, value: 1 }, { timestamp: 2 * DAY, value: 2 }];
+      o.onDrawEnd?.({ overlay: o });
+      expect(selection).toHaveBeenLastCalledWith(expect.objectContaining({ id: o.id, kind: 'line', locked: false }));
+      a.setLockAll(true);
+      expect(selection).toHaveBeenLastCalledWith(expect.objectContaining({ id: o.id, locked: true }));
+      chart().overrideOverlay.mockClear();
+      a.setSelectedStyle({ color: '#00ff00' });
+      expect(chart().overrideOverlay).not.toHaveBeenCalled();
+      a.deselect();
+      expect(selection).toHaveBeenLastCalledWith(null);
+      expect(a.getSelectedDrawing()).toBeNull();
+    });
+  });
+
+  describe('markers follow new bars', () => {
+    it('a marker after the last bar (e.g. basket Start before the open) appears once a polled bar reaches it', async () => {
+      vi.useFakeTimers();
+      try {
+        const a = make();
+        const DAY = 86_400_000;
+        a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 1000 }, events());
+        vi.spyOn(api, 'bars').mockResolvedValue({
+          symbol: 'stock:AAPL', tf: '1D', session: 'rth', hasMoreBefore: false, stale: false, notices: [], markers: [],
+          bars: [DAY, 2 * DAY].map((t) => ({ ts: t, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 })),
+        });
+        const loader = chart().setDataLoader.mock.calls.at(-1)![0] as {
+          getBars: (p: unknown) => Promise<void>; subscribeBar: (p: unknown) => void;
+        };
+        const period = { type: 'day', span: 1 };
+        await loader.getBars({
+          type: 'init', timestamp: null, symbol: { ticker: 'stock:AAPL' }, period,
+          callback: (d: Array<{ timestamp: number; high: number }>) => { chart().data.splice(0, chart().data.length, ...d); },
+        });
+        a.setMarkers([{ ts: 3 * DAY, label: 'Start' }]);
+        const markers = () => chart().overlays.filter((o) => o.groupId === 'markers');
+        expect(markers()).toHaveLength(0); // no bar at the start yet
+        vi.spyOn(api, 'latest').mockResolvedValue({ bar: { ts: 3 * DAY, open: 1, high: 3, low: 1, close: 2, volume: 1 }, stale: false });
+        loader.subscribeBar({
+          symbol: { ticker: 'stock:AAPL' }, period,
+          callback: (d: { timestamp: number; high: number }) => { chart().data.push(d); },
+        });
+        await vi.advanceTimersByTimeAsync(1100);
+        expect(markers()).toHaveLength(1);
+        expect(markers()[0]).toMatchObject({ extendData: 'Start', points: [{ timestamp: 3 * DAY, value: 3 }] });
+        const created = chart().createOverlay.mock.calls.length;
+        await vi.advanceTimersByTimeAsync(1100); // same bar again: no re-render churn
+        expect(chart().createOverlay.mock.calls.length).toBe(created);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

@@ -6,7 +6,7 @@ import './DrawingToolbar.css';
 export type DrawingControls = Pick<
   ChartAdapter,
   'startDrawing' | 'cancelDrawing' | 'clearDrawings' | 'removeSelected' | 'setMagnet' | 'setLockAll' | 'onLockAllChange'
-  | 'setMagnetOverride'
+  | 'setMagnetOverride' | 'deselect'
 >;
 
 export interface DrawingToolbarProps {
@@ -58,7 +58,8 @@ function isTyping(target: EventTarget | null): boolean {
 
 /** macOS (and iOS) use Meta (⌘) as the snap modifier; other platforms Ctrl. */
 function isApplePlatform(): boolean {
-  return /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+  const uaPlatform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform;
+  return /Mac|iPhone|iPad|iPod/i.test(uaPlatform || navigator.platform);
 }
 
 /**
@@ -110,7 +111,10 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (!isTyping(e.target)) cancel();
+        if (!isTyping(e.target)) {
+          cancel();
+          controlsRef.current?.deselect(); // closes the drawing style bar
+        }
         return;
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && !isTyping(e.target) && !isOtherWidget(e.target) && !disabledRef.current) {
@@ -134,12 +138,23 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
     const onDown = (e: KeyboardEvent) => { if (e.key === modifier && !isTyping(e.target)) set(true); };
     const onUp = (e: KeyboardEvent) => { if (e.key === modifier) set(false); };
     const onBlur = () => set(false); // e.g. ⌘-Tab away: the keyup never arrives
+    const onVisibility = () => { if (document.hidden) set(false); };
+    // A pointer event without the modifier means it was released where we did not see the keyup.
+    const onPointer = (e: PointerEvent) => {
+      if (held && !(modifier === 'Meta' ? e.metaKey : e.ctrlKey)) set(false);
+    };
     document.addEventListener('keydown', onDown);
     document.addEventListener('keyup', onUp);
+    document.addEventListener('visibilitychange', onVisibility);
+    document.addEventListener('pointerdown', onPointer, true);
+    document.addEventListener('pointermove', onPointer, true);
     window.addEventListener('blur', onBlur);
     return () => {
       document.removeEventListener('keydown', onDown);
       document.removeEventListener('keyup', onUp);
+      document.removeEventListener('visibilitychange', onVisibility);
+      document.removeEventListener('pointerdown', onPointer, true);
+      document.removeEventListener('pointermove', onPointer, true);
       window.removeEventListener('blur', onBlur);
       set(false);
     };

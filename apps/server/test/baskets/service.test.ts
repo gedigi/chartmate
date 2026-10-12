@@ -376,6 +376,20 @@ describe('BasketService', () => {
       expect(latest.bar?.simulated).toBe(true);
     });
 
+    it('unknown constituent history (earliest null): hasMoreBefore follows whether the page had bars', async () => {
+      const b = await svc.create({ name: 'a', versions: [v('2026-09-14', { 'stock:AAA': 1 })] });
+      vi.spyOn(market, 'earliest').mockResolvedValue(null);
+      const withBars = await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: D(9, 1), to: D(9, 17) });
+      expect(withBars.bars.length).toBeGreaterThan(0);
+      expect(withBars.hasMoreBefore).toBe(true);
+      stock.listedFrom.AAA = D(9, 1);
+      await h.db.deleteFrom('bars').execute();
+      await h.db.deleteFrom('coverage').execute();
+      const empty = await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: D(8, 1), to: D(8, 20) });
+      expect(empty.bars).toEqual([]);
+      expect(empty.hasMoreBefore).toBe(false); // not forever true
+    });
+
     it('resampled buckets are simulated only when every input bar is', async () => {
       const b = await svc.create({ name: 'm', versions: [v('2026-09-16', { 'crypto:BTC': 1 })] }); // Wed
       const r = await svc.getBars({ id: b.id, tf: '1W', session: 'rth', from: D(9, 7), to: D(9, 21) });

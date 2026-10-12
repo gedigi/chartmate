@@ -42,9 +42,9 @@ export function IndicatorSettings({ state, onSave, onClose }: IndicatorSettingsP
     const next: IndicatorState = { name: state.name, pane: state.pane, calcParams: values.map(Number), visible: state.visible };
     const customised = colors.some((c, i) => c !== defaultColors[i]);
     if (lines.length > 0 && (customised || state.lineColors)) next.lineColors = colors;
-    // Like colours: only saved once customised (or customised before, so the adapter restores the defaults).
-    if (lines.length > 0 && (widths.some((w) => w !== 1) || state.lineWidths)) next.lineWidths = widths;
-    if (lines.length > 0 && (styles.some((s) => s !== 'solid') || state.lineStyles)) next.lineStyles = styles;
+    // Only saved while they differ from the defaults (the adapter writes the defaults back when an override goes).
+    if (lines.length > 0 && widths.some((w) => w !== 1)) next.lineWidths = widths;
+    if (lines.length > 0 && styles.some((s) => s !== 'solid')) next.lineStyles = styles;
     if (hasBars && (bars.up !== DEFAULT_BAR_COLORS.up || bars.down !== DEFAULT_BAR_COLORS.down)) next.barColors = { ...bars };
     onSave(next);
     onClose();

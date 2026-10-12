@@ -52,7 +52,8 @@ const DrawingSchema = z.object({
   points: z.array(z.object({ timestamp: z.number(), value: z.number() })).max(10),
   lock: z.boolean(),
   text: z.string().max(500).optional(),
-  styles: DrawingStylesSchema.optional(),
+  // Tolerant: invalid / legacy styles are dropped (the drawing itself is still saved).
+  styles: DrawingStylesSchema.optional().catch(undefined),
 }) satisfies z.ZodType<DrawingState>;
 
 const WatchlistBody = z.array(SymbolIdSchema).max(200);

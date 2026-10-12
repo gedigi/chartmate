@@ -14,6 +14,7 @@ function makeControls() {
     setMagnet: vi.fn(),
     setLockAll: vi.fn(),
     setMagnetOverride: vi.fn(),
+    deselect: vi.fn(),
     onLockAllChange: vi.fn((cb: (locked: boolean) => void) => { lockCb = cb; return () => { lockCb = null; }; }),
   };
   return {
@@ -44,6 +45,36 @@ describe('DrawingToolbar strong magnet (Meta on macOS, Ctrl elsewhere)', () => {
     expect(c.setMagnetOverride).toHaveBeenLastCalledWith(false);
   });
 
+  it('resets when the page is hidden or a pointer event arrives without the modifier', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    fireEvent.keyDown(document.body, { key: 'Meta', metaKey: true });
+    fireEvent.pointerMove(document.body, { metaKey: true });
+    expect(c.setMagnetOverride).toHaveBeenLastCalledWith(true); // still held
+    fireEvent.pointerDown(document.body, { metaKey: false });
+    expect(c.setMagnetOverride).toHaveBeenLastCalledWith(false);
+    fireEvent.keyDown(document.body, { key: 'Meta', metaKey: true });
+    expect(c.setMagnetOverride).toHaveBeenLastCalledWith(true);
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    fireEvent(document, new Event('visibilitychange'));
+    expect(c.setMagnetOverride).toHaveBeenLastCalledWith(false);
+    hidden.mockRestore();
+  });
+
+  it('prefers navigator.userAgentData.platform over navigator.platform', () => {
+    setPlatform('Linux x86_64');
+    Object.defineProperty(navigator, 'userAgentData', { value: { platform: 'macOS' }, configurable: true });
+    try {
+      const { c } = makeControls();
+      render(<DrawingToolbar controls={c} ticker="AAPL" />);
+      fireEvent.keyDown(document.body, { key: 'Meta', metaKey: true });
+      expect(c.setMagnetOverride).toHaveBeenLastCalledWith(true);
+    } finally {
+      delete (navigator as { userAgentData?: unknown }).userAgentData;
+    }
+  });
+
   it('uses Ctrl on other platforms and ignores keys typed into inputs', () => {
     setPlatform('Linux x86_64');
     const { c } = makeControls();
@@ -60,6 +91,15 @@ describe('DrawingToolbar strong magnet (Meta on macOS, Ctrl elsewhere)', () => {
 });
 
 describe('DrawingToolbar', () => {
+  it('Escape deselects the selected drawing (closing its style bar) unless typing', () => {
+    const { c } = makeControls();
+    render(<><input aria-label="field" /><DrawingToolbar controls={c} ticker="AAPL" /></>);
+    fireEvent.keyDown(screen.getByLabelText('field'), { key: 'Escape' });
+    expect(c.deselect).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(c.deselect).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ['Trend line', 'segment'], ['Ray', 'rayLine'], ['Extended line', 'straightLine'],
     ['Horizontal line', 'horizontalStraightLine'], ['Vertical line', 'verticalStraightLine'], ['Price line', 'priceLine'],

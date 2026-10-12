@@ -61,3 +61,14 @@ export function toHex(c: unknown, fallback: string): string {
   if (typeof c === 'string' && /^#[0-9a-fA-F]{3}$/.test(c)) return `#${[...c.slice(1)].map((x) => x + x).join('')}`.toLowerCase();
   return fallback;
 }
+
+/** The normalized styles in `s` that are valid (unknown keys, legacy and invalid values are dropped). */
+export function sanitizeDrawingStyles(s: unknown): DrawingStyles | undefined {
+  if (!s || typeof s !== 'object') return undefined;
+  const out: DrawingStyles = {};
+  const line = readLine(s);
+  if (line) out.line = line;
+  const t = (s as { text?: Record<string, unknown> }).text;
+  if (t && isHexColor(t.color) && intIn(t.size, MIN_TEXT_SIZE, MAX_TEXT_SIZE)) out.text = { color: t.color.toLowerCase(), size: t.size };
+  return out.line || out.text ? out : undefined;
+}

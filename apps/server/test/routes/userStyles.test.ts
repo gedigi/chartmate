@@ -46,7 +46,7 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
     }
   });
 
-  it('drawing styles: normalized shape accepted, missing styles ok, unknown keys stripped, invalid rejected', async () => {
+  it('drawing styles: normalized shape accepted, missing styles ok, unknown keys stripped, invalid styles dropped', async () => {
     const drawings: DrawingState[] = [
       { name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false, styles: { line: { color: '#ff0000', size: 3, style: 'dashed' } } },
       { name: 'simpleAnnotation', points: [{ timestamp: 1, value: 2 }], lock: false, text: 'hi', styles: { text: { color: '#00ff00', size: 18 } } },
@@ -65,7 +65,10 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
       { line: { color: '#ffffff', size: 1, style: 'dotted' } }, { text: { color: '#ffffff', size: 9 } }, { text: { color: '#ffffff', size: 25 } },
       { line: { color: '#ffffff' } }, 'x',
     ]) {
-      expect((await putDrawings([{ ...drawings[0], styles }])).statusCode, JSON.stringify(styles)).toBe(400);
+      // Tolerant: invalid / legacy styles are dropped rather than failing the whole save.
+      const r = await putDrawings([{ ...drawings[0], styles }]);
+      expect(r.statusCode, JSON.stringify(styles)).toBe(200);
+      expect(r.json()[0], JSON.stringify(styles)).not.toHaveProperty('styles');
     }
   });
 });

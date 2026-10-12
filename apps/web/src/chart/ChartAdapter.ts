@@ -9,7 +9,7 @@ import {
   type SessionMode, type SymbolInfo, type Timeframe,
 } from '@altv/shared';
 import {
-  lineToOverlay, normalizeOverlayStyles, readLine, readText, textToOverlay, toHex, toOverlayStyles, TEXT_TOOL,
+  lineToOverlay, normalizeOverlayStyles, readLine, readText, sanitizeDrawingStyles, textToOverlay, toOverlayStyles, TEXT_TOOL,
   type TextStyle,
 } from './drawingStyles';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
@@ -19,7 +19,7 @@ import { registerCustomIndicators } from './indicators/register';
 import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
 import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS, SIMULATED_SHADE } from './sessionShade';
-import { candleStyles, chartStyles, type ThemeName } from './theme';
+import { candleStyles, chartStyles, DEFAULT_TEXT_SIZE, overlayStyles, resolveAppearance, type ThemeName } from './theme';
 
 export type DrawingTool =
   | 'segment' | 'rayLine' | 'straightLine' | 'horizontalStraightLine' | 'verticalStraightLine'
@@ -35,11 +35,10 @@ const OVERRIDE_KEYS = ['lineColors', 'lineWidths', 'lineStyles', 'barColors'] as
 
 /** Style of the selected drawing, as the floating style bar edits it. */
 export type SelectedDrawing =
-  | { id: string; kind: 'line'; style: DrawingLineStyle }
-  | { id: string; kind: 'text'; style: TextStyle };
+  | { id: string; kind: 'line'; style: DrawingLineStyle; locked: boolean }
+  | { id: string; kind: 'text'; style: TextStyle; locked: boolean };
 
 const INDICATOR_DASH = [4, 4];
-const FALLBACK_OVERLAY_COLOR = '#1677ff';
 
 export interface LoadParams { symbol: SymbolInfo; tf: Timeframe; session: SessionMode; pollMs: number }
 
@@ -58,6 +57,13 @@ function completePoints(o: Overlay): Array<{ timestamp: number; value: number }>
     pts.push({ timestamp: p.timestamp, value: p.value });
   }
   return pts.length > 0 ? pts : null;
+}
+
+/** A drawing as saved: legacy / invalid styles (e.g. raw KLineChart template styles) are dropped. */
+function sanitizeDrawing(d: DrawingState): DrawingState {
+  const { styles, ...rest } = d;
+  const clean = sanitizeDrawingStyles(styles);
+  return clean ? { ...rest, styles: clean } : rest;
 }
 
 /** First index whose timestamp is ≥ ts (data sorted ascending). */
@@ -104,7 +110,16 @@ export class ChartAdapter {
   private styles(): DeepPartial<Styles> {
     const base = chartStyles(this.theme);
     const candle = candleStyles(this.chartType, this.theme, this.appearance);
-    return { ...base, candle: { ...base.candle, ...candle, priceMark: { ...base.candle?.priceMark, ...candle.priceMark } } };
+    return {
+      ...base,
+      candle: { ...base.candle, ...candle, priceMark: { ...base.candle?.priceMark, ...candle.priceMark } },
+      // Unstyled drawings follow the appearance's default drawing style (theme accent when unset).
+      overlay: overlayStyles(this.defaultDrawing()),
+    };
+  }
+
+  private defaultDrawing(): DrawingLineStyle {
+    return resolveAppearance(this.theme, this.appearance).drawing;
   }
 
   // ── data ──────────────────────────────────────────────────────────────────
@@ -142,8 +157,9 @@ export class ChartAdapter {
     this.chart.setDataLoader({
       getBars: (params) => loader.getBars(params.type === 'init'
         ? { ...params, callback: (data, more) => { params.callback(data, more); ready(); } }
-        : params),
-      subscribeBar: (params) => loader.subscribeBar(params),
+        : { ...params, callback: (data, more) => { params.callback(data, more); this.onBarsAdded(); } }),
+      // New bars (polling / backfill) may make a marker placeable, e.g. a basket Start after the last bar.
+      subscribeBar: (params) => loader.subscribeBar({ ...params, callback: (bar) => { params.callback(bar); this.onBarsAdded(); } }),
       unsubscribeBar: () => loader.unsubscribeBar(),
     });
   }
@@ -208,11 +224,11 @@ export class ChartAdapter {
     this.renderMarkers();
   }
 
-  private renderMarkers(): void {
-    this.withSilence(() => this.chart.removeOverlay({ groupId: MARKERS }));
+  /** Marker overlays for the current data: one per marker at or after the first bar that has a bar to sit on. */
+  private markerOverlays(): OverlayCreate[] {
     const data = this.chart.getDataList();
     const first = data[0];
-    if (!first || this.markers.length === 0) return;
+    if (!first || this.markers.length === 0) return [];
     const width = this.tf ? tfMs(this.tf) : 0;
     const overlays: OverlayCreate[] = [];
     for (const m of this.markers) {
@@ -228,7 +244,23 @@ export class ChartAdapter {
         points: [{ timestamp: bar.timestamp, value: bar.high }],
       });
     }
+    return overlays;
+  }
+
+  /** Which bar each rendered marker sits on (re-rendered only when that changes). */
+  private markersKey = '';
+
+  private renderMarkers(): void {
+    this.withSilence(() => this.chart.removeOverlay({ groupId: MARKERS }));
+    const overlays = this.markerOverlays();
+    this.markersKey = JSON.stringify(overlays.map((o) => [o.extendData, o.points?.[0]?.timestamp]));
     for (const o of overlays) this.chart.createOverlay(o);
+  }
+
+  private onBarsAdded(): void {
+    if (this.destroyed || this.markers.length === 0) return;
+    const key = JSON.stringify(this.markerOverlays().map((o) => [o.extendData, o.points?.[0]?.timestamp]));
+    if (key !== this.markersKey) this.renderMarkers();
   }
 
   // ── indicators ────────────────────────────────────────────────────────────
@@ -377,6 +409,7 @@ export class ChartAdapter {
         if (this.lockAll) this.chart.overrideOverlay({ id: overlay.id, lock: true });
         this.revertMode(overlay.id);
         onEnd?.();
+        this.emitSelection(); // the style bar is hidden while a drawing is being placed
       }
       this.emitChange();
     },
@@ -448,31 +481,44 @@ export class ChartAdapter {
     return () => { this.selectionListeners.delete(cb); };
   }
 
-  /** Effective (normalized) style of the selected user drawing: its own styles, else the library defaults. */
+  /**
+   * Effective (normalized) style of the selected user drawing: its own styles, else the chart's overlay defaults
+   * (the appearance's default drawing style). Null while nothing is selected or the drawing is still being placed.
+   */
   getSelectedDrawing(): SelectedDrawing | null {
     const id = this.selectedId;
-    const o = id ? this.userOverlays().find((x) => x.id === id) : undefined;
+    if (!id || id === this.drawing?.id) return null;
+    const o = this.userOverlays().find((x) => x.id === id);
     if (!o) return null;
-    const defaults = this.chart.getStyles().overlay;
+    const d = this.defaultDrawing();
     if (o.name === TEXT_TOOL) {
-      const style = readText(o.styles) ?? {
-        color: toHex(defaults.text.backgroundColor, FALLBACK_OVERLAY_COLOR),
-        size: Math.round(defaults.text.size),
-      };
-      return { id: o.id, kind: 'text', style };
+      const style = readText(o.styles) ?? { color: d.color, size: DEFAULT_TEXT_SIZE };
+      return { id: o.id, kind: 'text', style, locked: o.lock };
     }
-    const style = readLine(o.styles) ?? {
-      color: toHex(defaults.line.color, FALLBACK_OVERLAY_COLOR),
-      size: Math.min(4, Math.max(1, Math.round(defaults.line.size))),
-      style: defaults.line.style === 'dashed' ? 'dashed' : 'solid',
-    };
-    return { id: o.id, kind: 'line', style };
+    const style = readLine(o.styles) ?? { ...d };
+    return { id: o.id, kind: 'line', style, locked: o.lock };
+  }
+
+  /** Deselects the selected drawing (Escape); the style bar closes. */
+  deselect(): void {
+    const id = this.selectedId;
+    if (!id) return;
+    // KLineChart has no public deselect: clear its click info (fires onDeselected) when the store allows it.
+    const store = (this.chart as unknown as { getChartStore?: () => { setClickOverlayInfo?: (...a: unknown[]) => void } }).getChartStore?.();
+    try {
+      store?.setClickOverlayInfo?.(
+        { paneId: '', overlay: null, figureType: 'none', figureIndex: -1, figure: null },
+        () => {},
+        (o: Overlay) => o.onDeselected?.({ chart: this.chart, overlay: o } as Parameters<NonNullable<Overlay['onDeselected']>>[0]),
+      );
+    } catch { /* internal API changed: our own state below still deselects */ }
+    if (this.selectedId === id) this.select(null);
   }
 
   /** Changes the selected drawing's style (merged with its current style); saved like any drawing edit. */
   setSelectedStyle(patch: Partial<DrawingLineStyle> | Partial<TextStyle>): void {
     const sel = this.getSelectedDrawing();
-    if (!sel) return;
+    if (!sel || sel.locked) return;
     const styles = sel.kind === 'text'
       ? textToOverlay({ ...sel.style, ...(patch as Partial<TextStyle>) })
       : lineToOverlay({ ...sel.style, ...(patch as Partial<DrawingLineStyle>) });
@@ -503,8 +549,6 @@ export class ChartAdapter {
     this.cancelDrawing();
     const create: OverlayCreate = { name: tool, mode: this.strongMagnet ? 'strong_magnet' : this.baseMode(), ...this.handlers };
     if (opts?.text !== undefined) create.extendData = opts.text;
-    const d = this.appearance?.drawing; // only an explicitly chosen default style is written onto new drawings
-    if (d) create.styles = tool === TEXT_TOOL ? textToOverlay({ color: d.color, size: 12 }) : lineToOverlay(d);
     const id = this.chart.createOverlay(create);
     if (typeof id === 'string') {
       this.drawing = opts?.onEnd ? { id, onEnd: opts.onEnd } : { id };
@@ -555,7 +599,10 @@ export class ChartAdapter {
       changed = true;
     }
     this.emitLockState();
-    if (changed) this.emitChange();
+    if (changed) {
+      this.emitChange();
+      this.emitSelection();
+    }
   }
 
   /**
@@ -578,7 +625,7 @@ export class ChartAdapter {
   }
 
   serializeDrawings(): DrawingState[] {
-    if (this.pendingRestore) return this.pendingRestore.drawings.map((d) => ({ ...d }));
+    if (this.pendingRestore) return this.pendingRestore.drawings.map(sanitizeDrawing);
     const out: DrawingState[] = [];
     for (const o of this.userOverlays()) {
       const points = completePoints(o); // skips an overlay that is still being drawn
@@ -617,7 +664,7 @@ export class ChartAdapter {
       for (const d of drawings) {
         const create: OverlayCreate = { name: d.name, points: d.points, lock: d.lock, ...this.handlers };
         if (d.text !== undefined) create.extendData = d.text;
-        const styles = toOverlayStyles(d.styles);
+        const styles = toOverlayStyles(sanitizeDrawingStyles(d.styles));
         if (styles) create.styles = styles;
         this.chart.createOverlay(create);
       }
