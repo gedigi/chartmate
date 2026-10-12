@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   BasketValidationError, baseTimeframe, bucketStart, buildBasketBars, computeVersionUnits, filterSession,
-  isIntraday, parseDateString, parseSymbolId, resample, tfMs, utcDateString, validateVersions, versionMarkers,
+  isIntraday, nyDateUtcMidnight, parseDateString, parseSymbolId, resample, tfMs, utcDateString, validateVersions, versionMarkers,
   type Bar, type Basket, type BasketVersion, type Calendar, type ConstituentSeries, type Marker, type Quote,
   type SessionMode, type SymbolId, type Timeframe, type UnitsResult,
 } from '@altv/shared';
@@ -263,7 +263,10 @@ export class BasketService {
           const live = this.priceFromQuotes(p.units, byId);
           if (live) {
             const d = await this.dailyCloses(p.id, p.key);
-            const quoteDay = Math.floor(live.ts / DAY) * DAY;
+            // The session date of the price: NY date for stock-only baskets (their daily bars are NY trading dates;
+            // a post-market price after 20:00 EDT is still that session), UTC date when crypto sets the daily grid.
+            const anyCrypto = Object.keys(p.units).some((c) => parseSymbolId(c).assetClass === 'crypto');
+            const quoteDay = anyCrypto ? Math.floor(live.ts / DAY) * DAY : nyDateUtcMidnight(live.ts);
             // Before the latest daily bar's day closes, compare with the bar before it; once a newer day trades,
             // the latest bar is the previous close.
             const prev = d.last && quoteDay > d.last.ts ? d.last : d.prev;

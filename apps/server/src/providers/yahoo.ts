@@ -127,9 +127,15 @@ export class YahooProvider implements MarketDataProvider {
       if (!r || typeof r.symbol !== 'string') continue;
       const state = r.marketState;
       let price: unknown = r.regularMarketPrice; // isNum below rejects null/NaN/non-numbers
-      if ((state === 'POST' || state === 'POSTPOST') && isNum(r.postMarketPrice)) price = r.postMarketPrice;
-      else if (state === 'PRE' && isNum(r.preMarketPrice)) price = r.preMarketPrice;
-      const ts = toMs(r.regularMarketTime);
+      // ts is the time of the price actually used, so consumers can tell which session it belongs to.
+      let ts = toMs(r.regularMarketTime);
+      if ((state === 'POST' || state === 'POSTPOST') && isNum(r.postMarketPrice)) {
+        price = r.postMarketPrice;
+        ts = toMs(r.postMarketTime) ?? ts;
+      } else if (state === 'PRE' && isNum(r.preMarketPrice)) {
+        price = r.preMarketPrice;
+        ts = toMs(r.preMarketTime) ?? ts;
+      }
       if (!isNum(price) || ts === null) continue;
       out.push({
         id: `stock:${r.symbol}`, price,

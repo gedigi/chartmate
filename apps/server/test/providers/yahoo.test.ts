@@ -324,7 +324,8 @@ describe('YahooProvider', () => {
     const res = await provider(client).quotes(['AAPL', 'SPY']);
     expect(asked).toEqual(['AAPL', 'SPY']);
     expect(res).toEqual([
-      { id: 'stock:AAPL', price: fx[0].postMarketPrice, changePct: fx[0].regularMarketChangePercent, ts: Date.parse(fx[0].regularMarketTime) },
+      // ts is the time of the price used (post-market), not the regular close time
+      { id: 'stock:AAPL', price: fx[0].postMarketPrice, changePct: fx[0].regularMarketChangePercent, ts: Date.parse(fx[0].postMarketTime) },
       { id: 'stock:SPY', price: fx[1].regularMarketPrice, changePct: fx[1].regularMarketChangePercent, ts: Date.parse(fx[1].regularMarketTime) },
     ]);
     expect(res[0]!.price).not.toBe(fx[0].regularMarketPrice);
@@ -335,6 +336,14 @@ describe('YahooProvider', () => {
       quote: () => [{ symbol: 'AAPL', marketState: 'PRE', preMarketPrice: 101, regularMarketPrice: 100, regularMarketChangePercent: 1.5, regularMarketTime: new Date(NOW) }],
     });
     expect(await provider(client).quotes(['AAPL'])).toEqual([{ id: 'stock:AAPL', price: 101, changePct: 1.5, ts: NOW }]);
+  });
+
+  it('a pre-market quote is stamped with preMarketTime (the time of the price used)', async () => {
+    const pre = NOW + 3 * 86_400_000;
+    const { client } = fakeYahoo({
+      quote: () => [{ symbol: 'AAPL', marketState: 'PRE', preMarketPrice: 101, preMarketTime: new Date(pre), regularMarketPrice: 100, regularMarketChangePercent: 1.5, regularMarketTime: new Date(NOW) }],
+    });
+    expect(await provider(client).quotes(['AAPL'])).toEqual([{ id: 'stock:AAPL', price: 101, changePct: 1.5, ts: pre }]);
   });
 
   it('quotes([]) makes no call', async () => {

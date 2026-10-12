@@ -477,6 +477,37 @@ describe('BasketService', () => {
       expect(qs.changePct).toBeCloseTo(((es.last.close - es.prev.close) / es.prev.close) * 100, 9);
     });
 
+    it('pre-market Monday: change is vs the last session close (Friday), not two sessions back', async () => {
+      const b = await svc.create({ name: 's', versions: [v('2026-09-14', { 'stock:AAA': 1 })] });
+      now = D(10, 12, 12); // Mon 08:00 EDT, before the open: latest daily bar is Friday 10-09
+      // (the fake would already emit a Monday daily bar; Yahoo has none before the open)
+      const orig = market.getNativeBars.bind(market);
+      vi.spyOn(market, 'getNativeBars').mockImplementation(async (id, tf, from, to) => {
+        const r = await orig(id, tf, from, to);
+        return tf === '1D' ? { ...r, bars: r.bars.filter((x) => x.ts < D(10, 12)) } : r;
+      });
+      const bars = (await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: now - 10 * DAY, to: now + DAY })).bars;
+      expect(bars.at(-1)!.ts).toBe(D(10, 9));
+      stock.quotePrice = () => 200;
+      stock.quoteTs = () => D(10, 12, 11, 50); // preMarketTime
+      const q = (await svc.liveQuotes([b.id], [])).baskets[0]!;
+      const units = 100 / price('stock')('AAA', '1D', D(9, 11)).close; // sized at the 09-11 close
+      expect(q.price).toBeCloseTo(units * 200, 9);
+      expect(q.changePct).toBeCloseTo(((units * 200 - bars.at(-1)!.close) / bars.at(-1)!.close) * 100, 9);
+    });
+
+    it('post-market Friday evening (already Saturday in UTC): change is vs Thursday, the session before the price', async () => {
+      const b = await svc.create({ name: 's', versions: [v('2026-09-14', { 'stock:AAA': 1 })] });
+      now = D(10, 10, 0, 30); // Fri 20:30 EDT = Sat 00:30Z
+      const bars = (await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: now - 10 * DAY, to: now + DAY })).bars;
+      expect(bars.at(-1)!.ts).toBe(D(10, 9));
+      stock.quotePrice = () => 200;
+      stock.quoteTs = () => D(10, 10, 0, 15); // postMarketTime, Friday 20:15 EDT
+      const q = (await svc.liveQuotes([b.id], [])).baskets[0]!;
+      const prev = bars.at(-2)!.close; // Thursday
+      expect(q.changePct).toBeCloseTo(((q.price - prev) / prev) * 100, 9);
+    });
+
     it('falls back to the daily-bars method when a constituent quote is missing', async () => {
       const b = await svc.create({ name: 's', versions: [v('2026-09-14', { 'stock:AAA': 0.4, 'stock:BBB': 0.6 })] });
       stock.quotePrice = (c) => (c === 'BBB' ? undefined : 1);
