@@ -131,7 +131,7 @@ describe('ChartView', () => {
     const { rerenderWith } = renderView();
     await flush();
     rerenderWith({ ...LAYOUT, indicators: [{ name: 'VOL', pane: 'sub', calcParams: [7], visible: false }] });
-    expect(adapter().updateIndicator).toHaveBeenCalledWith('ind_1', { calcParams: [7], visible: false });
+    expect(adapter().updateIndicator).toHaveBeenCalledWith('ind_1', { calcParams: [7, 10, 20], visible: false });
     rerenderWith({ ...LAYOUT, indicators: [] });
     expect(adapter().removeIndicator).toHaveBeenCalledWith('ind_1');
     expect(adapter().addIndicator).toHaveBeenCalledTimes(1);
@@ -227,6 +227,15 @@ describe('ChartView', () => {
     act(() => adapter().events!.onConnection!(false));
     expect(screen.queryByText('Connection lost — retrying…')).not.toBeInTheDocument();
     expect(screen.queryByText(/Data delayed/)).not.toBeInTheDocument();
+  });
+
+  it('migrates stored indicator params when they reach the chart (short lists padded with defaults)', async () => {
+    const short = { name: 'RSI', pane: 'sub' as const, calcParams: [7], visible: true };
+    const { rerenderWith } = renderView({ ...LAYOUT, indicators: [short] });
+    await flush();
+    expect(adapter().addIndicator).toHaveBeenCalledWith(expect.objectContaining({ name: 'RSI', calcParams: [7, 12, 24] }));
+    rerenderWith({ ...LAYOUT, indicators: [{ ...short, calcParams: [8], visible: false }] });
+    expect(adapter().updateIndicator).toHaveBeenLastCalledWith('ind_1', expect.objectContaining({ calcParams: [8, 12, 24], visible: false }));
   });
 
   it('a permanent load error shows its message inline in an opaque panel with Retry (no "Connection lost")', async () => {

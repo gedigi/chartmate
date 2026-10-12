@@ -2,6 +2,7 @@ import { isIntraday, parseSymbolId, type DrawingState, type IndicatorState, type
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { api, errorMessage } from '../api/client';
 import { ChartAdapter, type IndicatorSpec } from '../chart/ChartAdapter';
+import { migrateCalcParams } from '../chart/indicators/catalog';
 import type { LoaderMeta } from '../chart/dataLoader';
 import { pollIntervalMs } from '../chart/periods';
 import { onBasketChanged } from '../state/useBaskets';
@@ -69,8 +70,9 @@ function styleOverrides(s: IndicatorState): Partial<IndicatorSpec> {
   return o;
 }
 
+/** Chart spec of a stored indicator; stored params go through the same migration as the settings dialog. */
 function toSpec(s: IndicatorState): IndicatorSpec {
-  return { name: s.name, pane: s.pane, calcParams: s.calcParams, visible: s.visible, ...styleOverrides(s) };
+  return { name: s.name, pane: s.pane, calcParams: migrateCalcParams(s.name, s.calcParams), visible: s.visible, ...styleOverrides(s) };
 }
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -198,7 +200,8 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
           setToast(errorMessage(err));
         }
       } else if (cur.state !== s && !sameJson(toSpec(cur.state), toSpec(s))) {
-        const update: Partial<IndicatorSpec> = { calcParams: s.calcParams, visible: s.visible, ...styleOverrides(s) };
+        const spec = toSpec(s);
+        const update: Partial<IndicatorSpec> = { calcParams: spec.calcParams, visible: spec.visible, ...styleOverrides(s) };
         adapter.updateIndicator(cur.id, update);
         current.set(key, { id: cur.id, state: s });
       } else {
