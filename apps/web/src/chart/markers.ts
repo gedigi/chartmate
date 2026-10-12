@@ -9,7 +9,7 @@ let registered = false;
 
 /**
  * Registers the marker template once: a dashed vertical line across the whole pane at the marker's bar, with
- * its label at the top. Its figures ignore events, so a marker cannot be selected, hovered or dragged.
+ * its label at the bottom (above the x-axis). Its figures ignore events, so a marker cannot be selected, hovered or dragged.
  */
 export function registerMarkerOverlay(): void {
   if (registered) return;
@@ -26,7 +26,8 @@ export function registerMarkerOverlay(): void {
       const text = typeof overlay.extendData === 'string' ? overlay.extendData : '';
       return [
         { type: 'line', attrs: { coordinates: [{ x, y: 0 }, { x, y: bounding.height }] }, ignoreEvent: true },
-        { type: 'text', attrs: { x: x + 4, y: 4, text, align: 'left', baseline: 'top' }, ignoreEvent: true },
+        // Label at the bottom of the pane (just above the x-axis), clear of the OHLC legend at the top-left.
+        { type: 'text', attrs: { x: x + 4, y: bounding.height - 4, text, align: 'left', baseline: 'bottom' }, ignoreEvent: true },
       ];
     },
   });

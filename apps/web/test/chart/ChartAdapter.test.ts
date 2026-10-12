@@ -266,7 +266,8 @@ describe('ChartAdapter', () => {
     expect(line.attrs.coordinates).toEqual([{ x: 40, y: 0 }, { x: 40, y: 200 }]);
     expect(line.ignoreEvent).toBe(true);
     const text = figures.find((f: { type: string }) => f.type === 'text');
-    expect(text.attrs).toMatchObject({ x: 44, text: 'Start' }); // just right of the line
+    // Bottom of the candle pane (just above the x-axis), right of the line: clear of the top-left OHLC legend.
+    expect(text.attrs).toMatchObject({ x: 44, y: 196, text: 'Start', baseline: 'bottom' });
     expect(text.ignoreEvent).toBe(true);
   });
 
