@@ -295,12 +295,12 @@ describe('ChartView', () => {
     renderView({ ...LAYOUT, symbol: 'basket:b1' }, B);
     await flush();
     await flush();
-    expect(adapter().load.mock.calls.at(-1)![0]).toMatchObject({ pollMs: 15000 });
+    expect(adapter().load.mock.calls.at(-1)![0]).toMatchObject({ pollMs: 15000, basketHasCrypto: false });
     get.mockResolvedValue({ ...stocks, versions: [...stocks.versions, { effectiveFrom: '2024-02-01', weights: { 'crypto:BTC': 1 } }] });
     act(() => notifyBasketChanged('b1'));
     await flush();
     await flush();
-    expect(adapter().load.mock.calls.at(-1)![0]).toMatchObject({ pollMs: 5000 });
+    expect(adapter().load.mock.calls.at(-1)![0]).toMatchObject({ pollMs: 5000, basketHasCrypto: true });
   });
 
   it('applies the appearance and re-applies it only when it changes by value', async () => {

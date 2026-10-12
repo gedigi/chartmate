@@ -41,7 +41,11 @@ export type SelectedDrawing =
 
 const INDICATOR_DASH = [4, 4];
 
-export interface LoadParams { symbol: SymbolInfo; tf: Timeframe; session: SessionMode; pollMs: number }
+export interface LoadParams {
+  symbol: SymbolInfo; tf: Timeframe; session: SessionMode; pollMs: number;
+  /** A basket with crypto constituents: its bars follow the UTC grid, so daily anchors are not remapped. */
+  basketHasCrypto?: boolean;
+}
 
 const CANDLE_PANE = 'candle_pane';
 /** KLineChart's double-click window and distance (Delay.ResetClick, ManhattanDistance.DoubleClick). */
@@ -111,6 +115,7 @@ export class ChartAdapter {
   private loader: DataLoaderImpl | null = null;
   private markers: Marker[] = [];
   private assetClass: SymbolInfo['assetClass'] | null = null;
+  private basketHasCrypto = false;
   /** Passed to every indicator as `extendData` (VWAP picks its session day from it). */
   private indicatorExt: IndicatorExtendData = {};
   private readonly overrides = new Map<string, IndicatorOverrides>();
@@ -170,6 +175,7 @@ export class ChartAdapter {
     this.loader = loader;
     this.tf = p.tf;
     this.assetClass = p.symbol.assetClass;
+    this.basketHasCrypto = p.symbol.assetClass === 'basket' && p.basketHasCrypto === true;
     // Same symbol, but daily-anchored drawings now display differently (daily ↔ intraday): re-place them.
     if (prevSymbol === p.symbol.id && prevMapping !== this.mapsDailyAnchors()) this.replaceForAnchorMapping(p.symbol.id);
     this.markers = [];
@@ -446,11 +452,17 @@ export class ChartAdapter {
     },
     onPressedMoveStart: ({ overlay }) => {
       this.draggingId = overlay.id;
+      this.pressedPoints.set(overlay.id, completePoints(overlay));
       if (this.strongMagnet) this.applyStrong(overlay.id);
     },
     onPressedMoveEnd: ({ overlay }) => {
       if (this.draggingId === overlay.id) this.draggingId = null;
       this.revertMode(overlay.id);
+      // KLineChart fires press start/end on a plain click too: only a real move changes the anchoring.
+      const before = this.pressedPoints.get(overlay.id);
+      this.pressedPoints.delete(overlay.id);
+      const after = completePoints(overlay);
+      if (before && after && samePoints(before, after)) return;
       this.anchorAfterEdit(overlay.id);
       this.emitChange();
     },
@@ -460,6 +472,7 @@ export class ChartAdapter {
       if (this.draggingId === overlay.id) this.draggingId = null;
       this.strongIds.delete(overlay.id);
       this.anchors.delete(overlay.id);
+      this.pressedPoints.delete(overlay.id);
       this.removing.add(overlay.id);
       try { this.emitChange(); } finally { this.removing.delete(overlay.id); }
     },
@@ -474,9 +487,12 @@ export class ChartAdapter {
 
   /** Per user overlay: its anchor and, while shown remapped, the stored points and the displayed ones. */
   private readonly anchors = new Map<string, { anchorTf: AnchorTf; original?: Point[]; display?: Point[] }>();
+  /** Points of an overlay when a press on it started (a press without movement changes nothing). */
+  private readonly pressedPoints = new Map<string, Point[] | null>();
 
+  /** Stock or stock-only basket: daily bars at UTC midnight, intraday bars on the New York session grid. */
   private stockLike(): boolean {
-    return this.assetClass === 'stock' || this.assetClass === 'basket';
+    return this.assetClass === 'stock' || (this.assetClass === 'basket' && !this.basketHasCrypto);
   }
 
   /** True when daily-anchored points are remapped for display (intraday stock/basket chart). */

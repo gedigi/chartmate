@@ -31,10 +31,10 @@ const DRAWINGS_SAVE_MS = 1000;
 
 /**
  * Polling interval for a symbol; baskets poll fast only if they contain crypto (re-checked when the basket is
- * edited). Null while unknown.
+ * edited). Null while unknown. `basketHasCrypto` also tells the chart that the basket uses the UTC bar grid.
  */
-function usePollMs(info: SymbolInfo | null): number | null {
-  const [basket, setBasket] = useState<{ id: SymbolId; ms: number } | null>(null);
+function usePollMs(info: SymbolInfo | null): { pollMs: number | null; basketHasCrypto: boolean } {
+  const [basket, setBasket] = useState<{ id: SymbolId; crypto: boolean } | null>(null);
   const [basketRev, setBasketRev] = useState(0);
   const isBasket = info?.assetClass === 'basket';
   const id = info?.id;
@@ -46,16 +46,17 @@ function usePollMs(info: SymbolInfo | null): number | null {
   useEffect(() => {
     if (!isBasket || !id) return;
     let cancelled = false;
-    const done = (ms: number) => { if (!cancelled) setBasket({ id, ms }); };
+    const done = (crypto: boolean) => { if (!cancelled) setBasket({ id, crypto }); };
     api.baskets.get(parseSymbolId(id).code).then(
-      (b) => done(pollIntervalMs(b.versions.some((v) => Object.keys(v.weights).some((w) => w.startsWith('crypto:'))) ? 'crypto' : 'basket')),
-      () => done(pollIntervalMs('basket')),
+      (b) => done(b.versions.some((v) => Object.keys(v.weights).some((w) => w.startsWith('crypto:')))),
+      () => done(false),
     );
     return () => { cancelled = true; };
   }, [isBasket, id, basketRev]);
-  if (!info) return null;
-  if (!isBasket) return pollIntervalMs(info.assetClass);
-  return basket?.id === info.id ? basket.ms : null;
+  if (!info) return { pollMs: null, basketHasCrypto: false };
+  if (!isBasket) return { pollMs: pollIntervalMs(info.assetClass), basketHasCrypto: false };
+  if (basket?.id !== info.id) return { pollMs: null, basketHasCrypto: false };
+  return { pollMs: pollIntervalMs(basket.crypto ? 'crypto' : 'basket'), basketHasCrypto: basket.crypto };
 }
 
 /** The indicator's style overrides (absent = default). */
@@ -100,7 +101,7 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
   const indicatorsRef = useRef(new Map<string, { id: string; state: IndicatorState }>());
 
   const info = symbolInfo && symbolInfo.id === layout.symbol ? symbolInfo : null;
-  const pollMs = usePollMs(info);
+  const { pollMs, basketHasCrypto } = usePollMs(info);
   const { symbol, tf, session, chartType, indicators } = layout;
 
   // Adapter lifetime + resize.
@@ -150,7 +151,7 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
       return;
     }
     let active = true;
-    adapter.load({ symbol: info, tf, session, pollMs }, {
+    adapter.load(info.assetClass === 'basket' ? { symbol: info, tf, session, pollMs, basketHasCrypto } : { symbol: info, tf, session, pollMs }, {
       onMeta: (m) => {
         if (!active) return;
         setMeta(m);
@@ -171,7 +172,7 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
       },
     });
     return () => { active = false; };
-  }, [adapter, info, tf, session, pollMs, reloadKey]);
+  }, [adapter, info, tf, session, pollMs, basketHasCrypto, reloadKey]);
 
   const shade = session === 'eth' && isIntraday(tf) && info?.assetClass === 'stock'; // only stock bars carry session tags
   useEffect(() => { adapter?.setSessionShading(shade); }, [adapter, shade]);

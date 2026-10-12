@@ -14,6 +14,17 @@ export class ApiError extends Error {
   }
 }
 
+/** Client errors that are transient by nature: retrying can succeed (timeouts, rate limits, conflicts, locks). */
+const TRANSIENT_4XX: ReadonlySet<number> = new Set([401, 408, 409, 423, 425, 429]);
+
+/**
+ * A client error retrying cannot fix: a 4xx other than the transient ones (401 is the session, handled globally;
+ * 408/409/423/425/429 can succeed later). Network errors (status 0) and 5xx are never permanent.
+ */
+export function isPermanentError(err: unknown): boolean {
+  return err instanceof ApiError && err.status >= 400 && err.status <= 499 && !TRANSIENT_4XX.has(err.status);
+}
+
 type Query = Record<string, string | number>;
 
 const enc = encodeURIComponent;

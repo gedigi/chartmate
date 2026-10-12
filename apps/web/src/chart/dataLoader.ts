@@ -1,5 +1,5 @@
 import { tfMs, type Bar, type BarsResponse, type Marker, type SessionMode, type Timeframe } from '@altv/shared';
-import { api, ApiError } from '../api/client';
+import { api, isPermanentError } from '../api/client';
 import { retryDelayMs } from '../state/retry';
 import { forwardRetryWindowMs, fromPeriod, initialWindowMs } from './periods';
 
@@ -35,10 +35,7 @@ export interface LoaderEvents {
   onFatal?(e: Error): void;
 }
 
-/** A client error retrying cannot fix: 4xx except 401 (session; handled globally), 408 and 429 (transient). */
-export function isPermanentError(err: unknown): boolean {
-  return err instanceof ApiError && err.status >= 400 && err.status <= 499 && err.status !== 401 && err.status !== 408 && err.status !== 429;
-}
+export { isPermanentError } from '../api/client';
 
 export interface LoaderContext {
   /** Read at request time. */

@@ -871,8 +871,8 @@ describe('ChartAdapter daily-anchored drawings (anchorTf)', () => {
   const BASKET: SymbolInfo = { id: 'basket:b1', assetClass: 'basket', ticker: 'B1', name: 'B1', pricePrecision: 2 };
   const anchored = { name: 'segment', points: [{ timestamp: D1, value: 10 }, { timestamp: D2, value: 20 }], lock: false, anchorTf: '1D' as const };
 
-  async function loadAt(a: InstanceType<typeof ChartAdapter>, symbol: SymbolInfo, tf: '1D' | '1W' | '1h' | '5m') {
-    a.load({ symbol, tf, session: 'rth', pollMs: 15000 }, events());
+  async function loadAt(a: InstanceType<typeof ChartAdapter>, symbol: SymbolInfo, tf: '1D' | '1W' | '1h' | '5m', extra: { basketHasCrypto?: boolean } = {}) {
+    a.load({ symbol, tf, session: 'rth', pollMs: 15000, ...extra }, events());
     vi.spyOn(api, 'bars').mockResolvedValue({
       symbol: symbol.id, tf, session: 'rth', hasMoreBefore: false, stale: false, notices: [], markers: [],
       bars: [{ ts: D1, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 }],
@@ -894,9 +894,53 @@ describe('ChartAdapter daily-anchored drawings (anchorTf)', () => {
 
   function move(points: Array<{ timestamp: number; value: number }>) {
     const o = userOverlays()[0]!;
+    (o as FakeOverlay & { onPressedMoveStart?: (e: unknown) => void }).onPressedMoveStart?.({ overlay: o });
     o.points = points;
     o.onPressedMoveEnd?.({ overlay: o });
   }
+
+  /** A plain click on a drawing: KLineChart fires onPressedMoveStart/End even without any movement. */
+  function pressWithoutMove() {
+    const o = userOverlays()[0]!;
+    (o as FakeOverlay & { onPressedMoveStart?: (e: unknown) => void }).onPressedMoveStart?.({ overlay: o });
+    o.points = o.points.map((p) => ({ ...p })); // same values, new objects
+    o.onPressedMoveEnd?.({ overlay: o });
+  }
+
+  it('a press without movement keeps a daily-anchored drawing as stored (intraday and daily charts)', async () => {
+    for (const tf of ['5m', '1D', '1W'] as const) {
+      const a = make();
+      await loadAt(a, AAPL, tf);
+      a.restoreDrawings([anchored], AAPL.id);
+      pressWithoutMove();
+      expect(a.serializeDrawings(), tf).toEqual([anchored]);
+    }
+  });
+
+  it('a press without movement on a daily chart never anchors an intraday drawing', async () => {
+    const intraday = { name: 'segment', points: [{ timestamp: OPEN1 + 60_000, value: 1 }, { timestamp: OPEN2, value: 2 }], lock: false };
+    const a = make();
+    await loadAt(a, AAPL, '1D');
+    a.restoreDrawings([intraday], AAPL.id);
+    pressWithoutMove();
+    expect(a.serializeDrawings()).toEqual([intraday]);
+  });
+
+  it('a real move on a daily chart anchors a previously intraday drawing', async () => {
+    const a = make();
+    await loadAt(a, AAPL, '1D');
+    a.restoreDrawings([{ name: 'segment', points: [{ timestamp: OPEN1, value: 1 }, { timestamp: OPEN2, value: 2 }], lock: false }], AAPL.id);
+    move([{ timestamp: D1, value: 3 }, { timestamp: D2, value: 4 }]);
+    expect(a.serializeDrawings()[0]).toMatchObject({ anchorTf: '1D', points: [{ timestamp: D1, value: 3 }, { timestamp: D2, value: 4 }] });
+  });
+
+  it('baskets containing crypto use the UTC grid: anchored drawings are not remapped on intraday', async () => {
+    const a = make();
+    await loadAt(a, BASKET, '1h', { basketHasCrypto: true });
+    a.restoreDrawings([anchored], BASKET.id);
+    expect(userOverlays()[0]!.points).toEqual(anchored.points);
+    expect(a.serializeDrawings()).toEqual([anchored]);
+  });
 
   it('a drawing created on a daily+ timeframe of a stock/basket stores anchorTf; intraday and crypto ones do not', async () => {
     for (const [symbol, tf, expected] of [

@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../src/api/client';
 import { useDebouncedSave } from '../src/state/useDebouncedSave';
 
 beforeEach(() => vi.useFakeTimers());
@@ -103,6 +104,52 @@ describe('useDebouncedSave', () => {
     await act(async () => { rejectFirst(new Error('late failure')); });
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
     expect(save.mock.calls.map((c) => c[0])).toEqual([2, 3]);
+  });
+
+  it('out-of-order responses: only the latest save sets or clears the error', async () => {
+    let settleFirst!: { resolve: () => void; reject: (e: Error) => void };
+    const save = vi.fn<(v: number) => Promise<void>>()
+      .mockImplementationOnce(() => new Promise<void>((resolve, reject) => { settleFirst = { resolve, reject }; }))
+      .mockRejectedValueOnce(new Error('latest failed'))
+      .mockImplementationOnce(() => new Promise<void>((resolve, reject) => { settleFirst = { resolve, reject }; }))
+      .mockResolvedValueOnce(undefined);
+    const { rerender, result } = renderHook(({ v }) => useDebouncedSave(v, save, 1000), { initialProps: { v: 1 } });
+    rerender({ v: 2 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); }); // save(2) in flight
+    rerender({ v: 3 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); }); // save(3) fails
+    expect(result.current.error).toBe('latest failed');
+    await act(async () => { settleFirst.resolve(); }); // stale success must not hide the live error
+    expect(result.current.error).toBe('latest failed');
+    rerender({ v: 4 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); }); // save(4) in flight
+    rerender({ v: 5 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); }); // save(5) succeeds
+    expect(result.current.error).toBeNull();
+    await act(async () => { settleFirst.reject(new Error('stale failure')); }); // must not raise a stale badge
+    expect(result.current.error).toBeNull();
+  });
+
+  it('with retry: a permanent 4xx is not retried and its error stays shown', async () => {
+    const save = vi.fn<(v: number) => Promise<void>>().mockRejectedValue(new ApiError(400, 'invalid_request', 'too many indicators'));
+    const { rerender, result } = renderHook(({ v }) => useDebouncedSave(v, save, 1000, true, { retry: true }), { initialProps: { v: 1 } });
+    rerender({ v: 2 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBe('too many indicators');
+  });
+
+  it('with retry: transient statuses (e.g. 503, 429, 409) are retried', async () => {
+    for (const status of [503, 429, 409]) {
+      const save = vi.fn<(v: number) => Promise<void>>()
+        .mockRejectedValueOnce(new ApiError(status, 'x', 'busy')).mockResolvedValue(undefined);
+      const { rerender, unmount } = renderHook(({ v }) => useDebouncedSave(v, save, 1000, true, { retry: true }), { initialProps: { v: 1 } });
+      rerender({ v: 2 });
+      await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+      expect(save, String(status)).toHaveBeenCalledTimes(2);
+      unmount();
+    }
   });
 
   it('without retry, a failed save is not retried', async () => {
