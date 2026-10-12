@@ -100,6 +100,34 @@ describe('DrawingToolbar', () => {
     expect(c.deselect).toHaveBeenCalledTimes(1);
   });
 
+  it('Escape inside a dialog, modal, listbox or popup closes only that, never deselecting the drawing', () => {
+    const { c } = makeControls();
+    render(
+      <>
+        <div role="dialog" aria-label="dlg"><button type="button">in dialog</button></div>
+        <dialog open><span tabIndex={0}>native dialog</span></dialog>
+        <div aria-modal="true"><span tabIndex={0}>modal</span></div>
+        <ul role="listbox" aria-label="lb"><li role="option" aria-selected="false" tabIndex={0}>opt</li></ul>
+        <div role="menu"><span tabIndex={0}>menu item</span></div>
+        <DrawingToolbar controls={c} ticker="AAPL" />
+      </>,
+    );
+    for (const name of ['in dialog', 'native dialog', 'modal', 'opt', 'menu item']) {
+      fireEvent.keyDown(screen.getByText(name), { key: 'Escape' });
+    }
+    expect(c.deselect).not.toHaveBeenCalled();
+    expect(c.cancelDrawing).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(c.deselect).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape already handled by a popup (defaultPrevented) does not deselect', () => {
+    const { c } = makeControls();
+    render(<><span tabIndex={0} onKeyDown={(e) => e.preventDefault()}>popup</span><DrawingToolbar controls={c} ticker="AAPL" /></>);
+    fireEvent.keyDown(screen.getByText('popup'), { key: 'Escape' });
+    expect(c.deselect).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['Trend line', 'segment'], ['Ray', 'rayLine'], ['Extended line', 'straightLine'],
     ['Horizontal line', 'horizontalStraightLine'], ['Vertical line', 'verticalStraightLine'], ['Price line', 'priceLine'],
