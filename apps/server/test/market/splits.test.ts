@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { sql } from 'kysely';
 import { createDb } from '../../src/db/connect.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';
@@ -119,7 +120,7 @@ describe('MarketDataService stock split check', () => {
     expect(await repos.bars.range('stock:AAPL', '5m', 0, NOW)).toEqual([]);
   });
 
-  it('the split invalidation runs in one transaction', async () => {
+  it('the split invalidation and the check stamp run in one transaction', async () => {
     await h.db.updateTable('symbols').set({ splits_checked_at: NOW - 3 * DAY }).where('id', '=', 'stock:AAPL').execute();
     await repos.bars.upsert('stock:AAPL', '1h', [bar(NOW - 800 * DAY), bar(NOW - 10 * DAY)]);
     stock.splits.AAPL = [NOW - DAY];
@@ -130,7 +131,59 @@ describe('MarketDataService stock split check', () => {
     await svc.ensureSplitsChecked('stock:AAPL');
     expect(tx).toHaveBeenCalledTimes(1);
     expect(del).not.toHaveBeenCalled(); // every delete/update went through the transaction
-    expect(upd.mock.calls.every((c) => c[0] === 'symbols')).toBe(true); // only the check stamp is outside
+    expect(upd).not.toHaveBeenCalled(); // including the splits_checked_at stamp
+    expect((await repos.symbols.get('stock:AAPL'))?.splitsCheckedAt).toBe(NOW + HOUR);
+  });
+
+  it('a failing stamp write rolls the whole split back; the retry rescales exactly once', async () => {
+    await h.db.updateTable('symbols').set({ splits_checked_at: NOW - 3 * DAY }).where('id', '=', 'stock:AAPL').execute();
+    const old = bar(NOW - 800 * DAY);
+    await repos.bars.upsert('stock:AAPL', '1h', [old]);
+    stock.splits.AAPL = [NOW - DAY];
+    await sql`create trigger fail_stamp before update of splits_checked_at on symbols begin select raise(abort, 'stamp failed'); end`.execute(h.db);
+    now = NOW + HOUR;
+    const epoch = svc.cacheEpoch;
+    await svc.ensureSplitsChecked('stock:AAPL'); // never throws
+    expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([old]); // rolled back: not rescaled
+    expect((await repos.symbols.get('stock:AAPL'))?.splitsCheckedAt).toBe(NOW - 3 * DAY);
+    expect(svc.cacheEpoch).toBe(epoch);
+    await sql`drop trigger fail_stamp`.execute(h.db);
+    now = NOW + 2 * HOUR; // retry window passed
+    await svc.ensureSplitsChecked('stock:AAPL');
+    expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([{ ...old, open: 50, high: 51, low: 49, close: 50.5, volume: 20 }]);
+    now = NOW + 4 * HOUR;
+    await svc.ensureSplitsChecked('stock:AAPL'); // stamped: not checked (or applied) again today
+    expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([{ ...old, open: 50, high: 51, low: 49, close: 50.5, volume: 20 }]);
+    expect(svc.cacheEpoch).toBe(epoch + 1);
+  });
+
+  it('a future-dated split event is not applied early', async () => {
+    await h.db.updateTable('symbols').set({ splits_checked_at: NOW - 3 * DAY }).where('id', '=', 'stock:AAPL').execute();
+    const old = bar(NOW - 800 * DAY);
+    await repos.bars.upsert('stock:AAPL', '1h', [old]);
+    stock.splits.AAPL = [NOW + 2 * DAY];
+    const epoch = svc.cacheEpoch;
+    await svc.ensureSplitsChecked('stock:AAPL');
+    expect(svc.cacheEpoch).toBe(epoch);
+    expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([old]);
+    expect((await repos.symbols.get('stock:AAPL'))?.splitsCheckedAt).toBe(NOW);
+    now = NOW + 3 * DAY; // once it has happened (after the last stamp), it is applied
+    await svc.ensureSplitsChecked('stock:AAPL');
+    expect(svc.cacheEpoch).toBe(epoch + 1);
+  });
+
+  it('reverse split (factor < 1) rescales old intraday bars up and volume down', async () => {
+    await h.db.updateTable('symbols').set({ splits_checked_at: NOW - 3 * DAY }).where('id', '=', 'stock:AAPL').execute();
+    await repos.bars.upsert('stock:AAPL', '1h', [bar(NOW - 800 * DAY)]);
+    stock.splits.AAPL = [{ ts: NOW - DAY, factor: 0.1 }]; // 1-for-10
+    now = NOW + HOUR;
+    await svc.ensureSplitsChecked('stock:AAPL');
+    const [b] = await repos.bars.range('stock:AAPL', '1h', 0, NOW);
+    expect(b!.open).toBeCloseTo(1000, 9);
+    expect(b!.high).toBeCloseTo(1020, 9);
+    expect(b!.low).toBeCloseTo(980, 9);
+    expect(b!.close).toBeCloseTo(1010, 9);
+    expect(b!.volume).toBeCloseTo(1, 9);
   });
 
   it('first chart of a new symbol (no row yet): the row insert stamps the check, so day 2 never uses since = 0', async () => {

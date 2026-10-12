@@ -28,8 +28,8 @@ export class FakeProvider implements MarketDataProvider {
   price: PriceFn | null = null;
   /** Per-code first bar ts (bars before it don't exist), e.g. a later listing. */
   listedFrom: Record<string, number> = {};
-  /** Per-code stock splits (ts = split date). */
-  splits: Record<string, number[]> = {};
+  /** Per-code stock splits: a split date (factor 2) or { ts, factor }. */
+  splits: Record<string, (number | { ts: number; factor: number })[]> = {};
   splitsCalls: { code: string; since: number }[] = [];
   splitsFail: Error | null = null;
   /** Optional quote price per code (undefined = no quote for that code); default: 10 for universe codes. */
@@ -83,7 +83,10 @@ export class FakeProvider implements MarketDataProvider {
   async splitsSince(code: string, since: number): Promise<{ ts: number; ratio: string; factor: number }[]> {
     this.splitsCalls.push({ code, since });
     if (this.splitsFail) throw this.splitsFail;
-    return (this.splits[code] ?? []).filter((ts) => ts > since).map((ts) => ({ ts, ratio: '2:1', factor: 2 }));
+    return (this.splits[code] ?? [])
+      .map((sp) => (typeof sp === 'number' ? { ts: sp, factor: 2 } : sp))
+      .filter((sp) => sp.ts > since)
+      .map((sp) => ({ ts: sp.ts, ratio: `${sp.factor}:1`, factor: sp.factor }));
   }
 
   info(t: string): SymbolInfo {

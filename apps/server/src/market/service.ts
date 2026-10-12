@@ -122,11 +122,13 @@ export class MarketDataService {
   }
 
   /**
-   * Stock-split check, at most once per day per stock symbol (stamped in `symbols.splits_checked_at`). Adjusted
-   * history cached before a split is wrong afterwards, so when the provider reports a split after the last check,
-   * all of the symbol's cached bars and coverage are dropped (refetched on demand) and `cacheEpoch` is bumped.
-   * A never-checked symbol with cached bars is checked against its whole history once. Never throws; a failed
-   * lookup is retried after an hour. Concurrent callers share one check.
+   * Stock-split check, at most once per day per stock symbol (stamped in `symbols.splits_checked_at`; new rows are
+   * stamped on insert, symbols with neither row nor bars are remembered in memory). Yahoo's history is adjusted as of
+   * fetch time, so for each split since the last check (and not in the future): daily bars are dropped, intraday bars
+   * still inside the provider lookback are dropped (refetchable), and older intraday bars are rescaled by the split
+   * factor; this and the new stamp commit in one transaction, then `cacheEpoch` is bumped (basket units recompute).
+   * Rows that were never checked (pre-migration) use `updated_at − 7 d` as the baseline. Never throws: a failed
+   * lookup backs the stock queue off (if retryable) and is retried after an hour. Concurrent callers share one check.
    */
   async ensureSplitsChecked(symbol: SymbolId): Promise<void> {
     let parsed: { assetClass: MarketClass; code: string };
@@ -166,12 +168,14 @@ export class MarketDataService {
       // reflected in what was cached.
       const since = last ?? row.updatedAt - SPLIT_BASELINE_SLACK_MS;
       const splits = await this.queues.stock.run(`splits|${code}|${since}`, () => provider.splitsSince!(code, since));
-      const relevant = splits.filter((sp) => sp.ts > since).sort((x, y) => x.ts - y.ts);
+      // Only splits that already happened: a future-dated (announced) event is applied once it has occurred.
+      const relevant = splits.filter((sp) => sp.ts > since && sp.ts <= now).sort((x, y) => x.ts - y.ts);
       if (relevant.length > 0) {
-        await this.repos.bars.applySplit(symbol, this.splitOps(relevant));
+        await this.repos.bars.applySplit(symbol, this.splitOps(relevant), now); // stamps in the same transaction
         this.epoch++;
+      } else {
+        await this.repos.symbols.markSplitsChecked(symbol, now);
       }
-      await this.repos.symbols.markSplitsChecked(symbol, now);
       this.splitNextCheck.set(symbol, now + SPLIT_CHECK_MS);
     } catch (err) {
       if (err instanceof ProviderError && err.retryable && err.provider !== 'queue') this.queues.stock.backoff(BACKOFF_MS);

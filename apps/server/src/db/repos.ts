@@ -51,9 +51,11 @@ export class BarRepo {
 
   /**
    * Applies split ops for `symbol` in ONE transaction: per op, coverage at/after `cut` is removed (ranges straddling
-   * it are trimmed) before the bars at/after `cut` are deleted, and older bars are rescaled by `factor`.
+   * it are trimmed) before the bars at/after `cut` are deleted, and older bars are rescaled by `factor`. The
+   * symbol's `splits_checked_at` is set to `checkedAt` in the same transaction, so a split can never be applied
+   * (rescaled) twice: either everything commits, including the stamp, or nothing does.
    */
-  async applySplit(symbol: string, ops: SplitOp[]): Promise<void> {
+  async applySplit(symbol: string, ops: SplitOp[], checkedAt: number): Promise<void> {
     await this.db.transaction().execute(async trx => {
       for (const op of ops) {
         await trx.deleteFrom('coverage').where('symbol', '=', symbol).where('tf', '=', op.tf).where('from_ts', '>=', op.cut).execute();
@@ -69,6 +71,7 @@ export class BarRepo {
           })).where('symbol', '=', symbol).where('tf', '=', op.tf).where('ts', '<', op.cut).execute();
         }
       }
+      await trx.updateTable('symbols').set({ splits_checked_at: checkedAt }).where('id', '=', symbol).execute();
     });
   }
 
