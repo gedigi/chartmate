@@ -40,6 +40,12 @@ export class BarRepo {
     return rows.map(toBar);
   }
 
+  /** True when any bar of `symbol` is cached (any timeframe). */
+  async hasAny(symbol: string): Promise<boolean> {
+    const r = await this.db.selectFrom('bars').select('ts').where('symbol', '=', symbol).limit(1).executeTakeFirst();
+    return r !== undefined;
+  }
+
   /** Deletes every cached bar of `symbol` (all timeframes). */
   async deleteSymbol(symbol: string): Promise<void> {
     await this.db.deleteFrom('bars').where('symbol', '=', symbol).execute();

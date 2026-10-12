@@ -21,6 +21,10 @@ const NEGATIVE_TTL_MS = 10 * 60_000;
 const MAX_UNKNOWN = 1000;
 /** A provider "no data" answer for a chunk ending longer ago than this is trusted (cached as empty). */
 const NO_DATA_TRUST_MS = 7 * DAY;
+/** Stock splits are checked at most this often per symbol. */
+const SPLIT_CHECK_MS = DAY;
+/** Retry delay after a failed split lookup. */
+const SPLIT_RETRY_MS = 60 * 60_000;
 
 export interface GetBarsArgs { symbol: SymbolId; tf: Timeframe; session: SessionMode; from: number; to: number }
 export interface BarsResult { bars: Bar[]; stale: boolean; hasMoreBefore: boolean; earliestTs: number | null; notices: string[] }
@@ -66,6 +70,11 @@ export class MarketDataService {
   private readonly queues: { stock: RequestQueue; crypto: RequestQueue };
   /** Unknown symbol ids → expiry (ms). */
   private readonly unknownUntil = new Map<SymbolId, number>();
+  /** Bumped whenever cached bars are invalidated (stock split); dependents (basket units) key their caches on it. */
+  private epoch = 0;
+  /** Earliest time the next split check may run, per symbol (in-memory; the DB stamp survives restarts). */
+  private readonly splitNextCheck = new Map<SymbolId, number>();
+  private readonly splitChecks = new Map<SymbolId, Promise<void>>();
 
   constructor(deps: { repos: Repos; registry: ProviderRegistry; now?: () => number; queues?: { stock: RequestQueue; crypto: RequestQueue } }) {
     this.repos = deps.repos;
@@ -104,8 +113,68 @@ export class MarketDataService {
     return { bars, stale: native.stale, hasMoreBefore, earliestTs, notices };
   }
 
+  /** Changes whenever cached market data was invalidated (see `ensureSplitsChecked`). */
+  get cacheEpoch(): number {
+    return this.epoch;
+  }
+
+  /**
+   * Stock-split check, at most once per day per stock symbol (stamped in `symbols.splits_checked_at`). Adjusted
+   * history cached before a split is wrong afterwards, so when the provider reports a split after the last check,
+   * all of the symbol's cached bars and coverage are dropped (refetched on demand) and `cacheEpoch` is bumped.
+   * A never-checked symbol with cached bars is checked against its whole history once. Never throws; a failed
+   * lookup is retried after an hour. Concurrent callers share one check.
+   */
+  async ensureSplitsChecked(symbol: SymbolId): Promise<void> {
+    let parsed: { assetClass: MarketClass; code: string };
+    try {
+      parsed = parseMarketSymbol(symbol);
+    } catch {
+      return;
+    }
+    if (parsed.assetClass !== 'stock' || !this.provider('stock').splitsSince) return;
+    const next = this.splitNextCheck.get(symbol);
+    if (next !== undefined && this.now() < next) return;
+    const pending = this.splitChecks.get(symbol);
+    if (pending) return pending;
+    const p = this.checkSplits(symbol, parsed.code).finally(() => this.splitChecks.delete(symbol));
+    this.splitChecks.set(symbol, p);
+    return p;
+  }
+
+  private async checkSplits(symbol: SymbolId, code: string): Promise<void> {
+    const provider = this.provider('stock');
+    const now = this.now();
+    try {
+      const row = await this.repos.symbols.get(symbol);
+      if (!row) return; // nothing to stamp yet; symbolInfo creates the row
+      const last = row.splitsCheckedAt ?? null;
+      if (last !== null && now - last < SPLIT_CHECK_MS) {
+        this.splitNextCheck.set(symbol, last + SPLIT_CHECK_MS);
+        return;
+      }
+      let since: number;
+      if (last !== null) since = last;
+      else if (await this.repos.bars.hasAny(symbol)) since = 0; // cached before checks existed: unknown fetch time
+      else since = now; // nothing cached, nothing to invalidate
+      if (since < now) {
+        const splits = await this.queues.stock.run(`splits|${code}|${since}`, () => provider.splitsSince!(code, since));
+        if (splits.length > 0) {
+          await this.repos.bars.deleteSymbol(symbol);
+          await this.repos.coverage.deleteSymbol(symbol);
+          this.epoch++;
+        }
+      }
+      await this.repos.symbols.markSplitsChecked(symbol, now);
+      this.splitNextCheck.set(symbol, now + SPLIT_CHECK_MS);
+    } catch {
+      this.splitNextCheck.set(symbol, now + SPLIT_RETRY_MS); // never fail a bars request over this
+    }
+  }
+
   async getNativeBars(symbol: SymbolId, tf: NativeTimeframe, from: number, to: number): Promise<{ bars: Bar[]; stale: boolean }> {
     const { assetClass, code } = parseMarketSymbol(symbol);
+    if (assetClass === 'stock') await this.ensureSplitsChecked(symbol);
     const provider = this.provider(assetClass);
     const queue = this.queues[assetClass];
     const now = this.now();

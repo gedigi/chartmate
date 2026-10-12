@@ -4,7 +4,7 @@ import {
 } from '@altv/shared';
 import { NotFoundError } from '../errors.js';
 import { rankMatches } from './util.js';
-import type { FetchBarsResult, MarketDataProvider, ProviderLimits } from './types.js';
+import type { FetchBarsResult, MarketDataProvider, ProviderLimits, StockSplit } from './types.js';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -93,6 +93,11 @@ export class FixtureProvider implements MarketDataProvider {
 
   async firstBarTs(code: string): Promise<number | null> {
     return this.lookup(code).firstTs;
+  }
+
+  /** Fixture data has no splits. */
+  async splitsSince(_code: string, _since: number): Promise<StockSplit[]> {
+    return [];
   }
 
   private generate(sym: FixtureSymbol, tf: NativeTimeframe, from: number, to: number): Bar[] {

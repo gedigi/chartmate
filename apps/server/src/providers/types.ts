@@ -16,6 +16,13 @@ export interface FetchBarsResult {
   sessionWindows?: SessionWindow[];
 }
 
+export interface StockSplit {
+  /** Split (ex-)date, UTC epoch ms. */
+  ts: number;
+  /** E.g. '4:1' when the provider reports it. */
+  ratio?: string;
+}
+
 export interface MarketDataProvider {
   readonly id: 'yahoo' | 'binance' | 'coinbase' | 'fixture';
   readonly assetClass: 'stock' | 'crypto';
@@ -27,4 +34,6 @@ export interface MarketDataProvider {
   quotes(codes: string[]): Promise<Quote[]>;
   /** Listing date (null = unknown). */
   firstBarTs(code: string): Promise<number | null>;
+  /** Stock splits with ts strictly after `since` (optional: providers without splits omit it). */
+  splitsSince?(code: string, since: number): Promise<StockSplit[]>;
 }

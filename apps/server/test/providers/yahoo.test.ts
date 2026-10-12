@@ -353,4 +353,27 @@ describe('YahooProvider', () => {
     const { client } = fakeYahoo({ chart: () => ({ meta: {}, quotes: [] }) });
     expect(await provider(client).firstBarTs('AAPL')).toBeNull();
   });
+
+  it('splitsSince requests split events and returns splits strictly after ts', async () => {
+    const since = NOW - 30 * DAY;
+    const { client, chartCalls } = fakeYahoo({ chart: () => ({
+      meta: {}, quotes: [],
+      events: { splits: [
+        { date: new Date(since - DAY), numerator: 2, denominator: 1, splitRatio: '2:1' },
+        { date: new Date(since + 5 * DAY), numerator: 4, denominator: 1, splitRatio: '4:1' },
+      ] },
+    }) });
+    expect(await provider(client).splitsSince('AAPL', since)).toEqual([{ ts: since + 5 * DAY, ratio: '4:1' }]);
+    expect(chartCalls[0]!.sym).toBe('AAPL');
+    expect(chartCalls[0]!.opts.events).toBe('split');
+    expect(chartCalls[0]!.opts.period1.getTime()).toBe(since);
+    expect(chartCalls[0]!.opts.period2.getTime()).toBe(NOW);
+  });
+
+  it('splitsSince: no events → []; errors are mapped like other calls', async () => {
+    const { client } = fakeYahoo({ chart: () => ({ meta: {}, quotes: [] }) });
+    expect(await provider(client).splitsSince('AAPL', NOW - DAY)).toEqual([]);
+    const bad = fakeYahoo({ chart: () => { throw Object.assign(new Error('Too Many Requests'), { code: 429 }); } });
+    await expect(provider(bad.client).splitsSince('AAPL', NOW - DAY)).rejects.toBeInstanceOf(ProviderError);
+  });
 });

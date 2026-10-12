@@ -28,6 +28,10 @@ export class FakeProvider implements MarketDataProvider {
   price: PriceFn | null = null;
   /** Per-code first bar ts (bars before it don't exist), e.g. a later listing. */
   listedFrom: Record<string, number> = {};
+  /** Per-code stock splits (ts = split date). */
+  splits: Record<string, number[]> = {};
+  splitsCalls: { code: string; since: number }[] = [];
+  splitsFail: Error | null = null;
 
   constructor(
     readonly assetClass: 'stock' | 'crypto',
@@ -61,6 +65,12 @@ export class FakeProvider implements MarketDataProvider {
     this.firstCalls.push(code);
     if (this.fail) throw this.fail;
     return this.firstTs;
+  }
+
+  async splitsSince(code: string, since: number): Promise<{ ts: number; ratio: string }[]> {
+    this.splitsCalls.push({ code, since });
+    if (this.splitsFail) throw this.splitsFail;
+    return (this.splits[code] ?? []).filter((ts) => ts > since).map((ts) => ({ ts, ratio: '2:1' }));
   }
 
   info(t: string): SymbolInfo {

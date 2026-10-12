@@ -115,11 +115,13 @@ blocks some regions (e.g. the US): set `CRYPTO_PROVIDER=coinbase`, or point `BIN
 endpoint reachable from your host. Switching providers does not invalidate saved baskets, watchlists
 or drawings. If a provider is down or rate limiting, cached bars are served marked `stale`.
 
-Fetched history is cached in the database and not re-downloaded. Yahoo's daily bars are split- and
-dividend-adjusted *as of the day they were fetched*, so after a stock split (or dividend) the cached
-history before it is not refreshed: the chart shows a jump at the split, and baskets holding that stock
-size its units off by the split factor. To refetch a symbol, delete its cache (see
-[Troubleshooting](#troubleshooting)).
+Fetched history is cached in the database and not re-downloaded. Yahoo's bars are split- and
+dividend-adjusted *as of the day they were fetched*, so the server checks each stock for splits at most
+once a day when serving its bars (a lightweight Yahoo chart call with split events since the last check,
+stamped in `symbols.splits_checked_at`). When a split occurred since the last check, that symbol's cached
+bars are dropped and refetched on demand, and baskets holding it recompute their units. A failed check
+never fails a request; it is retried after an hour. Dividends are not detected: after one, older cached
+bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting) to refetch a symbol).
 
 ## Charts
 
@@ -187,7 +189,8 @@ kept and simply re-upserted):
 DELETE FROM coverage;
 ```
 
-**Stale history after a stock split or dividend.** Delete that symbol's cache, then reload the chart:
+**Stale history after a dividend** (splits are detected automatically, see above). Delete that
+symbol's cache, then reload the chart:
 
 ```sql
 DELETE FROM bars WHERE symbol = 'stock:NVDA';

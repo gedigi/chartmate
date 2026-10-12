@@ -133,4 +133,8 @@ describe('FixtureProvider', () => {
     expect(q!.ts).toBe(bars.at(-1)!.ts);
     expect(nyParts(q!.ts).dow).toBe(5); // Friday post-market
   });
+
+  it('reports no stock splits', async () => {
+    expect(await stock().splitsSince('AAPL', 0)).toEqual([]);
+  });
 });

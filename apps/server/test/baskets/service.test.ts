@@ -339,6 +339,23 @@ describe('BasketService', () => {
     });
   });
 
+  describe('units cache + stock splits', () => {
+    it('a detected split bumps the market cacheEpoch and the basket recomputes its units', async () => {
+      const b = await svc.create({ name: 'mix', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
+      const args = { id: b.id, tf: '1D' as const, session: 'rth' as const, from: D(9, 20), to: NOW };
+      await svc.getBars(args);
+      const spy = vi.spyOn(market, 'getNativeBars');
+      const unitsFetches = () => spy.mock.calls.filter((c) => c[1] === '1D' && c[2] === D(9, 14) - 10 * DAY).length;
+      await svc.getBars(args);
+      expect(unitsFetches()).toBe(0);
+      stock.splits.AAA = [NOW + HOUR];
+      now = NOW + DAY + HOUR;
+      await svc.getBars(args);
+      expect(unitsFetches()).toBe(2); // both constituents' daily history re-read for the units
+      expect(stock.splitsCalls.some((c) => c.code === 'AAA')).toBe(true);
+    });
+  });
+
   describe('simulated pre-start history', () => {
     const SIM_NOTICE = 'Before 2026-09-14: simulated with the starting holdings.';
 

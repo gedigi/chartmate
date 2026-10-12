@@ -235,12 +235,19 @@ export class BasketService {
     }
   }
 
+  /** Units-cache key: the versions plus the market cache epoch (bumped when a split invalidates cached bars). */
+  private unitsKey(versions: BasketVersion[]): string {
+    return `${this.market.cacheEpoch}|${JSON.stringify(versions)}`;
+  }
+
   private seed(id: string, versions: BasketVersion[], r: { units: UnitsResult; stale: boolean }): void {
-    if (!r.stale) this.unitsCache.set(id, { key: JSON.stringify(versions), units: r.units, at: this.now() });
+    if (!r.stale) this.unitsCache.set(id, { key: this.unitsKey(versions), units: r.units, at: this.now() });
   }
 
   private async unitsFor(basket: Basket): Promise<{ units: UnitsResult; stale: boolean }> {
-    const key = JSON.stringify(basket.versions);
+    // Run the (at most daily) split checks first so a split detected now invalidates the cached units right away.
+    await Promise.all(constituents(basket.versions).map((id) => this.market.ensureSplitsChecked(id)));
+    const key = this.unitsKey(basket.versions);
     const hit = this.unitsCache.get(basket.id);
     const now = this.now();
     if (hit && hit.key === key) {

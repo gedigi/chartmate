@@ -5,7 +5,7 @@ import {
 } from '@altv/shared';
 import { NotFoundError, ProviderError } from '../errors.js';
 import { errMessage, REQUEST_TIMEOUT_MS } from './http.js';
-import type { FetchBarsResult, MarketDataProvider, ProviderLimits } from './types.js';
+import type { FetchBarsResult, MarketDataProvider, ProviderLimits, StockSplit } from './types.js';
 
 /** The subset of yahoo-finance2 we use; injectable so tests can feed recorded fixtures. */
 export interface YahooLike {
@@ -33,7 +33,9 @@ const OFF_GRID_MOD_MAX = 30 * MIN;
 type DateLike = Date | string | number;
 interface YQuote { date: DateLike; open: number | null; high: number | null; low: number | null; close: number | null; volume?: number | null }
 interface YPeriod { start: DateLike; end: DateLike }
+interface YSplit { date: DateLike; splitRatio?: string }
 interface YChart {
+  events?: { splits?: YSplit[] | Record<string, YSplit> };
   meta?: { firstTradeDate?: DateLike | null; tradingPeriods?: Partial<Record<Session, YPeriod[][] | YPeriod[]>> };
   quotes?: YQuote[];
 }
@@ -142,6 +144,21 @@ export class YahooProvider implements MarketDataProvider {
     const res = (await this.call(() => this.client.chart(code, { period1: new Date(this.now() - 7 * DAY), interval: '1d' }))) as YChart;
     const ftd = toMs(res.meta?.firstTradeDate);
     return ftd === null ? null : nyDateUtcMidnight(ftd);
+  }
+
+  /** Splits after `since`, from a daily chart call with split events (yahoo-finance2 `events: 'split'`). */
+  async splitsSince(code: string, since: number): Promise<StockSplit[]> {
+    const opts = { period1: new Date(since), period2: new Date(this.now()), interval: '1d', events: 'split' };
+    const res = (await this.call(() => this.client.chart(code, opts))) as YChart;
+    const raw = res.events?.splits;
+    const list = Array.isArray(raw) ? raw : raw ? Object.values(raw) : [];
+    const out: StockSplit[] = [];
+    for (const sp of list) {
+      const ts = toMs(sp.date);
+      if (ts === null || ts <= since) continue;
+      out.push({ ts, ...(typeof sp.splitRatio === 'string' ? { ratio: sp.splitRatio } : {}) });
+    }
+    return out.sort((a, b) => a.ts - b.ts);
   }
 
   private async call<T>(fn: () => Promise<T>): Promise<T> {
