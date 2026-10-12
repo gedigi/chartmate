@@ -128,8 +128,9 @@ size its units off by the split factor. To refetch a symbol, delete its cache (s
   ETH adds pre- and post-market bars, shaded on intraday stock charts (basket charts are not shaded).
   It is hidden for crypto, which trades around the clock.
 - **Indicators**: up to **30** per chart (the picker stops adding beyond that and the server rejects
-  larger layouts). The indicator set is remembered per symbol; timeframe, session and chart type are
-  global.
+  larger layouts). Indicators are a **single global set**, configured once and shown on every ticker;
+  timeframe, session, chart type and appearance are global too (all stored in the `default` layout).
+  Older per-symbol `sym:<id>` layouts from earlier versions are ignored.
 - **Drawings** are saved per symbol on the server (debounced ~1 s after each change). Points are stored in
   time/price coordinates (bar timestamp + price), not pixels, so they stay anchored to the same price and
   time across timeframes, zoom levels and window sizes.

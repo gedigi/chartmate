@@ -31,7 +31,6 @@ async function resetServerState(request: APIRequestContext): Promise<void> {
   expect((await request.put(`/api/drawings/${encodeURIComponent(AAPL)}`, { data: [] })).ok()).toBe(true);
   const layout = { symbol: 'crypto:BTC', tf: '1D', session: 'rth', chartType: 'candle', indicators: [] };
   expect((await request.put('/api/layouts/default', { data: layout })).ok()).toBe(true);
-  expect((await request.put(`/api/layouts/${encodeURIComponent(`sym:${AAPL}`)}`, { data: { ...layout, symbol: AAPL } })).ok()).toBe(true);
 }
 
 /** Picks `ticker` in the symbol-search combobox named `comboboxName` inside `scope`. */
@@ -57,10 +56,14 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
 
   // 1. Open the app, search AAPL and select it.
   await page.goto('/');
-  const aaplLayoutLoaded = page.waitForResponse((r) => isApi(r, 'GET', `/api/layouts/${encodeURIComponent(`sym:${AAPL}`)}`));
+  // Indicators are one global set: no per-symbol layout is ever requested.
+  const symLayoutRequests: string[] = [];
+  page.on('request', (r) => {
+    const path = new URL(r.url()).pathname;
+    if (path.startsWith('/api/layouts/') && path !== '/api/layouts/default') symLayoutRequests.push(`${r.method()} ${path}`);
+  });
   const aaplDailyBars = page.waitForResponse((r) => isBars(r, { symbol: AAPL, tf: '1D' }));
   await pickSymbol(page.locator('header.top-bar'), 'Search symbol', 'AAPL');
-  await aaplLayoutLoaded;
   await aaplDailyBars;
   await expect(page.getByTestId('chart-host').locator('canvas').first()).toBeVisible();
   await expect(page.locator('header .symbol-label strong')).toHaveText('AAPL');
@@ -120,15 +123,20 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
   await expect(trendLine).toHaveAttribute('aria-pressed', 'false');
 
   // 5. Layout (with RSI) is persisted → reload keeps the chip; the drawing is on the server.
-  for (const key of ['default', `sym:${AAPL}`]) {
-    await expect.poll(async () => {
-      const l = (await (await request.get(`/api/layouts/${encodeURIComponent(key)}`)).json()) as { indicators?: Array<{ name: string }> };
-      return (l.indicators ?? []).some((i) => i.name === 'RSI');
-    }, { message: `layout ${key} saved with RSI` }).toBe(true);
-  }
+  await expect.poll(async () => {
+    const l = (await (await request.get('/api/layouts/default')).json()) as { indicators?: Array<{ name: string }> };
+    return (l.indicators ?? []).some((i) => i.name === 'RSI');
+  }, { message: 'default layout saved with RSI' }).toBe(true);
   await page.reload();
   await expect(page.locator('header .symbol-label strong')).toHaveText('AAPL');
   await expect(page.getByRole('list', { name: 'Active indicators' }).getByText(/^RSI\b/)).toBeVisible();
+  // The same (global) indicator set shows on another ticker.
+  await pickSymbol(page.locator('header.top-bar'), 'Search symbol', 'BTC');
+  await expect(page.locator('header .symbol-label strong')).toHaveText('BTC');
+  await expect(page.getByRole('list', { name: 'Active indicators' }).getByText(/^RSI\b/)).toBeVisible();
+  expect(symLayoutRequests).toEqual([]);
+  await pickSymbol(page.locator('header.top-bar'), 'Search symbol', 'AAPL');
+  await expect(page.locator('header .symbol-label strong')).toHaveText('AAPL');
   const drawings = (await (await request.get(`/api/drawings/${encodeURIComponent(AAPL)}`)).json()) as unknown[];
   expect(drawings).toHaveLength(1);
 
