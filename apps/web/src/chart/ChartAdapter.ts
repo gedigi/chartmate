@@ -18,7 +18,8 @@ import { PRICE_PRECISION_INDICATORS } from './indicators/extensions';
 import { registerCustomIndicators } from './indicators/register';
 import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
-import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS, SIMULATED_SHADE } from './sessionShade';
+import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
+import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS } from './sessionShade';
 import { candleStyles, chartStyles, DEFAULT_TEXT_SIZE, overlayStyles, resolveAppearance, type ThemeName } from './theme';
 
 export type DrawingTool =
@@ -99,6 +100,7 @@ export class ChartAdapter {
 
   constructor(el: HTMLElement, opts: { theme: ThemeName }) {
     registerSessionShade();
+    registerMarkerOverlay();
     registerCustomIndicators();
     this.el = el;
     this.theme = opts.theme;
@@ -188,6 +190,7 @@ export class ChartAdapter {
   setTheme(t: ThemeName): void {
     this.theme = t;
     this.chart.setStyles(this.styles());
+    for (const o of this.chart.getOverlays({ groupId: MARKERS })) this.chart.overrideOverlay({ id: o.id, styles: markerStyles(t) });
   }
 
   setChartType(t: ChartType): void {
@@ -203,11 +206,6 @@ export class ChartAdapter {
 
   setSessionShading(enabled: boolean): void {
     this.setShade(SESSION_SHADE, enabled);
-  }
-
-  /** Shades simulated basket history (bars flagged `simulated`). */
-  setSimulatedShading(enabled: boolean): void {
-    this.setShade(SIMULATED_SHADE, enabled);
   }
 
   private setShade(name: string, enabled: boolean): void {
@@ -240,7 +238,8 @@ export class ChartAdapter {
       const bar = data[i];
       if (!bar) continue;
       overlays.push({
-        name: 'simpleAnnotation', groupId: MARKERS, lock: true, extendData: m.label,
+        // Fixed theme style: markers never follow the user's default drawing style.
+        name: MARKER_OVERLAY, groupId: MARKERS, lock: true, extendData: m.label, styles: markerStyles(this.theme),
         points: [{ timestamp: bar.timestamp, value: bar.high }],
       });
     }

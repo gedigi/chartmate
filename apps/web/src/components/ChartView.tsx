@@ -164,8 +164,6 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
 
   const shade = session === 'eth' && isIntraday(tf) && info?.assetClass === 'stock'; // only stock bars carry session tags
   useEffect(() => { adapter?.setSessionShading(shade); }, [adapter, shade]);
-  const basket = info?.assetClass === 'basket';
-  useEffect(() => { adapter?.setSimulatedShading(basket); }, [adapter, basket]);
   useEffect(() => { adapter?.setMarkers(meta.markers); }, [adapter, meta.markers]);
 
   // Indicators: diff by name + pane + index.

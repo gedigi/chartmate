@@ -33,7 +33,6 @@ const fake = vi.hoisted(() => {
     setMagnet = vi.fn();
     setLockAll = vi.fn();
     setAppearance = vi.fn();
-    setSimulatedShading = vi.fn();
     setMagnetOverride = vi.fn();
     setSelectedStyle = vi.fn();
     deselect = vi.fn();
@@ -308,17 +307,6 @@ describe('ChartView', () => {
     expect(adapter().addIndicator).toHaveBeenCalledWith(expect.objectContaining({ lineWidths: [2], lineStyles: ['dashed'], barColors: { up: '#00ff00', down: '#ff0000' } }));
     rerenderWith({ ...LAYOUT, indicators: [{ ...vol, lineWidths: [4] }] });
     expect(adapter().updateIndicator).toHaveBeenLastCalledWith('ind_1', expect.objectContaining({ lineWidths: [4], lineStyles: ['dashed'] }));
-  });
-
-  it('shades simulated history on basket charts only', async () => {
-    const B: SymbolInfo = { id: 'basket:b1', assetClass: 'basket', ticker: 'B1', name: 'B1', pricePrecision: 2 };
-    vi.spyOn(api.baskets, 'get').mockResolvedValue({ id: 'b1', name: 'B1', baseValue: 100, createdAt: 0, updatedAt: 0, versions: [{ effectiveFrom: '2024-01-02', weights: { 'stock:AAPL': 1 } }] });
-    const { rerenderWith } = renderView();
-    await flush();
-    expect(adapter().setSimulatedShading).toHaveBeenLastCalledWith(false);
-    rerenderWith({ ...LAYOUT, symbol: 'basket:b1' }, B);
-    await flush();
-    expect(adapter().setSimulatedShading).toHaveBeenLastCalledWith(true);
   });
 
   it('shows notices even when the response has no bars (basket empty state)', async () => {

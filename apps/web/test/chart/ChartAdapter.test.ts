@@ -9,7 +9,7 @@ interface FakeOverlay {
 interface FakeIndicator { id: string; name: string; paneId: string; calcParams: number[]; visible: boolean; styles: unknown }
 
 const k = vi.hoisted(() => {
-  const state = { chart: null as unknown as ReturnType<typeof makeChart>, registered: [] as string[] };
+  const state = { chart: null as unknown as ReturnType<typeof makeChart>, registered: [] as string[], overlayTemplates: [] as any[] };
   function makeChart() {
     let seq = 0;
     const overlays: FakeOverlay[] = [];
@@ -74,6 +74,7 @@ const k = vi.hoisted(() => {
     init: vi.fn(() => { state.chart = makeChart(); return state.chart; }),
     dispose: vi.fn(),
     registerIndicator: vi.fn((t: { name: string }) => { state.registered.push(t.name); }),
+    registerOverlay: vi.fn((t: { name: string }) => { state.overlayTemplates.push(t); }),
   };
 });
 
@@ -81,6 +82,7 @@ vi.mock('klinecharts', () => ({
   init: k.init,
   dispose: k.dispose,
   registerIndicator: k.registerIndicator,
+  registerOverlay: k.registerOverlay,
   getSupportedIndicators: () => k.state.registered,
 }));
 
@@ -247,17 +249,38 @@ describe('ChartAdapter', () => {
     expect(chart().indicators.filter((i) => i.name === 'SESSION_SHADE')).toHaveLength(0);
   });
 
-  it('setSimulatedShading creates/removes the SIMULATED_SHADE indicator (never listed as a user indicator)', () => {
+  it('no longer shades simulated basket history (no SIMULATED_SHADE indicator, no setSimulatedShading)', () => {
     const a = make();
-    a.setSimulatedShading(true);
-    a.setSimulatedShading(true);
-    expect(chart().indicators.filter((i) => i.name === 'SIMULATED_SHADE')).toHaveLength(1);
-    expect(chart().createIndicator).toHaveBeenCalledWith(expect.objectContaining({ name: 'SIMULATED_SHADE', paneId: 'candle_pane' }), true);
-    expect(a.listIndicators()).toEqual([]);
-    a.load({ symbol: AAPL, tf: '5m', session: 'rth', pollMs: 15000 }, events());
-    expect(chart().overrideIndicator).not.toHaveBeenCalledWith(expect.objectContaining({ name: 'SIMULATED_SHADE' }));
-    a.setSimulatedShading(false);
-    expect(chart().indicators.filter((i) => i.name === 'SIMULATED_SHADE')).toHaveLength(0);
+    expect(k.state.registered).not.toContain('SIMULATED_SHADE');
+    expect((a as unknown as Record<string, unknown>)['setSimulatedShading']).toBeUndefined();
+  });
+
+  it('registers the marker overlay template (a dashed vertical line with a label, ignoring events)', () => {
+    make();
+    const tpl = k.state.overlayTemplates.find((t) => t.name === 'altvMarker')!;
+    expect(tpl).toBeDefined();
+    const figures = tpl.createPointFigures({
+      overlay: { extendData: 'Start' }, coordinates: [{ x: 40, y: 99 }], bounding: { width: 300, height: 200 },
+    });
+    const line = figures.find((f: { type: string }) => f.type === 'line');
+    expect(line.attrs.coordinates).toEqual([{ x: 40, y: 0 }, { x: 40, y: 200 }]);
+    expect(line.ignoreEvent).toBe(true);
+    const text = figures.find((f: { type: string }) => f.type === 'text');
+    expect(text.attrs).toMatchObject({ x: 44, text: 'Start' }); // just right of the line
+    expect(text.ignoreEvent).toBe(true);
+  });
+
+  it('markers have a fixed theme style (muted, dashed) independent of the default drawing style; follow the theme', () => {
+    const a = make();
+    chart().data.push({ timestamp: 1000, high: 10 });
+    a.setAppearance({ drawing: { color: '#ff0000', size: 4, style: 'solid' } });
+    a.setMarkers([{ ts: 1000, label: 'Start' }]);
+    const marker = () => chart().overlays.find((o) => o.groupId === 'markers')!;
+    expect(marker().styles).toMatchObject({ line: { color: '#868b98', style: 'dashed', size: 1 }, text: { color: '#868b98' } });
+    a.setAppearance({ drawing: { color: '#00ff00', size: 2, style: 'dashed' } });
+    expect(marker().styles).toMatchObject({ line: { color: '#868b98' } });
+    a.setTheme('light');
+    expect(marker().styles).toMatchObject({ line: { color: '#6a6d78' }, text: { color: '#6a6d78' } });
   });
 
   it.each([
@@ -275,14 +298,14 @@ describe('ChartAdapter', () => {
     expect(styles.candle.area.backgroundColor).toEqual([{ offset: 0, color: 'rgba(0,0,0,0)' }, { offset: 1, color: 'rgba(0,0,0,0)' }]);
   });
 
-  it('setMarkers places locked simpleAnnotations in group markers at the bar high', () => {
+  it('setMarkers places locked altvMarker overlays in group markers on the containing bar', () => {
     const a = make();
     chart().data.push({ timestamp: 1000, high: 10 }, { timestamp: 2000, high: 20 }, { timestamp: 3000, high: 30 });
     a.setMarkers([{ ts: 2000, label: 'v2' }, { ts: 2500, label: 'v3' }, { ts: 9999, label: 'future' }]);
     const ms = chart().overlays.filter((o) => o.groupId === 'markers');
     expect(ms.map((o) => ({ name: o.name, lock: o.lock, points: o.points, text: o.extendData }))).toEqual([
-      { name: 'simpleAnnotation', lock: true, points: [{ timestamp: 2000, value: 20 }], text: 'v2' },
-      { name: 'simpleAnnotation', lock: true, points: [{ timestamp: 3000, value: 30 }], text: 'v3' },
+      { name: 'altvMarker', lock: true, points: [{ timestamp: 2000, value: 20 }], text: 'v2' },
+      { name: 'altvMarker', lock: true, points: [{ timestamp: 3000, value: 30 }], text: 'v3' },
     ]);
     a.setMarkers([]);
     expect(chart().overlays.filter((o) => o.groupId === 'markers')).toHaveLength(0);

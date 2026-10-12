@@ -64,18 +64,19 @@ describe('BasketPreview', () => {
     expect(screen.getByTestId('basket-preview')).toHaveTextContent('Basket starts 2024-02-02: crypto:ETH has no data before that date.');
   });
 
-  it('draws simulated pre-start history dashed, the real part solid, and a Start marker', async () => {
+  it('draws one line (simulated history not styled differently) and a dashed vertical Start line with a label', async () => {
     render(<BasketPreview versions={V_C} baseValue={100} />);
     await advance(600);
     const chart = screen.getByTestId('basket-preview-chart');
-    const sim = chart.querySelector('polyline.preview-simulated');
-    const real = chart.querySelector('polyline.preview-real');
-    expect(sim).not.toBeNull();
-    expect(real).not.toBeNull();
-    // The two parts join at the last simulated point (continuous line).
-    const simPts = sim!.getAttribute('points')!.split(' ');
-    expect(real!.getAttribute('points')!.split(' ')[0]).toBe(simPts.at(-1));
-    expect(chart.querySelector('.preview-start-marker')).not.toBeNull();
+    const lines = chart.querySelectorAll('polyline');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).not.toHaveAttribute('stroke-dasharray');
+    expect(chart.querySelector('.preview-simulated')).toBeNull();
+    const start = chart.querySelector('line.preview-start-marker')!;
+    expect(start).not.toBeNull();
+    expect(start.getAttribute('x1')).toBe(start.getAttribute('x2'));
+    expect(start).toHaveAttribute('stroke-dasharray');
+    expect(screen.getByTestId('basket-preview-start-label')).toHaveTextContent('Start');
     expect(screen.getByTestId('basket-preview')).toHaveTextContent('Before 2024-03-01: simulated with the starting holdings.');
     expect(chartLabel()).toContain('starts 2024-03-01');
   });

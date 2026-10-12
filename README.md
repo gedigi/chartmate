@@ -166,8 +166,10 @@ A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
 - **Simulated history before the start**: bars before the basket's start are computed with the
   *starting* holdings (version 0's units) held fixed backwards, so a basket created today still shows
   history. They begin once every starting constituent has data, reach the base value at the start (no
-  jump), are shaded on the chart, and a `Start` marker plus a notice ("Before <date>: simulated with the
-  starting holdings.") make the boundary explicit. Resampled bars (weekly, monthly, 2h/4h) count as
+  jump) and are drawn like any other bars (no background shading). A dashed vertical `Start` line (in the
+  chart and the editor preview) plus a notice ("Before <date>: simulated with the starting holdings.") make
+  the boundary explicit. Start and version markers use a fixed, muted theme style, independent of the
+  default drawing style. Resampled bars (weekly, monthly, 2h/4h) count as
   simulated only when all their input bars are. Quotes and sparklines include this history.
 - A basket with a single version can change its start date in the editor.
 - Intraday basket bars use the NYSE session grid when every constituent is a stock, and the UTC grid

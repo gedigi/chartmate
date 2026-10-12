@@ -88,5 +88,6 @@ button.danger:hover:not(:disabled) { color: var(--down); border-color: var(--dow
 .preview-notices { margin: 0 0 8px; padding: 6px 10px 6px 24px; background: var(--warn-bg); color: var(--warn-text); border-radius: 4px; font-size: 12px; }
 
 /* Simulated pre-start history: lighter dashed line; the basket start is marked. */
-.preview-chart polyline.preview-simulated { opacity: 0.55; }
-.preview-chart .preview-start-marker { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 2 2; }
+.preview-chart .preview-start-marker { stroke: var(--text-muted); stroke-width: 1; }
+.preview-plot { position: relative; min-width: 0; }
+.preview-start-label { position: absolute; top: 0; margin-left: 3px; font-size: 10px; line-height: 1; color: var(--text-muted); pointer-events: none; }

@@ -69,7 +69,7 @@ export interface DataLoaderImpl {
 export function toKLineData(b: Bar): KLineData {
   const d: KLineData = { timestamp: b.ts, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume };
   if (b.session !== undefined) d.session = b.session;
-  if (b.simulated) d.simulated = true; // simulated basket history (shaded by SIMULATED_SHADE)
+  if (b.simulated) d.simulated = true; // simulated basket history (pre-start)
   return d;
 }
 
