@@ -139,6 +139,22 @@ describe('useLayout load failures and early edits', () => {
     expect(put).toHaveBeenCalledWith('default', expect.objectContaining({ symbol: 'stock:MSFT', tf: saved.tf, indicators: [ma] }));
   });
 
+  it('a failed save exposes saveError and is retried with backoff until it succeeds', async () => {
+    put.mockRejectedValueOnce(new ApiError(503, 'unavailable', 'down')).mockRejectedValueOnce(new ApiError(0, 'network_error', 'offline'));
+    const { result } = renderHook(() => useLayout());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.saveError).toBeNull();
+    act(() => result.current.setLayout((l) => ({ ...l, tf: '1m' })));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(result.current.saveError).toBe('down');
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(result.current.saveError).toBe('offline');
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(put).toHaveBeenCalledTimes(3);
+    expect(put.mock.calls.every((c) => c[0] === 'default' && c[1].tf === '1m')).toBe(true);
+    expect(result.current.saveError).toBeNull();
+  });
+
   it('a missing default layout (null) falls back to DEFAULT_LAYOUT', async () => {
     vi.mocked(api.layouts.get).mockResolvedValue(null);
     const { result } = renderHook(() => useLayout());

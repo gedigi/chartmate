@@ -117,7 +117,7 @@ function useShowSession(symbol: SymbolId): boolean {
 }
 
 function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme: () => void; onLogout?: () => void }): JSX.Element {
-  const { layout, setLayout, selectSymbol: selectLayoutSymbol, loaded, loadError, retry: retryLayout } = useLayout();
+  const { layout, setLayout, selectSymbol: selectLayoutSymbol, loaded, loadError, retry: retryLayout, saveError: layoutSaveError } = useLayout();
   const [view, setView] = useHashView();
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= SIDEBAR_BREAKPOINT);
   const { state: symbolInfoState, retry: retrySymbolInfo } = useSymbolInfo(layout.symbol);
@@ -153,6 +153,9 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
         onLogout={onLogout}
         controlsDisabled={!loaded}
       />
+      {layoutSaveError !== null && (
+        <div className="save-status" role="status" title={`Last error: ${layoutSaveError}`}>Layout not saved — retrying</div>
+      )}
       {view === 'chart' ? (
         <>
           <main className="chart-main">

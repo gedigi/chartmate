@@ -163,3 +163,9 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 
 /* Visually hidden, still announced by screen readers. */
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Small, non-blocking indicator while layout saves fail (they are retried with backoff). */
+.save-status {
+  position: fixed; left: 8px; bottom: 8px; z-index: 50; padding: 3px 8px; border-radius: var(--radius);
+  background: var(--warn-bg); color: var(--warn-text); font-size: 11px; pointer-events: auto;
+}

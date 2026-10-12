@@ -236,4 +236,22 @@ describe('App', () => {
     await screen.findByTestId('chart-view');
     expect(screen.queryByText(/Couldn't load symbol/)).not.toBeInTheDocument();
   });
+  it('shows a small "Layout not saved — retrying" status while layout saves fail, gone once a retry succeeds', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+      vi.mocked(api.layouts.put).mockRejectedValueOnce(new ApiError(503, 'unavailable', 'down'));
+      render(<App />);
+      await screen.findByTestId('chart-view');
+      await userEvent.click(screen.getByRole('button', { name: '1h' }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
+      const status = await screen.findByText('Layout not saved — retrying');
+      expect(status).toHaveAttribute('role', 'status');
+      expect(status).toHaveAttribute('title', expect.stringContaining('down'));
+      await act(async () => { await vi.advanceTimersByTimeAsync(2100); });
+      await waitFor(() => expect(screen.queryByText('Layout not saved — retrying')).not.toBeInTheDocument());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

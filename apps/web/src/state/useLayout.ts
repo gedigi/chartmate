@@ -23,6 +23,8 @@ export interface UseLayout {
   loadError: string | null;
   /** Retries the `default` load now. */
   retry: () => void;
+  /** Set while the latest layout change could not be saved (it is retried with backoff). */
+  saveError: string | null;
 }
 
 /**
@@ -31,7 +33,7 @@ export interface UseLayout {
  *   Legacy per-symbol `sym:<id>` rows are ignored (never read, written or deleted).
  * - Loads `default` on mount. Only a missing layout (null) falls back to DEFAULT_LAYOUT; any other failure keeps
  *   `loaded` false (so nothing is saved over the user's layout), exposes `loadError` and retries with backoff.
- * - Saves `default` debounced once loaded.
+ * - Saves `default` debounced once loaded; a failed save is retried with backoff and exposed as `saveError`.
  * Callers should not offer edits until `loaded` is true: the `default` load replaces the whole layout.
  */
 export function useLayout(): UseLayout {
@@ -81,7 +83,7 @@ export function useLayout(): UseLayout {
   }, [loaded]);
 
   const saveDefault = useCallback((l: Layout) => api.layouts.put('default', l), []);
-  useDebouncedSave(layout, saveDefault, 1000, loaded);
+  const { error: saveError } = useDebouncedSave(layout, saveDefault, 1000, loaded, { retry: true });
 
   const setLayout = useCallback((fn: (l: Layout) => Layout) => setLayoutState((cur) => {
     if (!loadedRef.current) return cur; // the default load would overwrite it (and saves are off): ignore
@@ -95,5 +97,5 @@ export function useLayout(): UseLayout {
     setLayout((l) => (l.symbol === id ? l : { ...l, symbol: id }));
   }, [setLayout]);
 
-  return { layout, setLayout, selectSymbol, loaded, loadError, retry };
+  return { layout, setLayout, selectSymbol, loaded, loadError, retry, saveError };
 }
