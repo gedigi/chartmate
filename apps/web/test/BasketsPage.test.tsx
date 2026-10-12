@@ -60,6 +60,24 @@ describe('BasketsPage', () => {
     expect(api.quotes).toHaveBeenCalledWith(['basket:b1', 'basket:b2']);
   });
 
+  it('a missing quote shows "—" titled "Quote unavailable"; no page note while some quotes loaded', async () => {
+    vi.mocked(api.quotes).mockResolvedValue([{ id: 'basket:b1', price: 1, changePct: 0, ts: 0 }]);
+    render(<BasketsPage onOpenChart={() => {}} />);
+    const r2 = await rowFor('Crypto pair');
+    await waitFor(() => expect(within(r2).getByText('—')).toHaveAttribute('title', 'Quote unavailable'));
+    expect(screen.queryByText(/Current values are unavailable/)).not.toBeInTheDocument();
+  });
+
+  it('when every quote fails: "—" titled "Quote unavailable" on each row plus a muted note', async () => {
+    vi.mocked(api.quotes).mockRejectedValue(new ApiError(503, 'data_unavailable', 'offline'));
+    render(<BasketsPage onOpenChart={() => {}} />);
+    const note = await screen.findByText('Current values are unavailable right now.');
+    expect(note).toHaveClass('muted');
+    for (const name of ['Tech + BTC', 'Crypto pair']) {
+      expect(within(await rowFor(name)).getByText('—')).toHaveAttribute('title', 'Quote unavailable');
+    }
+  });
+
   it('"Open chart" opens basket:<id>', async () => {
     const onOpen = vi.fn();
     render(<BasketsPage onOpenChart={onOpen} />);
