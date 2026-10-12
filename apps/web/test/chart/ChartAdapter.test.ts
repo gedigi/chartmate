@@ -19,7 +19,13 @@ const k = vi.hoisted(() => {
       overlays, indicators, data,
       setStyles: vi.fn(), setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(), setTimezone: vi.fn(), resetData: vi.fn(),
       resize: vi.fn(), getDataList: vi.fn(() => data),
-      getStyles: vi.fn(() => ({ indicator: { lines: [{ color: '#d1' }, { color: '#d2' }, { color: '#d3' }] } })),
+      getStyles: vi.fn(() => ({
+        indicator: {
+          lines: [{ color: '#d1', size: 1, style: 'solid', smooth: false, dashedValue: [2, 2] }, { color: '#d2', size: 1, style: 'solid', smooth: false, dashedValue: [2, 2] }, { color: '#d3', size: 1, style: 'solid', smooth: false, dashedValue: [2, 2] }],
+          bars: [{ style: 'fill', borderStyle: 'solid', borderSize: 1, borderDashedValue: [2, 2], upColor: 'rgba(45,192,142,0.7)', downColor: 'rgba(249,40,85,0.7)', noChangeColor: '#76808F' }],
+        },
+        overlay: { line: { style: 'solid', smooth: false, color: '#1677FF', size: 1, dashedValue: [2, 2] }, text: { color: '#FFFFFF', size: 12, backgroundColor: '#1677FF' } },
+      })),
       createIndicator: vi.fn((v: Partial<FakeIndicator> & { name: string }, _isStack?: boolean) => {
         const id = `ind_${++seq}`;
         indicators.push({ id, paneId: v.paneId ?? `pane_${seq}`, calcParams: v.calcParams ?? [], visible: v.visible ?? true, styles: v.styles ?? null, name: v.name });
@@ -185,7 +191,7 @@ describe('ChartAdapter', () => {
     const id = a.addIndicator({ name: 'MA', pane: 'main', calcParams: [20] });
     a.updateIndicator(id, { calcParams: [50], visible: false, lineColors: ['#fff'] });
     expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({
-      id, calcParams: [50], visible: false, styles: { lines: [{ color: '#fff' }] },
+      id, calcParams: [50], visible: false, styles: { lines: [expect.objectContaining({ color: '#fff', size: 1, style: 'solid' })] },
     }));
     expect(a.listIndicators()).toEqual([expect.objectContaining({ id, calcParams: [50], visible: false, lineColors: ['#fff'] })]);
     a.removeIndicator(id);
@@ -197,7 +203,7 @@ describe('ChartAdapter', () => {
     const id = a.addIndicator({ name: 'MA', pane: 'main', calcParams: [20], lineColors: ['#fff'] });
     a.updateIndicator(id, { calcParams: [30] });
     expect(chart().overrideIndicator).toHaveBeenLastCalledWith(expect.objectContaining({
-      id, calcParams: [30], styles: { lines: [{ color: '#d1' }, { color: '#d2' }, { color: '#d3' }] },
+      id, calcParams: [30], styles: { lines: ['#d1', '#d2', '#d3'].map((color) => expect.objectContaining({ color, size: 1, style: 'solid' })) },
     }));
     expect(a.listIndicators()[0]!.lineColors).toBeUndefined();
     chart().overrideIndicator.mockClear();
@@ -239,6 +245,19 @@ describe('ChartAdapter', () => {
     expect(chart().createIndicator).toHaveBeenCalledWith(expect.objectContaining({ name: 'SESSION_SHADE', paneId: 'candle_pane' }), true);
     a.setSessionShading(false);
     expect(chart().indicators.filter((i) => i.name === 'SESSION_SHADE')).toHaveLength(0);
+  });
+
+  it('setSimulatedShading creates/removes the SIMULATED_SHADE indicator (never listed as a user indicator)', () => {
+    const a = make();
+    a.setSimulatedShading(true);
+    a.setSimulatedShading(true);
+    expect(chart().indicators.filter((i) => i.name === 'SIMULATED_SHADE')).toHaveLength(1);
+    expect(chart().createIndicator).toHaveBeenCalledWith(expect.objectContaining({ name: 'SIMULATED_SHADE', paneId: 'candle_pane' }), true);
+    expect(a.listIndicators()).toEqual([]);
+    a.load({ symbol: AAPL, tf: '5m', session: 'rth', pollMs: 15000 }, events());
+    expect(chart().overrideIndicator).not.toHaveBeenCalledWith(expect.objectContaining({ name: 'SIMULATED_SHADE' }));
+    a.setSimulatedShading(false);
+    expect(chart().indicators.filter((i) => i.name === 'SIMULATED_SHADE')).toHaveLength(0);
   });
 
   it.each([
@@ -511,6 +530,159 @@ describe('ChartAdapter', () => {
       a.startDrawing('segment');
       a.startDrawing('rayLine');
       expect(userOverlays().map((o) => o.name)).toEqual(['rayLine']);
+    });
+  });
+
+  describe('appearance', () => {
+    it('setAppearance merges candle colours / body style into the theme styles and survives theme toggles', () => {
+      const a = make();
+      a.setAppearance({ upColor: '#00ff00', downColor: '#ff00ff', candleBody: 'hollow' });
+      let s = chart().setStyles.mock.calls.at(-1)![0];
+      expect(s.candle).toMatchObject({ type: 'candle_stroke', bar: { upColor: '#00ff00', downWickColor: '#ff00ff' } });
+      expect(s.grid).toBeDefined(); // theme styles are kept
+      a.setTheme('light');
+      s = chart().setStyles.mock.calls.at(-1)![0];
+      expect(s.candle).toMatchObject({ type: 'candle_stroke', bar: { upColor: '#00ff00' } });
+      a.setChartType('line');
+      a.setAppearance({ lineColor: '#123456', lineWidth: 4 });
+      s = chart().setStyles.mock.calls.at(-1)![0];
+      expect(s.candle.area).toMatchObject({ lineColor: '#123456', lineSize: 4 });
+      a.setAppearance(undefined);
+      s = chart().setStyles.mock.calls.at(-1)![0];
+      expect(s.candle.area).toMatchObject({ lineColor: '#2962ff', lineSize: 2 });
+    });
+  });
+
+  describe('indicator line widths / styles / bar colours', () => {
+    it('addIndicator maps widths, dashed style and bar colours to KLineChart styles', () => {
+      const a = make();
+      const id = a.addIndicator({ name: 'VOL', pane: 'sub', lineWidths: [3], lineStyles: ['solid', 'dashed'], barColors: { up: '#00ff00', down: '#ff0000' } });
+      const create = chart().createIndicator.mock.calls.at(-1)![0] as { styles: { lines: unknown[]; bars: unknown[] } };
+      expect(create.styles.lines).toEqual([
+        expect.objectContaining({ color: '#d1', size: 3, style: 'solid' }),
+        expect.objectContaining({ color: '#d2', size: 1, style: 'dashed', dashedValue: [4, 4] }),
+      ]);
+      expect(create.styles.bars).toEqual([expect.objectContaining({ style: 'fill', upColor: '#00ff00', downColor: '#ff0000', noChangeColor: '#76808F' })]);
+      expect(a.listIndicators()[0]).toMatchObject({ id, lineWidths: [3], lineStyles: ['solid', 'dashed'], barColors: { up: '#00ff00', down: '#ff0000' } });
+    });
+
+    it('removing the overrides writes the defaults back explicitly (KLineChart merges styles)', () => {
+      const a = make();
+      const id = a.addIndicator({ name: 'MACD', pane: 'sub', lineStyles: ['dashed'], barColors: { up: '#00ff00', down: '#ff0000' } });
+      a.updateIndicator(id, { calcParams: [12, 26, 9] });
+      const o = chart().overrideIndicator.mock.calls.at(-1)![0] as { styles: { lines: unknown[]; bars: unknown[] } };
+      expect(o.styles.lines).toEqual(['#d1', '#d2', '#d3'].map((color) => expect.objectContaining({ color, size: 1, style: 'solid' })));
+      expect(o.styles.bars).toEqual([expect.objectContaining({ upColor: 'rgba(45,192,142,0.7)', downColor: 'rgba(249,40,85,0.7)' })]);
+      expect(a.listIndicators()[0]).not.toHaveProperty('lineStyles');
+      expect(a.listIndicators()[0]).not.toHaveProperty('barColors');
+    });
+  });
+
+  describe('drawing styles', () => {
+    const DAY = 86_400_000;
+    const userOverlays = () => chart().overlays.filter((o) => o.groupId !== 'markers');
+    async function loaded() {
+      const a = make();
+      a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 15000 }, events());
+      vi.spyOn(api, 'bars').mockResolvedValue({
+        symbol: 'stock:AAPL', tf: '1D', session: 'rth', hasMoreBefore: false, stale: false, notices: [], markers: [],
+        bars: [DAY, 2 * DAY].map((t) => ({ ts: t, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 })),
+      });
+      const loader = chart().setDataLoader.mock.calls.at(-1)![0] as { getBars: (p: unknown) => Promise<void> };
+      await loader.getBars({ type: 'init', timestamp: null, symbol: { ticker: 'stock:AAPL' }, period: { type: 'day', span: 1 }, callback: () => {} });
+      return a;
+    }
+    const seg = { name: 'segment', points: [{ timestamp: DAY, value: 1 }, { timestamp: 2 * DAY, value: 2 }], lock: false };
+
+    it('restores normalized styles, reports the selection style and saves style changes', async () => {
+      const a = await loaded();
+      const changed = vi.fn();
+      const selection = vi.fn();
+      a.onDrawingsChange(changed);
+      a.onSelectionChange(selection);
+      a.restoreDrawings([{ ...seg, styles: { line: { color: '#ff0000', size: 3, style: 'dashed' } } }]);
+      const o = userOverlays()[0]!;
+      expect(o.styles).toEqual({ line: { color: '#ff0000', size: 3, style: 'dashed', dashedValue: [6, 4] } });
+      o.onSelected?.({ overlay: o });
+      expect(selection).toHaveBeenLastCalledWith({ id: o.id, kind: 'line', style: { color: '#ff0000', size: 3, style: 'dashed' } });
+      a.setSelectedStyle({ color: '#00ff00' });
+      expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: o.id, styles: { line: { color: '#00ff00', size: 3, style: 'dashed', dashedValue: [6, 4] } } });
+      expect(changed).toHaveBeenCalledTimes(1);
+      expect(a.serializeDrawings()).toEqual([{ ...seg, styles: { line: { color: '#00ff00', size: 3, style: 'dashed' } } }]);
+      o.onDeselected?.({ overlay: o });
+      expect(selection).toHaveBeenLastCalledWith(null);
+    });
+
+    it('unstyled drawings report the library defaults; serialize drops non-normalized styles', async () => {
+      const a = await loaded();
+      const selection = vi.fn();
+      a.onSelectionChange(selection);
+      a.restoreDrawings([seg, { name: 'simpleAnnotation', points: [{ timestamp: DAY, value: 1 }], lock: false, text: 'hi' }]);
+      const [line, text] = userOverlays();
+      line!.onSelected?.({ overlay: line });
+      expect(selection).toHaveBeenLastCalledWith({ id: line!.id, kind: 'line', style: { color: '#1677ff', size: 1, style: 'solid' } });
+      text!.onSelected?.({ overlay: text });
+      expect(selection).toHaveBeenLastCalledWith({ id: text!.id, kind: 'text', style: { color: '#1677ff', size: 12 } });
+      a.setSelectedStyle({ size: 18 });
+      expect(chart().overrideOverlay).toHaveBeenLastCalledWith(expect.objectContaining({
+        id: text!.id, styles: expect.objectContaining({ text: expect.objectContaining({ size: 18, backgroundColor: '#1677ff' }) }),
+      }));
+      expect(a.serializeDrawings()[1]!.styles).toEqual({ text: { color: '#1677ff', size: 18 } });
+      line!.styles = { point: { radius: 3 } };
+      expect(a.serializeDrawings()[0]).not.toHaveProperty('styles');
+    });
+
+    it('new drawings use the appearance default drawing style', () => {
+      const a = make();
+      a.startDrawing('segment');
+      expect(chart().createOverlay.mock.calls.at(-1)![0]).not.toHaveProperty('styles');
+      a.setAppearance({ drawing: { color: '#abcdef', size: 2, style: 'dashed' } });
+      a.startDrawing('rayLine');
+      expect(chart().createOverlay).toHaveBeenLastCalledWith(expect.objectContaining({
+        styles: { line: { color: '#abcdef', size: 2, style: 'dashed', dashedValue: [6, 4] } },
+      }));
+      a.startDrawing('simpleAnnotation', { text: 'x' });
+      expect(chart().createOverlay).toHaveBeenLastCalledWith(expect.objectContaining({
+        styles: expect.objectContaining({ text: expect.objectContaining({ backgroundColor: '#abcdef' }) }),
+      }));
+    });
+  });
+
+  describe('strong magnet override (⌘ / Ctrl held)', () => {
+    it('switches the in-progress drawing to strong_magnet and back to the toolbar mode', () => {
+      const a = make();
+      a.setMagnet(true);
+      a.startDrawing('segment');
+      const o = chart().overlays.at(-1)!;
+      a.setMagnetOverride(true);
+      expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: o.id, mode: 'strong_magnet' });
+      a.setMagnetOverride(false);
+      expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: o.id, mode: 'weak_magnet' });
+      a.setMagnet(false);
+      a.setMagnetOverride(true);
+      a.startDrawing('rayLine'); // started while held
+      expect(chart().createOverlay).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'rayLine', mode: 'strong_magnet' }));
+      const r = chart().overlays.at(-1)!;
+      r.onDrawEnd?.({ overlay: r });
+      expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: r.id, mode: 'normal' }); // finished: back to toolbar mode
+    });
+
+    it('applies to a drawing being dragged and reverts on drag end', () => {
+      const a = make();
+      a.restoreDrawings([]);
+      a.startDrawing('segment');
+      const o = chart().overlays.at(-1)!;
+      o.onDrawEnd?.({ overlay: o });
+      chart().overrideOverlay.mockClear();
+      a.setMagnetOverride(true);
+      expect(chart().overrideOverlay).not.toHaveBeenCalled(); // nothing active
+      (o as unknown as { onPressedMoveStart: (e: unknown) => void }).onPressedMoveStart({ overlay: o });
+      expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: o.id, mode: 'strong_magnet' });
+      o.onPressedMoveEnd?.({ overlay: o });
+      expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: o.id, mode: 'normal' });
+      chart().overrideOverlay.mockClear();
+      a.setMagnetOverride(false);
+      expect(chart().overrideOverlay).not.toHaveBeenCalled();
     });
   });
 

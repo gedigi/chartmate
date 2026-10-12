@@ -1,5 +1,5 @@
 import type { Basket, Layout, SymbolInfo } from '@altv/shared';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api/client';
 import { notifyBasketChanged } from '../src/state/useBaskets';
@@ -32,6 +32,12 @@ const fake = vi.hoisted(() => {
     removeSelected = vi.fn(() => false);
     setMagnet = vi.fn();
     setLockAll = vi.fn();
+    setAppearance = vi.fn();
+    setSimulatedShading = vi.fn();
+    setMagnetOverride = vi.fn();
+    setSelectedStyle = vi.fn();
+    selectionCb: ((s: unknown) => void) | null = null;
+    onSelectionChange = vi.fn((cb: (s: unknown) => void) => { this.selectionCb = cb; return () => { this.selectionCb = null; }; });
     constructor() { instances.push(this); }
   }
   return { instances, FakeAdapter };
@@ -59,6 +65,13 @@ function renderView(layout: Layout = LAYOUT, info: SymbolInfo | null = AAPL, ext
     rerenderWith: (l: Layout, i: SymbolInfo | null = info, e: typeof extra = extra) =>
       r.rerender(<ChartView layout={l} setLayout={setLayout} symbolInfo={i} theme="dark" {...e} />),
   };
+}
+
+function fireInput(el: HTMLInputElement, value: string) {
+  fireEvent.input(el, { target: { value } });
+}
+function fireChange(el: HTMLSelectElement, value: string) {
+  fireEvent.change(el, { target: { value } });
 }
 
 const trendLine = () => screen.getByRole('button', { name: 'Trend line' });
@@ -271,6 +284,71 @@ describe('ChartView', () => {
     await flush();
     await flush();
     expect(adapter().load.mock.calls.at(-1)![0]).toMatchObject({ pollMs: 5000 });
+  });
+
+  it('applies the appearance and re-applies it only when it changes by value', async () => {
+    const appearance = { upColor: '#00ff00' };
+    const { rerenderWith } = renderView({ ...LAYOUT, appearance });
+    await flush();
+    expect(adapter().setAppearance).toHaveBeenLastCalledWith(appearance);
+    const n = adapter().setAppearance.mock.calls.length;
+    rerenderWith({ ...LAYOUT, appearance: { ...appearance } });
+    expect(adapter().setAppearance).toHaveBeenCalledTimes(n);
+    rerenderWith({ ...LAYOUT, appearance: { upColor: '#0000ff' } });
+    expect(adapter().setAppearance).toHaveBeenLastCalledWith({ upColor: '#0000ff' });
+    rerenderWith(LAYOUT);
+    expect(adapter().setAppearance).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it('passes indicator line widths / styles / bar colours to the adapter', async () => {
+    const vol = { name: 'VOL', pane: 'sub' as const, calcParams: [5, 10, 20], visible: true, lineWidths: [2], lineStyles: ['dashed' as const], barColors: { up: '#00ff00', down: '#ff0000' } };
+    const { rerenderWith } = renderView({ ...LAYOUT, indicators: [vol] });
+    await flush();
+    expect(adapter().addIndicator).toHaveBeenCalledWith(expect.objectContaining({ lineWidths: [2], lineStyles: ['dashed'], barColors: { up: '#00ff00', down: '#ff0000' } }));
+    rerenderWith({ ...LAYOUT, indicators: [{ ...vol, lineWidths: [4] }] });
+    expect(adapter().updateIndicator).toHaveBeenLastCalledWith('ind_1', expect.objectContaining({ lineWidths: [4], lineStyles: ['dashed'] }));
+  });
+
+  it('shades simulated history on basket charts only', async () => {
+    const B: SymbolInfo = { id: 'basket:b1', assetClass: 'basket', ticker: 'B1', name: 'B1', pricePrecision: 2 };
+    vi.spyOn(api.baskets, 'get').mockResolvedValue({ id: 'b1', name: 'B1', baseValue: 100, createdAt: 0, updatedAt: 0, versions: [{ effectiveFrom: '2024-01-02', weights: { 'stock:AAPL': 1 } }] });
+    const { rerenderWith } = renderView();
+    await flush();
+    expect(adapter().setSimulatedShading).toHaveBeenLastCalledWith(false);
+    rerenderWith({ ...LAYOUT, symbol: 'basket:b1' }, B);
+    await flush();
+    expect(adapter().setSimulatedShading).toHaveBeenLastCalledWith(true);
+  });
+
+  it('shows notices even when the response has no bars (basket empty state)', async () => {
+    renderView();
+    await flush();
+    act(() => adapter().events!.onMeta({ stale: false, notices: ['Basket starts 2026-10-12; no completed sessions yet.'], markers: [] }));
+    expect(screen.queryByTestId('chart-loading')).not.toBeInTheDocument();
+    expect(screen.getByText('Basket starts 2026-10-12; no completed sessions yet.')).toBeVisible();
+  });
+
+  it('shows a style bar for the selected drawing and applies changes through the adapter', async () => {
+    renderView();
+    await flush();
+    expect(screen.queryByRole('toolbar', { name: 'Drawing style' })).not.toBeInTheDocument();
+    act(() => adapter().selectionCb!({ id: 'ov_1', kind: 'line', style: { color: '#ff0000', size: 2, style: 'solid' } }));
+    const bar = screen.getByRole('toolbar', { name: 'Drawing style' });
+    expect(bar).toBeInTheDocument();
+    const color = screen.getByLabelText('Drawing colour') as HTMLInputElement;
+    expect(color.value).toBe('#ff0000');
+    act(() => { fireInput(color, '#00ff00'); });
+    expect(adapter().setSelectedStyle).toHaveBeenLastCalledWith({ color: '#00ff00' });
+    act(() => { fireChange(screen.getByLabelText('Line width') as HTMLSelectElement, '4'); });
+    expect(adapter().setSelectedStyle).toHaveBeenLastCalledWith({ size: 4 });
+    act(() => { fireChange(screen.getByLabelText('Line style') as HTMLSelectElement, 'dashed'); });
+    expect(adapter().setSelectedStyle).toHaveBeenLastCalledWith({ style: 'dashed' });
+    act(() => adapter().selectionCb!({ id: 'ov_2', kind: 'text', style: { color: '#ff0000', size: 12 } }));
+    expect(screen.queryByLabelText('Line style')).not.toBeInTheDocument();
+    act(() => { fireChange(screen.getByLabelText('Font size') as HTMLSelectElement, '18'); });
+    expect(adapter().setSelectedStyle).toHaveBeenLastCalledWith({ size: 18 });
+    act(() => adapter().selectionCb!(null));
+    expect(screen.queryByRole('toolbar', { name: 'Drawing style' })).not.toBeInTheDocument();
   });
 
   it('destroys the adapter on unmount', async () => {

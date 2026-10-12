@@ -13,6 +13,7 @@ function makeControls() {
     removeSelected: vi.fn(() => true),
     setMagnet: vi.fn(),
     setLockAll: vi.fn(),
+    setMagnetOverride: vi.fn(),
     onLockAllChange: vi.fn((cb: (locked: boolean) => void) => { lockCb = cb; return () => { lockCb = null; }; }),
   };
   return {
@@ -24,6 +25,39 @@ function makeControls() {
 }
 
 afterEach(() => vi.restoreAllMocks());
+
+describe('DrawingToolbar strong magnet (Meta on macOS, Ctrl elsewhere)', () => {
+  const setPlatform = (p: string) => vi.spyOn(navigator, 'platform', 'get').mockReturnValue(p);
+
+  it('holding Meta on macOS switches the active drawing to strong magnet; release and blur revert', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    fireEvent.keyDown(document.body, { key: 'Meta', metaKey: true });
+    expect(c.setMagnetOverride).toHaveBeenLastCalledWith(true);
+    fireEvent.keyUp(document.body, { key: 'Meta' });
+    expect(c.setMagnetOverride).toHaveBeenLastCalledWith(false);
+    fireEvent.keyDown(document.body, { key: 'Control', ctrlKey: true });
+    expect(c.setMagnetOverride).toHaveBeenCalledTimes(2); // Ctrl does nothing on macOS
+    fireEvent.keyDown(document.body, { key: 'Meta', metaKey: true });
+    fireEvent.blur(window);
+    expect(c.setMagnetOverride).toHaveBeenLastCalledWith(false);
+  });
+
+  it('uses Ctrl on other platforms and ignores keys typed into inputs', () => {
+    setPlatform('Linux x86_64');
+    const { c } = makeControls();
+    render(<><input aria-label="field" /><DrawingToolbar controls={c} ticker="AAPL" /></>);
+    fireEvent.keyDown(screen.getByLabelText('field'), { key: 'Control', ctrlKey: true });
+    expect(c.setMagnetOverride).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: 'Meta', metaKey: true });
+    expect(c.setMagnetOverride).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: 'Control', ctrlKey: true });
+    expect(c.setMagnetOverride).toHaveBeenLastCalledWith(true);
+    fireEvent.keyUp(document.body, { key: 'Control' });
+    expect(c.setMagnetOverride).toHaveBeenLastCalledWith(false);
+  });
+});
 
 describe('DrawingToolbar', () => {
   it.each([

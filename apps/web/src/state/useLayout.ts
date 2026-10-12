@@ -14,6 +14,12 @@ export const DEFAULT_LAYOUT: Layout = {
 
 export const symbolLayoutKey = (symbol: string) => `sym:${symbol}`;
 
+/** A layout as stored under `sym:<id>`: appearance is global and lives in the `default` layout only. */
+export function symbolLayout(l: Layout): Layout {
+  const { appearance: _global, ...rest } = l;
+  return rest;
+}
+
 export interface UseLayout {
   layout: Layout;
   /** Ignored until `loaded` (the `default` load replaces the whole layout). */
@@ -34,6 +40,7 @@ export interface UseLayout {
  * - Whenever the symbol changes, loads `sym:<id>` (retried with backoff on failure) and, if present, adopts its
  *   indicators. If the user edits indicators on that symbol before the load resolves, their edit wins: the
  *   loaded indicators are not adopted and the edit is written to `sym:<id>` instead.
+ * - `appearance` is global: it comes from `default` only and is never written to (or adopted from) `sym:<id>`.
  * - Saves `default` (whole layout) and `sym:<id>` (for the current symbol) debounced. The per-symbol key is
  *   only written after that symbol's own layout has been loaded, so merely visiting a symbol does not
  *   snapshot the carried-over indicators onto it, and only when the indicators change by value (tf /
@@ -112,7 +119,7 @@ export function useLayout(): UseLayout {
             // Keep the user's edit and persist it under this symbol (the debounced saver treats the value at
             // enable time as the baseline, so it would not write it).
             const cur = layoutRef.current;
-            if (cur.symbol === symbol) api.layouts.put(symbolLayoutKey(symbol), cur).catch(() => { /* next edit retries */ });
+            if (cur.symbol === symbol) api.layouts.put(symbolLayoutKey(symbol), symbolLayout(cur)).catch(() => { /* next edit retries */ });
           } else if (l) {
             setLayoutState((cur) => (cur.symbol === symbol ? { ...cur, indicators: l.indicators } : cur));
           }
@@ -131,7 +138,7 @@ export function useLayout(): UseLayout {
   }, [symbol, loaded]);
 
   const saveDefault = useCallback((l: Layout) => api.layouts.put('default', l), []);
-  const saveSymbol = useCallback((l: Layout) => api.layouts.put(symbolLayoutKey(l.symbol), l), []);
+  const saveSymbol = useCallback((l: Layout) => api.layouts.put(symbolLayoutKey(l.symbol), symbolLayout(l)), []);
   useDebouncedSave(layout, saveDefault, 1000, loaded);
   // Identity changes only when the symbol or the indicators (by value) change.
   const indicatorsJson = JSON.stringify(layout.indicators);

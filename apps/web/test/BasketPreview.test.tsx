@@ -3,7 +3,7 @@ import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type BarsParams } from '../src/api/client';
 import type { BasketVersion } from '@altv/shared';
-import { BasketPreview, fetchDailyRange } from '../src/components/BasketPreview';
+import { BasketPreview, fetchDailyRange, PREVIEW_HISTORY_MS } from '../src/components/BasketPreview';
 
 vi.mock('../src/api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/api/client')>();
@@ -64,6 +64,22 @@ describe('BasketPreview', () => {
     expect(screen.getByTestId('basket-preview')).toHaveTextContent('Basket starts 2024-02-02: crypto:ETH has no data before that date.');
   });
 
+  it('draws simulated pre-start history dashed, the real part solid, and a Start marker', async () => {
+    render(<BasketPreview versions={V_C} baseValue={100} />);
+    await advance(600);
+    const chart = screen.getByTestId('basket-preview-chart');
+    const sim = chart.querySelector('polyline.preview-simulated');
+    const real = chart.querySelector('polyline.preview-real');
+    expect(sim).not.toBeNull();
+    expect(real).not.toBeNull();
+    // The two parts join at the last simulated point (continuous line).
+    const simPts = sim!.getAttribute('points')!.split(' ');
+    expect(real!.getAttribute('points')!.split(' ')[0]).toBe(simPts.at(-1));
+    expect(chart.querySelector('.preview-start-marker')).not.toBeNull();
+    expect(screen.getByTestId('basket-preview')).toHaveTextContent('Before 2024-03-01: simulated with the starting holdings.');
+    expect(chartLabel()).toContain('starts 2024-03-01');
+  });
+
   it('shows engine errors instead of the chart', async () => {
     vi.mocked(api.bars).mockImplementation(async (p) => ({ ...respond(p), bars: p.symbol === 'crypto:ETH' ? [] : respond(p).bars }));
     render(<BasketPreview versions={V_A} baseValue={100} />);
@@ -83,8 +99,8 @@ describe('BasketPreview', () => {
     await advance(1);
     const symbols = vi.mocked(api.bars).mock.calls.map((c) => c[0].symbol);
     expect(symbols).toEqual(['stock:AAPL']);
-    expect(vi.mocked(api.bars).mock.calls[0]![0].from).toBe(Date.UTC(2024, 2, 1) - 10 * DAY);
-    expect(chartLabel()).toContain('from 2024-03-01');
+    expect(vi.mocked(api.bars).mock.calls[0]![0].from).toBe(Date.UTC(2024, 2, 1) - PREVIEW_HISTORY_MS);
+    expect(chartLabel()).toContain('starts 2024-03-01');
   });
 
   it('a delayed earlier response does not replace the newer chart', async () => {
@@ -103,11 +119,11 @@ describe('BasketPreview', () => {
     rerender(<BasketPreview versions={V_C} baseValue={100} />);
     expect(signals[0]!.aborted).toBe(true); // A's fetches were aborted
     await advance(600); // run C: AAPL from cache
-    expect(chartLabel()).toContain('from 2024-03-01');
+    expect(chartLabel()).toContain('starts 2024-03-01');
 
     releaseEth();
     await advance(0);
-    expect(chartLabel()).toContain('from 2024-03-01');
+    expect(chartLabel()).toContain('starts 2024-03-01');
     expect(screen.getByTestId('basket-preview')).not.toHaveTextContent('2024-01-02');
   });
 

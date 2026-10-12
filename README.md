@@ -133,6 +133,17 @@ size its units off by the split factor. To refetch a symbol, delete its cache (s
 - **Drawings** are saved per symbol on the server (debounced ~1 s after each change). Points are stored in
   time/price coordinates (bar timestamp + price), not pixels, so they stay anchored to the same price and
   time across timeframes, zoom levels and window sizes.
+- **Chart appearance** (gear icon in the top bar): candle up/down colours, body style (filled, hollow,
+  hollow up, hollow down; OHLC bars use the colours only), line/area colour and width, and the default
+  style (colour, width, solid/dashed) of new drawings. It is global (stored in the `default` layout, not
+  per symbol), applies live, survives theme switches, and "Reset to defaults" returns to the theme colours.
+- **Indicator settings** also set each line's width (1–4 px) and solid/dashed style, and the up/down bar
+  colours of histogram indicators (VOL, MACD, AO).
+- **Drawing styles**: selecting a drawing shows a small style bar at the top of the chart (colour, width,
+  solid/dashed; text annotations: colour and font size). Styles are saved with the drawing.
+- **⌘ magnet**: hold **⌘** (macOS) or **Ctrl** (other systems) while placing or dragging a drawing to snap
+  it to the nearest open/high/low/close (strong magnet); releasing the key returns to the toolbar's magnet
+  setting.
 
 ## Baskets
 
@@ -149,6 +160,13 @@ A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
 - The basket starts at the first date on which *all* constituents have data (a prior close). If a
   constituent lists after the requested start, the chart starts later and a notice names the
   limiting symbol.
+- **Simulated history before the start**: bars before the basket's start are computed with the
+  *starting* holdings (version 0's units) held fixed backwards, so a basket created today still shows
+  history. They begin once every starting constituent has data, reach the base value at the start (no
+  jump), are shaded on the chart, and a `Start` marker plus a notice ("Before <date>: simulated with the
+  starting holdings.") make the boundary explicit. Resampled bars (weekly, monthly, 2h/4h) count as
+  simulated only when all their input bars are. Quotes and sparklines include this history.
+- A basket with a single version can change its start date in the editor.
 - Intraday basket bars use the NYSE session grid when every constituent is a stock, and the UTC grid
   as soon as any version holds crypto. Appending a crypto version to a stock-only basket therefore
   re-grids its **whole** intraday history to UTC buckets (daily and above are unaffected).

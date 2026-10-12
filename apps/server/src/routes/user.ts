@@ -1,11 +1,32 @@
-import { MAX_INDICATORS, TIMEFRAMES, type DrawingState, type Layout, type SymbolId, type Timeframe } from '@altv/shared';
+import {
+  HEX_COLOR_RE, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_TEXT_SIZE, MIN_LINE_WIDTH, MIN_TEXT_SIZE, TIMEFRAMES,
+  type DrawingState, type Layout, type SymbolId, type Timeframe,
+} from '@altv/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repos } from '../db/repos.js';
 import { NotFoundError } from '../errors.js';
 import { isSymbolId, parse, SymbolIdSchema } from './validation.js';
 
-const MAX_STYLES_BYTES = 10 * 1024;
+const Hex = z.string().regex(HEX_COLOR_RE, 'colour must be #rrggbb');
+const LineWidth = z.number().int().min(MIN_LINE_WIDTH).max(MAX_LINE_WIDTH);
+const LineStyle = z.enum(['solid', 'dashed']);
+const LineStyleSchema = z.object({ color: Hex, size: LineWidth, style: LineStyle });
+
+const AppearanceSchema = z.object({
+  upColor: Hex.optional(),
+  downColor: Hex.optional(),
+  candleBody: z.enum(['solid', 'hollow', 'hollow_up', 'hollow_down']).optional(),
+  lineColor: Hex.optional(),
+  lineWidth: LineWidth.optional(),
+  drawing: LineStyleSchema.strict().optional(),
+}).strict();
+
+/** Normalized drawing styles; unknown keys (e.g. raw KLineChart styles) are stripped. */
+const DrawingStylesSchema = z.object({
+  line: LineStyleSchema.optional(),
+  text: z.object({ color: Hex, size: z.number().int().min(MIN_TEXT_SIZE).max(MAX_TEXT_SIZE) }).optional(),
+});
 
 const IndicatorSchema = z.object({
   name: z.string().max(40),
@@ -13,6 +34,9 @@ const IndicatorSchema = z.object({
   calcParams: z.array(z.number()).max(10),
   visible: z.boolean(),
   lineColors: z.array(z.string().max(32)).max(10).optional(),
+  lineWidths: z.array(LineWidth).max(10).optional(),
+  lineStyles: z.array(LineStyle).max(10).optional(),
+  barColors: z.object({ up: Hex, down: Hex }).optional(),
 });
 const LayoutSchema = z.object({
   symbol: SymbolIdSchema,
@@ -20,6 +44,7 @@ const LayoutSchema = z.object({
   session: z.enum(['rth', 'eth']),
   chartType: z.enum(['candle', 'ohlc', 'line', 'area']),
   indicators: z.array(IndicatorSchema).max(MAX_INDICATORS),
+  appearance: AppearanceSchema.optional(),
 }) satisfies z.ZodType<Layout>;
 
 const DrawingSchema = z.object({
@@ -27,10 +52,7 @@ const DrawingSchema = z.object({
   points: z.array(z.object({ timestamp: z.number(), value: z.number() })).max(10),
   lock: z.boolean(),
   text: z.string().max(500).optional(),
-  styles: z.unknown().optional().refine(
-    (s) => s === undefined || (JSON.stringify(s)?.length ?? 0) <= MAX_STYLES_BYTES,
-    { message: `styles must serialize to ≤ ${MAX_STYLES_BYTES} bytes` },
-  ),
+  styles: DrawingStylesSchema.optional(),
 }) satisfies z.ZodType<DrawingState>;
 
 const WatchlistBody = z.array(SymbolIdSchema).max(200);

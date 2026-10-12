@@ -137,14 +137,20 @@ describe('BasketService', () => {
     it('daily bars for a stock+crypto basket equal hand-computed values', async () => {
       const b = await svc.create({ name: 'mix', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
       // Units sized at prior closes: AAA Fri 09-11 (d=10) = 110, BTC Sun 09-13 (d=12) = 1120.
-      const r = await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: D(9, 1), to: D(9, 21) });
+      const all = await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: D(9, 1), to: D(9, 21) });
+      // Before the start (09-14) the bars are simulated with the starting holdings.
+      expect(all.bars.filter((x) => x.simulated).map((x) => x.ts)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map((d) => D(9, d)));
+      expect(all.notices).toEqual(['Before 2026-09-14: simulated with the starting holdings.']);
+      expect(all.markers).toEqual([{ ts: D(9, 14), label: 'Start' }]);
+      const r = await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: D(9, 14), to: D(9, 21) });
       expect(r.bars.map((x) => x.ts)).toEqual([14, 15, 16, 17, 18, 19, 20].map((d) => D(9, d)));
+      expect(all.bars.slice(-7)).toEqual(r.bars);
       expect(r.bars[0]!.close).toBeCloseTo((50 * 113) / 110 + (50 * 1130) / 1120, 9);
       expect(r.bars[0]!.high).toBeCloseTo((50 * 114) / 110 + (50 * 1131) / 1120, 9);
       expect(r.bars[0]!.low).toBeCloseTo((50 * 112) / 110 + (50 * 1129) / 1120, 9);
       // Saturday: stock flat at Friday's close (d=17), crypto moves (d=18).
       expect(r.bars[5]!.close).toBeCloseTo((50 * 117) / 110 + (50 * 1180) / 1120, 9);
-      expect(r).toMatchObject({ stale: false, hasMoreBefore: false, notices: [], markers: [] });
+      expect(r).toMatchObject({ stale: false, hasMoreBefore: true, notices: [], markers: [{ ts: D(9, 14), label: 'Start' }] });
 
       const later = await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: D(9, 16), to: D(9, 21) });
       expect(later.bars[0]!.ts).toBe(D(9, 16));
@@ -202,13 +208,17 @@ describe('BasketService', () => {
       stock.listedFrom.NEW = D(9, 16); // first bar Wed 09-16
       const b = await svc.create({ name: 'ipo', versions: [v('2026-09-10', { 'stock:AAA': 0.5, 'stock:NEW': 0.5 })] });
       const r = await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: D(9, 1), to: D(9, 21) });
-      expect(r.notices).toEqual(['Basket starts 2026-09-17: stock:NEW has no data before that date.']);
-      expect(r.bars.map((x) => x.ts)).toEqual([D(9, 17), D(9, 18)]);
+      expect(r.notices).toEqual([
+        'Basket starts 2026-09-17: stock:NEW has no data before that date.',
+        'Before 2026-09-17: simulated with the starting holdings.',
+      ]);
+      // Simulation starts once every constituent has a value (NEW's first bar 09-16).
+      expect(r.bars.map((x) => x.ts)).toEqual([D(9, 16), D(9, 17), D(9, 18)]);
+      expect(r.bars[0]).toMatchObject({ simulated: true, close: 100 });
       // Sized at Wed 09-16 closes (AAA 115, NEW 115); Thu d=16 → 116.
-      expect(r.bars[0]!.close).toBeCloseTo(2 * ((50 * 116) / 115), 9);
-      expect(r.hasMoreBefore).toBe(false);
+      expect(r.bars[1]!.close).toBeCloseTo(2 * ((50 * 116) / 115), 9);
       const empty = await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: D(9, 1), to: D(9, 15) });
-      expect(empty).toMatchObject({ bars: [], hasMoreBefore: false });
+      expect(empty).toMatchObject({ bars: [], notices: ['Basket starts 2026-09-17: stock:NEW has no data before that date.'] });
     });
 
     it('stale propagates when the crypto provider fails after caching', async () => {
@@ -233,12 +243,13 @@ describe('BasketService', () => {
       expect(r.bars[0]!.close).toBeCloseTo((50 * 131) / 110 + (50 * 1330) / 1120, 9);
     });
 
-    it('1W keeps the bucket containing the basket start when the basket starts mid-week', async () => {
+    it('1W: the week of a mid-week start mixes simulated and real days (not simulated)', async () => {
       stock.listedFrom.NEW = D(9, 16);
       const b = await svc.create({ name: 'ipo', versions: [v('2026-09-10', { 'stock:AAA': 0.5, 'stock:NEW': 0.5 })] });
       const r = await svc.getBars({ id: b.id, tf: '1W', session: 'rth', from: D(9, 1), to: D(9, 28) });
       expect(r.bars.map((x) => x.ts)).toEqual([D(9, 14), D(9, 21)]);
-      expect(r.bars[0]!.open).toBeCloseTo(2 * ((50 * 116) / 115), 9); // Thu 09-17 is the first basket day
+      expect(r.bars[0]!.open).toBeCloseTo(100, 9); // Wed 09-16 (simulated, = base value) opens the week
+      expect(r.bars[0]!.simulated).toBeUndefined();
       expect(r.bars[0]!.close).toBeCloseTo(2 * ((50 * 117) / 115), 9);
     });
 
@@ -273,7 +284,7 @@ describe('BasketService', () => {
       const b = await svc.create({ name: 'mix', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
       const r = await svc.getBars({ id: b.id, tf: '1M', session: 'rth', from: D(9, 1), to: D(11, 1) });
       expect(r.bars.map((x) => x.ts)).toEqual([D(9, 1), D(10, 1)]);
-      expect(r.bars[0]!.open).toBeCloseTo((50 * 113) / 110 + (50 * 1130) / 1120, 9); // first basket day 09-14
+      expect(r.bars[0]!.open).toBeCloseTo((50 * 100) / 110 + (50 * 1000) / 1120, 9); // simulated 09-01 opens the month
       expect(r.bars[0]!.close).toBeCloseTo((50 * 129) / 110 + (50 * 1290) / 1120, 9); // Wed 09-30, d=29
     });
 
@@ -325,6 +336,59 @@ describe('BasketService', () => {
       now += 7 * HOUR;
       await svc.getBars(args);
       expect(daily()).toBe(2); // recent version + older than 6 h → recompute
+    });
+  });
+
+  describe('simulated pre-start history', () => {
+    const SIM_NOTICE = 'Before 2026-09-14: simulated with the starting holdings.';
+
+    it('pages back through simulated bars with version 0 units; no duplicates; hasMoreBefore from constituent history', async () => {
+      stock.firstTs = D(9, 7);
+      stock.listedFrom.AAA = D(9, 7);
+      const b = await svc.create({ name: 'a', versions: [v('2026-09-14', { 'stock:AAA': 1 })] });
+      const recent = await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: D(9, 10), to: D(9, 17) });
+      expect(recent.bars.map((x) => x.ts)).toEqual([D(9, 10), D(9, 11), D(9, 14), D(9, 15), D(9, 16)]);
+      expect(recent.bars.map((x) => x.simulated === true)).toEqual([true, true, false, false, false]);
+      // Units sized at Fri 09-11 (d=10 → 110): 100/110 units; Thu 09-10 → 109.
+      expect(recent.bars[0]!.close).toBeCloseTo((100 * 109) / 110, 9);
+      expect(recent.bars[1]!.close).toBeCloseTo(100, 9); // continuous: S's prior close is the base value
+      expect(recent.hasMoreBefore).toBe(true);
+      expect(recent.notices).toEqual([SIM_NOTICE]);
+      expect(recent.markers).toEqual([{ ts: D(9, 14), label: 'Start' }]);
+
+      const older = await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: D(9, 1), to: D(9, 10) });
+      expect(older.bars.map((x) => x.ts)).toEqual([D(9, 7), D(9, 8), D(9, 9)]);
+      expect(older.bars.every((x) => x.simulated)).toBe(true);
+      expect(older.hasMoreBefore).toBe(false);
+      expect(older.markers).toEqual([]);
+      const all = [...older.bars, ...recent.bars].map((x) => x.ts);
+      expect(new Set(all).size).toBe(all.length);
+    });
+
+    it('a basket starting tomorrow is fully simulated up to now (with a Start marker only once S is in range)', async () => {
+      const b = await svc.create({ name: 'm', versions: [v('2026-10-10', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
+      const r = await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: D(10, 1), to: NOW + DAY });
+      expect(r.bars.length).toBeGreaterThan(5);
+      expect(r.bars.every((x) => x.simulated)).toBe(true);
+      expect(r.notices).toContain('Before 2026-10-10: simulated with the starting holdings.');
+      expect(r.markers).toEqual([{ ts: D(10, 10), label: 'Start' }]);
+      const latest = await svc.getLatest(b.id, '1h', 'rth');
+      expect(latest.bar?.simulated).toBe(true);
+    });
+
+    it('resampled buckets are simulated only when every input bar is', async () => {
+      const b = await svc.create({ name: 'm', versions: [v('2026-09-16', { 'crypto:BTC': 1 })] }); // Wed
+      const r = await svc.getBars({ id: b.id, tf: '1W', session: 'rth', from: D(9, 7), to: D(9, 21) });
+      expect(r.bars.map((x) => [x.ts, x.simulated === true])).toEqual([[D(9, 7), true], [D(9, 14), false]]);
+    });
+
+    it('notices an empty window up to now when the basket starts after the last constituent bar', async () => {
+      const b = await svc.create({ name: 's', versions: [v('2026-10-09', { 'stock:AAA': 1 })] }); // today, before the open
+      const r = await svc.getBars({ id: b.id, tf: '1h', session: 'rth', from: D(10, 9), to: NOW + HOUR });
+      expect(r.bars).toEqual([]);
+      expect(r.notices).toContain('Basket starts 2026-10-09; no completed sessions yet.');
+      const old = await svc.getBars({ id: b.id, tf: '1h', session: 'rth', from: D(10, 3), to: D(10, 5) }); // weekend page
+      expect(old.notices).not.toContain('Basket starts 2026-10-09; no completed sessions yet.');
     });
   });
 

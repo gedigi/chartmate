@@ -182,10 +182,21 @@ function EditBasket({ basket, onSaved, onCancel }: BasketEditorProps & { basket:
   const [appending, setAppending] = useState(false);
   const [appendError, setAppendError] = useState<string | null>(null);
 
+  // A single-version basket may move its start date (PUT with the version replaced; same bounds as create).
+  const single = basket.versions.length === 1;
+  const first = basket.versions[0]!;
+  const [startDate, setStartDate] = useState(first.effectiveFrom);
+  const [movingStart, setMovingStart] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  const startDateErr = single ? startDateError(startDate, maxDate) : null;
+  const startChanged = single && startDate !== first.effectiveFrom;
+
   const dateError = effectiveDateError(effDate, latest.effectiveFrom, maxDate);
   const draft = changing && !dateError ? versionFromRows(rows, effDate) : null;
   const weightsValid = validateRows(rows).percents !== null;
-  const previewVersions = draft ? [...basket.versions, draft] : basket.versions;
+  const previewVersions = draft
+    ? [...basket.versions, draft]
+    : startChanged && !startDateErr ? [{ ...first, effectiveFrom: startDate }] : basket.versions;
 
   function openChange() {
     setRows(rowsFromWeights(latest.weights));
@@ -206,6 +217,26 @@ function EditBasket({ basket, onSaved, onCancel }: BasketEditorProps & { basket:
       setRenameError(errorMessage(err));
     } finally {
       setRenaming(false);
+    }
+  }
+
+  async function moveStart(e: FormEvent) {
+    e.preventDefault();
+    if (!startChanged || startDateErr) return;
+    const versions = [{ ...first, effectiveFrom: startDate }];
+    const invalid = checkVersions(versions);
+    if (invalid) {
+      setStartError(invalid);
+      return;
+    }
+    setMovingStart(true);
+    setStartError(null);
+    try {
+      onSaved(await api.baskets.update(basket.id, { versions }));
+    } catch (err) {
+      setStartError(errorMessage(err));
+    } finally {
+      setMovingStart(false);
     }
   }
 
@@ -250,6 +281,21 @@ function EditBasket({ basket, onSaved, onCancel }: BasketEditorProps & { basket:
             <button type="submit" disabled={renaming || name.trim() === '' || name.trim() === basket.name}>Rename</button>
           </form>
           {renameError && <p className="form-error" role="alert">{renameError}</p>}
+
+          {single && !changing && (
+            <form className="rename-form" onSubmit={moveStart} aria-label="Change start date">
+              <label className="field">
+                <span>Start date (UTC)</span>
+                <input type="date" value={startDate} min={MIN_EFFECTIVE_DATE} max={maxDate}
+                  onChange={(e) => { setStartDate(e.target.value); setStartError(null); }} />
+              </label>
+              <button type="submit" disabled={movingStart || !startChanged || startDateErr !== null}>
+                {movingStart ? 'Saving…' : 'Change start date'}
+              </button>
+            </form>
+          )}
+          {single && startDateErr && <p className="form-error">{startDateErr}</p>}
+          {startError && <p className="form-error" role="alert">{startError}</p>}
 
           <h3 className="panel-title">Version history</h3>
           <ol className="version-history" aria-label="Version history">

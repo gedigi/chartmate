@@ -61,7 +61,7 @@ describe('user routes', () => {
   it('drawings PUT/GET', async () => {
     expect((await t.app.inject({ method: 'GET', url: '/api/drawings/stock:AAPL' })).json()).toEqual([]);
     const drawings: DrawingState[] = [
-      { name: 'segment', points: [{ timestamp: 1, value: 2 }, { timestamp: 3, value: 4 }], lock: false, styles: { line: { color: '#fff' } } },
+      { name: 'segment', points: [{ timestamp: 1, value: 2 }, { timestamp: 3, value: 4 }], lock: false, styles: { line: { color: '#ffffff', size: 2, style: 'solid' } } },
       { name: 'text', points: [{ timestamp: 5, value: 6 }], lock: true, text: 'hello' },
     ];
     const put = await t.app.inject({ method: 'PUT', url: '/api/drawings/stock:AAPL', payload: drawings });
@@ -71,7 +71,7 @@ describe('user routes', () => {
     const tooMany = Array.from({ length: 501 }, () => drawings[1]);
     expect((await t.app.inject({ method: 'PUT', url: '/api/drawings/stock:AAPL', payload: tooMany })).statusCode).toBe(400);
     expect((await t.app.inject({ method: 'PUT', url: '/api/drawings/bogus', payload: [] })).statusCode).toBe(400);
-    const bigStyles = [{ ...drawings[0], styles: { blob: 'x'.repeat(11_000) } }];
-    expect((await t.app.inject({ method: 'PUT', url: '/api/drawings/stock:AAPL', payload: bigStyles })).statusCode).toBe(400);
+    const badStyles = [{ ...drawings[0], styles: { line: { color: 'x'.repeat(11_000), size: 1, style: 'solid' } } }];
+    expect((await t.app.inject({ method: 'PUT', url: '/api/drawings/stock:AAPL', payload: badStyles })).statusCode).toBe(400);
   });
 });

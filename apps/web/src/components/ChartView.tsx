@@ -7,6 +7,7 @@ import { pollIntervalMs } from '../chart/periods';
 import { onBasketChanged } from '../state/useBaskets';
 import { useDebouncedSave } from '../state/useDebouncedSave';
 import { retryDelayMs } from '../state/retry';
+import { DrawingStyleBar } from './DrawingStyleBar';
 import { DrawingToolbar } from './DrawingToolbar';
 import { IndicatorChips } from './IndicatorChips';
 import { StaleBadge } from './StaleBadge';
@@ -57,10 +58,18 @@ function usePollMs(info: SymbolInfo | null): number | null {
   return basket?.id === info.id ? basket.ms : null;
 }
 
+/** The indicator's style overrides (absent = default). */
+function styleOverrides(s: IndicatorState): Partial<IndicatorSpec> {
+  const o: Partial<IndicatorSpec> = {};
+  if (s.lineColors) o.lineColors = s.lineColors;
+  if (s.lineWidths) o.lineWidths = s.lineWidths;
+  if (s.lineStyles) o.lineStyles = s.lineStyles;
+  if (s.barColors) o.barColors = s.barColors;
+  return o;
+}
+
 function toSpec(s: IndicatorState): IndicatorSpec {
-  const spec: IndicatorSpec = { name: s.name, pane: s.pane, calcParams: s.calcParams, visible: s.visible };
-  if (s.lineColors) spec.lineColors = s.lineColors;
-  return spec;
+  return { name: s.name, pane: s.pane, calcParams: s.calcParams, visible: s.visible, ...styleOverrides(s) };
 }
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -115,6 +124,11 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
 
   useEffect(() => { adapter?.setTheme(theme); }, [adapter, theme]);
   useEffect(() => { adapter?.setChartType(chartType); }, [adapter, chartType]);
+  // Global appearance (candle colours, line width, default drawing style); re-applied only on a change by value.
+  const appearanceJson = JSON.stringify(layout.appearance ?? null);
+  useEffect(() => {
+    adapter?.setAppearance(JSON.parse(appearanceJson) ?? undefined);
+  }, [adapter, appearanceJson]);
 
   // Data: (re)load on symbol / timeframe / session change. Without info for the current symbol (loading or
   // failed) the chart is blanked and the previous symbol's loader stops: its data must not sit under the new header.
@@ -150,6 +164,8 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
 
   const shade = session === 'eth' && isIntraday(tf) && info?.assetClass === 'stock'; // only stock bars carry session tags
   useEffect(() => { adapter?.setSessionShading(shade); }, [adapter, shade]);
+  const basket = info?.assetClass === 'basket';
+  useEffect(() => { adapter?.setSimulatedShading(basket); }, [adapter, basket]);
   useEffect(() => { adapter?.setMarkers(meta.markers); }, [adapter, meta.markers]);
 
   // Indicators: diff by name + pane + index.
@@ -172,8 +188,7 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
           setToast(errorMessage(err));
         }
       } else if (cur.state !== s && !sameJson(toSpec(cur.state), toSpec(s))) {
-        const update: Partial<IndicatorSpec> = { calcParams: s.calcParams, visible: s.visible };
-        if (s.lineColors) update.lineColors = s.lineColors;
+        const update: Partial<IndicatorSpec> = { calcParams: s.calcParams, visible: s.visible, ...styleOverrides(s) };
         adapter.updateIndicator(cur.id, update);
         current.set(key, { id: cur.id, state: s });
       } else {
@@ -255,6 +270,7 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
         <IndicatorChips layout={layout} setLayout={setLayout} />
         <div className="chart-stage">
           <div className="chart-host" ref={hostRef} data-testid="chart-host" />
+          <DrawingStyleBar controls={adapter} />
           {initError && <div className="center-message chart-init-error" role="alert">Chart failed to start: {initError}</div>}
           {symbolFailed && (
             <div className="center-message chart-error-panel" role="alert" data-testid="symbol-error">

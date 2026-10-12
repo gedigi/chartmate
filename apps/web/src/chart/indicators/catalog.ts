@@ -19,8 +19,8 @@ const BUILTIN: CatalogEntry[] = [
   { name: 'SAR', label: 'Parabolic SAR', pane: 'main', defaultParams: [2, 2, 20], paramLabels: ['Start AF (%)', 'Step (%)', 'Max AF (%)'], lines: [], decimalParams: [0, 1, 2] },
   { name: 'BBI', label: 'Bull and Bear Index', pane: 'main', defaultParams: [3, 6, 12, 24], paramLabels: periods('MA', 4), lines: ['BBI'] },
   // oscillators (own pane)
-  { name: 'VOL', label: 'Volume', pane: 'sub', defaultParams: [5, 10, 20], paramLabels: periods('MA', 3), lines: numbered('MA', 3) },
-  { name: 'MACD', label: 'MACD', pane: 'sub', defaultParams: [12, 26, 9], paramLabels: ['Fast period', 'Slow period', 'Signal period'], lines: ['DIF', 'DEA'] },
+  { name: 'VOL', label: 'Volume', pane: 'sub', defaultParams: [5, 10, 20], paramLabels: periods('MA', 3), lines: numbered('MA', 3), bars: true },
+  { name: 'MACD', label: 'MACD', pane: 'sub', defaultParams: [12, 26, 9], paramLabels: ['Fast period', 'Slow period', 'Signal period'], lines: ['DIF', 'DEA'], bars: true },
   { name: 'RSI', label: 'Relative Strength Index', pane: 'sub', defaultParams: [6, 12, 24], paramLabels: periods('RSI', 3), lines: numbered('RSI', 3) },
   { name: 'KDJ', label: 'Stochastic (KDJ)', pane: 'sub', defaultParams: [9, 3, 3], paramLabels: ['Period', 'K smoothing', 'D smoothing'], lines: ['K', 'D', 'J'] },
   { name: 'CCI', label: 'Commodity Channel Index', pane: 'sub', defaultParams: [13], paramLabels: ['Period'], lines: ['CCI'] },
@@ -30,7 +30,7 @@ const BUILTIN: CatalogEntry[] = [
   { name: 'ROC', label: 'Rate of Change', pane: 'sub', defaultParams: [12, 6], paramLabels: ['Period', 'MA period'], lines: ['ROC', 'MAROC'] },
   { name: 'MTM', label: 'Momentum', pane: 'sub', defaultParams: [12, 6], paramLabels: ['Period', 'MA period'], lines: ['MTM', 'MAMTM'] },
   { name: 'TRIX', label: 'TRIX', pane: 'sub', defaultParams: [12, 9], paramLabels: ['Period', 'MA period'], lines: ['TRIX', 'MATRIX'] },
-  { name: 'AO', label: 'Awesome Oscillator', pane: 'sub', defaultParams: [5, 34], paramLabels: ['Short period', 'Long period'], lines: [] },
+  { name: 'AO', label: 'Awesome Oscillator', pane: 'sub', defaultParams: [5, 34], paramLabels: ['Short period', 'Long period'], lines: [], bars: true },
   { name: 'SMA', label: 'SMA (weighted, KLine)', pane: 'sub', defaultParams: [12, 2], paramLabels: ['Period', 'Weight'], lines: ['SMA'] },
 ];
 
@@ -40,7 +40,10 @@ const ORDER = ['MA', 'EMA', 'BOLL', 'SAR', 'VWAP', 'BBI', 'VOL', 'MACD', 'RSI', 
 function buildCatalog(): CatalogEntry[] {
   const byName = new Map<string, CatalogEntry>(BUILTIN.map((e) => [e.name, e]));
   // A custom indicator with a built-in's name overrides it (its template replaces KLineChart's too).
-  for (const c of CUSTOM_INDICATORS) byName.set(c.catalog.name, c.catalog);
+  for (const c of CUSTOM_INDICATORS) {
+    const bars = c.catalog.bars ?? (c.template.figures ?? []).some((f) => f.type === 'bar');
+    byName.set(c.catalog.name, bars ? { ...c.catalog, bars } : c.catalog);
+  }
   const rank = (n: string) => { const i = ORDER.indexOf(n); return i < 0 ? ORDER.length : i; };
   return [...byName.values()].sort((a, b) => rank(a.name) - rank(b.name));
 }
@@ -53,6 +56,9 @@ export function catalogEntry(name: string): CatalogEntry | undefined {
 
 /** KLineChart's default indicator line palette (lower-case, as `<input type="color">` reports it). */
 export const DEFAULT_LINE_COLORS = ['#ff9600', '#935ebd', '#1677ff', '#e11d74', '#01c5c4'] as const;
+
+/** KLineChart's default histogram colours (its green / red), as `<input type="color">` reports them. */
+export const DEFAULT_BAR_COLORS = { up: '#2dc08e', down: '#f92855' } as const;
 
 /** Default colour of line `i`: the indicator's own default (catalog `defaultColors`) or KLineChart's palette. */
 export function defaultLineColor(i: number, name?: string): string {

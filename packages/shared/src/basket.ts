@@ -148,18 +148,25 @@ export function computeVersionUnits(versions: BasketVersion[], daily: DailySerie
 
 export interface ConstituentSeries { id: SymbolId; bars: Bar[] }
 
-export function buildBasketBars(units: UnitsResult, series: ConstituentSeries[]): Bar[] {
+/**
+ * Basket bars from the constituents' bars (each series ascending). From the basket start S on, bars follow the
+ * active version's units. With `simulate`, timestamps before S are emitted too, as `simulated` bars valued with
+ * version 0's units held fixed (Σ units0 × price): they begin once every version-0 constituent has a value and
+ * reach the base value at S's prior close, so the series is continuous. A bar is only emitted when at least one
+ * active constituent has a real bar at that timestamp; the others are forward-filled.
+ */
+export function buildBasketBars(units: UnitsResult, series: ConstituentSeries[], opts: { simulate?: boolean } = {}): Bar[] {
   const { startTs, versions } = units;
+  const simulate = opts.simulate === true;
   const tsSet = new Set<number>();
   const idx: number[] = [];
   const last: (number | undefined)[] = [];
   const byId = new Map<SymbolId, number>();
   series.forEach((s, j) => {
     byId.set(s.id, j);
-    const i = lowerBound(s.bars, startTs);
-    idx.push(i);
-    last.push(i > 0 ? s.bars[i - 1]!.close : undefined);
-    for (let m = i; m < s.bars.length; m++) tsSet.add(s.bars[m]!.ts);
+    idx.push(0);
+    last.push(undefined);
+    for (const b of s.bars) tsSet.add(b.ts);
   });
   const timeline = [...tsSet].sort((a, b) => a - b);
 
@@ -180,26 +187,33 @@ export function buildBasketBars(units: UnitsResult, series: ConstituentSeries[])
       idx[j] = i;
       cur[j] = b;
     }
-    let o = 0, h = 0, l = 0, c = 0;
-    let complete = true;
-    let real = false;
-    const ver = versions[vi]!;
-    for (const [id, u] of Object.entries(ver.units)) {
-      const j = byId.get(id);
-      if (j === undefined) { complete = false; break; }
-      const b = cur[j];
-      if (b) {
-        real = true;
-        o += u * b.open; h += u * b.high; l += u * b.low; c += u * b.close;
-      } else {
-        const lc = last[j];
-        if (lc === undefined) { complete = false; break; }
-        o += u * lc; h += u * lc; l += u * lc; c += u * lc;
+    const before = t < startTs;
+    if (!before || simulate) {
+      let o = 0, h = 0, l = 0, c = 0;
+      let complete = true;
+      let real = false;
+      const ver = versions[vi]!; // before S this is version 0
+      for (const [id, u] of Object.entries(ver.units)) {
+        const j = byId.get(id);
+        if (j === undefined) { complete = false; break; }
+        const b = cur[j];
+        if (b) {
+          real = true;
+          o += u * b.open; h += u * b.high; l += u * b.low; c += u * b.close;
+        } else {
+          const lc = last[j];
+          if (lc === undefined) { complete = false; break; }
+          o += u * lc; h += u * lc; l += u * lc; c += u * lc;
+        }
+      }
+      if (complete && real) {
+        const bar: Bar = { ts: t, open: o, high: h, low: l, close: c, volume: 0 };
+        if (before) bar.simulated = true;
+        out.push(bar);
       }
     }
     // Update last closes for every series that had a bar at t.
     for (let j = 0; j < series.length; j++) if (cur[j]) last[j] = cur[j]!.close;
-    if (complete && real) out.push({ ts: t, open: o, high: h, low: l, close: c, volume: 0 });
   }
   return out;
 }
