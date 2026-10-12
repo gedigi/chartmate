@@ -427,6 +427,16 @@ describe('MarketDataService', () => {
   });
 
   describe('minor fixes (S6)', () => {
+    it('symbolInfo skips the listing-date lookup when the search finds no match (queue-serialized case)', async () => {
+      const clock = () => now;
+      const one = new MarketDataService({
+        repos, registry: { stock, crypto }, now: clock,
+        queues: { stock: new RequestQueue({ concurrency: 1, minIntervalMs: 0, now: clock }), crypto: queues.crypto },
+      });
+      await expect(one.symbolInfo('stock:ZZZZ')).rejects.toBeInstanceOf(NotFoundError);
+      expect(stock.firstCalls).toEqual([]);
+    });
+
     it('symbolInfo runs the search and the listing-date lookup in parallel', async () => {
       let release!: () => void;
       stock.searchGate = new Promise<void>((r) => { release = r; });

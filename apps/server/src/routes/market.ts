@@ -122,14 +122,16 @@ export async function marketRoutes(app: FastifyInstance, deps: MarketRouteDeps):
     const marketIds = symbols.filter((id) => !isBasket(id));
     // Baskets are priced from their constituents' live quotes in the same batched provider call as the market ids.
     const byId = new Map<SymbolId, Quote>();
-    const cached = basketIds.length > 0 ? basketQuoteCache.get(keyOf(basketIds)) : [];
+    // Keyed on the basket revision too, so an edited/deleted basket never serves its old price from the cache.
+    const cacheKey = `${baskets.revision}|${keyOf(basketIds)}`;
+    const cached = basketIds.length > 0 ? basketQuoteCache.get(cacheKey) : [];
     try {
       if (cached !== undefined) {
         for (const q of cached) byId.set(q.id, q);
         if (marketIds.length > 0) for (const q of await market.quotes(marketIds)) byId.set(q.id, q);
       } else {
         const r = await baskets.liveQuotes(basketIds.map(basketCode), marketIds);
-        basketQuoteCache.set(keyOf(basketIds), r.baskets);
+        basketQuoteCache.set(cacheKey, r.baskets);
         for (const q of [...r.market, ...r.baskets]) byId.set(q.id, q);
       }
     } catch (err) {

@@ -65,11 +65,17 @@ export class BasketService {
   private readonly now: () => number;
   private readonly unitsCache = new Map<string, CachedUnits>();
   private readonly dailyCache = new Map<string, CachedDaily>();
+  private rev = 0;
 
   constructor(deps: { repos: Repos; market: MarketDataService; now?: () => number }) {
     this.repos = deps.repos;
     this.market = deps.market;
     this.now = deps.now ?? Date.now;
+  }
+
+  /** Bumped on every basket create/update/delete; callers key short-lived caches on it. */
+  get revision(): number {
+    return this.rev;
   }
 
   list(): Promise<Basket[]> {
@@ -90,6 +96,7 @@ export class BasketService {
     }
     const dry = await this.validate(input.versions, baseValue);
     const basket = await this.repos.baskets.create({ id: randomUUID(), name, baseValue, versions: input.versions });
+    this.rev++;
     this.seed(basket.id, input.versions, dry);
     return basket;
   }
@@ -105,6 +112,7 @@ export class BasketService {
     }
     const updated = await this.repos.baskets.update(id, clean);
     if (!updated) throw new NotFoundError(`Basket ${id} not found`);
+    this.rev++;
     if (clean.versions && dry) {
       this.unitsCache.delete(id);
       this.dailyCache.delete(id);
@@ -122,6 +130,7 @@ export class BasketService {
     this.unitsCache.delete(id);
     this.dailyCache.delete(id);
     if (!(await this.repos.baskets.delete(id))) throw new NotFoundError(`Basket ${id} not found`);
+    this.rev++;
   }
 
   async getBars(a: BasketBarsArgs): Promise<BarsResponseCore> {

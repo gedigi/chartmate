@@ -166,4 +166,11 @@ describe.each(urls)('repos on %s', (url) => {
     await expect(r.coverage.add('e', '1D', NaN, 10)).rejects.toThrow(RangeError);
     await expect(r.coverage.add('e', '1D', 0, Infinity)).rejects.toThrow(RangeError);
   });
+  it('migration 002 is idempotent when its columns already exist', async () => {
+    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '=', '002_symbol_splits').execute();
+    await expect(migrate(h.db)).resolves.toBeUndefined();
+    const row = { id: 'stock:M', name: 'M', exchange: null, pricePrecision: 2, firstTs: null, updatedAt: 5, ticker: 'M' };
+    await r.symbols.upsert(row);
+    expect(await r.symbols.get('stock:M')).toEqual({ ...row, splitsCheckedAt: 5 });
+  });
 });

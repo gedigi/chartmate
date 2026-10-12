@@ -118,8 +118,11 @@ or drawings. If a provider is down or rate limiting, cached bars are served mark
 Fetched history is cached in the database and not re-downloaded. Yahoo's bars are split- and
 dividend-adjusted *as of the day they were fetched*, so the server checks each stock for splits at most
 once a day when serving its bars (a lightweight Yahoo chart call with split events since the last check,
-stamped in `symbols.splits_checked_at`). When a split occurred since the last check, that symbol's cached
-bars are dropped and refetched on demand, and baskets holding it recompute their units. A failed check
+stamped in `symbols.splits_checked_at`). When a split occurred since the last check, that symbol's daily
+bars and the intraday bars still within Yahoo's lookback are dropped and refetched on demand; older intraday
+bars (no longer downloadable) are kept and rescaled by the split ratio. Baskets holding the stock recompute
+their units. Symbols cached before this check existed are checked from their last metadata refresh minus 7
+days, so older splits (already reflected in the cache) change nothing. A failed check
 never fails a request; it is retried after an hour. Dividends are not detected: after one, older cached
 bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting) to refetch a symbol).
 

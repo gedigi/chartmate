@@ -404,10 +404,24 @@ export class MarketDataService {
   }
 
   private async refreshSymbol(id: SymbolId, assetClass: MarketClass, code: string, prev: SymbolInfoRow | null): Promise<SymbolInfo> {
-    // Search and listing-date lookup run in parallel (first lookups were sequential: two round trips).
-    const firstP = this.queues[assetClass].run(`first|${code}`, () => this.provider(assetClass).firstBarTs(code))
+    // Search and listing-date lookup run in parallel (sequential lookups cost two round trips). The lookup is
+    // skipped when it only gets its turn after the search already found no match (e.g. a serialized queue).
+    // The flag is set inside the queued search task itself, so it is visible before the queue starts the next task.
+    let noMatch = false;
+    const searchP = this.queues[assetClass].run(`search|${code}`, async () => {
+      try {
+        const res = await this.provider(assetClass).search(code);
+        if (!res.some((r) => r.id === id)) noMatch = true;
+        return res;
+      } catch (err) {
+        noMatch = true;
+        throw err;
+      }
+    });
+    const firstP = this.queues[assetClass]
+      .run(`first|${code}`, () => (noMatch ? Promise.resolve(null) : this.provider(assetClass).firstBarTs(code)))
       .then((ts): { ok: true; ts: number | null } => ({ ok: true, ts }), () => ({ ok: false as const, ts: null }));
-    const results = await this.searchClass(assetClass, code);
+    const results = await searchP;
     const match = results.find((r) => r.id === id);
     if (!match) throw new NotFoundError(`Unknown symbol ${id}`);
     const first = await firstP;

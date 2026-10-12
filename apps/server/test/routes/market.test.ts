@@ -182,6 +182,22 @@ describe('market routes', () => {
     expect(live).toHaveBeenCalledTimes(2);
   });
 
+  it('editing or deleting a basket invalidates its cached quote at once', async () => {
+    const created = await t.app.inject({ method: 'POST', url: '/api/baskets', payload: basketBody() });
+    const b = created.json<{ id: string; versions: unknown[] }>();
+    const id = `basket:${b.id}`;
+    const live = vi.spyOn(t.baskets, 'liveQuotes');
+    await get(`/api/quotes?symbols=${id}`);
+    await get(`/api/quotes?symbols=${id}`);
+    expect(live).toHaveBeenCalledTimes(1);
+    await t.app.inject({ method: 'PUT', url: `/api/baskets/${b.id}`, payload: { name: 'Renamed' } });
+    await get(`/api/quotes?symbols=${id}`);
+    expect(live).toHaveBeenCalledTimes(2);
+    await t.app.inject({ method: 'DELETE', url: `/api/baskets/${b.id}` });
+    expect((await get(`/api/quotes?symbols=${id}`)).json()).toEqual([]);
+    expect(live).toHaveBeenCalledTimes(3);
+  });
+
   it('unknown /api route → 404 JSON', async () => {
     const r = await get('/api/x');
     expect(r.statusCode).toBe(404);

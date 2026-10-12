@@ -67,8 +67,11 @@ const m001: Migration = {
 /** Symbol metadata: provider ticker, and when splits were last checked (cache invalidation on stock splits). */
 const m002: Migration = {
   async up(db: Kysely<any>) {
-    await db.schema.alterTable('symbols').addColumn('ticker', 'text').execute();
-    await db.schema.alterTable('symbols').addColumn('splits_checked_at', 'bigint').execute();
+    // Idempotent: a column that already exists (e.g. a partially applied run) is not added again.
+    const symbols = (await db.introspection.getTables()).find(t => t.name === 'symbols');
+    const have = new Set(symbols?.columns.map(c => c.name) ?? []);
+    if (!have.has('ticker')) await db.schema.alterTable('symbols').addColumn('ticker', 'text').execute();
+    if (!have.has('splits_checked_at')) await db.schema.alterTable('symbols').addColumn('splits_checked_at', 'bigint').execute();
   },
 };
 
