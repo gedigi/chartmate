@@ -275,7 +275,10 @@ export class MarketDataService {
         // date, or long enough ago. Otherwise leave it uncovered (retried next time) and report stale.
         const firstTs = (await this.repos.symbols.get(symbol))?.firstTs ?? null;
         for (const [a, b] of notFound) {
-          if ((firstTs !== null && b <= firstTs) || b < now - NO_DATA_TRUST_MS) await markCovered(a, b);
+          // The recent tail (>= recentEdge) is never covered and is refetched anyway: "no data" there is normal.
+          const low = Math.min(b, recentEdge);
+          if (a >= low) continue;
+          if ((firstTs !== null && low <= firstTs) || low < now - NO_DATA_TRUST_MS) await markCovered(a, low);
           else stale = true;
         }
       }

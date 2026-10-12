@@ -471,6 +471,24 @@ describe('MarketDataService', () => {
       expect(again.bars.length).toBeGreaterThan(0);
     });
 
+    it('NotFound for the recent tail only (above recentEdge): not stale, not covered (as before)', async () => {
+      await svc.symbolInfo('stock:AAPL');
+      stock.noDataBefore = NOW + 2 * DAY; // every request answers "no data"
+      const r = await svc.getNativeBars('stock:AAPL', '1D', NOW - 2 * DAY, NOW);
+      expect(r).toEqual({ bars: [], stale: false });
+      expect(await repos.coverage.list('stock:AAPL', '1D')).toEqual([]);
+    });
+
+    it('NotFound chunk spanning recentEdge: only the part below it is judged (old part covered, tail ignored)', async () => {
+      await svc.symbolInfo('stock:AAPL');
+      stock.noDataBefore = NOW + 2 * DAY;
+      const from = Math.floor((NOW - 30 * DAY) / DAY) * DAY;
+      // one merged chunk [from, now+1d): below recentEdge it ends at NOW - 3d (recent: < 7 d) -> stale, uncovered
+      const r = await svc.getNativeBars('stock:AAPL', '1D', from, NOW);
+      expect(r.stale).toBe(true);
+      expect(await repos.coverage.list('stock:AAPL', '1D')).toEqual([]);
+    });
+
     it('NotFound chunk ending more than 7 days ago is covered (not stale)', async () => {
       await svc.symbolInfo('stock:AAPL');
       stock.noDataBefore = NOW;
