@@ -14,7 +14,9 @@ const MAX_BARS_PER_REQUEST = 4000;
 const MAX_SEARCH_RESULTS = 30;
 const SPARKLINE_POINTS = 30;
 const SPARKLINE_LOOKBACK_MS = 45 * DAY;
-const QUOTE_LOOKBACK_MS = 10 * DAY;
+/** In-memory cache for sparklines and basket quotes (keyed by the sorted id list). */
+const SHORT_CACHE_TTL_MS = 10_000;
+const SHORT_CACHE_MAX = 200;
 
 export interface MarketRouteDeps { market: MarketDataService; baskets: BasketService; now?: () => number }
 
@@ -44,16 +46,26 @@ export async function marketRoutes(app: FastifyInstance, deps: MarketRouteDeps):
   const basketInfo = (b: { id: string; name: string }): SymbolInfo =>
     ({ id: `basket:${b.id}`, assetClass: 'basket', ticker: b.name, name: b.name, pricePrecision: 2 });
 
-  /** Last ~10 daily basket bars → quote (price = last close, change vs previous close). */
-  async function basketQuote(id: SymbolId): Promise<Quote | null> {
-    const t = now();
-    const r = await baskets.getBars({ id: basketCode(id), tf: '1D', session: 'rth', from: t - QUOTE_LOOKBACK_MS, to: t + DAY });
-    const last = r.bars.at(-1);
-    if (!last) return null;
-    const prev = r.bars.at(-2);
-    const changePct = prev && prev.close !== 0 ? ((last.close - prev.close) / prev.close) * 100 : null;
-    return { id, price: last.close, changePct, ts: last.ts };
+  /** Tiny TTL cache; evicts the oldest entry beyond SHORT_CACHE_MAX. */
+  function ttlCache<T>() {
+    const m = new Map<string, { at: number; value: T }>();
+    return {
+      get(key: string): T | undefined {
+        const hit = m.get(key);
+        if (!hit) return undefined;
+        if (now() - hit.at >= SHORT_CACHE_TTL_MS) { m.delete(key); return undefined; }
+        return hit.value;
+      },
+      set(key: string, value: T): void {
+        m.delete(key);
+        m.set(key, { at: now(), value });
+        while (m.size > SHORT_CACHE_MAX) m.delete(m.keys().next().value!);
+      },
+    };
   }
+  const sparkCache = ttlCache<Record<SymbolId, number[]>>();
+  const basketQuoteCache = ttlCache<Quote[]>();
+  const keyOf = (ids: SymbolId[]) => [...new Set(ids)].sort().join(',');
 
   async function dailyCloses(id: SymbolId): Promise<number[]> {
     const t = now();
@@ -108,26 +120,37 @@ export async function marketRoutes(app: FastifyInstance, deps: MarketRouteDeps):
     const { symbols } = parse(SymbolsQuery, request.query);
     const basketIds = symbols.filter(isBasket);
     const marketIds = symbols.filter((id) => !isBasket(id));
-    const [marketQuotes, ...basketQuotes] = await Promise.allSettled([
-      marketIds.length > 0 ? market.quotes(marketIds) : Promise.resolve([]),
-      ...basketIds.map(basketQuote),
-    ]);
-    // Any part that fails is omitted rather than failing the whole request.
+    // Baskets are priced from their constituents' live quotes in the same batched provider call as the market ids.
     const byId = new Map<SymbolId, Quote>();
-    if (marketQuotes.status === 'fulfilled') for (const q of marketQuotes.value) byId.set(q.id, q);
-    else request.log.warn({ err: marketQuotes.reason }, 'market quotes failed');
-    basketQuotes.forEach((r) => { if (r.status === 'fulfilled' && r.value) byId.set(r.value.id, r.value); });
+    const cached = basketIds.length > 0 ? basketQuoteCache.get(keyOf(basketIds)) : [];
+    try {
+      if (cached !== undefined) {
+        for (const q of cached) byId.set(q.id, q);
+        if (marketIds.length > 0) for (const q of await market.quotes(marketIds)) byId.set(q.id, q);
+      } else {
+        const r = await baskets.liveQuotes(basketIds.map(basketCode), marketIds);
+        basketQuoteCache.set(keyOf(basketIds), r.baskets);
+        for (const q of [...r.market, ...r.baskets]) byId.set(q.id, q);
+      }
+    } catch (err) {
+      // Any part that fails is omitted rather than failing the whole request.
+      request.log.warn({ err }, 'quotes failed');
+    }
     return symbols.flatMap((id) => byId.get(id) ?? []);
   });
 
   app.get('/api/sparklines', async (request): Promise<Record<SymbolId, number[]>> => {
     const { symbols } = parse(SymbolsQuery, request.query);
+    const key = keyOf(symbols);
+    const hit = sparkCache.get(key);
+    if (hit) return hit;
     const results = await Promise.allSettled(symbols.map(dailyCloses));
     const out: Record<SymbolId, number[]> = {};
     results.forEach((r, i) => {
       if (r.status === 'fulfilled') out[symbols[i]!] = r.value;
       else request.log.debug({ err: r.reason, symbol: symbols[i] }, 'sparkline omitted');
     });
+    sparkCache.set(key, out);
     return out;
   });
 }

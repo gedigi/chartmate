@@ -32,6 +32,10 @@ export class FakeProvider implements MarketDataProvider {
   splits: Record<string, number[]> = {};
   splitsCalls: { code: string; since: number }[] = [];
   splitsFail: Error | null = null;
+  /** Optional quote price per code (undefined = no quote for that code); default: 10 for universe codes. */
+  quotePrice: ((code: string) => number | undefined) | null = null;
+  /** Optional gate awaited inside search (to observe concurrency). */
+  searchGate: Promise<void> | null = null;
 
   constructor(
     readonly assetClass: 'stock' | 'crypto',
@@ -42,6 +46,7 @@ export class FakeProvider implements MarketDataProvider {
 
   async search(q: string): Promise<SymbolInfo[]> {
     this.searchCalls.push(q);
+    if (this.searchGate) await this.searchGate;
     if (this.searchFail) throw this.searchFail;
     const needle = q.trim().toUpperCase();
     return this.universe.filter((t) => t.includes(needle)).map((t) => this.info(t));
@@ -58,7 +63,13 @@ export class FakeProvider implements MarketDataProvider {
   async quotes(codes: string[]): Promise<Quote[]> {
     this.quoteCalls.push(codes);
     if (this.fail) throw this.fail;
-    return codes.filter((c) => this.universe.includes(c)).map((c) => ({ id: `${this.assetClass}:${c}`, price: 10, changePct: 1, ts: this.now() }));
+    const out: Quote[] = [];
+    for (const c of codes) {
+      if (!this.universe.includes(c)) continue;
+      const price = this.quotePrice ? this.quotePrice(c) : 10;
+      if (price !== undefined) out.push({ id: `${this.assetClass}:${c}`, price, changePct: 1, ts: this.now() });
+    }
+    return out;
   }
 
   async firstBarTs(code: string): Promise<number | null> {

@@ -157,6 +157,31 @@ describe('market routes', () => {
     expect(body['crypto:BTC']).toHaveLength(30);
   });
 
+  it('sparklines and basket quotes are cached for 10 s keyed by the sorted id list', async () => {
+    let now = Date.now();
+    await t.close();
+    t = await makeApp({}, { now: () => now });
+    const created = await t.app.inject({ method: 'POST', url: '/api/baskets', payload: basketBody(undefined, now) });
+    const id = `basket:${created.json<{ id: string }>().id}`;
+    const mBars = vi.spyOn(t.market, 'getBars');
+    const live = vi.spyOn(t.baskets, 'liveQuotes');
+    await get(`/api/sparklines?symbols=stock:AAPL,${id}`);
+    await get(`/api/quotes?symbols=${id},stock:AAPL`);
+    const n = mBars.mock.calls.length;
+    now += 9_000;
+    const spark2 = await get(`/api/sparklines?symbols=${id},stock:AAPL`); // same set, other order
+    const q2 = await get(`/api/quotes?symbols=stock:AAPL,${id}`);
+    expect(mBars.mock.calls.length).toBe(n);
+    expect(live).toHaveBeenCalledTimes(1);
+    expect(Object.keys(spark2.json()).sort()).toEqual([id, 'stock:AAPL'].sort());
+    expect(q2.json<Quote[]>().map((q) => q.id)).toEqual(['stock:AAPL', id]);
+    now += 1_001;
+    await get(`/api/sparklines?symbols=stock:AAPL,${id}`);
+    await get(`/api/quotes?symbols=${id}`);
+    expect(mBars.mock.calls.length).toBeGreaterThan(n);
+    expect(live).toHaveBeenCalledTimes(2);
+  });
+
   it('unknown /api route → 404 JSON', async () => {
     const r = await get('/api/x');
     expect(r.statusCode).toBe(404);

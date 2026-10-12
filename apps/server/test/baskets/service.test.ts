@@ -442,6 +442,68 @@ describe('BasketService', () => {
     });
   });
 
+  describe('live quotes (S13)', () => {
+    /** Quote = the constituent's latest daily close at NOW, so the live value must equal getBars' last close. */
+    const lastClose = (cls: 'stock' | 'crypto') => (code: string) => price(cls)(code, '1D', D(10, 9)).close;
+
+    it('one batched quotes call per provider class, no getBars per poll, value matches getBars close', async () => {
+      const mix = await svc.create({ name: 'mix', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
+      const stocks = await svc.create({ name: 's', versions: [v('2026-09-14', { 'stock:AAA': 0.4, 'stock:BBB': 0.6 })] });
+      stock.quotePrice = lastClose('stock');
+      crypto.quotePrice = lastClose('crypto');
+      const expected = async (id: string) => {
+        const bars = (await svc.getBars({ id, tf: '1D', session: 'rth', from: NOW - 10 * DAY, to: NOW + DAY })).bars;
+        return { last: bars.at(-1)!, prev: bars.at(-2)! };
+      };
+      const em = await expected(mix.id);
+      const es = await expected(stocks.id);
+      await svc.liveQuotes([mix.id, stocks.id], ['stock:BBB']); // first poll may compute the previous closes
+      const spy = vi.spyOn(svc, 'getBars');
+      const nativeSpy = vi.spyOn(market, 'getNativeBars');
+      stock.quoteCalls = [];
+      crypto.quoteCalls = [];
+      const r = await svc.liveQuotes([mix.id, stocks.id], ['stock:BBB']);
+      expect(spy).not.toHaveBeenCalled();
+      expect(nativeSpy).not.toHaveBeenCalled();
+      expect(stock.quoteCalls).toHaveLength(1);
+      expect([...stock.quoteCalls[0]!].sort()).toEqual(['AAA', 'BBB']);
+      expect(crypto.quoteCalls).toEqual([['BTC']]);
+      expect(r.market.map((q) => q.id)).toEqual(['stock:BBB']);
+      const qm = r.baskets.find((q) => q.id === `basket:${mix.id}`)!;
+      const qs = r.baskets.find((q) => q.id === `basket:${stocks.id}`)!;
+      expect(qm.price).toBeCloseTo(em.last.close, 9);
+      expect(qs.price).toBeCloseTo(es.last.close, 9);
+      expect(qm.changePct).toBeCloseTo(((em.last.close - em.prev.close) / em.prev.close) * 100, 9);
+      expect(qs.changePct).toBeCloseTo(((es.last.close - es.prev.close) / es.prev.close) * 100, 9);
+    });
+
+    it('falls back to the daily-bars method when a constituent quote is missing', async () => {
+      const b = await svc.create({ name: 's', versions: [v('2026-09-14', { 'stock:AAA': 0.4, 'stock:BBB': 0.6 })] });
+      stock.quotePrice = (c) => (c === 'BBB' ? undefined : 1);
+      const spy = vi.spyOn(svc, 'getBars');
+      const r = await svc.liveQuotes([b.id], []);
+      const bars = (await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: NOW - 10 * DAY, to: NOW + DAY })).bars;
+      expect(spy).toHaveBeenCalled();
+      expect(r.baskets[0]!.price).toBeCloseTo(bars.at(-1)!.close, 9);
+      expect(r.baskets[0]!.ts).toBe(bars.at(-1)!.ts);
+    });
+
+    it('the cached previous close is recomputed after a basket update and on a new day', async () => {
+      const b = await svc.create({ name: 's', versions: [v('2026-09-14', { 'stock:AAA': 1 })] });
+      stock.quotePrice = lastClose('stock');
+      await svc.liveQuotes([b.id], []);
+      const spy = vi.spyOn(svc, 'getBars');
+      await svc.liveQuotes([b.id], []);
+      expect(spy).toHaveBeenCalledTimes(0);
+      await svc.update(b.id, { versions: [v('2026-09-15', { 'stock:AAA': 1 })] });
+      await svc.liveQuotes([b.id], []);
+      expect(spy).toHaveBeenCalledTimes(1);
+      now = NOW + DAY;
+      await svc.liveQuotes([b.id], []);
+      expect(spy).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('getLatest', () => {
     it('returns the last bar of the current bucket window', async () => {
       const b = await svc.create({ name: 'mix', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });

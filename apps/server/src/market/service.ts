@@ -374,17 +374,15 @@ export class MarketDataService {
   }
 
   private async refreshSymbol(id: SymbolId, assetClass: MarketClass, code: string, prev: SymbolInfoRow | null): Promise<SymbolInfo> {
+    // Search and listing-date lookup run in parallel (first lookups were sequential: two round trips).
+    const firstP = this.queues[assetClass].run(`first|${code}`, () => this.provider(assetClass).firstBarTs(code))
+      .then((ts): { ok: true; ts: number | null } => ({ ok: true, ts }), () => ({ ok: false as const, ts: null }));
     const results = await this.searchClass(assetClass, code);
     const match = results.find((r) => r.id === id);
     if (!match) throw new NotFoundError(`Unknown symbol ${id}`);
-    let firstTs: number | null;
-    let lookupFailed = false;
-    try {
-      firstTs = await this.queues[assetClass].run(`first|${code}`, () => this.provider(assetClass).firstBarTs(code));
-    } catch {
-      firstTs = null;
-      lookupFailed = true;
-    }
+    const first = await firstP;
+    let firstTs: number | null = first.ts;
+    const lookupFailed = !first.ok;
     firstTs ??= prev?.firstTs ?? null;
     const now = this.now();
     const row: SymbolInfoRow = {

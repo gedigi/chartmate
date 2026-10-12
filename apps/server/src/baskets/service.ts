@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   BasketValidationError, baseTimeframe, bucketStart, buildBasketBars, computeVersionUnits, filterSession,
   isIntraday, parseDateString, parseSymbolId, resample, tfMs, utcDateString, validateVersions, versionMarkers,
-  type Bar, type Basket, type BasketVersion, type Calendar, type ConstituentSeries, type Marker,
+  type Bar, type Basket, type BasketVersion, type Calendar, type ConstituentSeries, type Marker, type Quote,
   type SessionMode, type SymbolId, type Timeframe, type UnitsResult,
 } from '@altv/shared';
 import type { Repos } from '../db/repos.js';
@@ -16,6 +16,8 @@ const INTRADAY_PAD_MS = 5 * DAY;
 const LATEST_STOCK_PAD_MS = 4 * DAY;
 const DAILY_PAD_MS = 10 * DAY;
 const UNITS_LOOKBACK_MS = 10 * DAY;
+/** Daily history used for a basket quote's previous close (and the fallback quote). */
+const QUOTE_LOOKBACK_MS = 10 * DAY;
 const MAX_NAME = 80;
 export const INTRADAY_HL_NOTICE = 'Basket high/low are approximate (sum of constituent extremes).';
 export const START_MARKER = 'Start';
@@ -31,6 +33,8 @@ export interface BasketBarsArgs {
 }
 
 interface CachedUnits { key: string; units: UnitsResult; at: number }
+/** The basket's two latest daily closes, computed once per UTC day per basket (key = units key). */
+interface CachedDaily { key: string; day: number; last: Bar | null; prev: Bar | null }
 
 const invalid = (message: string) => new AppError(400, 'invalid_basket', message);
 const unavailable = () => new AppError(503, 'data_unavailable', 'Market data temporarily unavailable; try again');
@@ -60,6 +64,7 @@ export class BasketService {
   private readonly market: MarketDataService;
   private readonly now: () => number;
   private readonly unitsCache = new Map<string, CachedUnits>();
+  private readonly dailyCache = new Map<string, CachedDaily>();
 
   constructor(deps: { repos: Repos; market: MarketDataService; now?: () => number }) {
     this.repos = deps.repos;
@@ -102,6 +107,7 @@ export class BasketService {
     if (!updated) throw new NotFoundError(`Basket ${id} not found`);
     if (clean.versions && dry) {
       this.unitsCache.delete(id);
+      this.dailyCache.delete(id);
       this.seed(id, clean.versions, dry);
     }
     return updated;
@@ -114,6 +120,7 @@ export class BasketService {
 
   async delete(id: string): Promise<void> {
     this.unitsCache.delete(id);
+    this.dailyCache.delete(id);
     if (!(await this.repos.baskets.delete(id))) throw new NotFoundError(`Basket ${id} not found`);
   }
 
@@ -209,6 +216,98 @@ export class BasketService {
     // The small pad can miss a stock's last close (e.g. a halt or long closure): retry with the full pad.
     if (padMs !== undefined && (r.bars.length === 0 || r.unseededStocks.length > 0)) r = await this.buildBars(args);
     return { bar: r.bars.at(-1) ?? null, stale: r.stale };
+  }
+
+  /**
+   * Quotes for baskets (by uuid) plus plain market ids, with ONE batched `market.quotes` call for the market ids and
+   * every basket's current constituents. A basket's price is Σ unitsᵢ × quoteᵢ.price with the version active now;
+   * changePct is against the basket's previous daily close (two latest daily closes cached once per UTC day per
+   * basket, invalidated on update). When any constituent quote is missing (or units can't be had) the basket falls
+   * back to its latest daily bar. Baskets that fail entirely are omitted.
+   */
+  async liveQuotes(basketIds: string[], marketIds: SymbolId[]): Promise<{ market: Quote[]; baskets: Quote[] }> {
+    const plans = await Promise.all(basketIds.map(async (id) => {
+      try {
+        const basket = await this.get(id);
+        const { units } = await this.unitsFor(basket);
+        const now = this.now();
+        let active = units.versions[0]!;
+        for (const ver of units.versions) if (ver.effectiveTs <= now) active = ver;
+        return { id, basket, units: active.units, key: this.unitsKey(basket.versions) };
+      } catch {
+        return { id, basket: null, units: null, key: '' };
+      }
+    }));
+    const wanted = new Set<SymbolId>(marketIds);
+    for (const p of plans) if (p.units) for (const c of Object.keys(p.units)) wanted.add(c);
+    let quotes: Quote[] = [];
+    if (wanted.size > 0) {
+      try {
+        quotes = await this.market.quotes([...wanted]);
+      } catch {
+        quotes = []; // baskets fall back to daily bars; the market part is omitted
+      }
+    }
+    const byId = new Map(quotes.map((q) => [q.id, q]));
+    const marketSet = new Set(marketIds);
+    const basketQuotes = await Promise.all(plans.map(async (p): Promise<Quote | null> => {
+      try {
+        if (p.basket && p.units) {
+          const live = this.priceFromQuotes(p.units, byId);
+          if (live) {
+            const d = await this.dailyCloses(p.id, p.key);
+            const quoteDay = Math.floor(live.ts / DAY) * DAY;
+            // Before the latest daily bar's day closes, compare with the bar before it; once a newer day trades,
+            // the latest bar is the previous close.
+            const prev = d.last && quoteDay > d.last.ts ? d.last : d.prev;
+            const changePct = prev && prev.close !== 0 ? ((live.price - prev.close) / prev.close) * 100 : null;
+            return { id: `basket:${p.id}`, price: live.price, changePct, ts: live.ts };
+          }
+        }
+        return await this.dailyQuote(p.id);
+      } catch {
+        return null;
+      }
+    }));
+    return {
+      market: quotes.filter((q) => marketSet.has(q.id)),
+      baskets: basketQuotes.filter((q): q is Quote => q !== null),
+    };
+  }
+
+  private priceFromQuotes(units: Record<SymbolId, number>, byId: Map<SymbolId, Quote>): { price: number; ts: number } | null {
+    let price = 0;
+    let ts = -Infinity;
+    for (const [c, u] of Object.entries(units)) {
+      const q = byId.get(c);
+      if (!q || !Number.isFinite(q.price)) return null;
+      price += u * q.price;
+      ts = Math.max(ts, q.ts);
+    }
+    return Number.isFinite(price) && Number.isFinite(ts) ? { price, ts } : null;
+  }
+
+  /** The basket's two latest daily bars (cached once per UTC day per basket and units key). */
+  private async dailyCloses(id: string, key: string): Promise<CachedDaily> {
+    const now = this.now();
+    const day = Math.floor(now / DAY) * DAY;
+    const hit = this.dailyCache.get(id);
+    if (hit && hit.key === key && hit.day === day) return hit;
+    const r = await this.getBars({ id, tf: '1D', session: 'rth', from: now - QUOTE_LOOKBACK_MS, to: now + DAY });
+    const entry: CachedDaily = { key, day, last: r.bars.at(-1) ?? null, prev: r.bars.at(-2) ?? null };
+    if (!r.stale) this.dailyCache.set(id, entry);
+    return entry;
+  }
+
+  /** Fallback quote from the latest daily bars: price = last close, change vs the previous close. */
+  private async dailyQuote(id: string): Promise<Quote | null> {
+    const now = this.now();
+    const r = await this.getBars({ id, tf: '1D', session: 'rth', from: now - QUOTE_LOOKBACK_MS, to: now + DAY });
+    const last = r.bars.at(-1);
+    if (!last) return null;
+    const prev = r.bars.at(-2);
+    const changePct = prev && prev.close !== 0 ? ((last.close - prev.close) / prev.close) * 100 : null;
+    return { id: `basket:${id}`, price: last.close, changePct, ts: last.ts };
   }
 
   /** Validation order: versions shape → constituents exist → engine dry-run on daily data. */

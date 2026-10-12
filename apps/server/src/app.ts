@@ -116,7 +116,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   app.get('/api/health', { config: { public: true } }, async () => ({ ok: true }));
   await app.register(authRoutes, authOpts);
-  await app.register(marketRoutes, { market, baskets });
+  await app.register(marketRoutes, { market, baskets, ...(deps.now ? { now: deps.now } : {}) });
   await app.register(basketRoutes, { baskets });
   await app.register(userRoutes, { repos });
 

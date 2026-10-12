@@ -427,6 +427,17 @@ describe('MarketDataService', () => {
   });
 
   describe('minor fixes (S6)', () => {
+    it('symbolInfo runs the search and the listing-date lookup in parallel', async () => {
+      let release!: () => void;
+      stock.searchGate = new Promise<void>((r) => { release = r; });
+      const p = svc.symbolInfo('stock:AAPL');
+      await new Promise((r) => setTimeout(r, 5));
+      expect(stock.firstCalls).toEqual(['AAPL']); // started while search is still pending
+      release();
+      expect((await p).id).toBe('stock:AAPL');
+      expect((await repos.symbols.get('stock:AAPL'))?.firstTs).toBe(Date.UTC(2000, 0, 1));
+    });
+
     it('symbolInfo ticker comes from the provider match (persisted for cached reads)', async () => {
       const orig = stock.info.bind(stock);
       stock.info = (t: string) => ({ ...orig(t), ticker: `${t}.X` });
