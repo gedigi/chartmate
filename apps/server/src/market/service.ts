@@ -3,7 +3,7 @@ import {
   type AssetClass, type Bar, type Calendar, type NativeTimeframe, type Quote, type SessionMode,
   type SymbolId, type SymbolInfo, type Timeframe,
 } from '@altv/shared';
-import type { Repos, SymbolInfoRow } from '../db/repos.js';
+import type { Repos, SplitOp, SymbolInfoRow } from '../db/repos.js';
 import { AppError, NotFoundError, ProviderError } from '../errors.js';
 import { RequestQueue } from '../providers/queue.js';
 import type { ProviderRegistry } from '../providers/registry.js';
@@ -25,6 +25,9 @@ const NO_DATA_TRUST_MS = 7 * DAY;
 const SPLIT_CHECK_MS = DAY;
 /** Retry delay after a failed split lookup. */
 const SPLIT_RETRY_MS = 60 * 60_000;
+/** Never-checked rows (pre-migration): splits older than updated_at - this are assumed reflected in the cache. */
+const SPLIT_BASELINE_SLACK_MS = 7 * DAY;
+const INTRADAY_NATIVE: NativeTimeframe[] = ['1m', '5m', '15m', '30m', '1h'];
 
 export interface GetBarsArgs { symbol: SymbolId; tf: Timeframe; session: SessionMode; from: number; to: number }
 export interface BarsResult { bars: Bar[]; stale: boolean; hasMoreBefore: boolean; earliestTs: number | null; notices: string[] }
@@ -147,29 +150,53 @@ export class MarketDataService {
     const now = this.now();
     try {
       const row = await this.repos.symbols.get(symbol);
-      if (!row) return; // nothing to stamp yet; symbolInfo creates the row
+      if (!row) {
+        // Nothing cached -> nothing to invalidate: remember "checked now" (the row insert stamps the DB later).
+        // Cached bars without a row: try again later (the row normally appears with the first symbolInfo).
+        const cached = await this.repos.bars.hasAny(symbol);
+        this.splitNextCheck.set(symbol, now + (cached ? SPLIT_RETRY_MS : SPLIT_CHECK_MS));
+        return;
+      }
       const last = row.splitsCheckedAt ?? null;
       if (last !== null && now - last < SPLIT_CHECK_MS) {
         this.splitNextCheck.set(symbol, last + SPLIT_CHECK_MS);
         return;
       }
-      let since: number;
-      if (last !== null) since = last;
-      else if (await this.repos.bars.hasAny(symbol)) since = 0; // cached before checks existed: unknown fetch time
-      else since = now; // nothing cached, nothing to invalidate
-      if (since < now) {
-        const splits = await this.queues.stock.run(`splits|${code}|${since}`, () => provider.splitsSince!(code, since));
-        if (splits.length > 0) {
-          await this.repos.bars.deleteSymbol(symbol);
-          await this.repos.coverage.deleteSymbol(symbol);
-          this.epoch++;
-        }
+      // Rows from before split checks existed: splits older than the row's refresh (minus slack) are already
+      // reflected in what was cached.
+      const since = last ?? row.updatedAt - SPLIT_BASELINE_SLACK_MS;
+      const splits = await this.queues.stock.run(`splits|${code}|${since}`, () => provider.splitsSince!(code, since));
+      const relevant = splits.filter((sp) => sp.ts > since).sort((x, y) => x.ts - y.ts);
+      if (relevant.length > 0) {
+        await this.repos.bars.applySplit(symbol, this.splitOps(relevant));
+        this.epoch++;
       }
       await this.repos.symbols.markSplitsChecked(symbol, now);
       this.splitNextCheck.set(symbol, now + SPLIT_CHECK_MS);
-    } catch {
+    } catch (err) {
+      if (err instanceof ProviderError && err.retryable && err.provider !== 'queue') this.queues.stock.backoff(BACKOFF_MS);
       this.splitNextCheck.set(symbol, now + SPLIT_RETRY_MS); // never fail a bars request over this
     }
+  }
+
+  /**
+   * Per split at X (ascending): daily bars are dropped (refetchable in full). For each intraday timeframe with
+   * lookback L, bars at ts >= X - L are still refetchable and are dropped; older bars were necessarily fetched before
+   * X (they had left the provider's window before the split), so they are kept and rescaled by the split factor.
+   * Without a lookback limit (or a known factor) the whole timeframe is dropped.
+   */
+  private splitOps(splits: { ts: number; factor?: number }[]): SplitOp[] {
+    const limits = this.provider('stock').limits.maxLookbackMs;
+    const ops: SplitOp[] = [{ tf: '1D', cut: Number.MIN_SAFE_INTEGER }];
+    for (const sp of splits) {
+      const factor = sp.factor !== undefined && Number.isFinite(sp.factor) && sp.factor > 0 ? sp.factor : undefined;
+      for (const tf of INTRADAY_NATIVE) {
+        const L = limits[tf];
+        if (L === undefined || factor === undefined) ops.push({ tf, cut: Number.MIN_SAFE_INTEGER });
+        else ops.push({ tf, cut: sp.ts - L, factor });
+      }
+    }
+    return ops;
   }
 
   async getNativeBars(symbol: SymbolId, tf: NativeTimeframe, from: number, to: number): Promise<{ bars: Bar[]; stale: boolean }> {

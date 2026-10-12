@@ -13,6 +13,15 @@ function parseJson<T>(text: string, what: string): T {
 
 const CHUNK = 500;
 
+/** One step of a stock-split invalidation for a timeframe (see `BarRepo.applySplit`). */
+export interface SplitOp {
+  tf: NativeTimeframe;
+  /** Bars (and coverage) with ts >= cut are deleted; use Number.MIN_SAFE_INTEGER to drop the whole timeframe. */
+  cut: number;
+  /** Bars with ts < cut are rescaled: prices / factor, volume * factor (absent = no older bars kept). */
+  factor?: number;
+}
+
 export class BarRepo {
   constructor(private db: Kysely<Database>) {}
 
@@ -38,6 +47,29 @@ export class BarRepo {
       .where('symbol', '=', symbol).where('tf', '=', tf).where('ts', '>=', from).where('ts', '<', to)
       .orderBy('ts', 'asc').execute();
     return rows.map(toBar);
+  }
+
+  /**
+   * Applies split ops for `symbol` in ONE transaction: per op, coverage at/after `cut` is removed (ranges straddling
+   * it are trimmed) before the bars at/after `cut` are deleted, and older bars are rescaled by `factor`.
+   */
+  async applySplit(symbol: string, ops: SplitOp[]): Promise<void> {
+    await this.db.transaction().execute(async trx => {
+      for (const op of ops) {
+        await trx.deleteFrom('coverage').where('symbol', '=', symbol).where('tf', '=', op.tf).where('from_ts', '>=', op.cut).execute();
+        await trx.updateTable('coverage').set({ to_ts: op.cut })
+          .where('symbol', '=', symbol).where('tf', '=', op.tf).where('to_ts', '>', op.cut).execute();
+        await trx.deleteFrom('bars').where('symbol', '=', symbol).where('tf', '=', op.tf).where('ts', '>=', op.cut).execute();
+        const f = op.factor;
+        if (f !== undefined) {
+          if (!Number.isFinite(f) || !(f > 0)) throw new RangeError(`applySplit: invalid factor ${f}`);
+          await trx.updateTable('bars').set(eb => ({
+            open: eb('open', '/', f), high: eb('high', '/', f), low: eb('low', '/', f), close: eb('close', '/', f),
+            volume: eb('volume', '*', f),
+          })).where('symbol', '=', symbol).where('tf', '=', op.tf).where('ts', '<', op.cut).execute();
+        }
+      }
+    });
   }
 
   /** True when any bar of `symbol` is cached (any timeframe). */
@@ -127,13 +159,14 @@ export class SymbolRepo {
     };
   }
 
-  /** Inserts or updates metadata; never touches `splits_checked_at`. */
+  /** Inserts or updates metadata; `splits_checked_at` is set to `updatedAt` on insert only. */
   async upsert(row: SymbolInfoRow): Promise<void> {
     const v = {
       id: row.id, name: row.name, exchange: row.exchange, price_precision: row.pricePrecision, first_ts: row.firstTs,
       updated_at: row.updatedAt, ticker: row.ticker ?? null,
     };
-    await this.db.insertInto('symbols').values(v)
+    // A new row starts as "splits checked as of now": its bars are fetched after this point (updates keep the stamp).
+    await this.db.insertInto('symbols').values({ ...v, splits_checked_at: row.updatedAt })
       .onConflict(oc => oc.column('id').doUpdateSet({
         name: v.name, exchange: v.exchange, price_precision: v.price_precision, first_ts: v.first_ts, updated_at: v.updated_at, ticker: v.ticker,
       }))

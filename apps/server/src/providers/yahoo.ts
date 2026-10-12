@@ -33,7 +33,7 @@ const OFF_GRID_MOD_MAX = 30 * MIN;
 type DateLike = Date | string | number;
 interface YQuote { date: DateLike; open: number | null; high: number | null; low: number | null; close: number | null; volume?: number | null }
 interface YPeriod { start: DateLike; end: DateLike }
-interface YSplit { date: DateLike; splitRatio?: string }
+interface YSplit { date: DateLike; splitRatio?: string; numerator?: number; denominator?: number }
 interface YChart {
   events?: { splits?: YSplit[] | Record<string, YSplit> };
   meta?: { firstTradeDate?: DateLike | null; tradingPeriods?: Partial<Record<Session, YPeriod[][] | YPeriod[]>> };
@@ -146,9 +146,10 @@ export class YahooProvider implements MarketDataProvider {
     return ftd === null ? null : nyDateUtcMidnight(ftd);
   }
 
-  /** Splits after `since`, from a daily chart call with split events (yahoo-finance2 `events: 'split'`). */
+  /** Splits after `since`, from a chart call with split events (yahoo-finance2 `events: 'split'`). */
   async splitsSince(code: string, since: number): Promise<StockSplit[]> {
-    const opts = { period1: new Date(since), period2: new Date(this.now()), interval: '1d', events: 'split' };
+    // A coarse interval keeps the payload small; the split events are reported regardless of the bar interval.
+    const opts = { period1: new Date(since), period2: new Date(this.now()), interval: '3mo', events: 'split' };
     const res = (await this.call(() => this.client.chart(code, opts))) as YChart;
     const raw = res.events?.splits;
     const list = Array.isArray(raw) ? raw : raw ? Object.values(raw) : [];
@@ -156,7 +157,13 @@ export class YahooProvider implements MarketDataProvider {
     for (const sp of list) {
       const ts = toMs(sp.date);
       if (ts === null || ts <= since) continue;
-      out.push({ ts, ...(typeof sp.splitRatio === 'string' ? { ratio: sp.splitRatio } : {}) });
+      const factor = isNum(sp.numerator) && isNum(sp.denominator) && sp.numerator > 0 && sp.denominator > 0
+        ? sp.numerator / sp.denominator : undefined;
+      out.push({
+        ts,
+        ...(typeof sp.splitRatio === 'string' ? { ratio: sp.splitRatio } : {}),
+        ...(factor !== undefined ? { factor } : {}),
+      });
     }
     return out.sort((a, b) => a.ts - b.ts);
   }

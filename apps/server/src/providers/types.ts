@@ -21,6 +21,8 @@ export interface StockSplit {
   ts: number;
   /** E.g. '4:1' when the provider reports it. */
   ratio?: string;
+  /** New shares per old share (numerator / denominator, e.g. 4 for 4:1); absent = unknown. */
+  factor?: number;
 }
 
 export interface MarketDataProvider {

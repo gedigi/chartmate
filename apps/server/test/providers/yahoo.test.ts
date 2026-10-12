@@ -363,7 +363,8 @@ describe('YahooProvider', () => {
         { date: new Date(since + 5 * DAY), numerator: 4, denominator: 1, splitRatio: '4:1' },
       ] },
     }) });
-    expect(await provider(client).splitsSince('AAPL', since)).toEqual([{ ts: since + 5 * DAY, ratio: '4:1' }]);
+    expect(await provider(client).splitsSince('AAPL', since)).toEqual([{ ts: since + 5 * DAY, ratio: '4:1', factor: 4 }]);
+    expect(chartCalls[0]!.opts.interval).toBe('3mo');
     expect(chartCalls[0]!.sym).toBe('AAPL');
     expect(chartCalls[0]!.opts.events).toBe('split');
     expect(chartCalls[0]!.opts.period1.getTime()).toBe(since);

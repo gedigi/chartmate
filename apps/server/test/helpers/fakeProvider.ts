@@ -34,6 +34,8 @@ export class FakeProvider implements MarketDataProvider {
   splitsFail: Error | null = null;
   /** Optional quote price per code (undefined = no quote for that code); default: 10 for universe codes. */
   quotePrice: ((code: string) => number | undefined) | null = null;
+  /** Optional quote timestamp (default: now). */
+  quoteTs: ((code: string) => number) | null = null;
   /** Optional gate awaited inside search (to observe concurrency). */
   searchGate: Promise<void> | null = null;
 
@@ -67,7 +69,7 @@ export class FakeProvider implements MarketDataProvider {
     for (const c of codes) {
       if (!this.universe.includes(c)) continue;
       const price = this.quotePrice ? this.quotePrice(c) : 10;
-      if (price !== undefined) out.push({ id: `${this.assetClass}:${c}`, price, changePct: 1, ts: this.now() });
+      if (price !== undefined) out.push({ id: `${this.assetClass}:${c}`, price, changePct: 1, ts: this.quoteTs ? this.quoteTs(c) : this.now() });
     }
     return out;
   }
@@ -78,10 +80,10 @@ export class FakeProvider implements MarketDataProvider {
     return this.firstTs;
   }
 
-  async splitsSince(code: string, since: number): Promise<{ ts: number; ratio: string }[]> {
+  async splitsSince(code: string, since: number): Promise<{ ts: number; ratio: string; factor: number }[]> {
     this.splitsCalls.push({ code, since });
     if (this.splitsFail) throw this.splitsFail;
-    return (this.splits[code] ?? []).filter((ts) => ts > since).map((ts) => ({ ts, ratio: '2:1' }));
+    return (this.splits[code] ?? []).filter((ts) => ts > since).map((ts) => ({ ts, ratio: '2:1', factor: 2 }));
   }
 
   info(t: string): SymbolInfo {

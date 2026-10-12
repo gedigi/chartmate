@@ -88,9 +88,9 @@ describe.each(urls)('repos on %s', (url) => {
     expect(await r.symbols.get('stock:A')).toBeNull();
     const row = { id: 'stock:A', name: 'A Inc', exchange: 'NYSE', pricePrecision: 2, firstTs: Date.UTC(1999, 0, 1), updatedAt: Date.UTC(2030, 0, 1) };
     await r.symbols.upsert(row);
-    expect(await r.symbols.get('stock:A')).toEqual({ ...row, ticker: null, splitsCheckedAt: null });
+    expect(await r.symbols.get('stock:A')).toEqual({ ...row, ticker: null, splitsCheckedAt: row.updatedAt }); // insert stamps the split check
     await r.symbols.upsert({ ...row, name: 'B', exchange: null, firstTs: null, ticker: 'A.X' });
-    expect(await r.symbols.get('stock:A')).toEqual({ ...row, name: 'B', exchange: null, firstTs: null, ticker: 'A.X', splitsCheckedAt: null });
+    expect(await r.symbols.get('stock:A')).toEqual({ ...row, name: 'B', exchange: null, firstTs: null, ticker: 'A.X', splitsCheckedAt: row.updatedAt });
   });
   it('symbols splits_checked_at is set separately and survives upserts; bars/coverage deleteSymbol', async () => {
     const row = { id: 'stock:S', name: 'S', exchange: null, pricePrecision: 2, firstTs: null, updatedAt: 1 };
