@@ -71,4 +71,15 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
       expect(r.json()[0], JSON.stringify(styles)).not.toHaveProperty('styles');
     }
   });
+
+  it('drawing styles: an invalid part is dropped but valid parts survive', async () => {
+    const base = { name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false };
+    const r = await putDrawings([
+      { ...base, styles: { line: { color: '#ff0000', size: 2, style: 'solid' }, text: { color: 'red', size: 14 } } },
+      { ...base, styles: { line: { color: '#ff0000', size: 9, style: 'solid' }, text: { color: '#00ff00', size: 14 } } },
+    ]);
+    expect(r.statusCode).toBe(200);
+    expect(r.json()[0].styles).toEqual({ line: { color: '#ff0000', size: 2, style: 'solid' } });
+    expect(r.json()[1].styles).toEqual({ text: { color: '#00ff00', size: 14 } });
+  });
 });

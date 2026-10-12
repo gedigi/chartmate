@@ -76,7 +76,7 @@ describe('BinanceProvider', () => {
     });
     const res = await p.fetchBars('BTC', '1h', from, to);
     expect(calls).toHaveLength(2);
-    expect(Number(calls[1]!.searchParams.get('startTime'))).toBe(from + 1000 * HOUR) // next grid slot after the last kline;
+    expect(Number(calls[1]!.searchParams.get('startTime'))).toBe(from + 1000 * HOUR); // next grid slot after the last kline
     expect(res.bars).toHaveLength(1200);
     const tss = res.bars.map((b) => b.ts);
     expect(new Set(tss).size).toBe(1200);

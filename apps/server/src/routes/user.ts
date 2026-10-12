@@ -5,7 +5,6 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repos } from '../db/repos.js';
-import { NotFoundError } from '../errors.js';
 import { isSymbolId, parse, SymbolIdSchema } from './validation.js';
 
 const Hex = z.string().regex(HEX_COLOR_RE, 'colour must be #rrggbb');
@@ -22,10 +21,18 @@ const AppearanceSchema = z.object({
   drawing: LineStyleSchema.strict().optional(),
 }).strict();
 
-/** Normalized drawing styles; unknown keys (e.g. raw KLineChart styles) are stripped. */
+/**
+ * Normalized drawing styles; unknown keys (e.g. raw KLineChart styles) are stripped. Tolerant per part: an invalid
+ * `line` or `text` part is dropped on its own so valid parts survive; if no valid part remains, styles are dropped.
+ */
 const DrawingStylesSchema = z.object({
-  line: LineStyleSchema.optional(),
-  text: z.object({ color: Hex, size: z.number().int().min(MIN_TEXT_SIZE).max(MAX_TEXT_SIZE) }).optional(),
+  line: LineStyleSchema.optional().catch(undefined),
+  text: z.object({ color: Hex, size: z.number().int().min(MIN_TEXT_SIZE).max(MAX_TEXT_SIZE) }).optional().catch(undefined),
+}).transform((s) => {
+  const out: { line?: z.infer<typeof LineStyleSchema>; text?: { color: string; size: number } } = {};
+  if (s.line) out.line = s.line;
+  if (s.text) out.text = s.text;
+  return out.line || out.text ? out : undefined;
 });
 
 const IndicatorSchema = z.object({
@@ -75,10 +82,11 @@ export async function userRoutes(app: FastifyInstance, deps: { repos: Repos }): 
     return repos.watchlist.list();
   });
 
-  app.get('/api/layouts/:key', async (request): Promise<Layout> => {
+  // A missing (valid) key is 200 with a JSON `null` body, so first visits produce no 404 noise.
+  app.get('/api/layouts/:key', async (request, reply): Promise<Layout | null> => {
     const { key } = parse(LayoutKey, request.params);
     const layout = await repos.layouts.get(key);
-    if (!layout) throw new NotFoundError(`No layout ${key}`);
+    if (!layout) return reply.type('application/json; charset=utf-8').send('null');
     return layout;
   });
   app.put('/api/layouts/:key', async (request): Promise<Layout> => {

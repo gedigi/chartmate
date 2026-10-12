@@ -29,8 +29,11 @@ describe('user routes', () => {
     expect((await t.app.inject({ method: 'PUT', url: '/api/watchlist', payload: tooMany })).statusCode).toBe(400);
   });
 
-  it('layouts PUT/GET; unknown key 404; invalid key/body 400', async () => {
-    expect((await t.app.inject({ method: 'GET', url: '/api/layouts/default' })).statusCode).toBe(404);
+  it('layouts PUT/GET; unknown key 200 null; invalid key/body 400', async () => {
+    const first = await t.app.inject({ method: 'GET', url: '/api/layouts/default' });
+    expect(first.statusCode).toBe(200);
+    expect(first.headers['content-type']).toMatch(/application\/json/);
+    expect(first.json()).toBeNull();
     const put = await t.app.inject({ method: 'PUT', url: '/api/layouts/default', payload: layout });
     expect(put.statusCode).toBe(200);
     const got = await t.app.inject({ method: 'GET', url: '/api/layouts/default' });
@@ -42,8 +45,8 @@ describe('user routes', () => {
     expect((await t.app.inject({ method: 'GET', url: '/api/layouts/sym:crypto:BTC' })).json()).toMatchObject({ symbol: 'crypto:BTC' });
 
     const unknown = await t.app.inject({ method: 'GET', url: '/api/layouts/sym:stock:MSFT' });
-    expect(unknown.statusCode).toBe(404);
-    expect(unknown.json()).toMatchObject({ code: 'not_found' });
+    expect(unknown.statusCode).toBe(200);
+    expect(unknown.body).toBe('null');
 
     expect((await t.app.inject({ method: 'GET', url: '/api/layouts/whatever' })).statusCode).toBe(400);
     expect((await t.app.inject({ method: 'PUT', url: '/api/layouts/default', payload: { ...layout, tf: '7m' } })).statusCode).toBe(400);
