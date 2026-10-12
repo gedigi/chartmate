@@ -88,9 +88,10 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
 
 const get = <T>(path: string, signal?: AbortSignal) => request<T>('GET', path, undefined, signal);
 
+/** "Not there" as null: a 404, or a 200 whose body is `null` (or empty). */
 async function nullOn404<T>(p: Promise<T>): Promise<T | null> {
   try {
-    return await p;
+    return (await p) ?? null;
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) return null;
     throw err;
