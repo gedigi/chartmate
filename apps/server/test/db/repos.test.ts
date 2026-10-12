@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import { createDb } from '../../src/db/connect.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos } from '../../src/db/repos.js';
@@ -91,5 +91,58 @@ describe.each(urls)('repos on %s', (url) => {
     expect(await r.symbols.get('stock:A')).toEqual(row);
     await r.symbols.upsert({ ...row, name: 'B', exchange: null, firstTs: null });
     expect(await r.symbols.get('stock:A')).toEqual({ ...row, name: 'B', exchange: null, firstTs: null });
+  });
+  it('baskets list: ordered by created_at then id, each with its own versions in idx order', async () => {
+    const now = vi.spyOn(Date, 'now');
+    try {
+      now.mockReturnValue(1000);
+      await r.baskets.create({ id: 'z', name: 'Z', baseValue: 1, versions: [{ effectiveFrom: '2024-01-02', weights: { 'stock:Z': 1 } }] });
+      now.mockReturnValue(2000);
+      await r.baskets.create({ id: 'm', name: 'M', baseValue: 1, versions: [
+        { effectiveFrom: '2024-01-02', weights: { 'stock:M': 1 } },
+        { effectiveFrom: '2024-02-02', weights: { 'stock:N': 1 } },
+      ] });
+      await r.baskets.create({ id: 'a', name: 'A', baseValue: 1, versions: [{ effectiveFrom: '2024-01-03', weights: { 'stock:A': 1 } }] });
+    } finally {
+      now.mockRestore();
+    }
+    const list = await r.baskets.list();
+    expect(list.map(b => b.id)).toEqual(['z', 'a', 'm']);
+    expect(list[2]!.versions.map(v => Object.keys(v.weights)[0])).toEqual(['stock:M', 'stock:N']);
+    expect(list[1]!.versions).toEqual([{ effectiveFrom: '2024-01-03', weights: { 'stock:A': 1 } }]);
+  });
+  it('bars upsert across chunk boundaries (1203 bars)', async () => {
+    const bars = Array.from({ length: 1203 }, (_, i) => ({ ts: i * 60_000, open: i, high: i, low: i, close: i, volume: i }));
+    await r.bars.upsert('chunk', '1m', bars);
+    const rows = await r.bars.range('chunk', '1m', 0, Number.MAX_SAFE_INTEGER);
+    expect(rows).toHaveLength(1203);
+    expect(rows[499]!.close).toBe(499);
+    expect(rows[500]!.close).toBe(500);
+    expect(rows[1000]!.close).toBe(1000);
+    expect(rows[1202]!.close).toBe(1202);
+  });
+  it('watchlist replace with duplicates keeps first-occurrence order', async () => {
+    await r.watchlist.replace(['stock:B', 'stock:A', 'stock:B', 'crypto:C', 'stock:A']);
+    expect(await r.watchlist.list()).toEqual(['stock:B', 'stock:A', 'crypto:C']);
+  });
+  it('corrupt JSON rows raise a descriptive error', async () => {
+    await h.db.insertInto('layouts').values({ key: 'bad', json: '{nope', updated_at: 1 }).execute();
+    await expect(r.layouts.get('bad')).rejects.toThrow(/corrupt JSON in layouts key=bad/);
+    await h.db.insertInto('drawings').values({ symbol: 'stock:X', json: '[', updated_at: 1 }).execute();
+    await expect(r.drawings.get('stock:X')).rejects.toThrow(/corrupt JSON in drawings symbol=stock:X/);
+    await r.baskets.create({ id: 'cj', name: 'C', baseValue: 1, versions: [{ effectiveFrom: '2024-01-02', weights: { 'stock:A': 1 } }] });
+    await h.db.updateTable('basket_versions').set({ weights_json: 'x' }).where('basket_id', '=', 'cj').execute();
+    await expect(r.baskets.get('cj')).rejects.toThrow(/corrupt JSON in basket_versions basket_id=cj idx=0/);
+    await expect(r.baskets.list()).rejects.toThrow(/corrupt JSON/);
+  });
+  it('coverage add: empty/inverted range is a no-op, non-finite throws', async () => {
+    await r.coverage.add('e', '1D', 10, 10);
+    await r.coverage.add('e', '1D', 20, 5);
+    expect(await r.coverage.list('e', '1D')).toEqual([]);
+    await r.coverage.add('e', '1D', 0, 10);
+    await r.coverage.add('e', '1D', 10, 10); // touching but empty: still a no-op
+    expect(await r.coverage.list('e', '1D')).toEqual([[0, 10]]);
+    await expect(r.coverage.add('e', '1D', NaN, 10)).rejects.toThrow(RangeError);
+    await expect(r.coverage.add('e', '1D', 0, Infinity)).rejects.toThrow(RangeError);
   });
 });

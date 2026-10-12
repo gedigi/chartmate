@@ -63,7 +63,10 @@ export class CoverageRepo {
     return rows.map(r => [Number(r.from_ts), Number(r.to_ts)]);
   }
 
+  /** Merges [from, to) into the covered ranges. Empty/inverted ranges are a no-op; non-finite bounds throw. */
   async add(symbol: string, tf: NativeTimeframe, from: number, to: number): Promise<void> {
+    if (!Number.isFinite(from) || !Number.isFinite(to)) throw new RangeError(`coverage.add: non-finite range [${from}, ${to})`);
+    if (from >= to) return;
     await this.db.transaction().execute(async trx => {
       if (this.dialect === 'postgres') {
         // serialize concurrent merges for the same series
@@ -109,17 +112,25 @@ export class SymbolRepo {
 export class BasketRepo {
   constructor(private db: Kysely<Database>) {}
 
+  /** All baskets (created_at, id order) with their versions, read in a single joined query (atomic snapshot). */
   async list(): Promise<Basket[]> {
-    const rows = await this.db.selectFrom('baskets').selectAll().orderBy('created_at', 'asc').orderBy('id', 'asc').execute();
-    if (rows.length === 0) return [];
-    const vers = await this.db.selectFrom('basket_versions').selectAll().orderBy('basket_id').orderBy('idx', 'asc').execute();
-    const by = new Map<string, BasketVersion[]>();
-    for (const v of vers) {
-      const arr = by.get(v.basket_id) ?? [];
-      arr.push(toVersion(v));
-      by.set(v.basket_id, arr);
+    const rows = await this.db.selectFrom('baskets as b')
+      .leftJoin('basket_versions as v', 'v.basket_id', 'b.id')
+      .select(['b.id', 'b.name', 'b.base_value', 'b.created_at', 'b.updated_at', 'v.basket_id', 'v.idx', 'v.effective_from', 'v.weights_json'])
+      .orderBy('b.created_at', 'asc').orderBy('b.id', 'asc').orderBy('v.idx', 'asc')
+      .execute();
+    const out: Basket[] = [];
+    let cur: Basket | undefined;
+    for (const r of rows) {
+      if (!cur || cur.id !== r.id) {
+        cur = toBasket(r, []);
+        out.push(cur);
+      }
+      if (r.basket_id !== null && r.idx !== null && r.effective_from !== null && r.weights_json !== null) {
+        cur.versions.push(toVersion({ basket_id: r.basket_id, idx: r.idx, effective_from: r.effective_from, weights_json: r.weights_json }));
+      }
     }
-    return rows.map(r => toBasket(r, by.get(r.id) ?? []));
+    return out;
   }
 
   async get(id: string): Promise<Basket | null> {
