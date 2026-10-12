@@ -5,7 +5,11 @@ import { parseDateString, utcDateString } from './nytime.js';
 const DAY_MS = 86_400_000;
 
 export class BasketValidationError extends Error {
-  constructor(message: string) {
+  /**
+   * @param symbol for missing-data errors: the constituent lacking data.
+   * @param needTs for missing-data errors: a close before this ts was needed (absent = any data at all).
+   */
+  constructor(message: string, readonly symbol?: SymbolId, readonly needTs?: number) {
     super(message);
     this.name = 'BasketValidationError';
   }
@@ -103,7 +107,7 @@ export function computeVersionUnits(versions: BasketVersion[], daily: DailySerie
   let limitingId: SymbolId | undefined;
   for (const id of Object.keys(v0.weights)) {
     const bars = daily[id];
-    if (!bars || bars.length === 0) throw new BasketValidationError('No data for ' + id);
+    if (!bars || bars.length === 0) throw new BasketValidationError('No data for ' + id, id);
     const cand = bars[0]!.ts + DAY_MS;
     if (cand > S) {
       S = cand;
@@ -117,7 +121,7 @@ export function computeVersionUnits(versions: BasketVersion[], daily: DailySerie
   const units0: Record<SymbolId, number> = {};
   for (const [id, w] of Object.entries(v0.weights)) {
     const pc = priorClose(daily[id], S);
-    if (pc === undefined || pc === 0) throw new BasketValidationError('No data for ' + id);
+    if (pc === undefined || pc === 0) throw new BasketValidationError('No data for ' + id, id, S);
     units0[id] = (w * baseValue) / pc;
   }
   const out: VersionUnits[] = [{ effectiveTs: S, units: units0, levelAtStart: baseValue }];
@@ -130,14 +134,14 @@ export function computeVersionUnits(versions: BasketVersion[], daily: DailySerie
     let L = 0;
     for (const [id, u] of Object.entries(prev.units)) {
       const pc = priorClose(daily[id], Tk);
-      if (pc === undefined) throw new BasketValidationError('No data for ' + id + ' before ' + v.effectiveFrom);
+      if (pc === undefined) throw new BasketValidationError('No data for ' + id + ' before ' + v.effectiveFrom, id, Tk);
       L += u * pc;
     }
     if (!Number.isFinite(L) || !(L > 0)) throw new BasketValidationError('Version ' + (k + 1) + ' has non-positive index level before ' + v.effectiveFrom);
     const units: Record<SymbolId, number> = {};
     for (const [id, w] of Object.entries(v.weights)) {
       const pc = priorClose(daily[id], Tk);
-      if (pc === undefined || pc === 0) throw new BasketValidationError('No data for ' + id + ' before ' + v.effectiveFrom);
+      if (pc === undefined || pc === 0) throw new BasketValidationError('No data for ' + id + ' before ' + v.effectiveFrom, id, Tk);
       units[id] = (w * L) / pc;
     }
     out.push({ effectiveTs: Tk, units, levelAtStart: L });

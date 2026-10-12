@@ -114,6 +114,25 @@ describe('BasketService', () => {
         503, 'data_unavailable', 'Market data temporarily unavailable; try again');
     });
 
+    it('outage on another constituent does not turn a genuine data error into 503 (400 instead)', async () => {
+      await market.getNativeBars('crypto:BTC', '1D', D(9, 14) - 10 * DAY, NOW + DAY); // BTC cached
+      crypto.fail = new ProviderError('fixture', '429', true, 429); // BTC refresh is stale
+      stock.listedFrom.NEW = D(10, 5); // NEW genuinely has no close before 10-01
+      await expectAppError(svc.create({
+        name: 'b',
+        versions: [v('2026-09-14', { 'crypto:BTC': 0.5, 'stock:AAA': 0.5 }), v('2026-10-01', { 'stock:NEW': 0.5, 'stock:AAA': 0.5 })],
+      }), 400, 'invalid_basket', /No data for stock:NEW before 2026-10-01/);
+    });
+
+    it('503 when the constituent lacking data was itself fetched stale (cached part ends too late)', async () => {
+      await market.getNativeBars('stock:NEW', '1D', D(10, 2), NOW + DAY); // only recent NEW bars cached
+      stock.fail = new ProviderError('fixture', '429', true, 429);
+      await expectAppError(svc.create({
+        name: 'b',
+        versions: [v('2026-09-14', { 'crypto:BTC': 1 }), v('2026-10-01', { 'stock:NEW': 1 })],
+      }), 503, 'data_unavailable');
+    });
+
     it('update / appendVersion / delete; missing ids → NotFoundError', async () => {
       const b = await svc.create({ name: 'b', versions: [v('2026-09-14', { 'stock:AAA': 1 })] });
       expect((await svc.update(b.id, { name: 'renamed' })).name).toBe('renamed');
@@ -460,6 +479,42 @@ describe('BasketService', () => {
         }
       }
       expect(compared).toBeGreaterThan(30);
+    });
+
+    it('falls back to the full pad when a stock constituent has no seed within the small pad', async () => {
+      const b = await svc.create({ name: 'm', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
+      now = D(10, 9, 15); // Fri 11:00 EDT
+      const orig = market.getNativeBars.bind(market);
+      // AAA has no bars from Mon 10-05 14:00Z until Fri 14:00Z (e.g. a trading halt)
+      const spy = vi.spyOn(market, 'getNativeBars').mockImplementation(async (id, tf, from, to) => {
+        const r = await orig(id, tf, from, to);
+        if (id !== 'stock:AAA' || tf === '1D') return r;
+        return { ...r, bars: r.bars.filter((x) => x.ts < D(10, 5, 14) || x.ts >= D(10, 9, 14)) };
+      });
+      const latest = await svc.getLatest(b.id, '1h', 'eth');
+      const froms = spy.mock.calls.filter((c) => c[0] === 'stock:AAA' && c[1] === '1h').map((c) => c[2]);
+      expect(froms).toHaveLength(2); // small pad, then the full 5-day pad
+      expect(Math.min(...froms)).toBeLessThanOrEqual(D(10, 9, 14) - 5 * DAY);
+      const full = (await svc.getBars({ id: b.id, tf: '1h', session: 'eth', from: D(9, 28), to: now + DAY })).bars.at(-1);
+      expect(latest.bar).toEqual(full);
+    });
+
+    it('falls back to the full pad when the small-pad result is empty', async () => {
+      const b = await svc.create({ name: 's', versions: [v('2026-09-14', { 'stock:AAA': 1 })] });
+      now = D(10, 9, 15);
+      const orig = market.getNativeBars.bind(market);
+      // AAA intraday bars only exist before Mon 10-05 08:00Z (4.3 days back) within the last week
+      const spy = vi.spyOn(market, 'getNativeBars').mockImplementation(async (id, tf, from, to) => {
+        const r = await orig(id, tf, from, to);
+        if (tf === '1D') return r;
+        return { ...r, bars: r.bars.filter((x) => x.ts < D(10, 5, 8)) };
+      });
+      const latest = await svc.getLatest(b.id, '1D', 'eth');
+      expect(latest.bar).not.toBeNull();
+      spy.mockClear();
+      const intraday = await svc.getLatest(b.id, '5m', 'eth');
+      expect(spy.mock.calls.filter((c) => c[1] === '5m')).toHaveLength(2);
+      expect(intraday.bar).toBeNull(); // nothing in the current bucket window even with the full pad
     });
 
     it('fetches a small pad: 4 days for stock baskets, 2 bars for crypto-only, intraday', async () => {

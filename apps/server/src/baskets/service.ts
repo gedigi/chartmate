@@ -118,6 +118,12 @@ export class BasketService {
   }
 
   async getBars(a: BasketBarsArgs): Promise<BarsResponseCore> {
+    const { unseededStocks: _u, ...core } = await this.buildBars(a);
+    return core;
+  }
+
+  /** getBars plus the stock constituents (of the version active at the window start) with no bar inside the pad. */
+  private async buildBars(a: BasketBarsArgs): Promise<BarsResponseCore & { unseededStocks: SymbolId[] }> {
     const basket = await this.get(a.id);
     const { units, stale: unitsStale } = await this.unitsFor(basket);
     const S = units.startTs;
@@ -172,7 +178,13 @@ export class BasketService {
     const earliest = await Promise.all(Object.keys(vs[0]!.units).map((id) => this.market.earliest(id, base)));
     const floor = Math.max(...earliest.map((e) => e ?? -Infinity));
 
+    let active = vs[0]!;
+    for (const ver of vs) if (ver.effectiveTs <= baseFrom) active = ver;
+    const unseededStocks = Object.keys(active.units).filter((id) => parseSymbolId(id).assetClass === 'stock'
+      && !(fetched.find((f) => f.id === id)?.bars.some((b) => b.ts < baseFrom) ?? false));
+
     return {
+      unseededStocks,
       bars,
       stale: unitsStale || fetched.some((s) => s.stale),
       // Unknown history (no earliest for any constituent): keep paging while pages still have bars.
@@ -192,9 +204,10 @@ export class BasketService {
     // Polled often: fetch just enough history to seed forward-fill (stocks: across a long weekend).
     const base = baseTimeframe(tf);
     const padMs = !isIntraday(base) ? undefined : classes.includes('stock') ? LATEST_STOCK_PAD_MS : 2 * tfMs(base);
-    const r = await this.getBars({
-      id, tf, session, from: bucketStart(now, tf, cal) - back, to: now + tfMs(tf), ...(padMs !== undefined ? { padMs } : {}),
-    });
+    const args = { id, tf, session, from: bucketStart(now, tf, cal) - back, to: now + tfMs(tf) };
+    let r = await this.buildBars(padMs !== undefined ? { ...args, padMs } : args);
+    // The small pad can miss a stock's last close (e.g. a halt or long closure): retry with the full pad.
+    if (padMs !== undefined && (r.bars.length === 0 || r.unseededStocks.length > 0)) r = await this.buildBars(args);
     return { bar: r.bars.at(-1) ?? null, stale: r.stale };
   }
 
@@ -224,14 +237,27 @@ export class BasketService {
     const ids = constituents(versions);
     const results = await Promise.all(ids.map((id) => this.market.getNativeBars(id, '1D', from, to)));
     const daily: Record<SymbolId, Bar[]> = {};
-    ids.forEach((id, i) => { daily[id] = results[i]!.bars; });
-    const stale = results.some((r) => r.stale);
+    const staleIds = new Set<SymbolId>();
+    ids.forEach((id, i) => {
+      daily[id] = results[i]!.bars;
+      if (results[i]!.stale) staleIds.add(id);
+    });
+    const stale = staleIds.size > 0;
     try {
       return { units: computeVersionUnits(versions, daily, baseValue), stale };
     } catch (err) {
-      // On save a failure is the user's input; on read the basket was valid when saved, so it's missing data.
-      if (err instanceof BasketValidationError) throw stale || mode === 'read' ? unavailable() : invalid(err.message);
-      throw err;
+      if (!(err instanceof BasketValidationError)) throw err;
+      // On read the basket was valid when saved, so a failure is missing data. On save it is the user's input,
+      // unless the constituent lacking data was itself fetched stale and its (cached) series is empty or has no
+      // close before the date one was needed: then it is an outage.
+      if (mode === 'read') throw unavailable();
+      const id = err.symbol;
+      if (id !== undefined && staleIds.has(id)) {
+        const bars = daily[id] ?? [];
+        const lacking = bars.length === 0 || err.needTs === undefined || !(bars[0]!.ts < err.needTs);
+        if (lacking) throw unavailable();
+      }
+      throw invalid(err.message);
     }
   }
 

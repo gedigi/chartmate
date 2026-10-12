@@ -37,9 +37,13 @@ describe('basket routes', () => {
   });
 
   it('rejects effective dates outside 1970-01-01 … today+1 with invalid_basket', async () => {
-    const maxDate = isoDate(Math.floor(Date.now() / DAY) * DAY + DAY);
-    for (const effectiveFrom of ['1969-12-31', isoDate(Date.now() + 3 * DAY)]) {
-      const body = basketBody();
+    // One frozen clock for the server and the expectations: no race across UTC midnight.
+    const now = Date.now();
+    await t.close();
+    t = await makeApp({}, { now: () => now });
+    const maxDate = isoDate(Math.floor(now / DAY) * DAY + DAY);
+    for (const effectiveFrom of ['1969-12-31', isoDate(now + 3 * DAY)]) {
+      const body = basketBody(undefined, now);
       body.versions[0]!.effectiveFrom = effectiveFrom;
       const r = await t.app.inject({ method: 'POST', url: '/api/baskets', payload: body });
       expect(r.statusCode).toBe(400);
@@ -82,14 +86,17 @@ describe('basket routes', () => {
   });
 
   it('PUT versions changes the start date of a single-version basket, with the create bounds', async () => {
-    const b = (await t.app.inject({ method: 'POST', url: '/api/baskets', payload: basketBody() })).json<Basket>();
+    const now = Date.now();
+    await t.close();
+    t = await makeApp({}, { now: () => now });
+    const b = (await t.app.inject({ method: 'POST', url: '/api/baskets', payload: basketBody(undefined, now) })).json<Basket>();
     const weights = b.versions[0]!.weights;
-    const moved = { effectiveFrom: isoDate(Date.now() - 200 * DAY), weights };
+    const moved = { effectiveFrom: isoDate(now - 200 * DAY), weights };
     const r = await t.app.inject({ method: 'PUT', url: `/api/baskets/${b.id}`, payload: { versions: [moved] } });
     expect(r.statusCode).toBe(200);
     expect(r.json<Basket>().versions).toEqual([moved]);
-    const maxDate = isoDate(Math.floor(Date.now() / DAY) * DAY + DAY);
-    for (const effectiveFrom of ['1969-12-31', isoDate(Date.now() + 3 * DAY)]) {
+    const maxDate = isoDate(Math.floor(now / DAY) * DAY + DAY);
+    for (const effectiveFrom of ['1969-12-31', isoDate(now + 3 * DAY)]) {
       const bad = await t.app.inject({ method: 'PUT', url: `/api/baskets/${b.id}`, payload: { versions: [{ effectiveFrom, weights }] } });
       expect(bad.statusCode).toBe(400);
       expect(bad.json()).toMatchObject({ code: 'invalid_basket', message: `Version 1: Effective date must be between 1970-01-01 and ${maxDate}` });

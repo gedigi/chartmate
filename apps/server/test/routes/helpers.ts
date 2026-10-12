@@ -26,8 +26,8 @@ export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () 
     stock: new RequestQueue({ concurrency: 4, minIntervalMs: 0 }),
     crypto: new RequestQueue({ concurrency: 4, minIntervalMs: 0 }),
   };
-  const market = new MarketDataService({ repos, registry, queues });
-  const baskets = new BasketService({ repos, market });
+  const market = new MarketDataService({ repos, registry, queues, ...(opts.now ? { now: opts.now } : {}) });
+  const baskets = new BasketService({ repos, market, ...(opts.now ? { now: opts.now } : {}) });
   const config: Config = {
     port: 0,
     host: '127.0.0.1',
@@ -54,8 +54,7 @@ export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () 
 }
 
 /** A two-version AAPL/BTC basket starting ~60 days ago. */
-export function basketBody(name = 'Tech and Coins') {
-  const now = Date.now();
+export function basketBody(name = 'Tech and Coins', now = Date.now()) {
   return {
     name,
     versions: [{ effectiveFrom: isoDate(now - 60 * DAY), weights: { 'stock:AAPL': 0.5, 'crypto:BTC': 0.5 } }],

@@ -113,6 +113,19 @@ describe('computeVersionUnits + buildBasketBars', () => {
     expect(() => computeVersionUnits([v0, v1], d2, 100)).toThrow(/stock:C/);
   });
 
+  it('missing-data errors name the constituent and the ts a prior close was needed before', () => {
+    const d2 = { ...daily, 'stock:C': dailies('2024-01-04', [5]) };
+    const v1 = { effectiveFrom: '2024-01-04', weights: { 'stock:C': 1 } };
+    const err = (() => { try { computeVersionUnits([v0, v1], d2, 100); } catch (e) { return e; } })() as BasketValidationError;
+    expect(err).toBeInstanceOf(BasketValidationError);
+    expect(err.symbol).toBe('stock:C');
+    expect(err.needTs).toBe(day('2024-01-04'));
+    const e0 = (() => { try { computeVersionUnits([v0], { 'stock:A': daily['stock:A'], 'crypto:B': [] }, 100); } catch (e) { return e; } })() as BasketValidationError;
+    expect(e0.symbol).toBe('crypto:B');
+    const e1 = (() => { try { computeVersionUnits([v0, { effectiveFrom: '2024-01-02', weights: { 'stock:A': 1 } }], daily, 100); } catch (e) { return e; } })() as BasketValidationError;
+    expect(e1.symbol).toBeUndefined();
+  });
+
   it('throws when a later version starts on/before effective start', () => {
     const v1 = { effectiveFrom: '2024-01-02', weights: { 'stock:A': 1 } };
     expect(() => computeVersionUnits([{ ...v0, effectiveFrom: '2024-01-01' }, v1], { ...daily, 'stock:A': dailies('2024-01-01', [10, 20, 20, 40]), 'crypto:B': dailies('2024-01-02', [100, 50, 50]) }, 100)).toThrow(BasketValidationError);
