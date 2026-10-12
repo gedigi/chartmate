@@ -47,8 +47,8 @@ describe('Watchlist', () => {
     expect(screen.getByText('-2.00%')).toHaveClass('down');
     expect(await screen.findByText('My Basket')).toBeInTheDocument();
     expect(rows()[2]!.textContent).toContain('—');
-    expect(rows()[1]).toHaveAttribute('aria-selected', 'true');
-    expect(rows()[0]).toHaveAttribute('aria-selected', 'false');
+    expect(rows()[1]).toHaveAttribute('aria-current', 'true');
+    expect(rows()[0]).not.toHaveAttribute('aria-current');
     await waitFor(() => expect(document.querySelectorAll('polyline')).toHaveLength(2));
   });
 
@@ -207,18 +207,45 @@ describe('Watchlist', () => {
     expect(rows()[0]!.querySelector('.wl-price')).toHaveTextContent('10.00');
   });
 
-  it('is a listbox of options; Delete on a row does not reach document-level shortcuts', async () => {
+  it('is a list of rows: a focusable select control (aria-current) and a sibling remove button; no nested interactives', async () => {
+    setup(['stock:AAPL', 'crypto:BTC']);
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('BTC');
+    const list = screen.getByRole('list', { name: 'Watchlist symbols' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('option')).not.toBeInTheDocument();
+    for (const row of rows()) {
+      expect(row).toHaveAttribute('role', 'button');
+      expect(row).toHaveAttribute('tabindex', '0');
+      expect(row.querySelector('button, [role="button"], a, input, [tabindex]')).toBeNull();
+    }
+    expect(rows()[0]).toHaveAttribute('aria-current', 'true');
+    expect(rows()[1]).not.toHaveAttribute('aria-current');
+    const remove = screen.getByRole('button', { name: 'Remove BTC' });
+    expect(rows()[1]!.contains(remove)).toBe(false);
+    expect(rows()[1]!.parentElement!.contains(remove)).toBe(true);
+    expect(rows()[1]).toHaveAccessibleDescription(/Delete removes, Alt\+Arrow keys reorder/);
+  });
+
+  it('Enter and Space on a row select it', async () => {
+    setup(['stock:AAPL', 'crypto:BTC']);
+    const onSelect = vi.fn();
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={onSelect} />);
+    await screen.findByText('BTC');
+    fireEvent.keyDown(rows()[1]!, { key: 'Enter' });
+    fireEvent.keyDown(rows()[0]!, { key: ' ' });
+    expect(onSelect.mock.calls).toEqual([['crypto:BTC'], ['stock:AAPL']]);
+  });
+
+  it('Delete on a row does not reach document-level shortcuts', async () => {
     setup(['stock:AAPL', 'crypto:BTC']);
     const onDoc = vi.fn();
     document.addEventListener('keydown', onDoc);
     try {
       render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
       await screen.findByText('BTC');
-      const list = screen.getByRole('listbox', { name: 'Watchlist symbols' });
-      const opts = within(list).getAllByRole('option');
-      expect(opts).toHaveLength(2);
-      expect(within(list).getByRole('option', { selected: true })).toHaveAttribute('data-symbol', 'stock:AAPL');
-      fireEvent.keyDown(opts[1]!, { key: 'Delete' });
+      fireEvent.keyDown(rows()[1]!, { key: 'Delete' });
       expect(order()).toEqual(['stock:AAPL']);
       expect(onDoc).not.toHaveBeenCalled();
     } finally {

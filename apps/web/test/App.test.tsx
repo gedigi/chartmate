@@ -136,7 +136,7 @@ describe('App', () => {
     await waitFor(() => expect(vi.mocked(api.symbol).mock.calls.length).toBeGreaterThan(n));
     // Re-selecting the same symbol in the watchlist retries too; this time it works.
     vi.mocked(api.symbol).mockImplementation(ok);
-    const row = await screen.findByRole('option', { name: /BTC/ });
+    const row = await screen.findByRole('button', { name: /^BTC/ });
     await userEvent.click(row);
     await waitFor(() => expect(screen.queryByTestId('symbol-error')).not.toBeInTheDocument());
     expect(await screen.findByText('crypto:BTC name')).toBeInTheDocument();
@@ -166,7 +166,7 @@ describe('App', () => {
     vi.mocked(api.layouts.get).mockImplementation((key) =>
       key === 'default' ? new Promise((r) => { resolveDefault = r; }) : Promise.resolve(null));
     render(<App />);
-    await userEvent.click(await screen.findByRole('option', { name: /MSFT/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /^MSFT/ }));
     resolveDefault({ symbol: 'stock:AAPL', tf: '1h', session: 'rth', chartType: 'candle', indicators: [] });
     expect(await screen.findByText('stock:MSFT name')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '1h' })).toHaveAttribute('aria-pressed', 'true');

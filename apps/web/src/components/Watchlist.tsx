@@ -144,7 +144,7 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
     }
   }, [key]);
 
-  function onKeyDown(e: KeyboardEvent<HTMLLIElement>, id: SymbolId, index: number) {
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>, id: SymbolId, index: number) {
     if (e.target !== e.currentTarget) return;
     if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
       e.preventDefault();
@@ -176,8 +176,9 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
       <h2 className="panel-title">Watchlist</h2>
       <SymbolSearch onSelect={add} placeholder="Add symbol…" />
       {error && <div className="watchlist-error" role="alert">{error}</div>}
-      <ul className="watchlist-list" ref={listRef} role="listbox" aria-label="Watchlist symbols"
-        aria-describedby={ids.length > 0 ? hintId : undefined}>
+      {/* A plain list: each row has a focusable "select" control (aria-current marks the open chart)
+          and a sibling remove button, so no interactive element is nested inside another. */}
+      <ul className="watchlist-list" ref={listRef} aria-label="Watchlist symbols">
         {ids.map((id, i) => {
           const info = infos[id];
           const q = quotes[id];
@@ -190,14 +191,8 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
           return (
             <li
               key={id}
-              data-symbol={id}
               className={classes.join(' ')}
-              tabIndex={0}
               draggable
-              role="option"
-              aria-selected={id === currentSymbol}
-              onClick={() => onSelect(id)}
-              onKeyDown={(e) => onKeyDown(e, id, i)}
               onDragStart={(e) => {
                 setDragFrom(i);
                 e.dataTransfer.effectAllowed = 'move';
@@ -207,16 +202,26 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
               onDrop={(e) => onDrop(e, i)}
               onDragEnd={() => { setDragFrom(null); setDragOver(null); }}
             >
-              <span className="wl-symbol" title={info?.name}>{label}</span>
-              <span className="wl-spark"><Sparkline values={sparks[id] ?? []} /></span>
-              <span className="wl-quote">
-                <span className="wl-price">{q && info ? fmtPrice(q.price, info.pricePrecision) : '—'}</span>
-                <span className={`wl-change ${chg?.dir ?? ''}`}>{chg ? chg.text : '—'}</span>
-              </span>
+              <div
+                className="wl-select"
+                data-symbol={id}
+                role="button"
+                tabIndex={0}
+                aria-current={id === currentSymbol ? 'true' : undefined}
+                aria-describedby={hintId}
+                onClick={() => onSelect(id)}
+                onKeyDown={(e) => onKeyDown(e, id, i)}
+              >
+                <span className="wl-symbol" title={info?.name}>{label}</span>
+                <span className="wl-spark"><Sparkline values={sparks[id] ?? []} /></span>
+                <span className="wl-quote">
+                  <span className="wl-price">{q && info ? fmtPrice(q.price, info.pricePrecision) : '—'}</span>
+                  <span className={`wl-change ${chg?.dir ?? ''}`}>{chg ? chg.text : '—'}</span>
+                </span>
+              </div>
               <button
                 type="button"
                 className="wl-remove"
-                tabIndex={-1}
                 aria-label={`Remove ${label}`}
                 onClick={(e) => { e.stopPropagation(); remove(id); }}
               >
