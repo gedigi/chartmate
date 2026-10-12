@@ -174,12 +174,55 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
   await page.getByRole('button', { name: 'Back to baskets' }).click();
   const markedBars = page.waitForResponse(async (r) => {
     if (!isBars(r, { symbol: (s) => s.startsWith('basket:') })) return false;
-    const body = (await r.json()) as { markers?: unknown[] };
-    return (body.markers?.length ?? 0) >= 1;
+    const body = (await r.json()) as { markers?: Array<{ ts: number }> };
+    return (body.markers ?? []).some((m) => new Date(m.ts).toISOString().slice(0, 10) === effective);
   });
   await row.getByRole('button', { name: 'Open chart' }).click();
   const marked = (await (await markedBars).json()) as { bars: unknown[]; markers: Array<{ ts: number }> };
   expect(marked.bars.length).toBeGreaterThan(0);
   expect(marked.markers.some((m) => new Date(m.ts).toISOString().slice(0, 10) === effective)).toBe(true);
+  await expectNoErrorsFor(page);
+});
+
+test('chart appearance persists; a basket starting today shows simulated history', async ({ page, request }) => {
+  await resetServerState(request);
+  await page.goto('/');
+  await expect(page.getByTestId('chart-host').locator('canvas').first()).toBeVisible();
+
+  // Chart appearance: change the up colour → saved in the default layout → still there after a reload.
+  await page.getByRole('button', { name: 'Chart appearance' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Chart appearance' });
+  await dialog.getByLabel('Up colour').fill('#00ff00');
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  await expect(dialog).toBeHidden();
+  await expect.poll(async () => {
+    const l = (await (await request.get('/api/layouts/default')).json()) as { appearance?: { upColor?: string } };
+    return l.appearance?.upColor;
+  }, { message: 'default layout saved with appearance' }).toBe('#00ff00');
+  await page.reload();
+  await page.getByRole('button', { name: 'Chart appearance' }).click();
+  await expect(page.getByRole('dialog', { name: 'Chart appearance' }).getByLabel('Up colour')).toHaveValue('#00ff00');
+  await page.getByRole('dialog', { name: 'Chart appearance' }).getByRole('button', { name: 'Done' }).click();
+
+  // A basket created with the default start date (today) has bars: simulated history before its start.
+  await page.getByRole('tab', { name: 'Baskets', exact: true }).click();
+  await page.getByRole('button', { name: 'New basket' }).click();
+  const create = page.getByRole('form', { name: 'Create basket' });
+  await expect(create.getByLabel('Start date (UTC)')).toHaveValue(new Date().toISOString().slice(0, 10));
+  await create.getByLabel('Name').fill('E2E Today');
+  await pickSymbol(create, 'Symbol for row 1', 'AAPL');
+  await create.getByLabel('Weight for AAPL').fill('50');
+  await create.getByRole('button', { name: 'Add constituent' }).click();
+  await pickSymbol(create, 'Symbol for row 2', 'BTC');
+  await create.getByLabel('Weight for BTC').fill('50');
+  await create.getByRole('button', { name: 'Create basket' }).click();
+  const row = page.getByTestId('basket-row').filter({ hasText: 'E2E Today' });
+  await expect(row).toHaveCount(1);
+  const basketBars = page.waitForResponse((r) => isBars(r, { symbol: (s) => s.startsWith('basket:') }));
+  await row.getByRole('button', { name: 'Open chart' }).click();
+  const body = (await (await basketBars).json()) as { bars: Array<{ simulated?: boolean }>; notices: string[] };
+  expect(body.bars.length).toBeGreaterThan(0);
+  expect(body.bars.some((b) => b.simulated === true)).toBe(true);
+  await expect(page.getByText(/simulated with the starting holdings/)).toBeVisible();
   await expectNoErrorsFor(page);
 });
