@@ -240,6 +240,52 @@ describe('Watchlist', () => {
     await waitFor(() => expect(rows()[0]!.querySelector('.wl-symbol')).toHaveAttribute('title', 'Apple Inc.'));
   });
 
+  it('stops retrying symbol info after unmount (incl. a request in flight at unmount)', async () => {
+    setup(['stock:AAPL', 'crypto:BTC']);
+    vi.useFakeTimers();
+    let rejectInFlight!: (e: Error) => void;
+    vi.mocked(api.symbol).mockImplementation((id) => (id === 'crypto:BTC'
+      ? new Promise<SymbolInfo>((_, rej) => { rejectInFlight = rej; })
+      : Promise.reject(new Error('down'))));
+    const { unmount } = render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(api.symbol).toHaveBeenCalledTimes(2);
+    unmount();
+    rejectInFlight(new Error('down'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000); });
+    expect(api.symbol).toHaveBeenCalledTimes(2);
+  });
+
+  it('remounting does not add a second retry chain for the same id', async () => {
+    setup(['stock:AAPL']);
+    vi.useFakeTimers();
+    vi.mocked(api.symbol).mockRejectedValue(new Error('down'));
+    const first = render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    first.unmount();
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    vi.mocked(api.symbol).mockClear();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(api.symbol).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops retrying symbol info for ids removed from the list', async () => {
+    setup(['stock:AAPL', 'crypto:BTC']);
+    vi.useFakeTimers();
+    vi.mocked(api.symbol).mockImplementation(async (id) => {
+      if (id === 'crypto:BTC') throw new Error('down');
+      return INFO[id]!;
+    });
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove BTC' }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    vi.mocked(api.symbol).mockClear();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000); });
+    expect(api.symbol).not.toHaveBeenCalled();
+  });
+
   it('Delete removes the row and focuses the neighbor (previous if last)', async () => {
     setup(['stock:AAPL', 'crypto:BTC', 'stock:MSFT']);
     render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);

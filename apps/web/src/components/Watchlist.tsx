@@ -47,30 +47,50 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
   const setKey = ids.slice().sort().join(',');
 
   // Symbol info (names, price precision), cached per id; failures are retried with backoff.
-  const infoRetries = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  // Each pending id owns a load chain; cancelling it (id removed, or unmount) stops any further retry,
+  // including one a request still in flight would otherwise schedule.
+  const infoLoads = useRef(new Map<string, { cancelled: boolean; timer?: ReturnType<typeof setTimeout> }>());
   useEffect(() => {
-    const load = (id: SymbolId, attempt: number) => {
+    const loads = infoLoads.current;
+    const current = new Set(key === '' ? [] : key.split(','));
+    for (const [id, chain] of loads) {
+      if (current.has(id)) continue;
+      chain.cancelled = true;
+      clearTimeout(chain.timer);
+      loads.delete(id);
+      requestedInfo.current.delete(id); // re-adding the id later starts a fresh chain
+    }
+    const load = (id: SymbolId, chain: { cancelled: boolean; timer?: ReturnType<typeof setTimeout> }, attempt: number) => {
       api.symbol(id).then(
-        (info) => setInfos((cur) => ({ ...cur, [id]: info })),
+        (info) => {
+          if (chain.cancelled) return;
+          loads.delete(id);
+          setInfos((cur) => ({ ...cur, [id]: info }));
+        },
         () => {
-          infoRetries.current.set(id, setTimeout(() => {
-            infoRetries.current.delete(id);
-            load(id, attempt + 1);
-          }, retryDelayMs(attempt)));
+          if (chain.cancelled) return;
+          chain.timer = setTimeout(() => load(id, chain, attempt + 1), retryDelayMs(attempt));
         },
       );
     };
-    for (const id of key === '' ? [] : key.split(',')) {
+    for (const id of current) {
       if (requestedInfo.current.has(id)) continue;
       requestedInfo.current.add(id);
-      load(id, 0);
+      const chain = { cancelled: false };
+      loads.set(id, chain);
+      load(id, chain, 0);
     }
   }, [key]);
   useEffect(() => {
-    const retries = infoRetries.current;
+    const loads = infoLoads.current;
+    const requested = requestedInfo.current;
     return () => {
-      for (const t of retries.values()) clearTimeout(t);
-      retries.clear();
+      for (const [id, chain] of loads) {
+        chain.cancelled = true;
+        clearTimeout(chain.timer);
+        requested.delete(id);
+      }
+      loads.clear();
     };
   }, []);
 
