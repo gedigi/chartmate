@@ -49,8 +49,9 @@ function registerShade(name: string, fill: string, pred: (d: KLineData | undefin
       ctx.save();
       ctx.fillStyle = fill;
       for (const [s, e] of shadeRuns(data, from, to, pred)) {
-        const x0 = xAxis.convertTimestampToPixel(data[s]!.timestamp) - halfBar;
-        const x1 = xAxis.convertTimestampToPixel(data[e - 1]!.timestamp) - halfBar + bar;
+        // The data index is known: convert it directly (convertTimestampToPixel would binary-search it again).
+        const x0 = xAxis.convertToPixel(s) - halfBar;
+        const x1 = xAxis.convertToPixel(e - 1) - halfBar + bar;
         ctx.fillRect(x0, 0, x1 - x0, bounding.height);
       }
       ctx.restore();
