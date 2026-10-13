@@ -372,8 +372,38 @@ describe('YahooProvider', () => {
       expect(q.ext).toBeUndefined();
     });
 
+    it('PRE before the first pre-market trade (04:00): falls back to the fresh post print, labelled Post', async () => {
+      const r = states().PRE!;
+      // Yesterday's (well, Friday's) pre price predates Friday's close; the post print came after it.
+      const q = await one({ ...r, preMarketPrice: 338.0, preMarketTime: '2026-10-09T13:29:00.000Z' });
+      expect(q).toMatchObject(regular(r));
+      expect(q.ext).toEqual({ session: 'post', price: 336.08, changePct: expect.any(Number), ts: Date.parse(r.postMarketTime) });
+      expect(q.ext!.changePct).toBeCloseTo(((336.08 - 336.64) / 336.64) * 100, 9);
+      // no pre price at all: same fallback
+      expect((await one({ ...r, preMarketPrice: undefined, preMarketTime: undefined })).ext?.session).toBe('post');
+      // a fresh pre print wins over the post one
+      expect((await one(r)).ext?.session).toBe('pre');
+    });
+
+    it('freshness is judged against the regular session end (16:00 NY), not the exact regularMarketTime', async () => {
+      const r = states().POST!;
+      // Yahoo restamps the close after the auction: a post print at 16:30 must still count.
+      const restamped = { ...r, regularMarketTime: '2026-10-12T20:45:00.000Z', postMarketTime: '2026-10-12T20:30:00.000Z' };
+      expect((await one(restamped)).ext).toMatchObject({ session: 'post', price: 337.25, ts: Date.parse('2026-10-12T20:30:00.000Z') });
+      // a "post" print stamped before 16:00 NY is stale
+      expect((await one({ ...restamped, postMarketTime: '2026-10-12T19:59:00.000Z' })).ext).toBeUndefined();
+      // winter (EST): 16:00 NY = 21:00Z, so 20:30Z is before the session end
+      const winter = { ...r, regularMarketTime: '2026-12-14T21:00:00.000Z', postMarketTime: '2026-12-14T20:30:00.000Z' };
+      expect((await one(winter)).ext).toBeUndefined();
+      expect((await one({ ...winter, postMarketTime: '2026-12-14T21:05:00.000Z' })).ext?.session).toBe('post');
+      // early close (13:00 NY): post prints after the early close are fresh
+      const early = { ...r, regularMarketTime: '2026-11-27T18:00:00.000Z', postMarketTime: '2026-11-27T18:30:00.000Z' };
+      expect((await one(early)).ext?.session).toBe('post');
+    });
+
     it('no ext when the extended price is missing, not positive, or older than the regular close', async () => {
-      const base = states().PRE!;
+      // No usable post fallback in these cases: the post print predates the regular session end.
+      const base = { ...states().PRE!, postMarketTime: '2026-10-09T19:00:00.000Z' };
       const cases: Row[] = [
         { ...base, preMarketPrice: undefined },
         { ...base, preMarketPrice: null },

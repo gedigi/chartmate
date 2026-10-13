@@ -195,27 +195,36 @@ function isNetworkError(err: unknown): boolean {
   return typeof causeCode === 'string' && /^(ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR)/.test(causeCode);
 }
 
-/** Which extended-hours field set each Yahoo marketState reports (REGULAR/CLOSED: none). */
-const EXT_FIELDS: Record<string, { session: 'pre' | 'post'; price: string; time: string }> = {
-  PRE: { session: 'pre', price: 'preMarketPrice', time: 'preMarketTime' },
-  POST: { session: 'post', price: 'postMarketPrice', time: 'postMarketTime' },
-  POSTPOST: { session: 'post', price: 'postMarketPrice', time: 'postMarketTime' },
-  // Overnight before the pre-market opens: the latest extended print is still the evening's post-market one.
-  PREPRE: { session: 'post', price: 'postMarketPrice', time: 'postMarketTime' },
+type ExtFields = { session: 'pre' | 'post'; price: string; time: string };
+const PRE_FIELDS: ExtFields = { session: 'pre', price: 'preMarketPrice', time: 'preMarketTime' };
+const POST_FIELDS: ExtFields = { session: 'post', price: 'postMarketPrice', time: 'postMarketTime' };
+/** Extended-hours field sets to try, in order, per Yahoo marketState (REGULAR/CLOSED: none). */
+const EXT_FIELDS: Record<string, ExtFields[]> = {
+  // From 04:00 until the first pre-market trade, the latest extended print is still the evening's post one.
+  PRE: [PRE_FIELDS, POST_FIELDS],
+  POST: [POST_FIELDS],
+  POSTPOST: [POST_FIELDS],
+  // Overnight before the pre-market opens: likewise the evening's post print.
+  PREPRE: [POST_FIELDS],
 };
 
 /**
  * The extended-hours price with its change vs the latest regular close (`regularPrice`, stamped `regularTs`).
- * Yahoo keeps stale pre/post fields around, so the print must be finite, positive and newer than that close.
+ * Yahoo keeps stale pre/post fields around, so the print must be finite, positive and later than the end of that
+ * regular session: 16:00 NY on its date (DST-aware), or the regular time itself when earlier (early closes). The
+ * close is sometimes restamped after 16:00, which must not hide post prints made in between.
  */
 function extendedQuote(r: Record<string, any>, regularPrice: number, regularTs: number): QuoteExt | undefined {
-  const f = EXT_FIELDS[r.marketState as string];
-  if (!f) return undefined;
-  const price: unknown = r[f.price];
-  const ts = toMs(r[f.time]);
-  if (!isNum(price) || price <= 0 || ts === null || ts <= regularTs) return undefined;
-  const changePct = pctChange(price, regularPrice);
-  return changePct === null ? undefined : { session: f.session, price, changePct, ts };
+  const { y, m, d } = nyParts(regularTs);
+  const sessionEnd = Math.min(regularTs, nyToUtc(y, m, d, 16, 0));
+  for (const f of EXT_FIELDS[r.marketState as string] ?? []) {
+    const price: unknown = r[f.price];
+    const ts = toMs(r[f.time]);
+    if (!isNum(price) || price <= 0 || ts === null || ts <= sessionEnd) continue;
+    const changePct = pctChange(price, regularPrice);
+    if (changePct !== null) return { session: f.session, price, changePct, ts };
+  }
+  return undefined;
 }
 
 function toBar(q: YQuote): Bar | null {
