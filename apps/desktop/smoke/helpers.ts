@@ -1,5 +1,5 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, renameSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -117,24 +117,73 @@ export async function spawnWithCdp(exe: string, env: Record<string, string>): Pr
   return { child, wsUrl };
 }
 
+const product = JSON.parse(readFileSync(new URL('../product.json', import.meta.url), 'utf8')) as {
+  productName: string; previousProductNames: string[];
+};
+
 /** The per-user data directory a packaged build always uses (packaged builds ignore ALTV_USER_DATA_DIR). */
-export function defaultUserDataDir(productName = 'Chartmate'): string {
+export function defaultUserDataDir(productName = product.productName): string {
   if (process.platform === 'darwin') return join(homedir(), 'Library', 'Application Support', productName);
   if (process.platform === 'win32') return join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), productName);
   return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), productName);
 }
 
+/** The current data directory plus those of previous product names (which the app migrates data from). */
+export function userDataDirsTouchedByApp(): string[] {
+  return [defaultUserDataDir(), ...product.previousProductNames.map((n) => defaultUserDataDir(n))];
+}
+
+/** True when the hardened spec may run against the real per-user directories (CI, or explicit local opt-in). */
+export const realUserDataAllowed = process.env.CI === 'true' || process.env.SMOKE_ALLOW_REAL_USERDATA === '1';
+
+/** renameSync with retries (Windows reports EBUSY/EPERM while a just-exited process still holds handles). */
+function renameWithRetry(from: string, to: string): void {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (attempt >= 20 || (code !== 'EBUSY' && code !== 'EPERM' && code !== 'EACCES')) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250); // synchronous sleep
+    }
+  }
+}
+
 /**
- * Moves an existing per-user data directory aside for the duration of a test run and restores it afterwards, so
- * smoke tests of the shipped build never touch a developer's real data. Refuses to run over a leftover backup.
+ * Moves the app's real per-user data directories (current and legacy names) aside for a test run and puts them
+ * back afterwards. Nothing is ever deleted: the directory the tests created is renamed to a timestamped
+ * `*.smoke-trash-*` sibling (safe to remove by hand). Refuses to run over a leftover backup.
  */
-export function isolateDefaultUserData(dir = defaultUserDataDir()): () => void {
-  const backup = `${dir}.smoke-backup`;
-  if (existsSync(backup)) throw new Error(`leftover backup ${backup}: restore or remove it first`);
-  const had = existsSync(dir);
-  if (had) renameSync(dir, backup);
+export function isolateUserData(dirs: readonly string[] = userDataDirsTouchedByApp()): () => void {
+  const moved: { dir: string; backup: string }[] = [];
+  for (const dir of dirs) {
+    const backup = `${dir}.smoke-backup`;
+    if (existsSync(backup)) throw new Error(`leftover backup ${backup}: move it back to ${dir} (or remove it) first`);
+  }
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue;
+    const backup = `${dir}.smoke-backup`;
+    renameWithRetry(dir, backup);
+    moved.push({ dir, backup });
+  }
   return () => {
-    rmSync(dir, { recursive: true, force: true });
-    if (had) renameSync(backup, dir);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const errors: unknown[] = [];
+    for (const dir of dirs) {
+      try {
+        if (existsSync(dir)) renameWithRetry(dir, `${dir}.smoke-trash-${stamp}`);
+      } catch (err) {
+        errors.push(err);
+      }
+    }
+    for (const { dir, backup } of moved) {
+      try {
+        renameWithRetry(backup, dir);
+      } catch (err) {
+        errors.push(err);
+      }
+    }
+    if (errors.length > 0) throw new Error(`user data restore incomplete (backups are kept as *.smoke-backup): ${errors.map(String).join('; ')}`);
   };
 }

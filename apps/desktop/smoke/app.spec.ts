@@ -219,7 +219,7 @@ test('DevTools cannot be opened in a packaged build', async () => {
   const urls = targetInfos.map((t) => t.url);
   console.log(`[smoke] CDP targets after DevTools shortcuts: ${JSON.stringify(urls)}`);
   expect(urls.filter((u) => u.startsWith('devtools://'))).toEqual([]);
-  // A renderer-initiated load of the DevTools UI is cancelled too (only app:// requests pass).
+  // A renderer-initiated load of the DevTools UI is canceled too (only app:// requests pass).
   const status = await page.evaluate(async () => {
     try {
       await fetch('devtools://devtools/bundled/inspector.html');

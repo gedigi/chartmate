@@ -1,17 +1,20 @@
 // Checks on the UNMODIFIED packaged artifact (SMOKE_HARDENED_APP=<Chartmate.app | chartmate.exe>): it starts, opens
 // no listening socket, and refuses or ignores the classic code-injection switches and variables.
 //
-// Packaged builds ignore ALTV_USER_DATA_DIR, so these tests run against the real per-user data directory. It is
-// moved aside first and restored afterwards (helpers.isolateDefaultUserData), and must not be in use.
+// Packaged builds ignore ALTV_USER_DATA_DIR, so these tests run against the real per-user data directories (current
+// and previous product names). They are moved aside first and put back afterwards; nothing is deleted (the run's
+// own directory is renamed to *.smoke-trash-<timestamp>). Runs only in CI or with SMOKE_ALLOW_REAL_USERDATA=1, and
+// the app must not be running.
 import { spawn, type ChildProcess } from 'node:child_process';
-import { closeSync, cpSync, existsSync, fstatSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, cpSync, existsSync, fstatSync, mkdtempSync, openSync, readFileSync, readSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { defaultUserDataDir, executableOf, isolateDefaultUserData, listeningSockets, processTree } from './helpers.js';
+import { debugEndpointKind, defaultUserDataDir, executableOf, isolateUserData, listeningSockets, processTree, realUserDataAllowed } from './helpers.js';
 
 const appPath = process.env.SMOKE_HARDENED_APP;
 test.skip(!appPath, 'set SMOKE_HARDENED_APP to a packaged app');
+test.skip(!realUserDataAllowed, 'uses the real per-user data directory: runs in CI, or locally with SMOKE_ALLOW_REAL_USERDATA=1');
 
 const exe = () => executableOf(appPath!);
 const userData = defaultUserDataDir();
@@ -19,7 +22,7 @@ const logFile = join(userData, 'logs', 'main.log');
 
 let restore: (() => void) | null = null;
 test.beforeAll(() => {
-  restore = isolateDefaultUserData(userData);
+  restore = isolateUserData();
 });
 test.afterAll(() => {
   restore?.();
@@ -27,8 +30,12 @@ test.afterAll(() => {
 
 const FORBIDDEN_ENV = ['NODE_USE_ENV_PROXY', 'NODE_USE_SYSTEM_CA', 'NODE_EXTRA_CA_CERTS', 'SSLKEYLOGFILE', 'ELECTRON_RUN_AS_NODE', 'NODE_OPTIONS'];
 
+let logStart = 0;
+const fullLog = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8') : '');
+
 function start(env: Record<string, string>, args: string[] = [], bin = exe()) {
-  rmSync(join(userData, 'logs'), { recursive: true, force: true });
+  logStart = fullLog().length; // only lines written by this launch count
+
   const base = { ...process.env, ALTV_PROVIDERS: 'fixture' } as Record<string, string>;
   for (const k of FORBIDDEN_ENV) delete base[k];
   const child = spawn(bin, args, { env: { ...base, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -47,7 +54,7 @@ async function waitFor(fn: () => boolean, ms: number): Promise<boolean> {
   return fn();
 }
 
-const log = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8') : '');
+const log = () => fullLog().slice(logStart);
 const shown = () => /startup: window shown \d+ ms/.test(log());
 
 async function stop(child: ChildProcess): Promise<void> {
@@ -114,15 +121,26 @@ test('NodeOptions fuse: NODE_OPTIONS --require is ignored', async () => {
   }
 });
 
-/** Starts the shipped app and expects it to refuse: exit code 1, no window, no debugger. */
+/**
+ * Starts the shipped app and expects it to refuse: the reason on stderr (also shown in a native error box, which
+ * keeps the process alive until dismissed, so the harness kills it), no window, no debugger, no listener at all.
+ * The exit code (1) after the box is dismissed is covered by test/startupGuards.test.ts.
+ */
 async function expectRefused(args: string[], env: Record<string, string> = {}, what = /forbidden command-line switch/): Promise<string> {
   const { child, output } = start(env, args);
   try {
-    expect(await waitFor(() => child.exitCode !== null, 15_000), `${args.join(' ')} ${JSON.stringify(env)} should exit`).toBe(true);
-    expect(child.exitCode).toBe(1);
-    expect(shown()).toBe(false);
+    expect(await waitFor(() => /refusing to start/.test(output()) || child.exitCode !== null, 15_000), `${args.join(' ')} ${JSON.stringify(env)} should be refused`).toBe(true);
     expect(output()).toMatch(what);
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(shown()).toBe(false);
     expect(output()).not.toMatch(/Debugger listening/);
+    if (child.exitCode === null) {
+      // Still alive (error box open): it must not be listening anywhere, CDP included.
+      const listeners = listeningSockets(processTree(child.pid!));
+      expect(listeners, 'listeners while refused').toEqual([]);
+    } else {
+      expect(child.exitCode).toBe(1);
+    }
     return output();
   } finally {
     await stop(child);
@@ -131,17 +149,16 @@ async function expectRefused(args: string[], env: Record<string, string> = {}, w
 
 // The switch guard (src/boot.ts) is also why no test harness can attach to the shipped app; the functional smoke
 // test drives a separately prepared TEST-ONLY copy (smoke/prepare-inspectable.mjs).
-test('switch guard: --remote-debugging-port=0 → exits 1 and no CDP endpoint is reachable', async () => {
+test('switch guard: --remote-debugging-port=0 → refused, no CDP endpoint reachable', async () => {
   const out = await expectRefused(['--remote-debugging-port=0']);
   const m = /DevTools listening on ws:\/\/[^:]+:(\d+)\//.exec(out);
   if (m) {
-    // Chromium may announce the port before the guard runs; it must be gone with the process.
-    const reachable = await fetch(`http://127.0.0.1:${m[1]}/json/version`, { signal: AbortSignal.timeout(2000) }).then(() => true, () => false);
-    expect(reachable).toBe(false);
+    // Chromium may announce the port before the guard runs; nothing may answer on it.
+    expect(await debugEndpointKind(Number(m[1]))).toBe('unknown');
   }
 });
 
-test('switch guard + inspect fuse: --inspect / --inspect-brk exit 1 without a debugger', async () => {
+test('switch guard + inspect fuse: --inspect / --inspect-brk are refused without a debugger', async () => {
   await expectRefused(['--inspect=0']);
   await expectRefused(['--inspect-brk=0']);
 });
@@ -160,7 +177,7 @@ test('switch guard (Windows): /switch syntax is refused too', async () => {
   await expectRefused(['/no-sandbox']);
 });
 
-test('environment guard: proxy/system-CA/TLS-key-log variables → exits 1', async () => {
+test('environment guard: proxy/system-CA/TLS-key-log variables are refused', async () => {
   for (const [k, v] of [['NODE_USE_ENV_PROXY', '1'], ['NODE_USE_SYSTEM_CA', '1'], ['SSLKEYLOGFILE', join(tmpdir(), 'keys.log')]] as const) {
     await expectRefused([], { [k]: v }, new RegExp(`forbidden environment variable\\(s\\): ${k}`));
   }
