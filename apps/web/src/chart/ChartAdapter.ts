@@ -226,13 +226,15 @@ export class ChartAdapter {
     this.dataSymbol = null;
     this.loadSymbol = p.symbol.id;
     this.historyPages = 0;
+    this.historyBlocked = false;
     // Blank the chart at once: KLineChart keeps the previous series until the new init page arrives, which
     // could take several retries (old data must never sit under the new symbol / timeframe).
     this.installEmptyLoader();
     const ready = () => { if (this.loader === loader) this.onDataReady(); };
     const loader = createDataLoader({ session: () => p.session, pollMs: p.pollMs }, {
       onMeta: (m) => events.onMeta(m),
-      onError: (e) => { ready(); events.onError(e); }, // never keep drawings hidden because a page failed
+      // Never keep drawings hidden because a page failed; no automatic older page until data arrives again.
+      onError: (e) => { this.historyBlocked = true; ready(); events.onError(e); },
       onConnection: (lost, e) => { if (lost) ready(); events.onConnection?.(lost, e); },
       onFatal: (e) => { ready(); events.onFatal?.(e); },
       onReload: () => { if (this.loader === loader) this.chart.resetData(); }, // gap too large to backfill
@@ -265,9 +267,9 @@ export class ChartAdapter {
     this.chart.setDataLoader({
       getBars: (params) => loader.getBars(params.type === 'init'
         ? { ...params, callback: (data, more) => { params.callback(data, more); ready(); } }
-        : { ...params, callback: (data, more) => { params.callback(data, more); this.onBarsAdded(); } }),
+        : { ...params, callback: (data, more) => { if (data.length > 0) this.historyBlocked = false; params.callback(data, more); this.onBarsAdded(); } }),
       // New bars (polling / backfill) may make a marker placeable, e.g. a basket Start after the last bar.
-      subscribeBar: (params) => loader.subscribeBar({ ...params, callback: (bar) => { params.callback(bar); this.onBarsAdded(); } }),
+      subscribeBar: (params) => loader.subscribeBar({ ...params, callback: (bar) => { this.historyBlocked = false; params.callback(bar); this.onBarsAdded(); } }),
       unsubscribeBar: () => loader.unsubscribeBar(),
     });
   }
@@ -627,9 +629,11 @@ export class ChartAdapter {
 
   /** Older-data pages requested for positions since the current load (bounded by MAX_HISTORY_PAGES). */
   private historyPages = 0;
+  /** An older page failed: no automatic page until the next successful data event or load() (no offline bursts). */
+  private historyBlocked = false;
 
   /** KLineChart's internal store (10.0.3): whether older data exists, and the loader of older pages. */
-  private dataStore(): { _dataLoadMore?: { forward?: boolean }; _processDataLoad?: (type: string) => void } | null {
+  private dataStore(): { _loading?: boolean; _dataLoadMore?: { forward?: boolean }; _processDataLoad?: (type: string) => void } | null {
     const c = this.chart as unknown as { getChartStore?: () => unknown };
     try {
       return (c.getChartStore?.() as ReturnType<ChartAdapter['dataStore']>) ?? null;
@@ -649,7 +653,7 @@ export class ChartAdapter {
    * position shows "Outcome needs earlier data").
    */
   private ensurePositionHistory(): void {
-    if (this.historyPages >= MAX_HISTORY_PAGES || !this.hasOlderData()) return;
+    if (this.historyBlocked || this.historyPages >= MAX_HISTORY_PAGES || !this.hasOlderData()) return;
     const first = this.chart.getDataList()[0];
     if (!first) return;
     let earliest = Infinity;
@@ -659,10 +663,12 @@ export class ChartAdapter {
       if (typeof t === 'number' && t < earliest) earliest = t;
     }
     if (!(earliest < first.timestamp)) return;
-    const load = this.dataStore()?._processDataLoad;
-    if (typeof load !== 'function') return;
+    const store = this.dataStore();
+    const load = store?._processDataLoad;
+    // KLineChart ignores a request while it is loading: such calls do not count toward the cap.
+    if (typeof load !== 'function' || store?._loading === true) return;
     this.historyPages++;
-    try { load.call(this.dataStore(), 'forward'); } catch { /* internal API changed: the outcome shows it needs data */ }
+    try { load.call(store, 'forward'); } catch { /* internal API changed: the outcome shows it needs data */ }
   }
 
   /**

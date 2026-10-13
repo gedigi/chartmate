@@ -180,11 +180,11 @@ export function positionFigures(p: PositionFigureInput): OverlayFigure[] {
   const offset = size + 8;
   const below = s.y >= e.y; // the outcome label goes to the stop side (the target label is on the other one)
   const roomInside = Math.abs(s.y - e.y) >= offset + size / 2 + 4;
-  let at: Placement;
-  if (narrow(text)) at = { y: below ? e.y + offset : e.y - offset, baseline: 'middle', outsideRight: true };
-  else if (roomInside) at = { y: below ? e.y + offset : e.y - offset, baseline: 'middle' };
-  // Too short: beyond the stop label, outside the box.
-  else at = below ? { y: stopEdge.y + offset, baseline: 'top' } : { y: stopEdge.y - offset, baseline: 'bottom' };
+  // Near the entry when the stop zone has room, else beyond the stop label (never over it); beside a narrow box.
+  const at: Placement = roomInside
+    ? { y: below ? e.y + offset : e.y - offset, baseline: 'middle' }
+    : below ? { y: stopEdge.y + offset, baseline: 'top' } : { y: stopEdge.y - offset, baseline: 'bottom' };
+  if (narrow(text)) at.outsideRight = true;
   figures.push(label(text, at, bg));
   return figures;
 }

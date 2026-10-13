@@ -110,6 +110,13 @@ describe('positionFigures', () => {
     expect(o.attrs.x + w / 2).toBeLessThanOrEqual(530);
   });
 
+  it('a narrow box with a short stop zone: the outcome label goes beside the box, beyond the stop label (no overlap)', () => {
+    const narrowFlat = [{ x: 300, y: 100 }, { x: 300, y: 95 }, { x: 300, y: 105 }, { x: 320, y: 100 }];
+    const f = positionFigures({ ...base, coords: narrowFlat }) as Fig[];
+    expect(label(f, 'Stop').attrs).toMatchObject({ y: 107, baseline: 'top' });
+    expect(label(f, 'Waiting').attrs).toMatchObject({ x: 324, align: 'left', y: 107 + 12 + 8, baseline: 'top' });
+  });
+
   it('a zone too short for the outcome label puts it outside, beyond the stop label', () => {
     const flat = [{ x: 10, y: 100 }, { x: 10, y: 95 }, { x: 10, y: 105 }, { x: 410, y: 100 }];
     const f = positionFigures({ ...base, coords: flat }) as Fig[];

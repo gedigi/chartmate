@@ -327,4 +327,38 @@ describe('ChartAdapter long / short positions', () => {
     o.onPressedMoveEnd?.({ overlay: o });
     expect(a.serializeDrawings()[0]!.points).toEqual(position());
   });
+
+  it('paging: a request skipped while KLineChart is already loading does not count toward the cap', async () => {
+    const a = await loadAt(BTC, '1D');
+    const store = { _loading: true, _dataLoadMore: { forward: true }, _processDataLoad: vi.fn() };
+    (chart() as unknown as { getChartStore: () => typeof store }).getChartStore = () => store;
+    a.restoreDrawings([{ name: 'longPosition', points: position({ start: D1 - 1000 * DAY }), lock: false }]);
+    const loader = chart().setDataLoader.mock.calls.at(-1)![0] as { getBars: (p: unknown) => Promise<void> };
+    vi.spyOn(api, 'bars').mockResolvedValue({ symbol: BTC.id, tf: '1D', session: 'rth', hasMoreBefore: true, stale: false, notices: [], markers: [], bars: [] });
+    const page = () => loader.getBars({ type: 'forward', timestamp: D1, symbol: { ticker: BTC.id }, period: { type: 'day', span: 1 }, callback: () => {} });
+    for (let i = 0; i < 60; i++) await page();
+    expect(store._processDataLoad).not.toHaveBeenCalled();
+    store._loading = false;
+    await page();
+    expect(store._processDataLoad).toHaveBeenCalledTimes(1);
+  });
+
+  it('paging: after a failed older page, no new page until the next successful data (or a new load)', async () => {
+    const a = await loadAt(BTC, '1D');
+    const store = { _dataLoadMore: { forward: true }, _processDataLoad: vi.fn() };
+    (chart() as unknown as { getChartStore: () => typeof store }).getChartStore = () => store;
+    a.restoreDrawings([{ name: 'longPosition', points: position({ start: D1 - 1000 * DAY }), lock: false }]);
+    expect(store._processDataLoad).toHaveBeenCalledTimes(1);
+    const loader = chart().setDataLoader.mock.calls.at(-1)![0] as { getBars: (p: unknown) => Promise<void> };
+    const page = () => loader.getBars({ type: 'forward', timestamp: D1, symbol: { ticker: BTC.id }, period: { type: 'day', span: 1 }, callback: () => {} });
+    vi.spyOn(api, 'bars').mockRejectedValue(new Error('offline'));
+    for (let i = 0; i < 5; i++) await page();
+    expect(store._processDataLoad).toHaveBeenCalledTimes(1);
+    vi.spyOn(api, 'bars').mockResolvedValue({
+      symbol: BTC.id, tf: '1D', session: 'rth', hasMoreBefore: true, stale: false, notices: [], markers: [],
+      bars: [{ ts: D1 - DAY, open: 1, high: 1, low: 1, close: 1, volume: 1 }],
+    });
+    await page();
+    expect(store._processDataLoad).toHaveBeenCalledTimes(2);
+  });
 });
