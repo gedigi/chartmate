@@ -1,6 +1,6 @@
 import type { CandleBodyStyle, ChartAppearance, ChartType, DrawingLineStyle } from '@altv/shared';
 import type { DeepPartial, Styles } from 'klinecharts';
-import { DRAWING_DASH } from './drawingStyles';
+import { klineLine } from './drawingStyles';
 
 export type ThemeName = 'dark' | 'light';
 
@@ -99,7 +99,7 @@ export const DEFAULT_TEXT_SIZE = 12;
 export function overlayStyles(d: DrawingLineStyle): DeepPartial<Styles['overlay']> {
   const soft = hexToRgba(d.color, 0.35);
   return {
-    line: { color: d.color, size: d.size, style: d.style, dashedValue: DRAWING_DASH },
+    line: { color: d.color, size: d.size, ...klineLine(d.style, d.size) },
     point: { color: d.color, borderColor: soft, activeColor: d.color, activeBorderColor: soft },
     text: { backgroundColor: d.color, borderColor: d.color, size: DEFAULT_TEXT_SIZE },
     polygon: { color: d.color, borderColor: d.color },

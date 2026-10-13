@@ -4,6 +4,7 @@ import {
 } from '@altv/shared';
 import { useId, type JSX } from 'react';
 import { resolveAppearance, type ThemeName } from '../chart/theme';
+import { LINE_STYLES, parseLineStyle } from '../chart/drawingStyles';
 import { Modal } from './Modal';
 import './Indicators.css';
 
@@ -99,9 +100,8 @@ export function ChartAppearanceDialog({ appearance, theme, chartType, onChange, 
         </div>
         <div className="settings-row">
           <label htmlFor={id('ds')}>Drawing line style</label>
-          <select id={id('ds')} value={r.drawing.style} onChange={(e) => setDrawing({ style: e.target.value === 'dashed' ? 'dashed' : 'solid' })}>
-            <option value="solid">Solid</option>
-            <option value="dashed">Dashed</option>
+          <select id={id('ds')} value={r.drawing.style} onChange={(e) => setDrawing({ style: parseLineStyle(e.target.value) })}>
+            {LINE_STYLES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </div>
       </fieldset>

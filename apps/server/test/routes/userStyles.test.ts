@@ -18,7 +18,7 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
   it('accepts and round-trips a full appearance', async () => {
     const appearance = {
       upColor: '#00ff00', downColor: '#FF0000', candleBody: 'hollow_up', lineColor: '#123456', lineWidth: 3,
-      drawing: { color: '#abcdef', size: 2, style: 'dashed' },
+      drawing: { color: '#abcdef', size: 2, style: 'dotted' },
     } as const;
     expect((await putLayout({ ...layout, appearance })).statusCode).toBe(200);
     expect((await t.app.inject({ method: 'GET', url: '/api/layouts/default' })).json()).toEqual({ ...layout, appearance });
@@ -28,18 +28,18 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
   it('rejects invalid appearance values and unknown keys', async () => {
     for (const appearance of [
       { upColor: 'red' }, { downColor: '#fff' }, { candleBody: 'filled' }, { lineWidth: 0 }, { lineWidth: 5 }, { lineWidth: 1.5 },
-      { drawing: { color: '#000000', size: 2 } }, { drawing: { color: '#000000', size: 2, style: 'dotted' } }, { bogus: 1 },
+      { drawing: { color: '#000000', size: 2 } }, { drawing: { color: '#000000', size: 2, style: 'wavy' } }, { bogus: 1 },
     ]) {
       expect((await putLayout({ ...layout, appearance })).statusCode, JSON.stringify(appearance)).toBe(400);
     }
   });
 
   it('indicator lineWidths / lineStyles / barColors are validated', async () => {
-    const ok = { ...layout.indicators[0]!, lineWidths: [1, 4], lineStyles: ['solid', 'dashed'], barColors: { up: '#00ff00', down: '#ff0000' } };
+    const ok = { ...layout.indicators[0]!, lineWidths: [1, 4], lineStyles: ['solid', 'dashed', 'dotted'], barColors: { up: '#00ff00', down: '#ff0000' } };
     expect((await putLayout({ ...layout, indicators: [ok] })).statusCode).toBe(200);
     expect((await t.app.inject({ method: 'GET', url: '/api/layouts/default' })).json().indicators[0]).toEqual(ok);
     for (const bad of [
-      { lineWidths: [5] }, { lineWidths: [0] }, { lineWidths: Array(11).fill(1) }, { lineStyles: ['dotted'] },
+      { lineWidths: [5] }, { lineWidths: [0] }, { lineWidths: Array(11).fill(1) }, { lineStyles: ['wavy'] },
       { lineStyles: Array(11).fill('solid') }, { barColors: { up: 'green', down: '#ff0000' } }, { barColors: { up: '#00ff00' } },
     ]) {
       expect((await putLayout({ ...layout, indicators: [{ ...layout.indicators[0]!, ...bad }] })).statusCode, JSON.stringify(bad)).toBe(400);
@@ -51,6 +51,7 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
       { name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false, styles: { line: { color: '#ff0000', size: 3, style: 'dashed' } } },
       { name: 'simpleAnnotation', points: [{ timestamp: 1, value: 2 }], lock: false, text: 'hi', styles: { text: { color: '#00ff00', size: 18 } } },
       { name: 'rayLine', points: [{ timestamp: 1, value: 2 }], lock: true },
+      { name: 'fibonacciLine', points: [{ timestamp: 1, value: 2 }], lock: false, styles: { line: { color: '#0000ff', size: 2, style: 'dotted' } } },
     ];
     expect((await putDrawings(drawings)).statusCode).toBe(200);
     expect((await t.app.inject({ method: 'GET', url: '/api/drawings/stock:AAPL' })).json()).toEqual(drawings);
@@ -62,7 +63,7 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
 
     for (const styles of [
       { line: { color: '#fff', size: 1, style: 'solid' } }, { line: { color: '#ffffff', size: 5, style: 'solid' } },
-      { line: { color: '#ffffff', size: 1, style: 'dotted' } }, { text: { color: '#ffffff', size: 9 } }, { text: { color: '#ffffff', size: 25 } },
+      { line: { color: '#ffffff', size: 1, style: 'wavy' } }, { text: { color: '#ffffff', size: 9 } }, { text: { color: '#ffffff', size: 25 } },
       { line: { color: '#ffffff' } }, 'x',
     ]) {
       // Tolerant: invalid / legacy styles are dropped rather than failing the whole save.

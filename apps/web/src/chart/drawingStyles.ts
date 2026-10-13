@@ -1,6 +1,6 @@
 import {
   isHexColor, MAX_LINE_WIDTH, MAX_TEXT_SIZE, MIN_LINE_WIDTH, MIN_TEXT_SIZE,
-  type DrawingLineStyle, type DrawingStyles,
+  type DrawingLineStyle, type DrawingStyles, type LineStyleKind,
 } from '@altv/shared';
 import type { DeepPartial, OverlayStyle } from 'klinecharts';
 
@@ -12,8 +12,38 @@ export type TextStyle = NonNullable<DrawingStyles['text']>;
 
 const intIn = (v: unknown, lo: number, hi: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
 
+/** Line styles in the order the style selects list them. */
+export const LINE_STYLES: ReadonlyArray<{ value: LineStyleKind; label: string }> = [
+  { value: 'solid', label: 'Solid' }, { value: 'dashed', label: 'Dashed' }, { value: 'dotted', label: 'Dotted' },
+];
+
+/** A select value → line style (unknown → solid). */
+export function parseLineStyle(v: string): LineStyleKind {
+  return v === 'dashed' || v === 'dotted' ? v : 'solid';
+}
+
+/**
+ * KLineChart only knows solid / dashed: dotted is a dashed line of zero-length dashes with round caps (each
+ * dash renders as a dot of the line's width), spaced by twice the width so it scales with it.
+ */
+export function dashPattern(style: LineStyleKind, size: number, dashed: number[] = DRAWING_DASH): number[] {
+  return style === 'dotted' ? [0, size * 2] : dashed;
+}
+
+/**
+ * KLineChart line styles for a line style kind. `lineCap` is not in KLineChart's typings but its line figure
+ * honours it; it is always set because KLineChart merges overridden styles (dotted → solid must reset it).
+ */
+export function klineLine(style: LineStyleKind, size: number, dashed: number[] = DRAWING_DASH): { style: 'solid' | 'dashed'; dashedValue: number[]; lineCap: 'round' | 'butt' } {
+  return {
+    style: style === 'solid' ? 'solid' : 'dashed',
+    dashedValue: dashPattern(style, size, dashed),
+    lineCap: style === 'dotted' ? 'round' : 'butt',
+  };
+}
+
 export function lineToOverlay(l: DrawingLineStyle): DeepPartial<OverlayStyle> {
-  return { line: { color: l.color, size: l.size, style: l.style, dashedValue: DRAWING_DASH } };
+  return { line: { color: l.color, size: l.size, ...klineLine(l.style, l.size) } as DeepPartial<OverlayStyle['line']> };
 }
 
 /** A text annotation's colour is its bubble (background, border, pointer); the glyphs stay white. */
@@ -35,8 +65,10 @@ export function toOverlayStyles(s: DrawingStyles | undefined): DeepPartial<Overl
 export function readLine(styles: unknown): DrawingLineStyle | null {
   const l = (styles as { line?: Record<string, unknown> } | null | undefined)?.line;
   if (!l || !isHexColor(l.color) || !intIn(l.size, MIN_LINE_WIDTH, MAX_LINE_WIDTH)) return null;
-  if (l.style !== 'solid' && l.style !== 'dashed') return null;
-  return { color: l.color.toLowerCase(), size: l.size, style: l.style };
+  if (l.style !== 'solid' && l.style !== 'dashed' && l.style !== 'dotted') return null;
+  // Normalized ('dotted') or KLineChart form (dotted = dashed with round caps, see klineLine).
+  const style: LineStyleKind = l.style === 'dashed' && l.lineCap === 'round' ? 'dotted' : l.style;
+  return { color: l.color.toLowerCase(), size: l.size, style };
 }
 
 export function readText(styles: unknown): TextStyle | null {

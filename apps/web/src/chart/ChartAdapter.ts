@@ -9,7 +9,7 @@ import {
   type SessionMode, type SymbolInfo, type Timeframe,
 } from '@altv/shared';
 import {
-  lineToOverlay, normalizeOverlayStyles, readLine, readText, sanitizeDrawingStyles, textToOverlay, toOverlayStyles, TEXT_TOOL,
+  klineLine, lineToOverlay, normalizeOverlayStyles, readLine, readText, sanitizeDrawingStyles, textToOverlay, toOverlayStyles, TEXT_TOOL,
   type TextStyle,
 } from './drawingStyles';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
@@ -321,12 +321,14 @@ export class ChartAdapter {
       styles.lines = Array.from({ length: n }, (_, i) => {
         const d = defaults[i % defaults.length]!;
         const style = o.lineStyles?.[i] ?? 'solid';
+        const size = o.lineWidths?.[i] ?? 1;
+        const line = klineLine(style, size, INDICATOR_DASH);
         return {
           ...d,
           color: o.lineColors?.[i] ?? d.color,
-          size: o.lineWidths?.[i] ?? 1,
-          style,
-          dashedValue: style === 'dashed' ? INDICATOR_DASH : d.dashedValue,
+          size,
+          ...line,
+          dashedValue: style === 'solid' ? d.dashedValue : line.dashedValue,
         };
       });
     }

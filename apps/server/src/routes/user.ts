@@ -9,7 +9,7 @@ import { isSymbolId, parse, SymbolIdSchema } from './validation.js';
 
 const Hex = z.string().regex(HEX_COLOR_RE, 'colour must be #rrggbb');
 const LineWidth = z.number().int().min(MIN_LINE_WIDTH).max(MAX_LINE_WIDTH);
-const LineStyle = z.enum(['solid', 'dashed']);
+const LineStyle = z.enum(['solid', 'dashed', 'dotted']);
 const LineStyleSchema = z.object({ color: Hex, size: LineWidth, style: LineStyle });
 
 const AppearanceSchema = z.object({

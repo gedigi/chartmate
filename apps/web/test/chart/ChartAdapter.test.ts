@@ -590,6 +590,23 @@ describe('ChartAdapter', () => {
       expect(a.listIndicators()[0]).toMatchObject({ id, lineWidths: [3], lineStyles: ['solid', 'dashed'], barColors: { up: '#00ff00', down: '#ff0000' } });
     });
 
+    it('dotted indicator lines are dashed with round caps and a dot pattern scaled by the width; dotted→solid resets the cap', () => {
+      const a = make();
+      const id = a.addIndicator({ name: 'RSI', pane: 'sub', lineWidths: [1, 3], lineStyles: ['dotted', 'dotted'] });
+      const create = chart().createIndicator.mock.calls.at(-1)![0] as { styles: { lines: unknown[] } };
+      expect(create.styles.lines).toEqual([
+        expect.objectContaining({ size: 1, style: 'dashed', dashedValue: [0, 2], lineCap: 'round' }),
+        expect.objectContaining({ size: 3, style: 'dashed', dashedValue: [0, 6], lineCap: 'round' }),
+      ]);
+      expect(a.listIndicators()[0]).toMatchObject({ lineStyles: ['dotted', 'dotted'] });
+      a.updateIndicator(id, { lineStyles: ['solid', 'dashed'] });
+      const o = chart().overrideIndicator.mock.calls.at(-1)![0] as { styles: { lines: unknown[] } };
+      expect(o.styles.lines).toEqual([
+        expect.objectContaining({ style: 'solid', lineCap: 'butt' }),
+        expect.objectContaining({ style: 'dashed', dashedValue: [4, 4], lineCap: 'butt' }),
+      ]);
+    });
+
     it('removing the overrides writes the defaults back explicitly (KLineChart merges styles)', () => {
       const a = make();
       const id = a.addIndicator({ name: 'MACD', pane: 'sub', lineStyles: ['dashed'], barColors: { up: '#00ff00', down: '#ff0000' } });
@@ -627,15 +644,30 @@ describe('ChartAdapter', () => {
       a.onSelectionChange(selection);
       a.restoreDrawings([{ ...seg, styles: { line: { color: '#ff0000', size: 3, style: 'dashed' } } }]);
       const o = userOverlays()[0]!;
-      expect(o.styles).toEqual({ line: { color: '#ff0000', size: 3, style: 'dashed', dashedValue: [6, 4] } });
+      expect(o.styles).toEqual({ line: { color: '#ff0000', size: 3, style: 'dashed', dashedValue: [6, 4], lineCap: 'butt' } });
       o.onSelected?.({ overlay: o });
       expect(selection).toHaveBeenLastCalledWith({ id: o.id, kind: 'line', style: { color: '#ff0000', size: 3, style: 'dashed' }, locked: false });
       a.setSelectedStyle({ color: '#00ff00' });
-      expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: o.id, styles: { line: { color: '#00ff00', size: 3, style: 'dashed', dashedValue: [6, 4] } } });
+      expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: o.id, styles: { line: { color: '#00ff00', size: 3, style: 'dashed', dashedValue: [6, 4], lineCap: 'butt' } } });
       expect(changed).toHaveBeenCalledTimes(1);
       expect(a.serializeDrawings()).toEqual([{ ...seg, styles: { line: { color: '#00ff00', size: 3, style: 'dashed' } } }]);
       o.onDeselected?.({ overlay: o });
       expect(selection).toHaveBeenLastCalledWith(null);
+    });
+
+    it('a dotted drawing round-trips: restored as a round-cap dot pattern, saved as dotted, scales with width', async () => {
+      const a = await loaded();
+      a.restoreDrawings([{ ...seg, styles: { line: { color: '#ff0000', size: 2, style: 'dotted' } } }]);
+      const o = userOverlays()[0]!;
+      expect(o.styles).toEqual({ line: { color: '#ff0000', size: 2, style: 'dashed', dashedValue: [0, 4], lineCap: 'round' } });
+      expect(a.serializeDrawings()[0]!.styles).toEqual({ line: { color: '#ff0000', size: 2, style: 'dotted' } });
+      o.onSelected?.({ overlay: o });
+      expect(a.getSelectedDrawing()).toMatchObject({ style: { style: 'dotted', size: 2 } });
+      a.setSelectedStyle({ size: 4 });
+      expect(o.styles).toMatchObject({ line: { dashedValue: [0, 8], lineCap: 'round' } });
+      a.setSelectedStyle({ style: 'solid' });
+      expect(o.styles).toMatchObject({ line: { style: 'solid', lineCap: 'butt' } });
+      expect(a.serializeDrawings()[0]!.styles).toEqual({ line: { color: '#ff0000', size: 4, style: 'solid' } });
     });
 
     it('the default drawing style shown is exactly what the chart applies to unstyled drawings', async () => {

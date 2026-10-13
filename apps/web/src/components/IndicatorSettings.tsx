@@ -1,6 +1,7 @@
 import { MAX_LINE_WIDTH, MIN_LINE_WIDTH, type IndicatorState, type LineStyleKind } from '@altv/shared';
 import { useId, useState, type FormEvent, type JSX } from 'react';
 import { catalogEntry, DEFAULT_BAR_COLORS, defaultLineColor, migrateCalcParams, validateParam } from '../chart/indicators/catalog';
+import { LINE_STYLES, parseLineStyle } from '../chart/drawingStyles';
 import { Modal } from './Modal';
 import './Indicators.css';
 
@@ -16,7 +17,7 @@ const WIDTHS = Array.from({ length: MAX_LINE_WIDTH - MIN_LINE_WIDTH + 1 }, (_, i
  * Edits one indicator's params (validated: integers ≥ 1, except params the catalog marks as decimal, which
  * must be > 0) and line colours. Colours are only saved while they differ from the defaults, so untouched
  * (or reset) indicators keep following KLineChart's palette. The same applies to line widths
- * (1–4) / styles (solid, dashed) and, for histogram indicators, the up/down bar colours.
+ * (1–4) / styles (solid, dashed, dotted) and, for histogram indicators, the up/down bar colours.
  */
 export function IndicatorSettings({ state, onSave, onClose }: IndicatorSettingsProps): JSX.Element {
   const entry = catalogEntry(state.name);
@@ -110,10 +111,9 @@ export function IndicatorSettings({ state, onSave, onClose }: IndicatorSettingsP
                   </select>
                   <select
                     aria-label={`${line} style`} title="Style" value={styles[i]}
-                    onChange={(e) => setStyles((ss) => ss.map((s, j) => (j === i ? (e.target.value === 'dashed' ? 'dashed' : 'solid') : s)))}
+                    onChange={(e) => setStyles((ss) => ss.map((s, j) => (j === i ? parseLineStyle(e.target.value) : s)))}
                   >
-                    <option value="solid">Solid</option>
-                    <option value="dashed">Dashed</option>
+                    {LINE_STYLES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
                 </div>
               );

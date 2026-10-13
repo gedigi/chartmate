@@ -15,7 +15,7 @@ export interface Basket { id: string; name: string; baseValue: number; versions:
 export interface Marker { ts: number; label: string }
 export interface BarsResponse { symbol: SymbolId; tf: Timeframe; session: SessionMode; bars: Bar[]; hasMoreBefore: boolean; stale: boolean; notices: string[]; markers: Marker[] }
 export interface LatestResponse { bar: Bar | null; stale: boolean }
-export type LineStyleKind = 'solid'|'dashed';
+export type LineStyleKind = 'solid'|'dashed'|'dotted';
 export interface IndicatorState {
   name: string; pane: 'main'|'sub'; calcParams: number[]; visible: boolean;
   lineColors?: string[];

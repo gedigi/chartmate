@@ -1,6 +1,7 @@
 import { MAX_LINE_WIDTH, MIN_LINE_WIDTH } from '@altv/shared';
 import { useEffect, useState, type JSX } from 'react';
 import type { ChartAdapter, SelectedDrawing } from '../chart/ChartAdapter';
+import { LINE_STYLES, parseLineStyle } from '../chart/drawingStyles';
 
 export type DrawingStyleControls = Pick<ChartAdapter, 'onSelectionChange' | 'setSelectedStyle'>;
 
@@ -8,7 +9,7 @@ const WIDTHS = Array.from({ length: MAX_LINE_WIDTH - MIN_LINE_WIDTH + 1 }, (_, i
 const FONT_SIZES = [10, 12, 14, 16, 18, 20, 22, 24];
 
 /**
- * Floating style bar for the selected drawing: colour, width and solid/dashed for lines; colour and font size
+ * Floating style bar for the selected drawing: colour, width and solid/dashed/dotted for lines; colour and font size
  * for text annotations. Read-only for locked drawings; hidden while a drawing is being placed. Changes go through the adapter (overrideOverlay) and are saved with the drawings.
  */
 export function DrawingStyleBar({ controls }: { controls: DrawingStyleControls | null }): JSX.Element | null {
@@ -34,9 +35,8 @@ export function DrawingStyleBar({ controls }: { controls: DrawingStyleControls |
             {WIDTHS.map((w) => <option key={w} value={w}>{w}px</option>)}
           </select>
           <select aria-label="Line style" title="Style" value={sel.style.style} disabled={locked}
-            onChange={(e) => controls.setSelectedStyle({ style: e.target.value === 'dashed' ? 'dashed' : 'solid' })}>
-            <option value="solid">Solid</option>
-            <option value="dashed">Dashed</option>
+            onChange={(e) => controls.setSelectedStyle({ style: parseLineStyle(e.target.value) })}>
+            {LINE_STYLES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </>
       ) : (
