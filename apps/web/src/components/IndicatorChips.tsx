@@ -1,4 +1,4 @@
-import type { IndicatorState, Layout } from '@altv/shared';
+import type { IndicatorState, Layout } from '@chartmate/shared';
 import { useState, type JSX } from 'react';
 import { catalogEntry, indicatorLabel } from '../chart/indicators/catalog';
 import type { ThemeName } from '../chart/theme';

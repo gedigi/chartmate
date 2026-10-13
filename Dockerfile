@@ -11,8 +11,8 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
 # Self-contained, prod-only copy of the server package (node_modules incl. the
-# workspace dep @altv/shared with its dist, plus apps/server/dist).
-RUN pnpm deploy --filter @altv/server --prod /out
+# workspace dep @chartmate/shared with its dist, plus apps/server/dist).
+RUN pnpm deploy --filter @chartmate/server --prod /out
 
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production \

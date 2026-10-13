@@ -1,4 +1,4 @@
-import { TIMEFRAMES, type ChartType, type SessionMode, type Timeframe } from '@altv/shared';
+import { TIMEFRAMES, type ChartType, type SessionMode, type Timeframe } from '@chartmate/shared';
 import type { JSX } from 'react';
 
 export const CHART_TYPES: { value: ChartType; label: string }[] = [

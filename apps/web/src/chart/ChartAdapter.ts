@@ -7,7 +7,7 @@ import {
   isIntraday, isPositionTool, nyToUtc, resolvePositionDefaults, sanitizePositionSettings, tfMs,
   type ChartType, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker, type PositionDefaults,
   type PositionSettings, type ThemedAppearance, type SessionMode, type SymbolInfo, type Timeframe,
-} from '@altv/shared';
+} from '@chartmate/shared';
 import {
   klineLine, lineToOverlay, normalizeOverlayStyles, readLine, readText, sanitizeDrawingStyles, textToOverlay, toOverlayStyles, TEXT_TOOL,
   type TextStyle,

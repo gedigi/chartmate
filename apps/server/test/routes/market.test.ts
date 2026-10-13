@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import type { BarsResponse, LatestResponse, Quote, SymbolInfo } from '@altv/shared';
+import type { BarsResponse, LatestResponse, Quote, SymbolInfo } from '@chartmate/shared';
 import { ProviderError } from '../../src/errors.js';
 import { basketBody, DAY, makeApp, type TestApp } from './helpers.js';
 

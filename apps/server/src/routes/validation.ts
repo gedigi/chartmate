@@ -1,4 +1,4 @@
-import { parseSymbolId } from '@altv/shared';
+import { parseSymbolId } from '@chartmate/shared';
 import { z } from 'zod';
 
 /** Parses `input` or throws the ZodError (mapped to 400 `invalid_request` by the app error handler). */

@@ -52,7 +52,7 @@ if (testInspectable && (!arg('out') || outCanon === distCanon || outCanon.starts
 }
 
 if (!existsSync(`${webDist}/index.html`)) {
-  console.error('apps/web/dist is missing: run `pnpm --filter @altv/web build` first');
+  console.error('apps/web/dist is missing: run `pnpm --filter @chartmate/web build` first');
   process.exit(1);
 }
 
@@ -72,7 +72,7 @@ const common = {
   legalComments: dev ? 'inline' : 'external',
   // electron is provided by the runtime; node:sqlite and other builtins are external automatically.
   external: ['electron', './updater.cjs'],
-  alias: { '@altv/shared': here('../../../packages/shared/src/index.ts') },
+  alias: { '@chartmate/shared': here('../../../packages/shared/src/index.ts') },
   define: {
     __WEB_ROOT_REL__: JSON.stringify('web'),
     __BUILD_SIGNED__: JSON.stringify(signed),

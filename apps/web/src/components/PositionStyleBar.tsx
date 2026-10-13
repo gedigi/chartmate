@@ -1,7 +1,7 @@
 import {
   convertRiskValue, isValidPositionDefaults, MAX_CURRENCY_LENGTH, MAX_POSITION_AMOUNT, MAX_RISK_PERCENT,
   type PositionDefaults, type PositionRiskMode, type PositionSettings,
-} from '@altv/shared';
+} from '@chartmate/shared';
 import { useEffect, useId, useState, type JSX, type KeyboardEvent } from 'react';
 import type { ChartAdapter, SelectedDrawing } from '../chart/ChartAdapter';
 import {

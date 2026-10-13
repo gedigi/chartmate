@@ -1,4 +1,4 @@
-import { MAX_CONSTITUENTS, type Basket } from '@altv/shared';
+import { MAX_CONSTITUENTS, type Basket } from '@chartmate/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { BasketService } from '../baskets/service.js';

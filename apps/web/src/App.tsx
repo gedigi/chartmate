@@ -1,4 +1,4 @@
-import { parseSymbolId, type SymbolId, type SymbolInfo } from '@altv/shared';
+import { parseSymbolId, type SymbolId, type SymbolInfo } from '@chartmate/shared';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react';
 import { api, errorMessage, setUnauthorizedHandler } from './api/client';
 import { BasketsPage } from './components/BasketsPage';

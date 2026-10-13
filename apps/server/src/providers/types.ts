@@ -1,4 +1,4 @@
-import type { Bar, NativeTimeframe, Quote, SessionWindow, SymbolInfo } from '@altv/shared';
+import type { Bar, NativeTimeframe, Quote, SessionWindow, SymbolInfo } from '@chartmate/shared';
 
 export interface ProviderLimits {
   /** How far back from now data exists; absent = unlimited. */

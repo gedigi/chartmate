@@ -1,4 +1,4 @@
-import type { SymbolInfo } from '@altv/shared';
+import type { SymbolInfo } from '@chartmate/shared';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';

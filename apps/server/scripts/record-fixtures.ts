@@ -1,6 +1,6 @@
 /**
  * One-off fixture recorder for provider tests. Hits live APIs.
- * Run: pnpm --filter @altv/server exec tsx scripts/record-fixtures.ts
+ * Run: pnpm --filter @chartmate/server exec tsx scripts/record-fixtures.ts
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

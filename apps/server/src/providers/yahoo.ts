@@ -2,7 +2,7 @@ import YahooFinance from 'yahoo-finance2';
 import {
   nyDateUtcMidnight, nyParts, nyToUtc, pctChange, tagSessions, tfMs,
   type Bar, type NativeTimeframe, type Quote, type QuoteExt, type Session, type SessionWindow, type SymbolInfo,
-} from '@altv/shared';
+} from '@chartmate/shared';
 import { NotFoundError, ProviderError } from '../errors.js';
 import { errMessage, REQUEST_TIMEOUT_MS } from './http.js';
 import type { FetchBarsResult, MarketDataProvider, ProviderLimits, StockSplit } from './types.js';

@@ -1,4 +1,4 @@
-import type { SymbolId, SymbolInfo } from '@altv/shared';
+import type { SymbolId, SymbolInfo } from '@chartmate/shared';
 import { useEffect, useId, useRef, useState, type JSX, type KeyboardEvent } from 'react';
 import { api, errorMessage } from '../api/client';
 

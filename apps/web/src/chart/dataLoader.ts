@@ -1,4 +1,4 @@
-import { tfMs, type Bar, type BarsResponse, type Marker, type SessionMode, type Timeframe } from '@altv/shared';
+import { tfMs, type Bar, type BarsResponse, type Marker, type SessionMode, type Timeframe } from '@chartmate/shared';
 import { api, isPermanentError } from '../api/client';
 import { retryDelayMs } from '../state/retry';
 import { forwardRetryWindowMs, fromPeriod, initialWindowMs } from './periods';

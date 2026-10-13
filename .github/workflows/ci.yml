@@ -30,7 +30,7 @@ jobs:
       - run: pnpm typecheck
       # Includes the desktop unit/security tests and the server suites re-run on the node:sqlite dialect.
       - run: pnpm test
-      - run: pnpm --filter @altv/web build
+      - run: pnpm --filter @chartmate/web build
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm e2e
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -49,4 +49,4 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: docker build -t altv:ci .
+      - run: docker build -t chartmate:ci .

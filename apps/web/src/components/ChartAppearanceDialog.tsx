@@ -1,7 +1,7 @@
 import {
   MAX_LINE_WIDTH, MIN_LINE_WIDTH,
   type CandleBodyStyle, type ChartAppearance, type ChartType, type DrawingLineStyle,
-} from '@altv/shared';
+} from '@chartmate/shared';
 import { useId, type JSX } from 'react';
 import { contrastRatio } from '../chart/contrast';
 import { resolveThemeAppearance, themeTokens, type ThemeName } from '../chart/theme';

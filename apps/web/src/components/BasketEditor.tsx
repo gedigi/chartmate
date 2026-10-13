@@ -1,7 +1,7 @@
 import {
   BasketValidationError, maxEffectiveDate, MIN_EFFECTIVE_DATE, normalizeWeights, parseDateString, utcDateString, validateVersions,
   type Basket, type BasketVersion, type SymbolId,
-} from '@altv/shared';
+} from '@chartmate/shared';
 import { useState, type FormEvent, type JSX } from 'react';
 import { api, errorMessage } from '../api/client';
 import { BasketPreview } from './BasketPreview';

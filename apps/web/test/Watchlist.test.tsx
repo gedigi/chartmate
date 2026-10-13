@@ -1,4 +1,4 @@
-import type { SymbolId, SymbolInfo, WatchlistEntry } from '@altv/shared';
+import type { SymbolId, SymbolInfo, WatchlistEntry } from '@chartmate/shared';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

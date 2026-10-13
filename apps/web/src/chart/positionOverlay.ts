@@ -1,4 +1,4 @@
-import { DEFAULT_POSITION_SETTINGS, mergePositionSettings, sanitizePositionSettings, type PositionDefaults } from '@altv/shared';
+import { DEFAULT_POSITION_SETTINGS, mergePositionSettings, sanitizePositionSettings, type PositionDefaults } from '@chartmate/shared';
 import { registerOverlay, type OverlayFigure, type OverlayTemplate } from 'klinecharts';
 import { readableTextOn } from './contrast';
 import { drawingConstraint, POSITION_STYLE_KEY } from './drawingTemplates';

@@ -1,7 +1,7 @@
 import {
   isHexColor, isPositionTool, MAX_LINE_WIDTH, MAX_TEXT_SIZE, MIN_LINE_WIDTH, MIN_TEXT_SIZE,
   sanitizePositionSettings, type DrawingLineStyle, type DrawingStyles, type LineStyleKind,
-} from '@altv/shared';
+} from '@chartmate/shared';
 import type { DeepPartial, OverlayStyle } from 'klinecharts';
 import { readableTextOn } from './contrast';
 import { EXTEND_DEFAULTS, EXTEND_STYLE_KEY, LABEL_DEFAULTS, LABEL_STYLE_KEY, POSITION_STYLE_KEY } from './drawingTemplates';

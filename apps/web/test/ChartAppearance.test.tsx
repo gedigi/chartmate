@@ -1,4 +1,4 @@
-import type { ChartAppearance, Layout } from '@altv/shared';
+import type { ChartAppearance, Layout } from '@chartmate/shared';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';

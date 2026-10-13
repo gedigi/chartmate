@@ -1,4 +1,4 @@
-import { tfMs, type Bar, type NativeTimeframe, type Quote, type SymbolInfo } from '@altv/shared';
+import { tfMs, type Bar, type NativeTimeframe, type Quote, type SymbolInfo } from '@chartmate/shared';
 import { NotFoundError } from '../errors.js';
 import { getJson, type HttpErrorInfo } from './http.js';
 import { decimalsOf, num, rankMatches } from './util.js';

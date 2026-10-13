@@ -1,5 +1,5 @@
 import { PostgresAdapter, sql, type Kysely } from 'kysely';
-import { watchlistSymbols, type Bar, type Basket, type BasketVersion, type DrawingState, type Layout, type NativeTimeframe, type SymbolId, type WatchlistEntry } from '@altv/shared';
+import { watchlistSymbols, type Bar, type Basket, type BasketVersion, type DrawingState, type Layout, type NativeTimeframe, type SymbolId, type WatchlistEntry } from '@chartmate/shared';
 import type { Database } from './schema.js';
 import type { Dialect } from './connect.js';
 

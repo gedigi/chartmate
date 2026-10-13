@@ -1,4 +1,4 @@
-import { MAX_INDICATORS, type IndicatorState } from '@altv/shared';
+import { MAX_INDICATORS, type IndicatorState } from '@chartmate/shared';
 import { useId, useState, type JSX } from 'react';
 import { CATALOG, indicatorLabel, type CatalogEntry } from '../chart/indicators/catalog';
 import { Modal } from './Modal';

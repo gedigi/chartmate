@@ -1,5 +1,5 @@
 {
-  "name": "altv", "private": true, "type": "module",
+  "name": "chartmate", "private": true, "type": "module",
   "pnpm": { "neverBuiltDependencies": ["better-sqlite3"] },
   "engines": { "node": ">=22" },
   "packageManager": "pnpm@8.15.9",

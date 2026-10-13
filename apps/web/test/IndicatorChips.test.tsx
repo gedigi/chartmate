@@ -1,4 +1,4 @@
-import type { IndicatorState, Layout } from '@altv/shared';
+import type { IndicatorState, Layout } from '@chartmate/shared';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';

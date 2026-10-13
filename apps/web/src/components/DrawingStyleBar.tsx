@@ -1,4 +1,4 @@
-import { MAX_LINE_WIDTH, MIN_LINE_WIDTH, type PositionDefaults } from '@altv/shared';
+import { MAX_LINE_WIDTH, MIN_LINE_WIDTH, type PositionDefaults } from '@chartmate/shared';
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react';
 import { MAX_PRICE_DECIMALS, type ChartAdapter, type SelectedDrawing } from '../chart/ChartAdapter';
 import { LINE_STYLES, parseLineStyle } from '../chart/drawingStyles';

@@ -2,7 +2,7 @@ import {
   baseTimeframe, bucketStart, filterSession, isIntraday, parseSymbolId, resample, tfMs,
   type AssetClass, type Bar, type Calendar, type NativeTimeframe, type Quote, type SessionMode,
   type SymbolId, type SymbolInfo, type Timeframe,
-} from '@altv/shared';
+} from '@chartmate/shared';
 import type { Repos, SplitOp, SymbolInfoRow } from '../db/repos.js';
 import { AppError, NotFoundError, ProviderError } from '../errors.js';
 import { RequestQueue } from '../providers/queue.js';

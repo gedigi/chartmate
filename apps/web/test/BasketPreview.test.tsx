@@ -1,8 +1,8 @@
-import type { Bar, BarsResponse } from '@altv/shared';
+import type { Bar, BarsResponse } from '@chartmate/shared';
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type BarsParams } from '../src/api/client';
-import type { BasketVersion } from '@altv/shared';
+import type { BasketVersion } from '@chartmate/shared';
 import { BasketPreview, fetchDailyRange, PREVIEW_HISTORY_MS } from '../src/components/BasketPreview';
 
 vi.mock('../src/api/client', async (importOriginal) => {

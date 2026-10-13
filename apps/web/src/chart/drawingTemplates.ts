@@ -1,4 +1,4 @@
-import type { LineStyleKind } from '@altv/shared';
+import type { LineStyleKind } from '@chartmate/shared';
 import { getOverlayClass, registerOverlay, type OverlayFigure, type OverlayTemplate } from 'klinecharts';
 
 /**

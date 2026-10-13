@@ -1,4 +1,4 @@
-import type { Bar, BarsResponse, LatestResponse, SessionMode } from '@altv/shared';
+import type { Bar, BarsResponse, LatestResponse, SessionMode } from '@chartmate/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BarsParams, LatestParams } from '../../src/api/client';
 import { ApiError } from '../../src/api/client';

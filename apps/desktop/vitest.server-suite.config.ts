@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 export default defineConfig({
   resolve: {
     alias: [
-      { find: '@altv/shared', replacement: fileURLToPath(new URL('../../packages/shared/src/index.ts', import.meta.url)) },
+      { find: '@chartmate/shared', replacement: fileURLToPath(new URL('../../packages/shared/src/index.ts', import.meta.url)) },
       { find: /^(\.\.\/)+src\/db\/connect\.js$/, replacement: fileURLToPath(new URL('./test/shims/connect-node-sqlite.ts', import.meta.url)) },
     ],
   },

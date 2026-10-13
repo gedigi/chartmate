@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { MAX_INDICATORS, type DrawingState, type Layout } from '@altv/shared';
+import { MAX_INDICATORS, type DrawingState, type Layout } from '@chartmate/shared';
 import { makeApp, type TestApp } from './helpers.js';
 
 const layout: Layout = {

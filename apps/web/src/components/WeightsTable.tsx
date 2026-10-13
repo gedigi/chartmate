@@ -1,4 +1,4 @@
-import { MAX_CONSTITUENTS, parseSymbolId, type AssetClass, type SymbolId, type SymbolInfo } from '@altv/shared';
+import { MAX_CONSTITUENTS, parseSymbolId, type AssetClass, type SymbolId, type SymbolInfo } from '@chartmate/shared';
 import type { JSX } from 'react';
 import { SymbolSearch } from './SymbolSearch';
 

@@ -9,7 +9,7 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "declaration": false,
-    "paths": { "@altv/shared": ["../../packages/shared/src/index.ts"] }
+    "paths": { "@chartmate/shared": ["../../packages/shared/src/index.ts"] }
   },
   "include": ["src", "test", "vite.config.ts", "vitest.config.ts"]
 }

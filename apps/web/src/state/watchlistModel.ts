@@ -1,4 +1,4 @@
-import type { SymbolId, WatchlistEntry, WatchlistSection } from '@altv/shared';
+import type { SymbolId, WatchlistEntry, WatchlistSection } from '@chartmate/shared';
 
 /**
  * Pure operations on the watchlist entry list (symbols and section headers). A symbol belongs to the closest header

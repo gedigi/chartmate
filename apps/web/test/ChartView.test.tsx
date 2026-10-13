@@ -1,4 +1,4 @@
-import type { Basket, Layout, SymbolInfo } from '@altv/shared';
+import type { Basket, Layout, SymbolInfo } from '@chartmate/shared';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api/client';

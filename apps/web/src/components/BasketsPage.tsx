@@ -1,4 +1,4 @@
-import type { Basket, Quote, SymbolId } from '@altv/shared';
+import type { Basket, Quote, SymbolId } from '@chartmate/shared';
 import { useState, type JSX } from 'react';
 import { errorMessage } from '../api/client';
 import { basketSymbol, useBaskets } from '../state/useBaskets';

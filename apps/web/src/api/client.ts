@@ -2,7 +2,7 @@ import {
   normalizeWatchlist,
   type BarsResponse, type Basket, type BasketVersion, type DrawingState, type LatestResponse, type Layout, type Quote,
   type SessionMode, type SymbolId, type SymbolInfo, type Timeframe, type WatchlistEntry,
-} from '@altv/shared';
+} from '@chartmate/shared';
 
 /** Any failed API call. `status` 0 means the request never got a response (network error). */
 export class ApiError extends Error {

@@ -1,4 +1,4 @@
-import type { Basket } from '@altv/shared';
+import type { Basket } from '@chartmate/shared';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api/client';

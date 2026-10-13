@@ -1,4 +1,4 @@
-import { nyParts } from '@altv/shared';
+import { nyParts } from '@chartmate/shared';
 
 /** Pure indicator calculations (no klinecharts import) — unit-tested in test/indicators/calc.test.ts. */
 

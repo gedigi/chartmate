@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import type { DrawingState, Layout } from '@altv/shared';
+import type { DrawingState, Layout } from '@chartmate/shared';
 import { makeApp, type TestApp } from './helpers.js';
 
 const layout: Layout = {

@@ -1,4 +1,4 @@
-import { MAX_LINE_WIDTH, MIN_LINE_WIDTH, type IndicatorState, type LineStyleKind } from '@altv/shared';
+import { MAX_LINE_WIDTH, MIN_LINE_WIDTH, type IndicatorState, type LineStyleKind } from '@chartmate/shared';
 import { useId, useState, type FormEvent, type JSX } from 'react';
 import { catalogEntry, defaultLineColor, migrateCalcParams, validateParam } from '../chart/indicators/catalog';
 import { defaultBarColors, type ThemeName } from '../chart/theme';

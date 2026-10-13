@@ -26,16 +26,16 @@ for `pnpm dev` is `apps/server/`, so dev data ends up in `apps/server/data/altv.
 ## Production, locally
 
 ```sh
-pnpm build && pnpm --filter @altv/server start
+pnpm build && pnpm --filter @chartmate/server start
 ```
 
 Open http://localhost:8787. The server also serves the built web app. It listens on `127.0.0.1` by
 default; set `HOST=0.0.0.0` to reach it from other machines (the Docker image already does).
 
-`pnpm --filter @altv/server start` runs with `apps/server/` as its working directory, so the default
+`pnpm --filter @chartmate/server start` runs with `apps/server/` as its working directory, so the default
 `sqlite:./data/altv.db` is `apps/server/data/altv.db`. The path is relative to wherever the server is
 started, so for anything you care about use an absolute path, e.g.
-`DATABASE_URL=sqlite:/home/me/altv/altv.db pnpm --filter @altv/server start` (the directory is created
+`DATABASE_URL=sqlite:/home/me/altv/altv.db pnpm --filter @chartmate/server start` (the directory is created
 if missing).
 
 ## Docker
@@ -441,10 +441,10 @@ Windows, built with Electron 44. The self-hosted server is unchanged; the deskto
 
 ```sh
 pnpm install
-pnpm --filter @altv/desktop start      # build the web UI, bundle, run unpackaged (DevTools enabled)
-pnpm --filter @altv/desktop dist:mac   # release/Chartmate-<v>-mac-{arm64,x64}.{dmg,zip}
-pnpm --filter @altv/desktop dist:win   # release/Chartmate-<v>-win-{x64,arm64}.{exe,zip}; needs Windows or CI
-pnpm --filter @altv/desktop test       # unit + security tests (protocol, guards, allowlist, fuses, workflows …)
+pnpm --filter @chartmate/desktop start      # build the web UI, bundle, run unpackaged (DevTools enabled)
+pnpm --filter @chartmate/desktop dist:mac   # release/Chartmate-<v>-mac-{arm64,x64}.{dmg,zip}
+pnpm --filter @chartmate/desktop dist:win   # release/Chartmate-<v>-win-{x64,arm64}.{exe,zip}; needs Windows or CI
+pnpm --filter @chartmate/desktop test       # unit + security tests (protocol, guards, allowlist, fuses, workflows …)
 ```
 
 Building the NSIS installer on Apple-silicon Macs fails unless Rosetta is installed, because electron-builder's
@@ -453,7 +453,7 @@ Building the NSIS installer on Apple-silicon Macs fails unless Rosetta is instal
 ### Smoke tests
 
 ```sh
-pnpm --filter @altv/desktop bundle && pnpm --filter @altv/desktop smoke     # unpackaged app
+pnpm --filter @chartmate/desktop bundle && pnpm --filter @chartmate/desktop smoke     # unpackaged app
 
 # packaged app: the shipped build + a TEST-ONLY inspectable copy of it
 cd apps/desktop

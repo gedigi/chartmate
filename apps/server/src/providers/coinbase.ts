@@ -1,4 +1,4 @@
-import { resample, tfMs, type Bar, type NativeTimeframe, type Quote, type SymbolInfo } from '@altv/shared';
+import { resample, tfMs, type Bar, type NativeTimeframe, type Quote, type SymbolInfo } from '@chartmate/shared';
 import { NotFoundError, ProviderError } from '../errors.js';
 import { getJson } from './http.js';
 import { decimalsOf, num, rankMatches } from './util.js';

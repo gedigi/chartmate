@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { nyDateUtcMidnight, tfMs, type BasketVersion, type NativeTimeframe } from '@altv/shared';
+import { nyDateUtcMidnight, tfMs, type BasketVersion, type NativeTimeframe } from '@chartmate/shared';
 import { createDb } from '../../src/db/connect.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';

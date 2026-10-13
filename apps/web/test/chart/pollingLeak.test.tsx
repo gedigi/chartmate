@@ -5,7 +5,7 @@
  * store semantics for setSymbol / setPeriod / setDataLoader / resetData (unsubscribe the current loader,
  * then 'init' it; the init callback subscribes whatever loader is current when it runs).
  */
-import type { BarsResponse, Layout, LatestResponse, SymbolInfo } from '@altv/shared';
+import type { BarsResponse, Layout, LatestResponse, SymbolInfo } from '@chartmate/shared';
 import { act, render } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

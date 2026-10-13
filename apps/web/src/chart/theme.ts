@@ -1,4 +1,4 @@
-import type { CandleBodyStyle, ChartAppearance, ChartType, DrawingLineStyle, ThemedAppearance } from '@altv/shared';
+import type { CandleBodyStyle, ChartAppearance, ChartType, DrawingLineStyle, ThemedAppearance } from '@chartmate/shared';
 import type { DeepPartial, Styles } from 'klinecharts';
 import { readableTextOn, readableTextOnAll } from './contrast';
 import { klineLine } from './drawingStyles';

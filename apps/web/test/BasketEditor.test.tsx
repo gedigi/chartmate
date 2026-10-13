@@ -1,5 +1,5 @@
-import type { Bar, Basket, BarsResponse, SymbolInfo } from '@altv/shared';
-import { maxEffectiveDate } from '@altv/shared';
+import type { Bar, Basket, BarsResponse, SymbolInfo } from '@chartmate/shared';
+import { maxEffectiveDate } from '@chartmate/shared';
 import type { BarsParams } from '../src/api/client';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

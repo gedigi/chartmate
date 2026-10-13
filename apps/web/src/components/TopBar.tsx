@@ -1,4 +1,4 @@
-import type { ChartAppearance, Layout, SymbolId, SymbolInfo, ThemedAppearance } from '@altv/shared';
+import type { ChartAppearance, Layout, SymbolId, SymbolInfo, ThemedAppearance } from '@chartmate/shared';
 import { useState, type JSX } from 'react';
 import { ChartAppearanceDialog } from './ChartAppearanceDialog';
 import { IndicatorButton } from './IndicatorButton';

@@ -1,4 +1,4 @@
-import { migrateAppearance, type Layout, type SymbolId } from '@altv/shared';
+import { migrateAppearance, type Layout, type SymbolId } from '@chartmate/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import { COLOR_DEFAULTS_REV, dropLegacyAppearanceDefaults, dropLegacyBarColors } from '../chart/theme';

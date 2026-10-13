@@ -1,7 +1,7 @@
 import {
   nyParts, tagSessionFixedHours, tfMs,
   type Bar, type NativeTimeframe, type Quote, type QuoteExt, type SymbolInfo,
-} from '@altv/shared';
+} from '@chartmate/shared';
 import { NotFoundError } from '../../src/errors.js';
 import type { FetchBarsResult, MarketDataProvider, ProviderLimits } from '../../src/providers/types.js';
 

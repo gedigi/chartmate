@@ -4,7 +4,7 @@
     "noEmit": true,
     "types": ["node"],
     "resolveJsonModule": true,
-    "paths": { "@altv/shared": ["../../packages/shared/src/index.ts"] }
+    "paths": { "@chartmate/shared": ["../../packages/shared/src/index.ts"] }
   },
   "include": ["src", "test", "smoke", "scripts", "*.ts", "product.json"]
 }

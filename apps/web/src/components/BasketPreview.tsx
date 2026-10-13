@@ -1,7 +1,7 @@
 import {
   buildBasketBars, computeVersionUnits, parseDateString, utcDateString, versionMarkers,
   type Bar, type BasketVersion, type SymbolId,
-} from '@altv/shared';
+} from '@chartmate/shared';
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { api, errorMessage } from '../api/client';
 

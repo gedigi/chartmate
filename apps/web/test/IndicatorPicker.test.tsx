@@ -1,4 +1,4 @@
-import { MAX_INDICATORS, type IndicatorState, type Layout } from '@altv/shared';
+import { MAX_INDICATORS, type IndicatorState, type Layout } from '@chartmate/shared';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';

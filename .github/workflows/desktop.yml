@@ -57,7 +57,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: pnpm --filter @altv/web build
+      - run: pnpm --filter @chartmate/web build
       - name: Bundle, package, sign, notarize (macOS)
         id: package
         working-directory: apps/desktop
@@ -110,7 +110,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: pnpm --filter @altv/web build
+      - run: pnpm --filter @chartmate/web build
       - name: Bundle, package, sign (Windows)
         id: package
         working-directory: apps/desktop

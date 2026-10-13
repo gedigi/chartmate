@@ -3,7 +3,7 @@ import {
   MAX_TEXT_SIZE, MAX_WATCHLIST_SECTIONS, MAX_WATCHLIST_SYMBOLS, MIN_LINE_WIDTH, MIN_TEXT_SIZE, migrateAppearance, TIMEFRAMES,
   mergeLegacyWatchlist, watchlistProblem,
   type DrawingState, type Layout, type PositionSettings, type Timeframe, type WatchlistEntry,
-} from '@altv/shared';
+} from '@chartmate/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repos } from '../db/repos.js';

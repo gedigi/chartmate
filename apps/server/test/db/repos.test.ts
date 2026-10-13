@@ -3,7 +3,7 @@ import { createDb } from '../../src/db/connect.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos } from '../../src/db/repos.js';
 import { sql } from 'kysely';
-import type { WatchlistEntry } from '@altv/shared';
+import type { WatchlistEntry } from '@chartmate/shared';
 
 const sym = (id: string): WatchlistEntry => ({ type: 'symbol', id });
 const SEC_A = '0b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f60';

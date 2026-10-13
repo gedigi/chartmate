@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import type { Basket } from '@altv/shared';
+import type { Basket } from '@chartmate/shared';
 import { basketBody, DAY, isoDate, makeApp, type TestApp } from './helpers.js';
 
 describe('basket routes', () => {

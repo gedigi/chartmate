@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nyParts, tfMs, type NativeTimeframe } from '@altv/shared';
+import { nyParts, tfMs, type NativeTimeframe } from '@chartmate/shared';
 import { FixtureProvider } from '../../src/providers/fixture.js';
 import { NotFoundError } from '../../src/errors.js';
 

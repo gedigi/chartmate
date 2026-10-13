@@ -1,4 +1,4 @@
-import type { AssetClass, PositionDefaults } from '@altv/shared';
+import type { AssetClass, PositionDefaults } from '@chartmate/shared';
 import { roundPrice } from './drawingTemplates';
 
 /**

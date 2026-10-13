@@ -4,7 +4,7 @@ import {
   isIntraday, nyDateUtcMidnight, parseDateString, parseSymbolId, resample, tfMs, utcDateString, validateVersions, versionMarkers,
   type Bar, type Basket, type BasketVersion, type Calendar, type ConstituentSeries, type Marker, type Quote,
   type SessionMode, type SymbolId, type Timeframe, type UnitsResult,
-} from '@altv/shared';
+} from '@chartmate/shared';
 import type { Repos } from '../db/repos.js';
 import { AppError, NotFoundError } from '../errors.js';
 import type { MarketDataService } from '../market/service.js';

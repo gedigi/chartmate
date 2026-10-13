@@ -3,7 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "types": ["node"],
-    "paths": { "@altv/shared": ["../../packages/shared/src/index.ts"] }
+    "paths": { "@chartmate/shared": ["../../packages/shared/src/index.ts"] }
   },
   "include": ["src", "test", "scripts", "vitest.config.ts"]
 }

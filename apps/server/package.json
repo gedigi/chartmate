@@ -1,5 +1,5 @@
 {
-  "name": "@altv/server",
+  "name": "@chartmate/server",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@altv/shared": "workspace:*",
+    "@chartmate/shared": "workspace:*",
     "@fastify/cookie": "^11.1.3",
     "@fastify/static": "^10.1.6",
     "better-sqlite3": "^13.0.3",

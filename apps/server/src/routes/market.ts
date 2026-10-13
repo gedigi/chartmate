@@ -1,7 +1,7 @@
 import {
   parseSymbolId, TIMEFRAMES, tfMs,
   type Bar, type BarsResponse, type LatestResponse, type Quote, type SymbolId, type SymbolInfo, type Timeframe,
-} from '@altv/shared';
+} from '@chartmate/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { BasketService } from '../baskets/service.js';

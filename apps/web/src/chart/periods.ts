@@ -1,4 +1,4 @@
-import { TIMEFRAMES, tfMs, type AssetClass, type Timeframe } from '@altv/shared';
+import { TIMEFRAMES, tfMs, type AssetClass, type Timeframe } from '@chartmate/shared';
 
 export type PeriodType = 'minute' | 'hour' | 'day' | 'week' | 'month';
 export interface ChartPeriod { type: PeriodType; span: number }

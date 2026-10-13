@@ -56,7 +56,7 @@ importers:
 
   apps/server:
     dependencies:
-      '@altv/shared':
+      '@chartmate/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@fastify/cookie':
@@ -96,7 +96,7 @@ importers:
 
   apps/web:
     dependencies:
-      '@altv/shared':
+      '@chartmate/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       klinecharts:

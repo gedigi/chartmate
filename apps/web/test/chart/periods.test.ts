@@ -1,4 +1,4 @@
-import { TIMEFRAMES, tfMs, type Timeframe } from '@altv/shared';
+import { TIMEFRAMES, tfMs, type Timeframe } from '@chartmate/shared';
 import { describe, expect, it } from 'vitest';
 import { forwardRetryWindowMs, fromPeriod, initialWindowMs, pollIntervalMs, toPeriod } from '../../src/chart/periods';
 

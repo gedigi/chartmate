@@ -1,4 +1,4 @@
-import { MAX_INDICATORS, type Layout } from '@altv/shared';
+import { MAX_INDICATORS, type Layout } from '@chartmate/shared';
 import { useState, type JSX } from 'react';
 import { IndicatorPicker } from './IndicatorPicker';
 

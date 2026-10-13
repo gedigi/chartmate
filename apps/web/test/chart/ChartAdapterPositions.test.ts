@@ -1,4 +1,4 @@
-import type { SymbolInfo } from '@altv/shared';
+import type { SymbolInfo } from '@chartmate/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface FakeOverlay {

@@ -1,4 +1,4 @@
-import type { WatchlistEntry, WatchlistSection } from '@altv/shared';
+import type { WatchlistEntry, WatchlistSection } from '@chartmate/shared';
 import { describe, expect, it } from 'vitest';
 import {
   addSymbol, deleteSection, dropEntry, insertSection, moveByKey, newSectionId, removeSymbol, renameSection, sectionIdAt,
