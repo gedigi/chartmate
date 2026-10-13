@@ -42,6 +42,9 @@ const fake = vi.hoisted(() => {
     setSelectedLabel = vi.fn();
     setShiftConstraint = vi.fn();
     onPriceEditRequest = vi.fn(() => () => {});
+    setPositionDefaults = vi.fn();
+    setSelectedPositionPrices = vi.fn(() => null);
+    setSelectedPositionSettings = vi.fn();
     constructor() { instances.push(this); }
   }
   return { instances, FakeAdapter };
@@ -328,6 +331,32 @@ describe('ChartView', () => {
     expect(adapter().setAppearance).toHaveBeenLastCalledWith({ dark: { upColor: '#0000ff' } });
     rerenderWith(LAYOUT);
     expect(adapter().setAppearance).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it('applies the layout position defaults to the adapter, re-applied only when they change by value', async () => {
+    const positionDefaults = { accountSize: 5000, riskMode: 'amount' as const, riskValue: 25, currency: 'EUR' };
+    const { rerenderWith } = renderView({ ...LAYOUT, positionDefaults });
+    await flush();
+    expect(adapter().setPositionDefaults).toHaveBeenLastCalledWith(positionDefaults);
+    const n = adapter().setPositionDefaults.mock.calls.length;
+    rerenderWith({ ...LAYOUT, positionDefaults: { ...positionDefaults } });
+    expect(adapter().setPositionDefaults).toHaveBeenCalledTimes(n);
+    rerenderWith(LAYOUT);
+    expect(adapter().setPositionDefaults).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it('"Use as default" in the position bar writes positionDefaults into the layout', async () => {
+    const setLayout = vi.fn();
+    render(<ChartView layout={LAYOUT} setLayout={setLayout} symbolInfo={AAPL} theme="dark" />);
+    await flush();
+    const settings = { accountSize: 7000, riskMode: 'percent' as const, riskValue: 0.5, currency: 'USD' };
+    act(() => adapter().selectionCb?.({
+      id: 'p', kind: 'position', side: 'long', locked: false, entry: 100, target: 102, stop: 98, precision: 2, settings,
+      metrics: { qty: 17, riskAmount: 34, rewardAmount: 34, rr: 1, targetPct: 2, stopPct: 2 }, outcome: { kind: 'pending' },
+    }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use as default' }));
+    const update = setLayout.mock.calls.at(-1)![0] as (l: Layout) => Layout;
+    expect(update(LAYOUT)).toEqual({ ...LAYOUT, positionDefaults: settings });
   });
 
   it('passes indicator line widths / styles / bar colours to the adapter', async () => {

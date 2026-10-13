@@ -1,10 +1,10 @@
 import {
-  isHexColor, MAX_LINE_WIDTH, MAX_TEXT_SIZE, MIN_LINE_WIDTH, MIN_TEXT_SIZE,
-  type DrawingLineStyle, type DrawingStyles, type LineStyleKind,
+  isHexColor, isPositionTool, MAX_LINE_WIDTH, MAX_TEXT_SIZE, MIN_LINE_WIDTH, MIN_TEXT_SIZE,
+  sanitizePositionSettings, type DrawingLineStyle, type DrawingStyles, type LineStyleKind,
 } from '@altv/shared';
 import type { DeepPartial, OverlayStyle } from 'klinecharts';
 import { readableTextOn } from './contrast';
-import { LABEL_DEFAULTS, LABEL_STYLE_KEY } from './drawingTemplates';
+import { LABEL_DEFAULTS, LABEL_STYLE_KEY, POSITION_STYLE_KEY } from './drawingTemplates';
 
 export type LabelStyle = NonNullable<DrawingStyles['label']>;
 
@@ -70,10 +70,12 @@ export function textToOverlay(t: TextStyle): DeepPartial<OverlayStyle> {
 }
 
 export function toOverlayStyles(s: DrawingStyles | undefined): DeepPartial<OverlayStyle> | undefined {
-  const base = s?.text ? textToOverlay(s.text) : s?.line ? lineToOverlay(s.line) : undefined;
-  if (!s?.label) return base;
-  // Price-label options ride along in the overlay styles (KLineChart ignores the key; our templates read it).
-  return { ...base, [LABEL_STYLE_KEY]: { ...s.label } } as DeepPartial<OverlayStyle>;
+  let out: Record<string, unknown> | undefined = s?.text ? textToOverlay(s.text) : s?.line ? lineToOverlay(s.line) : undefined;
+  // Price-label options and position risk settings ride along in the overlay styles (KLineChart ignores the
+  // keys; our templates read them).
+  if (s?.label) out = { ...out, [LABEL_STYLE_KEY]: { ...s.label } };
+  if (s?.position) out = { ...out, [POSITION_STYLE_KEY]: { ...s.position } };
+  return out as DeepPartial<OverlayStyle> | undefined;
 }
 
 /** The valid label options in `l` (booleans only), or undefined. */
@@ -104,6 +106,11 @@ export function readText(styles: unknown): TextStyle | null {
 
 /** Normalized styles of an overlay (only what the app lets the user change), or undefined. */
 export function normalizeOverlayStyles(name: string, styles: unknown): DrawingStyles | undefined {
+  if (isPositionTool(name)) {
+    // Positions have no line style: only their own risk settings.
+    const position = sanitizePositionSettings((styles as Record<string, unknown> | null | undefined)?.[POSITION_STYLE_KEY]);
+    return position ? { position } : undefined;
+  }
   if (name === TEXT_TOOL) {
     const text = readText(styles);
     return text ? { text } : undefined;
@@ -140,5 +147,7 @@ export function sanitizeDrawingStyles(s: unknown): DrawingStyles | undefined {
   if (t && isHexColor(t.color) && intIn(t.size, MIN_TEXT_SIZE, MAX_TEXT_SIZE)) out.text = { color: t.color.toLowerCase(), size: t.size };
   const label = readLabel((s as { label?: unknown }).label);
   if (label) out.label = label;
-  return out.line || out.text || out.label ? out : undefined;
+  const position = sanitizePositionSettings((s as { position?: unknown }).position);
+  if (position) out.position = position;
+  return out.line || out.text || out.label || out.position ? out : undefined;
 }

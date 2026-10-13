@@ -182,6 +182,60 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
 - **Price labels**: price lines and horizontal lines have **On line** (price text on the line) and **On axis**
   (price label on the right axis) toggles in the style bar; defaults: price line both on, horizontal line
   axis only. Saved with the drawing.
+- **Long / short positions** (toolbar: "Long position", "Short position"), like TradingView's:
+  - **Placing**: one click sets the entry at the clicked time and price (rounded to the symbol's precision;
+    ⌘/Ctrl snaps it to OHLC). Target and stop start at ±2 % (long: target above, stop below; short inverted) and
+    the box is about 20 bars wide (counted on the loaded bars, extrapolated with the timeframe past the last bar).
+  - **Chart**: a green profit zone (entry → target) and a red loss zone (entry → stop) in the candle up / down
+    colours at 20 % opacity, the entry line, and labels `Target: <price> (<±%>) <±amount>`,
+    `Stop: <price> (<±%>) <±amount>` and `<Long|Short> · Qty <q> · R:R <ratio>` (% and amounts are the
+    position's gain / loss at that level; label text is white or dark, whichever reads on its colour). Labels
+    are centred on the visible part of the box and stay inside the chart (a box wider than the screen still shows
+    them); the centre / outcome labels move to the right of a box narrower than them, the outcome label moves
+    beyond the stop label when the stop zone is too short, and labels wider than the chart are cut with "…".
+  - **Editing**: drag the target handle (top/bottom left corner) or the stop handle to change only that price
+    (it stays on its side of the entry, at least 12 px away on screen so the entry handle stays reachable, and
+    above zero); drag the entry handle, the entry line or a zone to move the whole position (prices, and time by
+    whole bars: the end moves by as many bars as the start); a move that would take a price to zero or below is
+    refused. Drag the right-edge handle to change the end time (at least up to the next bar, so weekends never give
+    a zero-width box). ⌘/Ctrl snaps like other drawings. Prices are rounded to the symbol precision.
+    When a target / stop handle sits exactly on the entry handle (e.g. typed prices one tick apart when zoomed
+    out) the target / stop handle is on top, so the two can always be separated; the entry line and the zones
+    still move the whole position.
+  - **Settings bar** (select the position): precise Entry / Target / Stop fields (Enter or leave the field to
+    apply, Escape reverts; long needs stop < entry < target, short target < entry < stop, otherwise an inline
+    error), target / stop distance as % of the entry and in ticks (1 tick = 10^-precision), kept in sync; risk:
+    account size, risk mode (% of account or fixed amount), risk value and currency label (≤ 8 characters);
+    amounts are at most 10^15 and a percentage at most 100 (the server enforces the same limits). Switching the
+    risk mode converts the value so the money at risk stays the same (e.g. 500 USD of 10 000 → 5 %), capped at
+    100 %; "Use as default" is disabled while the settings are invalid, and invalid defaults sent to the server
+    are dropped on their own (the rest of the layout is still saved).
+    It shows Qty = risk / |entry − stop| (whole shares for stocks and baskets, up to 6 decimals for crypto,
+    always rounded down; a risk below one unit shows "Qty 0 (Risk is below 1 unit)"), the risk and reward amounts at that quantity and R:R = |target − entry| / |entry − stop|.
+    **Use as default** stores the risk settings as the defaults of new positions (`positionDefaults` in the
+    `default` layout; unset → 10 000 account, 1 %, USD). A new position copies the defaults at placement, so
+    later default changes do not alter existing positions. Locked positions are read-only.
+  - **Outcome** (TradingView rules, on the bars of the displayed timeframe):
+    - **Fill**: the position opens on the first bar that starts at or after the start time and whose range
+      touches the entry (low ≤ entry ≤ high); a bar that only contains the start (it began earlier) does not count.
+      Until then the label reads "Waiting for entry" (neutral, no P&L); "Entry not reached" once the range is over.
+    - **Hits**: checked from the bar after the fill bar up to the end time (the order of prices inside the fill bar
+      is unknown, so a target or stop also touched there counts only on later bars): the first bar reaching the
+      target (long: high ≥ target, short: low ≤ target) or the stop (long: low ≤ stop, short: high ≥ stop) gives
+      "Target hit" / "Stop hit" with the realised P&L (amount and %) and the bar's date, and the traversed part of
+      that zone (from the fill bar) is shaded more strongly. A bar reaching both counts as a stop hit (conservative).
+    - **Gaps**: a bar opening beyond the stop (long: open < stop, short: open > stop) books the loss at its open;
+      a bar opening beyond the target still books the gain at the target (never flattering).
+    - No hit: "Open" with the P&L at the last close while the last bar lies in the range, else "Ended, no hit"
+      with the P&L at the last close in range.
+    - **Earlier data**: when the position starts before the first loaded bar, older bars are requested
+      automatically (up to 40 pages per chart load, as far as the provider has data); meanwhile the label reads
+      "Outcome needs earlier data". Recomputed when bars arrive (polling / backfill / older pages) and when the
+      position changes; since it uses the displayed bars, the hit bar can differ between timeframes.
+  - **Stored** as `longPosition` / `shortPosition` drawings with four points: `[0]` entry (start time, entry
+    price), `[1]` (start time, target), `[2]` (start time, stop), `[3]` (end time, entry price), plus optional
+    `styles.position` (`accountSize`, `riskMode`, `riskValue`, `currency`). Daily anchoring works as for
+    other drawings.
 - **Parallel channels** show a dashed midline halfway between the two lines, in the channel's colour and width
   (longer dashes when the channel itself is dashed or dotted); it is not a stored point.
 

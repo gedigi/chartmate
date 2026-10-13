@@ -1,9 +1,11 @@
-import { MAX_LINE_WIDTH, MIN_LINE_WIDTH } from '@altv/shared';
+import { MAX_LINE_WIDTH, MIN_LINE_WIDTH, type PositionDefaults } from '@altv/shared';
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react';
 import { MAX_PRICE_DECIMALS, type ChartAdapter, type SelectedDrawing } from '../chart/ChartAdapter';
 import { LINE_STYLES, parseLineStyle } from '../chart/drawingStyles';
+import { PositionStyleBar, type PositionControls } from './PositionStyleBar';
 
-export type DrawingStyleControls = Pick<ChartAdapter, 'onSelectionChange' | 'setSelectedStyle' | 'setSelectedPrice' | 'setSelectedLabel' | 'onPriceEditRequest'>;
+export type DrawingStyleControls = Pick<ChartAdapter, 'onSelectionChange' | 'setSelectedStyle' | 'setSelectedPrice' | 'setSelectedLabel' | 'onPriceEditRequest'>
+  & PositionControls;
 
 /** `value` with the symbol precision, or with its own decimals (≤ MAX_PRICE_DECIMALS) when it is finer. */
 export function formatPrice(value: number, precision: number): string {
@@ -87,9 +89,13 @@ const FONT_SIZES = [10, 12, 14, 16, 18, 20, 22, 24];
 
 /**
  * Floating style bar for the selected drawing: colour, width and solid/dashed/dotted for lines; colour and font size
- * for text annotations, plus the exact price of horizontal lines. Read-only for locked drawings; hidden while a drawing is being placed. Changes go through the adapter (overrideOverlay) and are saved with the drawings.
+ * for text annotations, plus the exact price of horizontal lines; long / short positions get their own settings bar. Read-only for locked drawings; hidden while a drawing is being placed. Changes go through the adapter (overrideOverlay) and are saved with the drawings.
  */
-export function DrawingStyleBar({ controls }: { controls: DrawingStyleControls | null }): JSX.Element | null {
+export function DrawingStyleBar({ controls, onUsePositionDefaults }: {
+  controls: DrawingStyleControls | null;
+  /** "Use as default" of a long / short position: its risk settings become the defaults of new positions. */
+  onUsePositionDefaults?: (d: PositionDefaults) => void;
+}): JSX.Element | null {
   const [sel, setSel] = useState<SelectedDrawing | null>(null);
   /** Pending double-click request: the drawing whose Price field must take the focus. */
   const [focusReq, setFocusReq] = useState<{ id: string; n: number } | null>(null);
@@ -100,6 +106,7 @@ export function DrawingStyleBar({ controls }: { controls: DrawingStyleControls |
   // Double-click on a horizontal drawing: focus its Price field.
   useEffect(() => controls?.onPriceEditRequest((id) => setFocusReq((r) => ({ id, n: (r?.n ?? 0) + 1 }))), [controls]);
   if (!controls || !sel) return null;
+  if (sel.kind === 'position') return <PositionStyleBar controls={controls} sel={sel} onUseAsDefault={onUsePositionDefaults} />;
 
   const locked = sel.locked;
   const sizes = sel.kind === 'text' && !FONT_SIZES.includes(sel.style.size) ? [...FONT_SIZES, sel.style.size].sort((a, b) => a - b) : FONT_SIZES;
