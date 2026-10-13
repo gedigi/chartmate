@@ -660,7 +660,7 @@ describe('ChartAdapter', () => {
   });
 
   describe('indicator line widths / styles / bar colors', () => {
-    it('histogram bars are always filled: a template bar drawn as an outline (MACD / AO rising) gets style fill', () => {
+    it('histogram bars are always filled: a template bar drawn as an outline (MACD / AO rising) is filled in a softer tone', () => {
       const a = make();
       const create = chart().createIndicator.getMockImplementation()!;
       chart().createIndicator.mockImplementationOnce((v, stack) => {
@@ -673,7 +673,7 @@ describe('ChartAdapter', () => {
       const o = chart().overrideIndicator.mock.calls.at(-1)![0] as { id: string; name: string; figures: Array<{ key: string; styles?: (p: unknown) => unknown }> };
       expect(o).toMatchObject({ id, name: 'MACD' });
       expect(o.figures.map((f) => f.key)).toEqual(['dif', 'macd']);
-      expect(o.figures[1]!.styles!({})).toEqual({ style: 'fill', color: '#00ff00' });
+      expect(o.figures[1]!.styles!({})).toEqual({ style: 'fill', color: 'rgba(0,255,0,0.45)', borderColor: 'rgba(0,255,0,0.45)' });
       // Without stroke bars (e.g. VOL, whose bars follow the chart's fill style) nothing is overridden.
       chart().overrideIndicator.mockClear();
       a.addIndicator({ name: 'VOL', pane: 'sub' });
