@@ -8,12 +8,12 @@
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  padding: 4px 8px;
+  padding: 5px 10px;
   border-radius: var(--radius);
   font-size: 12px;
   line-height: 1.4;
 }
-.chart-notice { background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border); }
+.chart-notice { background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-md); }
 
 .chart-toast {
   position: absolute;
@@ -24,12 +24,14 @@
   background: var(--bg-elevated);
   color: var(--error);
   border: 1px solid var(--error);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-md);
 }
 
 .chart-notice-dismiss {
   background: none;
   border: none;
+  box-shadow: none;
+  min-height: 0;
   padding: 0 2px;
   color: var(--text-muted);
   cursor: pointer;
@@ -54,7 +56,8 @@
 .chart-overlay-bottom-left > * { pointer-events: auto; }
 
 .chart-banner {
-  padding: 4px 8px;
+  padding: 5px 10px;
+  box-shadow: var(--shadow-md);
   border-radius: var(--radius);
   font-size: 12px;
   background: var(--bg-elevated);
@@ -87,25 +90,26 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 6px;
+  padding: 5px 6px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
 }
+.drawing-style-bar button, .drawing-style-bar select, .drawing-style-bar input { min-height: 26px; }
 .drawing-style-bar input[type="color"] {
   width: 28px;
-  height: 24px;
-  padding: 0;
+  height: 26px;
+  padding: 2px;
   border: 1px solid var(--border);
   background: none;
   cursor: pointer;
 }
-.drawing-style-bar select { height: 24px; }
+.drawing-style-bar select { height: 26px; }
 .drawing-style-locked { font-size: 12px; color: var(--text-muted); padding: 0 2px; }
 .drawing-style-price { position: relative; display: inline-flex; }
 .drawing-style-toggle { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; white-space: nowrap; cursor: pointer; }
-.drawing-style-price input { width: 110px; height: 24px; font-variant-numeric: tabular-nums; }
+.drawing-style-price input { width: 110px; height: 26px; font-variant-numeric: tabular-nums; }
 .drawing-style-price input[aria-invalid='true'] { border-color: var(--error); }
 .drawing-style-error {
   position: absolute;
@@ -113,11 +117,12 @@
   left: 0;
   white-space: nowrap;
   font-size: 12px;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 3px 8px;
+  border-radius: var(--radius);
   background: var(--bg-elevated);
   border: 1px solid var(--error);
   color: var(--error);
+  box-shadow: var(--shadow-md);
 }
 
 /* Long / short position settings: rows of fields that wrap on narrow charts. */
@@ -134,7 +139,7 @@
 .position-side { font-weight: 600; min-width: 38px; }
 .position-summary { color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .position-outcome { font-variant-numeric: tabular-nums; }
-.position-default { height: 24px; font-size: 12px; white-space: nowrap; }
+.position-default { height: 26px; font-size: 12px; white-space: nowrap; }
 .position-field { align-items: center; gap: 3px; }
 .position-caption { color: var(--text-muted); white-space: nowrap; }
 .position-bar .drawing-style-error { z-index: 1; }

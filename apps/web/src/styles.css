@@ -27,6 +27,8 @@
   --accent-soft: rgb(61 106 245 / 0.18);
   --focus-ring: #6b8cff;
   --cross-bg: #2a303c;
+  --field-bg: #0c0f14;
+  --field-border: #2e3542;
   --up: #34d399;
   --down: #f23c50;
   --up-soft: rgb(52 211 153 / 0.14);
@@ -64,6 +66,8 @@
   --accent-soft: rgb(61 106 245 / 0.1);
   --focus-ring: #3d6af5;
   --cross-bg: #1f2937;
+  --field-bg: #ffffff;
+  --field-border: #d5dae1;
   --up: #10a37a;
   --down: #c41d3d;
   --up-soft: rgb(16 163 122 / 0.1);
@@ -125,14 +129,15 @@ button, select, input {
   min-height: var(--control-h);
   transition: background-color 120ms var(--ease), border-color 120ms var(--ease), color 120ms var(--ease), box-shadow 120ms var(--ease);
 }
-button { cursor: pointer; font-weight: 500; line-height: 1.2; box-shadow: var(--shadow-sm); }
+button { cursor: pointer; font-weight: 500; line-height: 1.2; border-color: var(--field-border); box-shadow: var(--shadow-sm); }
 button:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--border-strong); }
 button:active:not(:disabled) { background: var(--bg-active); }
 button:disabled { opacity: 0.45; cursor: default; }
 button[aria-pressed='true'], button[aria-selected='true'], button[aria-current='page'] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 button.primary:hover:not(:disabled), button[aria-pressed='true']:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
-input, select { box-shadow: none; }
+input, select { box-shadow: none; background-color: var(--field-bg); border-color: var(--field-border); }
+input { padding: 4px 8px; }
 input::placeholder { color: var(--text-subtle); }
 input:hover:not(:disabled):not(:focus), select:hover:not(:disabled) { border-color: var(--border-strong); }
 input:focus, select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
