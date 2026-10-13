@@ -28,6 +28,32 @@ function makeControls() {
 
 afterEach(() => vi.restoreAllMocks());
 
+/** Every kind of form control: a style bar like the drawing one, and controls inside a dialog. */
+function FormControls() {
+  return (
+    <>
+      <div role="toolbar" aria-label="Drawing style">
+        <input type="color" aria-label="Drawing colour" defaultValue="#123456" />
+        <select aria-label="Line width"><option>1px</option></select>
+        <input type="number" aria-label="Price" defaultValue="5" />
+        <input type="checkbox" aria-label="Price on line" />
+        <input type="radio" aria-label="radio" />
+        <input type="range" aria-label="range" />
+        <button type="button">style button</button>
+      </div>
+      <div role="dialog" aria-label="dlg">
+        <input type="checkbox" aria-label="dialog checkbox" />
+        <button type="button">dialog button</button>
+      </div>
+    </>
+  );
+}
+const formControls = () => [
+  'Drawing colour', 'Line width', 'Price', 'Price on line', 'radio', 'range', 'dialog checkbox',
+].map((l) => screen.getByLabelText(l)).concat(
+  screen.getByRole('button', { name: 'style button' }), screen.getByRole('button', { name: 'dialog button' }),
+);
+
 describe('DrawingToolbar strong magnet (Meta on macOS, Ctrl elsewhere)', () => {
   const setPlatform = (p: string) => vi.spyOn(navigator, 'platform', 'get').mockReturnValue(p);
 
@@ -240,6 +266,25 @@ describe('DrawingToolbar', () => {
     expect(screen.getByRole('button', { name: 'Trend line' })).toBeDisabled();
   });
 
+  it('Delete/Backspace never remove a drawing while ANY form control has the focus (style bar toggles, dialogs)', () => {
+    const { c } = makeControls();
+    render(<><DrawingToolbar controls={c} ticker="AAPL" /><FormControls /></>);
+    for (const el of formControls()) {
+      expect(fireEvent.keyDown(el, { key: 'Delete' }), el.outerHTML).toBe(true); // not prevented
+      fireEvent.keyDown(el, { key: 'Backspace' });
+    }
+    expect(c.removeSelected).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: 'Delete' }); // the chart / page itself still works
+    expect(c.removeSelected).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape on a style-bar control still deselects the drawing (closing the bar)', () => {
+    const { c } = makeControls();
+    render(<><DrawingToolbar controls={c} ticker="AAPL" /><FormControls /></>);
+    fireEvent.keyDown(screen.getByLabelText('Price on line'), { key: 'Escape' });
+    expect(c.deselect).toHaveBeenCalledTimes(1);
+  });
+
   it('Lock all reflects the adapter state (e.g. 2 locked drawings restored) and a click unlocks all', async () => {
     const { c, emitLock } = makeControls();
     render(<DrawingToolbar controls={c} ticker="AAPL" />);
@@ -363,11 +408,14 @@ describe('DrawingToolbar keyboard shortcuts (Option/Alt+T trend line, Option/Alt
     expect(c.startDrawing).not.toHaveBeenCalled();
   });
 
-  it('works while a checkbox (e.g. a style-bar toggle) has the focus: no text is typed there', () => {
+  it('never fires on a form control: checkbox, radio, colour, range, number, select or button (style bar, dialogs)', () => {
     const { c } = makeControls();
-    render(<><DrawingToolbar controls={c} ticker="AAPL" /><input type="checkbox" aria-label="toggle" /></>);
-    expect(altT(screen.getByLabelText('toggle'))).toBe(false);
-    expect(c.startDrawing).toHaveBeenCalledWith('segment', expect.anything());
+    render(<><DrawingToolbar controls={c} ticker="AAPL" /><FormControls /></>);
+    for (const el of formControls()) {
+      expect(altT(el), el.outerHTML).toBe(true);
+      expect(altH(el), el.outerHTML).toBe(true);
+    }
+    expect(c.startDrawing).not.toHaveBeenCalled();
   });
 
   it('does nothing while disabled or without a chart', () => {

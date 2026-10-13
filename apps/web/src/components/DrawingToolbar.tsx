@@ -70,15 +70,24 @@ function shortcutLabel(key: string): string {
   return isApplePlatform() ? `⌥${key}` : `Alt+${key}`;
 }
 
-/** Inputs that take no typed text: keys there are still the app's (e.g. after toggling a style-bar checkbox). */
+/** Inputs that take no typed text (Escape on them still deselects the drawing, e.g. a style-bar checkbox). */
 const NON_TEXT_INPUTS = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'color', 'range']);
 
-/** True when keyboard input is going to a text field (shortcuts must not fire then). */
+/** True when keyboard input is going to a text field (Escape and the snap modifiers are left to it). */
 function isTyping(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
   if (tag === 'INPUT') return !NON_TEXT_INPUTS.has((target as HTMLInputElement).type);
   return tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+}
+
+/**
+ * True when the focus is on any form control (inputs of every type, selects, textareas, buttons, editable
+ * content): Delete/Backspace and the tool shortcuts belong to that control then, never to the drawings.
+ */
+function isFormControl(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || target.closest('input, select, textarea, button, [contenteditable]:not([contenteditable="false"])') !== null;
 }
 
 /** True when the event comes from inside a dialog / modal / popup: its Escape closes that, nothing else. */
@@ -154,7 +163,7 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
     const onKey = (e: KeyboardEvent) => {
       const tool = shortcutTool(e);
       if (tool) {
-        if (isTyping(e.target) || isInPopup(e.target) || disabledRef.current || e.defaultPrevented) return;
+        if (isFormControl(e.target) || isInPopup(e.target) || disabledRef.current || e.defaultPrevented) return;
         e.preventDefault();
         toggleToolRef.current(tool);
         return;
@@ -166,7 +175,7 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
         }
         return;
       }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && !isTyping(e.target) && !isOtherWidget(e.target) && !disabledRef.current) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !isFormControl(e.target) && !isOtherWidget(e.target) && !disabledRef.current) {
         if (controlsRef.current?.removeSelected()) e.preventDefault();
       }
     };

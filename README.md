@@ -168,8 +168,8 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   it to the nearest open/high/low/close (strong magnet); releasing the key returns to the toolbar's magnet
   setting.
 - **Shortcuts**: **⌥T** / **Alt+T** starts a trend line and **⌥H** / **Alt+H** a horizontal line (same as
-  clicking the toolbar button; pressing it again cancels). They are ignored while typing in a text field or
-  inside a dialog, and are shown in the buttons' tooltips.
+  clicking the toolbar button; pressing it again cancels). They (and Delete/Backspace) are ignored while any form
+  control (field, checkbox, select, button) has the focus or inside a dialog, and are shown in the buttons' tooltips.
 - **Shift (horizontal)**: hold **Shift** while placing or dragging a trend line, ray, extended line or parallel
   channel to keep it perfectly horizontal: every point takes the anchor's price (the first point while drawing,
   the fixed end while dragging one end), rounded to the symbol's price precision. A channel's width point stays
