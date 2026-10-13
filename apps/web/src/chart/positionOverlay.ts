@@ -1,15 +1,14 @@
 import { DEFAULT_POSITION_SETTINGS, sanitizePositionSettings, type PositionDefaults } from '@altv/shared';
 import { registerOverlay, type OverlayFigure, type OverlayTemplate } from 'klinecharts';
 import { readableTextOn } from './contrast';
-import { drawingConstraint } from './drawingTemplates';
+import { drawingConstraint, POSITION_STYLE_KEY } from './drawingTemplates';
 import {
   centreLabel, DEFAULT_WIDTH_BARS, defaultGeometry, evaluateOutcome, fromPositionPoints, outcomeLabel, positionMetrics, pressedMove, sideOf,
   stopLabel, targetLabel, toPositionPoints, type OutcomeBar, type PositionGeometry, type PositionSide,
 } from './position';
 import { hexToRgba } from './theme';
 
-/** Key of a position's own risk settings inside its KLineChart overlay styles (ignored by KLineChart itself). */
-export const POSITION_STYLE_KEY = 'altvPosition';
+export { POSITION_STYLE_KEY };
 
 /** Fill opacity of the profit / loss zones, and of the part already traversed by the price (outcome). */
 export const ZONE_ALPHA = 0.2;

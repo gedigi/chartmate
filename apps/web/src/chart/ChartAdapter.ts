@@ -4,18 +4,23 @@ import {
   type OverlayMode, type OverlayStyle, type Styles,
 } from 'klinecharts';
 import {
-  isIntraday, nyToUtc, tfMs,
-  type ChartType, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker, type ThemedAppearance,
-  type SessionMode, type SymbolInfo, type Timeframe,
+  isIntraday, isPositionTool, nyToUtc, resolvePositionDefaults, sanitizePositionSettings, tfMs,
+  type ChartType, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker, type PositionDefaults,
+  type PositionSettings, type ThemedAppearance, type SessionMode, type SymbolInfo, type Timeframe,
 } from '@altv/shared';
 import {
   klineLine, lineToOverlay, normalizeOverlayStyles, readLine, readText, sanitizeDrawingStyles, textToOverlay, toOverlayStyles, TEXT_TOOL,
   type TextStyle,
 } from './drawingStyles';
 import {
-  drawingConstraint, flattenBase, LABEL_STYLE_KEY, labelOptions, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
+  drawingConstraint, flattenBase, LABEL_STYLE_KEY, labelOptions, POSITION_STYLE_KEY, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
   type LabelOptions,
 } from './drawingTemplates';
+import {
+  DEFAULT_WIDTH_BARS, defaultGeometry, endAfterBars, evaluateOutcome, fromPositionPoints, positionMetrics, qtyDecimals, sideOf,
+  toPositionPoints, validatePrices, type OutcomeBar, type PositionMetrics, type PositionOutcome, type PositionSide,
+} from './position';
+import { positionContext, positionSettingsOf, registerPositionOverlays } from './positionOverlay';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
 import { catalogEntry } from './indicators/catalog';
 import { PRICE_PRECISION_INDICATORS } from './indicators/extensions';
@@ -24,11 +29,14 @@ import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
 import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
 import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS } from './sessionShade';
-import { candleStyles, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, overlayStyles, refreshThemeTokens, resolveAppearance, type ThemeName } from './theme';
+import {
+  candleStyles, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, overlayStyles, refreshThemeTokens, resolveAppearance, themeTokens,
+  type ThemeName,
+} from './theme';
 
 export type DrawingTool =
   | 'segment' | 'rayLine' | 'straightLine' | 'horizontalStraightLine' | 'verticalStraightLine'
-  | 'priceLine' | 'parallelStraightLine' | 'fibonacciLine' | 'simpleAnnotation';
+  | 'priceLine' | 'parallelStraightLine' | 'fibonacciLine' | 'simpleAnnotation' | 'longPosition' | 'shortPosition';
 
 export interface IndicatorSpec extends Pick<IndicatorState, 'lineColors' | 'lineWidths' | 'lineStyles' | 'barColors'> {
   name: string; pane: 'main' | 'sub'; calcParams?: number[]; visible?: boolean;
@@ -56,7 +64,13 @@ export type SelectedDrawing =
     /** Price / horizontal lines only: effective price-label options (price text on the line, label on the axis). */
     label?: LabelOptions;
   }
-  | { id: string; kind: 'text'; style: TextStyle; locked: boolean };
+  | { id: string; kind: 'text'; style: TextStyle; locked: boolean }
+  | {
+    id: string; kind: 'position'; side: PositionSide; locked: boolean;
+    entry: number; target: number; stop: number; precision: number;
+    /** Effective risk settings (the position's own over the defaults), the derived numbers and the outcome so far. */
+    settings: PositionDefaults; metrics: PositionMetrics; outcome: PositionOutcome;
+  };
 
 const INDICATOR_DASH = [4, 4];
 
@@ -71,6 +85,15 @@ const CANDLE_PANE = 'candle_pane';
 const DOUBLE_CLICK_MS = 500;
 const DOUBLE_CLICK_PX = 5;
 const MARKERS = 'markers';
+/** Bar time of an outcome label: the date (daily+), else date and time in the chart timezone. */
+function barTimeFormat(tf: Timeframe, timezone: string): (ts: number) => string {
+  if (!isIntraday(tf)) return (ts) => new Date(ts).toISOString().slice(0, 10);
+  const f = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  });
+  return (ts) => f.format(new Date(ts)).replace(',', '');
+}
+
 /** Chart timezone: exchange time for intraday stock/basket charts, UTC otherwise (daily+ bars are UTC dates). */
 function timezoneFor(symbol: SymbolInfo, tf: Timeframe): string {
   return isIntraday(tf) && symbol.assetClass !== 'crypto' ? 'America/New_York' : 'UTC';
@@ -152,10 +175,14 @@ export class ChartAdapter {
     registerSessionShade();
     registerMarkerOverlay();
     registerDrawingTemplates();
+    registerPositionOverlays();
     registerCustomIndicators();
     this.el = el;
     this.theme = opts.theme;
     refreshThemeTokens(opts.theme); // chart colours come from the CSS tokens (constants as fallback)
+    this.updatePositionColors();
+    positionContext.defaults = resolvePositionDefaults(undefined);
+    positionContext.endFor = (start) => this.positionEnd(start);
     const chart = init(el, { styles: this.styles() });
     if (!chart) throw new Error('Failed to initialise the chart');
     this.chart = chart;
@@ -176,6 +203,12 @@ export class ChartAdapter {
 
   private defaultDrawing(): DrawingLineStyle {
     return resolveAppearance(this.theme, this.appearance).drawing;
+  }
+
+  /** Position zones / labels: the candle up / down colours of the active theme, muted grey for neutral parts. */
+  private updatePositionColors(): void {
+    const a = resolveAppearance(this.theme, this.appearance);
+    positionContext.colors = { up: a.upColor, down: a.downColor, neutral: themeTokens(this.theme).muted };
   }
 
   // ── data ──────────────────────────────────────────────────────────────────
@@ -202,6 +235,9 @@ export class ChartAdapter {
     this.assetClass = p.symbol.assetClass;
     this.pricePrecision = p.symbol.pricePrecision;
     drawingConstraint.precision = p.symbol.pricePrecision;
+    positionContext.barMs = tfMs(p.tf);
+    positionContext.qtyDecimals = qtyDecimals(p.symbol.assetClass);
+    positionContext.formatTime = barTimeFormat(p.tf, timezoneFor(p.symbol, p.tf));
     this.basketHasCrypto = p.symbol.assetClass === 'basket' && p.basketHasCrypto === true;
     // Same symbol, but daily-anchored drawings now display differently (daily ↔ intraday): re-place them.
     if (prevSymbol === p.symbol.id && prevMapping !== this.mapsDailyAnchors()) this.replaceForAnchorMapping(p.symbol.id);
@@ -253,6 +289,7 @@ export class ChartAdapter {
   setTheme(t: ThemeName): void {
     this.theme = t;
     refreshThemeTokens(t);
+    this.updatePositionColors();
     this.chart.setStyles(this.styles());
     for (const o of this.chart.getOverlays({ groupId: MARKERS })) this.chart.overrideOverlay({ id: o.id, styles: markerStyles(t) });
     // Indicators without a bar-colour override follow the chart styles, except those whose override was removed
@@ -275,7 +312,15 @@ export class ChartAdapter {
    */
   setAppearance(a: ThemedAppearance | undefined): void {
     this.appearance = a;
+    this.updatePositionColors();
     this.chart.setStyles(this.styles());
+  }
+
+  /** Global risk defaults of new long / short positions (missing → app defaults); positions without their own follow them. */
+  setPositionDefaults(d: PositionDefaults | undefined): void {
+    positionContext.defaults = resolvePositionDefaults(d);
+    this.chart.setStyles(this.styles()); // repaint
+    this.emitSelection();
   }
 
   setSessionShading(enabled: boolean): void {
@@ -331,7 +376,10 @@ export class ChartAdapter {
   }
 
   private onBarsAdded(): void {
-    if (this.destroyed || this.markers.length === 0) return;
+    if (this.destroyed) return;
+    // The selected position's outcome follows new bars (polling / backfill).
+    if (this.selectedId && this.userOverlays().some((o) => o.id === this.selectedId && isPositionTool(o.name))) this.emitSelection();
+    if (this.markers.length === 0) return;
     const key = JSON.stringify(this.markerOverlays().map((o) => [o.extendData, o.points?.[0]?.timestamp]));
     if (key !== this.markersKey) this.renderMarkers();
   }
@@ -491,6 +539,7 @@ export class ChartAdapter {
         this.revertMode(overlay.id);
         this.anchorAfterEdit(overlay.id);
         this.roundHorizontal(overlay);
+        this.placePosition(overlay);
         onEnd?.();
         this.emitSelection(); // the style bar is hidden while a drawing is being placed
       }
@@ -518,7 +567,9 @@ export class ChartAdapter {
       if (before && after && samePoints(before, after)) return;
       this.anchorAfterEdit(overlay.id);
       this.roundHorizontal(overlay);
+      this.roundPosition(overlay);
       this.emitChange();
+      if (isPositionTool(overlay.name) && this.selectedId === overlay.id) this.emitSelection();
     },
     onRemoved: ({ overlay }) => {
       if (this.selectedId === overlay.id) this.select(null);
@@ -549,6 +600,83 @@ export class ChartAdapter {
     if (!points) return;
     const rounded = points.map((p) => ({ ...p, value: roundPrice(p.value, this.pricePrecision) }));
     if (!samePoints(points, rounded)) this.chart.overrideOverlay({ id: overlay.id, points: rounded });
+  }
+
+  // ── long / short positions ──
+
+  /** Default end of a position starting at `start`: ≈ 20 bars later (the loaded bars, then the timeframe). */
+  private positionEnd(start: number): number {
+    const ts = this.chart ? this.chart.getDataList().map((d) => d.timestamp) : [];
+    return endAfterBars(ts, start, DEFAULT_WIDTH_BARS, positionContext.barMs);
+  }
+
+  /**
+   * A position placed with one click: entry rounded to the symbol precision, target / stop ±2 %, end ≈ 20 bars
+   * later, and the current default risk settings stored as its own (later default changes do not alter it).
+   */
+  private placePosition(overlay: Overlay): void {
+    const side = sideOf(overlay.name);
+    const p0 = overlay.points[0];
+    if (!side || typeof p0?.timestamp !== 'number' || typeof p0.value !== 'number') return;
+    const g = defaultGeometry(side, p0.timestamp, p0.value, this.positionEnd(p0.timestamp), this.pricePrecision);
+    this.chart.overrideOverlay({
+      id: overlay.id, points: toPositionPoints(g),
+      styles: { [POSITION_STYLE_KEY]: { ...positionContext.defaults } } as DeepPartial<OverlayStyle>,
+    });
+  }
+
+  /** Rounds the prices of a position moved as a whole with the mouse (KLineChart shifts them unrounded). */
+  private roundPosition(overlay: Overlay): void {
+    if (!isPositionTool(overlay.name)) return;
+    const points = completePoints(overlay);
+    if (!points) return;
+    const rounded = points.map((p) => ({ ...p, value: roundPrice(p.value, this.pricePrecision) }));
+    if (!samePoints(points, rounded)) this.chart.overrideOverlay({ id: overlay.id, points: rounded });
+  }
+
+  /**
+   * Sets the selected position's entry / target / stop (rounded to the symbol precision; times unchanged, so the
+   * anchoring is kept). Returns an error message (nothing changes) for invalid prices (long: stop < entry < target,
+   * short inverted), a locked position or no position selected; null when applied (saved like any edit).
+   */
+  setSelectedPositionPrices(patch: { entry?: number; target?: number; stop?: number }): string | null {
+    const sel = this.getSelectedDrawing();
+    if (!sel || sel.kind !== 'position') return 'No position selected';
+    if (sel.locked) return 'The position is locked';
+    const r = (v: number | undefined, cur: number) => (v === undefined ? cur : roundPrice(v, this.pricePrecision));
+    const next = { entry: r(patch.entry, sel.entry), target: r(patch.target, sel.target), stop: r(patch.stop, sel.stop) };
+    const error = validatePrices(sel.side, next);
+    if (error) return error;
+    const o = this.userOverlays().find((x) => x.id === sel.id);
+    const g = o ? fromPositionPoints(o.points) : null;
+    if (!o || !g) return 'No position selected';
+    this.setValues(sel.id, toPositionPoints({ ...g, ...next }));
+    this.emitChange();
+    this.emitSelection();
+    return null;
+  }
+
+  /** Changes the selected (unlocked) position's own risk settings (merged; invalid fields ignored); saved like any edit. */
+  setSelectedPositionSettings(patch: PositionSettings): void {
+    const sel = this.getSelectedDrawing();
+    if (!sel || sel.kind !== 'position' || sel.locked) return;
+    const o = this.userOverlays().find((x) => x.id === sel.id);
+    const own = sanitizePositionSettings((o?.styles as Record<string, unknown> | null | undefined)?.[POSITION_STYLE_KEY]);
+    const next = sanitizePositionSettings({ ...own, ...sanitizePositionSettings(patch) });
+    if (!next) return;
+    this.chart.overrideOverlay({ id: sel.id, styles: { [POSITION_STYLE_KEY]: next } as DeepPartial<OverlayStyle> });
+    this.emitChange();
+    this.emitSelection();
+  }
+
+  /** Moves an overlay's points to `next` (same times, new prices), keeping the stored daily points of a remapped anchor. */
+  private setValues(id: string, next: Point[]): void {
+    this.chart.overrideOverlay({ id, points: next });
+    const anchor = this.anchors.get(id);
+    if (anchor?.display && anchor.original) {
+      anchor.display = next;
+      anchor.original = anchor.original.map((p, i) => ({ ...p, value: next[i]?.value ?? p.value }));
+    }
   }
 
   // ── daily-anchored drawings ──
@@ -673,6 +801,18 @@ export class ChartAdapter {
       const style = readText(o.styles) ?? { color: d.color, size: DEFAULT_TEXT_SIZE };
       return { id: o.id, kind: 'text', style, locked: o.lock };
     }
+    const side = sideOf(o.name);
+    if (side) {
+      const g = fromPositionPoints(o.points);
+      if (!g) return null;
+      const settings = positionSettingsOf(o.styles);
+      const metrics = positionMetrics(side, g, settings, positionContext.qtyDecimals);
+      const outcome = evaluateOutcome(this.chart.getDataList() as OutcomeBar[], side, g, metrics.qty);
+      return {
+        id: o.id, kind: 'position', side, locked: o.lock, entry: g.entry, target: g.target, stop: g.stop, precision: this.pricePrecision,
+        settings, metrics, outcome,
+      };
+    }
     const style = readLine(o.styles) ?? { ...d };
     const sel: SelectedDrawing = { id: o.id, kind: 'line', style, locked: o.lock };
     const value = o.points[0]?.value;
@@ -710,14 +850,8 @@ export class ChartAdapter {
     const points = o ? completePoints(o) : null;
     if (!points) return false;
     const value = roundPrice(price, MAX_PRICE_DECIMALS);
-    const next = points.map((p) => ({ ...p, value }));
-    this.chart.overrideOverlay({ id: sel.id, points: next });
-    const anchor = this.anchors.get(sel.id);
-    if (anchor?.display && anchor.original) {
-      // Shown remapped: the stored daily points take the new price too (still "unmoved" in time).
-      anchor.display = next;
-      anchor.original = anchor.original.map((p) => ({ ...p, value }));
-    }
+    // Shown remapped: the stored daily points take the new price too (still "unmoved" in time).
+    this.setValues(sel.id, points.map((p) => ({ ...p, value })));
     this.emitChange();
     this.emitSelection();
     return true;
@@ -748,7 +882,7 @@ export class ChartAdapter {
   /** Changes the selected drawing's style (merged with its current style); saved like any drawing edit. */
   setSelectedStyle(patch: Partial<DrawingLineStyle> | Partial<TextStyle>): void {
     const sel = this.getSelectedDrawing();
-    if (!sel || sel.locked) return;
+    if (!sel || sel.locked || sel.kind === 'position') return;
     const styles = sel.kind === 'text'
       ? textToOverlay({ ...sel.style, ...(patch as Partial<TextStyle>) })
       : lineToOverlay({ ...sel.style, ...(patch as Partial<DrawingLineStyle>) });

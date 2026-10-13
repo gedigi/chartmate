@@ -136,6 +136,11 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
   useEffect(() => {
     adapter?.setAppearance(JSON.parse(appearanceJson) ?? undefined);
   }, [adapter, appearanceJson]);
+  // Risk defaults of new long / short positions (global, like the appearance).
+  const positionDefaultsJson = JSON.stringify(layout.positionDefaults ?? null);
+  useEffect(() => {
+    adapter?.setPositionDefaults(JSON.parse(positionDefaultsJson) ?? undefined);
+  }, [adapter, positionDefaultsJson]);
 
   // Data: (re)load on symbol / timeframe / session change. Without info for the current symbol (loading or
   // failed) the chart is blanked and the previous symbol's loader stops: its data must not sit under the new header.
@@ -283,7 +288,7 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
         <IndicatorChips layout={layout} setLayout={setLayout} theme={theme} />
         <div className="chart-stage">
           <div className="chart-host" ref={hostRef} data-testid="chart-host" />
-          <DrawingStyleBar controls={adapter} />
+          <DrawingStyleBar controls={adapter} onUsePositionDefaults={(positionDefaults) => setLayout((l) => ({ ...l, positionDefaults }))} />
           {initError && <div className="center-message chart-init-error" role="alert">Chart failed to start: {initError}</div>}
           {symbolFailed && (
             <div className="center-message chart-error-panel" role="alert" data-testid="symbol-error">

@@ -119,3 +119,19 @@
   border: 1px solid var(--error);
   color: var(--error);
 }
+
+/* Long / short position settings: rows of fields that wrap on narrow charts. */
+.drawing-style-bar.position-bar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  max-width: calc(100% - 16px);
+  font-size: 12px;
+}
+.position-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.position-bar .drawing-style-price input { width: 92px; }
+.position-bar .position-narrow input { width: 56px; }
+.position-side { font-weight: 600; min-width: 38px; }
+.position-summary { color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.position-outcome { font-variant-numeric: tabular-nums; }
+.position-default { height: 24px; font-size: 12px; white-space: nowrap; }

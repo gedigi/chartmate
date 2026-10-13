@@ -38,6 +38,9 @@ const TOOLS: ReadonlyArray<{ tool: DrawingTool; label: string; icon: JSX.Element
   { tool: 'priceLine', label: 'Price line', icon: <Icon><path d="M3 12h11" />{dot(3, 12)}<path d="M13 8h5v4h-5z" strokeWidth="1.2" /></Icon> },
   { tool: 'parallelStraightLine', label: 'Parallel channel', icon: <Icon><path d="M2 13L13 2M7 18L18 7" /></Icon> },
   { tool: 'fibonacciLine', label: 'Fibonacci retracement', icon: <Icon><path d="M2 3h16M2 8h16M2 12h16M2 17h16" /><path d="M4 17L16 3" strokeDasharray="2 2" /></Icon> },
+  // Positions: a box split at the entry line, the arrow in the profit zone.
+  { tool: 'longPosition', label: 'Long position', icon: <Icon><rect x="3" y="3" width="14" height="14" rx="1" /><path d="M3 11h14M10 9V5M8 7l2-2 2 2" /></Icon> },
+  { tool: 'shortPosition', label: 'Short position', icon: <Icon><rect x="3" y="3" width="14" height="14" rx="1" /><path d="M3 9h14M10 11v4M8 13l2 2 2-2" /></Icon> },
 ];
 
 const TEXT_ICON = <Icon><path d="M4 4h12M10 4v12M7.5 16h5" /></Icon>;
