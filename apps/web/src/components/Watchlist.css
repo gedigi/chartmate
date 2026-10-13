@@ -70,8 +70,8 @@
 .sparkline polyline.down { stroke: var(--down); }
 .wl-quote { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; min-width: 64px; }
 .wl-change { font-size: 11px; font-weight: 500; color: var(--text-muted); margin-top: 1px; padding: 0 4px; margin-right: -4px; border-radius: var(--radius-sm); }
-.wl-change.up { color: var(--up); background: var(--up-soft); }
-.wl-change.down { color: var(--down); background: var(--down-soft); }
+.wl-change.up { color: var(--up-fg); background: var(--up-soft); }
+.wl-change.down { color: var(--down-fg); background: var(--down-soft); }
 /* Pre/post-market line under the regular quote: "Pre 231.40 +0.82%" */
 /* The slot is on every row with a fixed height, so rows don't jump when the line appears or disappears. */
 .wl-ext-slot {
@@ -81,13 +81,13 @@
 .wl-ext { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text); }
 .wl-ext-label { color: var(--text-muted); }
 .wl-ext-change { color: var(--text-muted); }
-.wl-ext-change.up { color: var(--up); }
-.wl-ext-change.down { color: var(--down); }
+.wl-ext-change.up { color: var(--up-fg); }
+.wl-ext-change.down { color: var(--down-fg); }
 .wl-remove {
   position: absolute; right: 2px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; padding: 0;
   min-height: 0; border: none; border-radius: var(--radius-sm); background: transparent; box-shadow: none; color: var(--text-muted); cursor: pointer; opacity: 0; line-height: 1;
 }
 .watchlist-row:hover .wl-remove, .watchlist-row:focus-within .wl-remove, .wl-remove:focus-visible { opacity: 1; }
-.wl-remove:hover:not(:disabled) { color: var(--down); background: var(--down-soft); }
+.wl-remove:hover:not(:disabled) { color: var(--down-fg); background: var(--down-soft); }
 .watchlist-error { color: var(--error); font-size: 12px; }
 .watchlist-empty { color: var(--text-muted); font-size: 12px; }

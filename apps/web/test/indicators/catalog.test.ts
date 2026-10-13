@@ -35,8 +35,8 @@ describe('CATALOG', () => {
 });
 
 describe('default line colours (per-theme categorical palette)', () => {
-  const DARK = ['#3987e5', '#d95926', '#1a9fb2', '#9085e9', '#c98500', '#d55181'];
-  const LIGHT = ['#2a78d6', '#eb6834', '#0097a7', '#4a3aa7', '#eda100', '#e87ba4'];
+  const DARK = ['#2488f7', '#e56c19', '#00b3c2', '#8d7cf8', '#e49916', '#f631aa'];
+  const LIGHT = ['#1272da', '#eb6111', '#0095a0', '#541cdc', '#eda100', '#e12ca0'];
   // Slot (1-based) of each line, in figure order.
   const SLOTS: Record<string, number[]> = {
     MA: [1, 2, 3, 4], EMA: [1, 2, 3], BOLL: [2, 1, 3], SAR: [], BBI: [1], VWAP: [3], VOL: [1, 2, 3], MACD: [1, 2],
@@ -66,15 +66,15 @@ describe('default line colours (per-theme categorical palette)', () => {
   });
 
   it('VWAP is slot 3 (distinct from MA / BOLL slots 1-2), and its template carries no fixed colour', () => {
-    expect(defaultLineColor(0, 'VWAP', 'dark')).toBe('#1a9fb2');
-    expect(defaultLineColor(0, 'VWAP', 'light')).toBe('#0097a7');
+    expect(defaultLineColor(0, 'VWAP', 'dark')).toBe('#00b3c2');
+    expect(defaultLineColor(0, 'VWAP', 'light')).toBe('#0095a0');
     const tpl = CUSTOM_INDICATORS.find((c) => c.catalog.name === 'VWAP')!.template;
     expect(tpl.styles?.lines?.[0]?.color).toBeUndefined();
   });
 
   it('unknown indicators fall back to the palette by line index', () => {
-    expect(defaultLineColor(1, undefined, 'light')).toBe('#eb6834');
-    expect(defaultLineColor(0, 'NOPE', 'dark')).toBe('#3987e5');
+    expect(defaultLineColor(1, undefined, 'light')).toBe('#eb6111');
+    expect(defaultLineColor(0, 'NOPE', 'dark')).toBe('#2488f7');
   });
 });
 

@@ -88,6 +88,7 @@ const LayoutSchema = z.object({
   appearance: ThemedAppearanceSchema.optional(),
   // Tolerant: invalid defaults are dropped on their own, so they can never block saving the rest of the layout.
   positionDefaults: PositionDefaultsSchema.optional().catch(undefined),
+  colorDefaultsRev: z.number().int().min(0).max(1_000_000).optional(),
 }) satisfies z.ZodType<Layout, unknown>;
 
 const DrawingSchema = z.object({

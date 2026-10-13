@@ -20,24 +20,27 @@
   --text: #e4e7ee;
   --text-muted: #8b93a3;
   --text-subtle: #5f6878;
-  --accent: #3d6af5;
-  --accent-hover: #5079ff;
+  --accent: #2b66ff;
+  --accent-hover: #4a7dff;
   --accent-text: #ffffff;
-  --accent-fg: #8aa6ff;
-  --accent-soft: rgb(61 106 245 / 0.18);
+  --accent-fg: #8eabff;
+  --accent-soft: rgb(43 102 255 / 0.18);
   --focus-ring: #6b8cff;
   --cross-bg: #2a303c;
   --field-bg: #0c0f14;
   --field-border: #2e3542;
-  --up: #34d399;
-  --down: #f23c50;
-  --up-soft: rgb(52 211 153 / 0.14);
-  --down-soft: rgb(242 60 80 / 0.14);
+  --up: #00d68f;
+  --down: #ff3b5c;
+  /* Up / down as small text: ≥ 4.5:1 on every surface, pill and the current watchlist row. */
+  --up-fg: #00d68f;
+  --down-fg: #ff6b80;
+  --up-soft: rgb(0 214 143 / 0.14);
+  --down-soft: rgb(255 59 92 / 0.14);
   --warn-bg: #3a2f12;
   --warn-text: #f5c96a;
   --error: #ff6b78;
-  --badge-stock: #3d6af5;
-  --badge-crypto: #e8891c;
+  --badge-stock: #2b66ff;
+  --badge-crypto: #f08a00;
   --badge-basket: #8b5cf6;
   --scrim: rgb(5 7 10 / 0.6);
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
@@ -59,24 +62,26 @@
   --text: #111827;
   --text-muted: #5b6474;
   --text-subtle: #8a93a3;
-  --accent: #3d6af5;
-  --accent-hover: #2f5ae6;
+  --accent: #2b66ff;
+  --accent-hover: #1f55e6;
   --accent-text: #ffffff;
-  --accent-fg: #2950d9;
-  --accent-soft: rgb(61 106 245 / 0.1);
-  --focus-ring: #3d6af5;
+  --accent-fg: #1d4fd8;
+  --accent-soft: rgb(43 102 255 / 0.1);
+  --focus-ring: #2b66ff;
   --cross-bg: #1f2937;
   --field-bg: #ffffff;
   --field-border: #d5dae1;
-  --up: #10a37a;
-  --down: #c41d3d;
-  --up-soft: rgb(16 163 122 / 0.1);
-  --down-soft: rgb(196 29 61 / 0.08);
+  --up: #00a870;
+  --down: #d4113b;
+  --up-fg: #00704a;
+  --down-fg: #c20e36;
+  --up-soft: rgb(0 168 112 / 0.1);
+  --down-soft: rgb(212 17 59 / 0.1);
   --warn-bg: #fff4d6;
   --warn-text: #8a5a00;
   --error: #c8283c;
-  --badge-stock: #3d6af5;
-  --badge-crypto: #e07b0f;
+  --badge-stock: #2b66ff;
+  --badge-crypto: #e67700;
   --badge-basket: #7c3aed;
   --scrim: rgb(15 23 42 / 0.32);
   --shadow-sm: 0 1px 2px rgb(16 24 40 / 0.06);
@@ -101,7 +106,6 @@
   font-family: var(--font-sans);
   font-size: 13px;
   line-height: 1.4;
-  font-feature-settings: 'cv11', 'ss01';
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -111,6 +115,7 @@
 html, body, #root { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); }
 ::selection { background: var(--accent-soft); }
+:root[data-theme='light'] ::selection { background: rgb(43 102 255 / 0.22); }
 
 /* Thin, quiet scrollbars. */
 * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
@@ -155,7 +160,9 @@ input[type='color']::-webkit-color-swatch-wrapper { padding: 0; }
 input[type='color']::-webkit-color-swatch { border: none; border-radius: 3px; }
 input[type='checkbox'] { min-height: 0; accent-color: var(--accent); }
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-input:focus-visible, select:focus-visible { outline: none; }
+/* Text fields and selects show focus with the border + halo above; checkboxes and colour swatches keep the ring. */
+input:not([type='checkbox']):not([type='color']):focus-visible, select:focus-visible { outline: none; }
+input[type='checkbox']:focus-visible, input[type='color']:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 /* Shell grid: top bar / [chart view (left toolbar | chart) | right sidebar] */
 .app-shell {
@@ -347,5 +354,5 @@ input:focus-visible, select:focus-visible { outline: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; }
+  *, *::before, *::after { transition: none !important; animation: none !important; }
 }

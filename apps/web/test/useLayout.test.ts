@@ -2,11 +2,15 @@ import type { Layout } from '@altv/shared';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { api, ApiError } from '../src/api/client';
-import { DEFAULT_LAYOUT, useLayout, withoutLegacyDefaults } from '../src/state/useLayout';
+import { COLOR_DEFAULTS_REV } from '../src/chart/theme';
+import { DEFAULT_LAYOUT, migrateColorDefaults, useLayout, withoutLegacyDefaults } from '../src/state/useLayout';
 
 const ma = { name: 'MA', pane: 'main' as const, calcParams: [20], visible: true };
 const rsi = { name: 'RSI', pane: 'sub' as const, calcParams: [14], visible: true };
-const saved: Layout = { symbol: 'stock:AAPL', tf: '1h', session: 'rth', chartType: 'candle', indicators: [ma] };
+/** Saved by the current version (colours already migrated). */
+const saved: Layout = { symbol: 'stock:AAPL', tf: '1h', session: 'rth', chartType: 'candle', indicators: [ma], colorDefaultsRev: COLOR_DEFAULTS_REV };
+/** The same layout as saved before the colour-defaults revision existed. */
+const { colorDefaultsRev: _rev, ...savedRev0 } = saved;
 /** A legacy per-symbol row: must be ignored (never requested, never adopted). */
 const legacyMsftSym: Layout = { ...saved, symbol: 'stock:MSFT', indicators: [rsi] };
 
@@ -74,28 +78,52 @@ describe('useLayout (one global indicator set in the default layout)', () => {
     expect(result.current.layout).toEqual({ ...saved, appearance: { dark: flat } });
   });
 
-  it('reads colours equal to the previous release defaults as unset on load; user colours stay', async () => {
+  it('once: a layout from before the colour revision gets old-default colours unset, is stamped and saved back', async () => {
     const appearance = {
       dark: { upColor: '#26A69A', downColor: '#e63b7a', drawing: { color: '#2962ff', size: 1, style: 'solid' as const } },
-      light: { upColor: '#089981', downColor: '#f23645', lineColor: '#2962ff' },
+      light: { upColor: '#10a37a', downColor: '#f23645', lineColor: '#3d6af5' },
     };
     const vol = { name: 'VOL', pane: 'sub' as const, calcParams: [5, 10, 20], visible: true, barColors: { up: '#26a69a', down: '#ef5350' } };
     const macd = { name: 'MACD', pane: 'sub' as const, calcParams: [12, 26, 9], visible: true, barColors: { up: '#00ff00', down: '#f23645' } };
-    vi.mocked(api.layouts.get).mockResolvedValue({ ...saved, indicators: [ma, vol, macd], appearance });
+    vi.mocked(api.layouts.get).mockResolvedValue({ ...savedRev0, indicators: [ma, vol, macd], appearance });
     const { result } = renderHook(() => useLayout());
     await waitFor(() => expect(result.current.loaded).toBe(true));
-    expect(result.current.layout.appearance).toEqual({ dark: { downColor: '#e63b7a' } });
     const { barColors: _gone, ...volPlain } = vol;
-    expect(result.current.layout.indicators).toEqual([ma, volPlain, { ...macd, barColors: { up: '#00ff00', down: '#c41d3d' } }]);
+    const expected = {
+      ...saved, appearance: { dark: { downColor: '#e63b7a' } },
+      indicators: [ma, volPlain, { ...macd, barColors: { up: '#00ff00', down: '#d4113b' } }],
+    };
+    expect(result.current.layout).toEqual(expected);
+    expect(put.mock.calls).toEqual([['default', expected]]);
+    await settle();
+    expect(put).toHaveBeenCalledTimes(1);
+  });
+
+  it('a layout already at the current revision keeps old-default colours the user picked (no revert on reload)', async () => {
+    const l = { ...saved, appearance: { dark: { upColor: '#26a69a', lineColor: '#2962ff' } } };
+    vi.mocked(api.layouts.get).mockResolvedValue(l);
+    const { result } = renderHook(() => useLayout());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.layout).toEqual(l);
+    await settle();
+    expect(put).not.toHaveBeenCalled();
+    expect(migrateColorDefaults(l)).toBe(l);
   });
 
   it('withoutLegacyDefaults: an all-default appearance is dropped; a custom drawing width keeps it with the new accent', () => {
     expect(withoutLegacyDefaults({ ...saved, appearance: { dark: { upColor: '#26a69a' } } })).toEqual(saved);
     expect(withoutLegacyDefaults({ ...saved, appearance: { light: { drawing: { color: '#2962FF', size: 3, style: 'dashed' } } } }))
-      .toEqual({ ...saved, appearance: { light: { drawing: { color: '#3d6af5', size: 3, style: 'dashed' } } } });
+      .toEqual({ ...saved, appearance: { light: { drawing: { color: '#2b66ff', size: 3, style: 'dashed' } } } });
     // The other theme's old defaults are user colours here (light #089981 in the dark theme stays).
     expect(withoutLegacyDefaults({ ...saved, appearance: { dark: { upColor: '#089981' } } })).toEqual({ ...saved, appearance: { dark: { upColor: '#089981' } } });
     expect(withoutLegacyDefaults(saved)).toBe(saved);
+  });
+
+  it('bar colours: direction-aware — an inverted legacy pair is the user\'s choice and is kept', () => {
+    const ind = (barColors: { up: string; down: string }) => ({ ...saved, indicators: [{ ...ma, barColors }] });
+    expect(withoutLegacyDefaults(ind({ up: '#ef5350', down: '#26a69a' }))).toEqual(ind({ up: '#ef5350', down: '#26a69a' }));
+    expect(withoutLegacyDefaults(ind({ up: '#089981', down: '#123456' }))).toEqual(ind({ up: '#00a870', down: '#123456' }));
+    expect(withoutLegacyDefaults(ind({ up: '#34d399', down: '#c41d3d' }))).toEqual({ ...saved, indicators: [ma] });
   });
 
   it('an appearance change saves the default key only', async () => {

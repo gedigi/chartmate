@@ -1,7 +1,7 @@
 import { migrateAppearance, type Layout, type SymbolId } from '@altv/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
-import { dropLegacyAppearanceDefaults, dropLegacyBarColors } from '../chart/theme';
+import { COLOR_DEFAULTS_REV, dropLegacyAppearanceDefaults, dropLegacyBarColors } from '../chart/theme';
 import { retryDelayMs } from './retry';
 import { useDebouncedSave } from './useDebouncedSave';
 
@@ -11,6 +11,7 @@ export const DEFAULT_LAYOUT: Layout = {
   session: 'rth',
   chartType: 'candle',
   indicators: [{ name: 'VOL', pane: 'sub', calcParams: [5, 10, 20], visible: true }],
+  colorDefaultsRev: COLOR_DEFAULTS_REV,
 };
 
 /** A layout saved before appearance was per theme holds the flat shape: it becomes the dark theme's. */
@@ -24,6 +25,7 @@ function withThemedAppearance(l: Layout): Layout {
 /**
  * Colours equal to an earlier release's defaults are read as "default" (see LEGACY_DEFAULTS): the dialogs store
  * the shown default next to the edited field, so those values were not chosen. Every other user colour is kept.
+ * Use migrateColorDefaults (runs once per layout); this is the unconditional cleanup it applies.
  */
 export function withoutLegacyDefaults(l: Layout): Layout {
   let out = l;
@@ -54,6 +56,16 @@ export function withoutLegacyDefaults(l: Layout): Layout {
     };
   }
   return out;
+}
+
+/**
+ * One-time colour migration: a layout saved under an older COLOR_DEFAULTS_REV gets its old-default colours unset
+ * and is stamped with the current revision; a layout already at (or past) it is returned unchanged (same object),
+ * so a colour picked later — even one equal to an old default — is never touched again.
+ */
+export function migrateColorDefaults(l: Layout): Layout {
+  if ((l.colorDefaultsRev ?? 0) >= COLOR_DEFAULTS_REV) return l;
+  return { ...withoutLegacyDefaults(l), colorDefaultsRev: COLOR_DEFAULTS_REV };
 }
 
 export interface UseLayout {
@@ -98,7 +110,14 @@ export function useLayout(): UseLayout {
       api.layouts.get('default').then(
         (l) => {
           if (cancelled) return;
-          if (l) setLayoutState(withoutLegacyDefaults(withThemedAppearance(l))); // null = nothing saved yet → DEFAULT_LAYOUT
+          if (l) {
+            const themed = withThemedAppearance(l);
+            const migrated = migrateColorDefaults(themed);
+            setLayoutState(migrated);
+            // The loaded value is the save baseline (not saved): persist the one-time colour migration explicitly.
+            // On failure the next layout change saves it (the revision is in the state).
+            if (migrated !== themed) api.layouts.put('default', migrated).catch(() => {});
+          } // null = nothing saved yet → DEFAULT_LAYOUT
           setLoadError(null);
           setLoaded(true);
         },

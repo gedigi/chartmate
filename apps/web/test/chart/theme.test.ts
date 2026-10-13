@@ -16,21 +16,21 @@ describe('resolveAppearance', () => {
         drawing: { color: THEME_TOKENS[theme].accent, size: 1, style: 'solid' },
       });
     }
-    expect(resolveAppearance('dark', { dark: { upColor: '#00ff00', lineWidth: 4 } })).toMatchObject({ upColor: '#00ff00', downColor: '#f23c50', lineWidth: 4 });
+    expect(resolveAppearance('dark', { dark: { upColor: '#00ff00', lineWidth: 4 } })).toMatchObject({ upColor: '#00ff00', downColor: '#ff3b5c', lineWidth: 4 });
   });
 
   it('picks the active theme\'s settings; the other theme keeps its defaults', () => {
     const a = { dark: { upColor: '#ffffff' }, light: { downColor: '#000000' } };
-    expect(resolveAppearance('dark', a)).toMatchObject({ upColor: '#ffffff', downColor: '#f23c50' });
-    expect(resolveAppearance('light', a)).toMatchObject({ upColor: '#10a37a', downColor: '#000000' });
+    expect(resolveAppearance('dark', a)).toMatchObject({ upColor: '#ffffff', downColor: '#ff3b5c' });
+    expect(resolveAppearance('light', a)).toMatchObject({ upColor: '#00a870', downColor: '#000000' });
     expect(resolveAppearance('light', { dark: { upColor: '#ffffff' } })).toEqual(resolveAppearance('light', undefined));
   });
 });
 
 describe('per-theme default candle colours (match the --up / --down CSS tokens)', () => {
-  it('dark #34d399 / #f23c50, light #10a37a / #c41d3d', () => {
-    expect(THEME_TOKENS.dark).toMatchObject({ up: '#34d399', down: '#f23c50' });
-    expect(THEME_TOKENS.light).toMatchObject({ up: '#10a37a', down: '#c41d3d' });
+  it('dark #00d68f / #ff3b5c, light #00a870 / #d4113b', () => {
+    expect(THEME_TOKENS.dark).toMatchObject({ up: '#00d68f', down: '#ff3b5c' });
+    expect(THEME_TOKENS.light).toMatchObject({ up: '#00a870', down: '#d4113b' });
     expect(THEME_CSS_VARS).toMatchObject({ up: '--up', down: '--down' });
     for (const theme of ['dark', 'light'] as const) {
       const { up, down } = THEME_TOKENS[theme];
@@ -45,12 +45,12 @@ describe('per-theme default candle colours (match the --up / --down CSS tokens)'
 
 describe('indicator histogram bar defaults follow the theme up / down colours', () => {
   it('defaultBarColors(theme) and the chart-level indicator bar styles', () => {
-    expect(defaultBarColors('dark')).toEqual({ up: '#34d399', down: '#f23c50' });
-    expect(defaultBarColors('light')).toEqual({ up: '#10a37a', down: '#c41d3d' });
+    expect(defaultBarColors('dark')).toEqual({ up: '#00d68f', down: '#ff3b5c' });
+    expect(defaultBarColors('light')).toEqual({ up: '#00a870', down: '#d4113b' });
     for (const theme of ['dark', 'light'] as const) {
       const { up, down } = defaultBarColors(theme);
       // Same translucency as KLineChart's own default bars.
-      expect(chartStyles(theme).indicator?.bars).toEqual([{ upColor: hexToRgba(up, 0.7), downColor: hexToRgba(down, 0.7) }]);
+      expect(chartStyles(theme).indicator?.bars).toEqual([{ style: 'fill', upColor: hexToRgba(up, 0.7), downColor: hexToRgba(down, 0.7) }]);
     }
   });
 });
@@ -116,7 +116,7 @@ describe('readable label text', () => {
 
   it('the default overlay text (annotation bubble = drawing colour) is readable', () => {
     expect(overlayStyles({ color: '#ffffff', size: 1, style: 'solid' }).text).toMatchObject({ color: DARK_TEXT, backgroundColor: '#ffffff' });
-    expect(overlayStyles({ color: '#3d6af5', size: 1, style: 'solid' }).text).toMatchObject({ color: LIGHT_TEXT });
+    expect(overlayStyles({ color: '#2b66ff', size: 1, style: 'solid' }).text).toMatchObject({ color: LIGHT_TEXT });
   });
 
   it('per-drawing annotation styles carry a readable text colour', () => {

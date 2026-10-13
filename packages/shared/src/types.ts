@@ -62,6 +62,11 @@ export interface Layout {
   appearance?: ThemedAppearance;
   /** Risk settings new long / short positions start with (missing → DEFAULT_POSITION_SETTINGS). */
   positionDefaults?: PositionDefaults;
+  /**
+   * Revision of the default colours this layout's stored colours were last migrated to (missing → 0). The web app
+   * clears colours equal to an older default once and then stores its current revision.
+   */
+  colorDefaultsRev?: number;
 }
 
 /** Long / short position drawing tools. */

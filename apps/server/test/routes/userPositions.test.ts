@@ -42,6 +42,13 @@ describe('long / short positions: drawing styles and layout position defaults', 
     expect((await getDrawings())[0]).not.toHaveProperty('styles');
   });
 
+  it('accepts and round-trips layout colorDefaultsRev; rejects a non-integer', async () => {
+    expect((await putLayout({ ...layout, colorDefaultsRev: 2 })).statusCode).toBe(200);
+    expect((await t.app.inject({ method: 'GET', url: '/api/layouts/default' })).json()).toEqual({ ...layout, colorDefaultsRev: 2 });
+    expect((await putLayout({ ...layout, colorDefaultsRev: 1.5 })).statusCode).toBe(400);
+    expect((await putLayout({ ...layout, colorDefaultsRev: -1 })).statusCode).toBe(400);
+  });
+
   it('accepts and round-trips layout positionDefaults; missing stays missing (backward compatible)', async () => {
     const positionDefaults = { accountSize: 50000, riskMode: 'percent', riskValue: 0.5, currency: 'USDT' } as const;
     expect((await putLayout({ ...layout, positionDefaults })).statusCode).toBe(200);
