@@ -64,9 +64,9 @@ export function findForbiddenSwitches(argv: readonly string[], platform: NodeJS.
 /**
  * Environment variables a packaged build refuses to start with. Node acts on NODE_USE_ENV_PROXY and
  * NODE_USE_SYSTEM_CA during pre-execution, before any app code runs (global proxy dispatcher, system CA store), so
- * they cannot be neutralised by deleting them later; SSLKEYLOGFILE would make TLS session keys loggable.
+ * they cannot be neutralized by deleting them later; SSLKEYLOGFILE would make TLS session keys loggable.
  * NODE_EXTRA_CA_CERTS is normally removed by Electron already (the EnableNodeOptionsEnvironmentVariable fuse covers
- * it), and stays listed as defence in depth. The provider fetch also ignores proxies and pins the bundled root CAs
+ * it), and stays listed as defense in depth. The provider fetch also ignores proxies and pins the bundled root CAs
  * regardless (directFetch.ts).
  */
 export const FORBIDDEN_ENV_VARS: readonly string[] = Object.freeze(['NODE_USE_ENV_PROXY', 'NODE_USE_SYSTEM_CA', 'NODE_EXTRA_CA_CERTS', 'SSLKEYLOGFILE']);
@@ -74,4 +74,38 @@ export const FORBIDDEN_ENV_VARS: readonly string[] = Object.freeze(['NODE_USE_EN
 /** Forbidden variables that are set to a non-empty value. */
 export function findForbiddenEnv(env: Record<string, string | undefined>): string[] {
   return FORBIDDEN_ENV_VARS.filter((k) => typeof env[k] === 'string' && env[k]!.trim() !== '');
+}
+
+export interface StartupGuardDeps {
+  isPackaged: boolean;
+  /** False only in the TEST-ONLY inspectable copy (the switch check is compiled out there). */
+  checkSwitches: boolean;
+  argv: readonly string[];
+  env: Record<string, string | undefined>;
+  platform: NodeJS.Platform;
+  productName: string;
+  /** `dialog.showErrorBox` (safe before `ready`). */
+  showError: (title: string, content: string) => void;
+  writeStderr: (line: string) => void;
+  exit: (code: number) => never;
+}
+
+/**
+ * Packaged builds refuse to start with a forbidden environment variable or command-line switch: the reason goes to
+ * stderr and to a native error box naming the offending items, then the process exits with code 1.
+ */
+export function runStartupGuards(d: StartupGuardDeps): void {
+  if (!d.isPackaged) return;
+  const refuse = (kind: string, items: string[], hint: string) => {
+    d.writeStderr(`refusing to start: forbidden ${kind}: ${items.join(', ')}\n`);
+    d.showError(`${d.productName} cannot start`,
+      `For security reasons, ${d.productName} does not run with the following ${kind}:\n\n${items.join('\n')}\n\n${hint}`);
+    d.exit(1);
+  };
+  const env = findForbiddenEnv(d.env);
+  if (env.length > 0) refuse('environment variable(s)', env, 'Unset them and start the app again.');
+  if (d.checkSwitches) {
+    const sw = findForbiddenSwitches(d.argv, d.platform);
+    if (sw.length > 0) refuse('command-line switch(es)', sw.map((s) => `--${s}`), 'Start the app without them.');
+  }
 }

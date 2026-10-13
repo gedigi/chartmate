@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { FORBIDDEN_ENV_VARS, FORBIDDEN_SWITCHES, findForbiddenEnv, findForbiddenSwitches } from '../src/lib/startupGuards.js';
+import {
+  FORBIDDEN_ENV_VARS, FORBIDDEN_SWITCHES, findForbiddenEnv, findForbiddenSwitches, runStartupGuards, type StartupGuardDeps,
+} from '../src/lib/startupGuards.js';
 
 describe('findForbiddenSwitches', () => {
   const exe = '/Applications/Chartmate.app/Contents/MacOS/Chartmate';
@@ -63,5 +65,53 @@ describe('findForbiddenEnv', () => {
     expect(findForbiddenEnv({ NODE_USE_ENV_PROXY: '1', SSLKEYLOGFILE: '/tmp/k', NODE_EXTRA_CA_CERTS: ' ' }))
       .toEqual(['NODE_USE_ENV_PROXY', 'SSLKEYLOGFILE']);
     expect(findForbiddenEnv({ NODE_USE_SYSTEM_CA: '1', NODE_EXTRA_CA_CERTS: '/tmp/ca.pem' })).toEqual(['NODE_USE_SYSTEM_CA', 'NODE_EXTRA_CA_CERTS']);
+  });
+});
+
+describe('runStartupGuards', () => {
+  const deps = (over: Partial<StartupGuardDeps> = {}) => {
+    const calls = { errors: [] as [string, string][], stderr: [] as string[], exit: [] as number[] };
+    const d: StartupGuardDeps = {
+      isPackaged: true, checkSwitches: true, argv: ['/app'], env: {}, platform: 'darwin', productName: 'Chartmate',
+      showError: (t, c) => { calls.errors.push([t, c]); },
+      writeStderr: (l) => { calls.stderr.push(l); },
+      exit: ((code: number) => { calls.exit.push(code); throw new Error(`exit ${code}`); }) as (code: number) => never,
+      ...over,
+    };
+    return { d, calls };
+  };
+
+  it('does nothing for a clean packaged start or for any unpackaged start', () => {
+    const a = deps();
+    runStartupGuards(a.d);
+    expect(a.calls.exit).toEqual([]);
+    const b = deps({ isPackaged: false, env: { NODE_USE_ENV_PROXY: '1' }, argv: ['/app', '--no-sandbox'] });
+    runStartupGuards(b.d);
+    expect(b.calls.exit).toEqual([]);
+  });
+
+  it('shows an error box naming the variable, writes stderr, exits 1', () => {
+    const { d, calls } = deps({ env: { NODE_USE_ENV_PROXY: '1' } });
+    expect(() => runStartupGuards(d)).toThrow('exit 1');
+    expect(calls.exit).toEqual([1]);
+    expect(calls.stderr[0]).toMatch(/forbidden environment variable\(s\): NODE_USE_ENV_PROXY/);
+    expect(calls.errors).toHaveLength(1);
+    expect(calls.errors[0]![0]).toBe('Chartmate cannot start');
+    expect(calls.errors[0]![1]).toContain('NODE_USE_ENV_PROXY');
+  });
+
+  it('shows an error box naming the switch, writes stderr, exits 1', () => {
+    const { d, calls } = deps({ argv: ['/app', '--remote-debugging-port=0'] });
+    expect(() => runStartupGuards(d)).toThrow('exit 1');
+    expect(calls.errors[0]![1]).toContain('--remote-debugging-port');
+    expect(calls.stderr[0]).toMatch(/forbidden command-line switch\(es\): --remote-debugging-port/);
+  });
+
+  it('the TEST-ONLY copy skips the switch check but still checks the environment', () => {
+    const a = deps({ checkSwitches: false, argv: ['/app', '--remote-debugging-port=0'] });
+    runStartupGuards(a.d);
+    expect(a.calls.exit).toEqual([]);
+    const b = deps({ checkSwitches: false, env: { SSLKEYLOGFILE: '/tmp/k' } });
+    expect(() => runStartupGuards(b.d)).toThrow('exit 1');
   });
 });
