@@ -10,9 +10,9 @@
 //   --test-inspectable  TEST-ONLY variant used by smoke/prepare-inspectable.mjs: the command-line switch guard is
 //                       compiled out so a test harness can attach. Never packaged by electron-builder.
 import { build } from 'esbuild';
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
@@ -26,8 +26,27 @@ const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const out = arg('out') ? resolve(arg('out')) : here('../dist');
 const webDist = here('../../web/dist');
 
+/**
+ * Canonical form of `p` for containment checks: symlinks resolved (on the deepest existing ancestor, since `p` may
+ * not exist yet) and case-folded where the file system is normally case-insensitive (macOS, Windows).
+ */
+function canonical(p) {
+  let head = resolve(p);
+  const tail = [];
+  while (!existsSync(head)) {
+    const parent = dirname(head);
+    if (parent === head) break;
+    tail.unshift(basename(head));
+    head = parent;
+  }
+  const full = join(realpathSync(head), ...tail);
+  return process.platform === 'darwin' || process.platform === 'win32' ? full.toLowerCase() : full;
+}
+
 // The test-only variant must never land in dist/ (which electron-builder packages).
-if (testInspectable && (!arg('out') || out === here('../dist') || out.startsWith(here('../dist') + sep))) {
+const distCanon = canonical(here('../dist'));
+const outCanon = canonical(out);
+if (testInspectable && (!arg('out') || outCanon === distCanon || outCanon.startsWith(distCanon + sep))) {
   console.error('--test-inspectable requires --out=<dir> outside apps/desktop/dist (it must never be packaged)');
   process.exit(2);
 }
