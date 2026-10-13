@@ -3,7 +3,7 @@ import { registerOverlay, type OverlayFigure, type OverlayTemplate } from 'kline
 import { readableTextOn } from './contrast';
 import { drawingConstraint, POSITION_STYLE_KEY } from './drawingTemplates';
 import {
-  centreLabel, DEFAULT_WIDTH_BARS, defaultGeometry, evaluateOutcome, fromPositionPoints, hasResult, outcomeLabel, positionMetrics, pressedMove,
+  centerLabel, DEFAULT_WIDTH_BARS, defaultGeometry, evaluateOutcome, fromPositionPoints, hasResult, outcomeLabel, positionMetrics, pressedMove,
   sideOf, stopLabel, targetLabel, toPositionPoints, type OutcomeBar, type PositionGeometry, type PositionMetrics, type PositionOutcome,
   type PositionSide,
 } from './position';
@@ -21,7 +21,7 @@ export interface PositionColors { up: string; down: string; neutral: string }
 
 /**
  * Shared rendering / placement state of the position overlays (one chart per page), set by the ChartAdapter:
- * bar duration and quantity decimals of the symbol / timeframe, the global risk defaults, theme colours, bar-time
+ * bar duration and quantity decimals of the symbol / timeframe, the global risk defaults, theme colors, bar-time
  * helpers over the loaded data (default end, next bar, shifting by bars), whether older data exists, and the price
  * distance of HANDLE_GAP_PX (updated on every render from the y axis).
  */
@@ -113,8 +113,8 @@ function fitText(text: string, size: number, max: number): string {
 
 /**
  * The figures of a position: zones, traversed shading (outcome, from the fill bar), entry line, labels. Labels are
- * centred on the visible part of the box and kept inside the pane; target / stop labels sit outside their edge;
- * the centre and outcome labels move right of the box when it is narrower than them, and the outcome label moves
+ * centerd on the visible part of the box and kept inside the pane; target / stop labels sit outside their edge;
+ * the center and outcome labels move right of the box when it is narrower than them, and the outcome label moves
  * beyond the stop label when the stop zone is too short; labels wider than the pane are truncated.
  */
 export function positionFigures(p: PositionFigureInput): OverlayFigure[] {
@@ -141,17 +141,17 @@ export function positionFigures(p: PositionFigureInput): OverlayFigure[] {
 
   const size = p.font.size;
   const paneW = Math.max(p.paneWidth, 1);
-  // Centre of the visible part of the box (the whole box when it is off screen).
+  // Center of the visible part of the box (the whole box when it is off screen).
   const visL = Math.max(left, 0);
   const visR = Math.min(right, paneW);
-  const centre = visR > visL ? (visL + visR) / 2 : (left + right) / 2;
+  const center = visR > visL ? (visL + visR) / 2 : (left + right) / 2;
   const visible = Math.max(0, visR - visL);
   type Placement = { y: number; baseline: 'top' | 'bottom' | 'middle'; outsideRight?: boolean };
   const label = (raw: string, at: Placement, bg: string): OverlayFigure => {
     const text = fitText(raw, size, paneW);
     const width = labelWidth(text, size);
-    // Centred on the visible box, kept fully on the pane; beside the box (right, else left) when asked and it fits.
-    let x = Math.min(paneW - width / 2, Math.max(width / 2, centre));
+    // Centerd on the visible box, kept fully on the pane; beside the box (right, else left) when asked and it fits.
+    let x = Math.min(paneW - width / 2, Math.max(width / 2, center));
     let align: 'center' | 'left' | 'right' = 'center';
     if (at.outsideRight) {
       if (right >= 0 && right + PAD_X + width <= paneW) { x = right + PAD_X; align = 'left'; }
@@ -171,9 +171,9 @@ export function positionFigures(p: PositionFigureInput): OverlayFigure[] {
   const stopEdge = edge(s.y);
   figures.push(label(targetLabel(p.g, m, p.precision, p.settings.currency), edge(t.y), up));
   figures.push(label(stopLabel(p.g, m, p.precision, p.settings.currency), stopEdge, down));
-  const centreText = centreLabel(p.side, m);
+  const centerText = centerLabel(p.side, m);
   const narrow = (text: string) => labelWidth(text, size) > visible;
-  figures.push(label(centreText, { y: e.y, baseline: 'middle', outsideRight: narrow(centreText) }, neutral));
+  figures.push(label(centerText, { y: e.y, baseline: 'middle', outsideRight: narrow(centerText) }, neutral));
 
   const text = outcomeLabel(outcome, p.settings.currency, p.formatTime);
   const bg = !hasResult(outcome) ? neutral : profit ? up : down;

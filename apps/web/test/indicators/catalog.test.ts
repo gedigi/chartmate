@@ -26,7 +26,7 @@ describe('CATALOG', () => {
     for (const n of expected) expect(catalogEntry(n), n).toBeDefined();
   });
 
-  it('every line-colour slot is named and there are at most 5', () => {
+  it('every line-color slot is named and there are at most 5', () => {
     for (const e of CATALOG) {
       expect(e.lines.length, e.name).toBeLessThanOrEqual(5);
       for (const l of e.lines) expect(l.length).toBeGreaterThan(0);
@@ -34,7 +34,7 @@ describe('CATALOG', () => {
   });
 });
 
-describe('default line colours (per-theme categorical palette)', () => {
+describe('default line colors (per-theme categorical palette)', () => {
   const DARK = ['#2488f7', '#e56c19', '#00b3c2', '#8d7cf8', '#e49916', '#f631aa'];
   const LIGHT = ['#1272da', '#eb6111', '#0095a0', '#541cdc', '#eda100', '#e12ca0'];
   // Slot (1-based) of each line, in figure order.
@@ -49,7 +49,7 @@ describe('default line colours (per-theme categorical palette)', () => {
     expect([...INDICATOR_PALETTE.light]).toEqual(LIGHT);
   });
 
-  it('every catalog line takes the palette colour of its documented slot, in both themes', () => {
+  it('every catalog line takes the palette color of its documented slot, in both themes', () => {
     for (const e of CATALOG) {
       expect(SLOTS[e.name], `${e.name} mapping is documented`).toBeDefined();
       expect(defaultLineColors(e.name, 'dark'), e.name).toEqual(SLOTS[e.name]!.map((s) => DARK[s - 1]));
@@ -65,7 +65,7 @@ describe('default line colours (per-theme categorical palette)', () => {
     }
   });
 
-  it('VWAP is slot 3 (distinct from MA / BOLL slots 1-2), and its template carries no fixed colour', () => {
+  it('VWAP is slot 3 (distinct from MA / BOLL slots 1-2), and its template carries no fixed color', () => {
     expect(defaultLineColor(0, 'VWAP', 'dark')).toBe('#00b3c2');
     expect(defaultLineColor(0, 'VWAP', 'light')).toBe('#0095a0');
     const tpl = CUSTOM_INDICATORS.find((c) => c.catalog.name === 'VWAP')!.template;
@@ -108,7 +108,7 @@ describe('validateParam', () => {
     expect(validateParam('SAR', 2, '-1')).toMatch(/greater than 0/i);
   });
 
-  it('honours per-param integer ranges (WYCKOFF: sensitivity 0–50, lengths ≥ 1)', () => {
+  it('honors per-param integer ranges (WYCKOFF: sensitivity 0–50, lengths ≥ 1)', () => {
     expect(validateParam('WYCKOFF', 0, '14')).toBeNull();
     expect(validateParam('WYCKOFF', 0, '0')).toBe('Must be a whole number ≥ 1');
     expect(validateParam('WYCKOFF', 1, '0')).toBeNull();

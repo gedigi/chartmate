@@ -4,7 +4,7 @@ const wrapped = new WeakSet<object>();
 
 /**
  * Indicator figures with every histogram bar drawn filled. KLineChart's MACD and AO templates draw a bar as an
- * outline ('stroke') when it rises versus the previous one; here the colour still follows the template (up / down /
+ * outline ('stroke') when it rises versus the previous one; here the color still follows the template (up / down /
  * no-change, rising / falling), only the outline-only style is replaced by a fill. Returns null when nothing
  * changes (no bar figure with a style callback, or already wrapped).
  */

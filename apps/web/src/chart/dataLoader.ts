@@ -112,7 +112,7 @@ export const MAX_BACKFILL_BARS = 3900;
  *   because KLineChart stays "loading" until the callback runs. A permanent 4xx (isPermanentError) on 'init' is
  *   terminal instead: onFatal, an empty answer, no retries. AbortErrors are never reported.
  * - Polling: a polled bar newer than the last known one first backfills [lastTs, bar.ts + tf) through /api/bars and
- *   pushes every bar in order (this finalises the previously forming bar and fills gaps after sleep/outages);
+ *   pushes every bar in order (this finalizes the previously forming bar and fills gaps after sleep/outages);
  *   a gap over MAX_BACKFILL_BARS fires onReload instead. Polling pauses while the document is hidden and polls
  *   at once when it becomes visible again.
  */

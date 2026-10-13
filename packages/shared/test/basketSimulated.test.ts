@@ -29,7 +29,7 @@ describe('buildBasketBars simulated pre-start history', () => {
     expect(bars[1]!.close).toBe(100);
   });
 
-  it('without the option nothing before S is emitted (unchanged behaviour)', () => {
+  it('without the option nothing before S is emitted (unchanged behavior)', () => {
     const v0 = { effectiveFrom: '2024-01-03', weights: { 'stock:A': 0.5, 'crypto:B': 0.5 } };
     const u = computeVersionUnits([v0], daily, 100);
     expect(buildBasketBars(u, both).map((b) => b.ts)).toEqual(['2024-01-03', '2024-01-04'].map(day));

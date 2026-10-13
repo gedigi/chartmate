@@ -35,7 +35,7 @@ export function registerMarkerOverlay(): void {
 }
 
 /**
- * Fixed, theme-based marker style (muted colour, thin dashed line): independent of user drawing defaults. The
+ * Fixed, theme-based marker style (muted color, thin dashed line): independent of user drawing defaults. The
  * label sits on the chart background: muted is kept while it reaches 3:1 there, else white / dark text.
  */
 export function markerStyles(theme: ThemeName): DeepPartial<OverlayStyle> {

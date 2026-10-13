@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  centreLabel, defaultGeometry, distancePct, distanceTicks, endAfterBars, evaluateOutcome, formatAmount, formatPct, fromPositionPoints,
+  centerLabel, defaultGeometry, distancePct, distanceTicks, endAfterBars, evaluateOutcome, formatAmount, formatPct, fromPositionPoints,
   nextBarTime, outcomeLabel, positionMetrics, pressedMove, shiftByBars, priceFromPct, priceFromTicks, qtyDecimals, riskAmount, sideOf, stopLabel, targetLabel,
   toPositionPoints, validatePrices, type PositionGeometry,
 } from '../../src/chart/position';
@@ -90,11 +90,11 @@ describe('risk, quantity and R:R', () => {
 
 describe('labels', () => {
   const m = positionMetrics('long', g, settings, 0);
-  it('target / stop / centre labels', () => {
+  it('target / stop / center labels', () => {
     expect(targetLabel(g, m, 2, 'USD')).toBe('Target: 102.00 (+2.00%) +100.00 USD');
     expect(stopLabel(g, m, 2, 'USD')).toBe('Stop: 98.00 (-2.00%) -100.00 USD');
-    expect(centreLabel('long', m)).toBe('Long · Qty 50 · R:R 1.00');
-    expect(centreLabel('short', { ...m, qty: 0.0667, rr: 2.345 })).toBe('Short · Qty 0.0667 · R:R 2.35');
+    expect(centerLabel('long', m)).toBe('Long · Qty 50 · R:R 1.00');
+    expect(centerLabel('short', { ...m, qty: 0.0667, rr: 2.345 })).toBe('Short · Qty 0.0667 · R:R 2.35');
   });
 
   it('amounts keep two decimals with thousands separators', () => {

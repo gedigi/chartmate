@@ -60,7 +60,7 @@ describe('drawWyckoff', () => {
     expect(run([{ open: 1, high: 2, low: 0, close: 1 }], []).ret).toBe(true);
   });
 
-  it('draws the box, its 20%-alpha theme-coloured text, the recoloured candle and labelled triangles', () => {
+  it('draws the box, its 20%-alpha theme-colored text, the recolored candle and labeled triangles', () => {
     const data = Array.from({ length: 6 }, () => ({ open: 10, high: 12, low: 8, close: 11 }));
     const result: WyckoffBarResult[] = data.map(() => ({ barColor: null, signals: [], boxes: [] }));
     result[5]!.boxes.push({ left: 0, right: 5, top: 12, bottom: 8, bgColor: C.accumulationBg, text: 'Accumulation' });
@@ -90,7 +90,7 @@ describe('drawWyckoff', () => {
   });
 });
 
-describe('barcolorRects (recoloured bar keeps the chart bar style, like KLineChart draws it)', () => {
+describe('barcolorRects (recolored bar keeps the chart bar style, like KLineChart draws it)', () => {
   // pixels: high 100 (top), open 120, close 140, low 160; gapBar 8 (even → +1 correction), x = 50
   const up = { open: 10, close: 12 }; // close > open
   const down = { open: 12, close: 10 };
@@ -134,7 +134,7 @@ describe('barcolorRects (recoloured bar keeps the chart bar style, like KLineCha
     expect(atLow[1]).toEqual({ x: 46, y: 158, w: 3, h: 2, stroke: false });
   });
 
-  it('area: nothing to recolour', () => {
+  it('area: nothing to recolor', () => {
     expect(barcolorRects('area', 50, px, up, space)).toEqual([]);
   });
 });
@@ -143,13 +143,13 @@ describe('drawWyckoff bar styles', () => {
   const data = [{ open: 10, high: 12, low: 8, close: 11 }];
   const result: WyckoffBarResult[] = [{ barColor: C.lime, signals: [], boxes: [] }];
 
-  it('hollow candles get a stroke-only recoloured body', () => {
+  it('hollow candles get a stroke-only recolored body', () => {
     const { calls } = run(data, result, undefined, 'candle_stroke');
     expect(calls.filter(([n]) => n === 'strokeRect')).toHaveLength(1);
     expect(calls.filter(([n, a]) => n === 'fillRect' && a[4] === C.lime)).toHaveLength(2); // the two wick halves
   });
 
-  it('area charts are not recoloured', () => {
+  it('area charts are not recolored', () => {
     const { calls } = run(data, result, undefined, 'area');
     expect(calls.filter(([n, a]) => n === 'fillRect' && a[4] === C.lime)).toHaveLength(0);
   });

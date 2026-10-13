@@ -372,7 +372,7 @@ describe('YahooProvider', () => {
       expect(q.ext).toBeUndefined();
     });
 
-    it('PRE before the first pre-market trade (04:00): falls back to the fresh post print, labelled Post', async () => {
+    it('PRE before the first pre-market trade (04:00): falls back to the fresh post print, labeled Post', async () => {
       const r = states().PRE!;
       // Yesterday's (well, Friday's) pre price predates Friday's close; the post print came after it.
       const q = await one({ ...r, preMarketPrice: 338.0, preMarketTime: '2026-10-09T13:29:00.000Z' });

@@ -77,7 +77,7 @@ export const CALC_BARS_COUNT = 1000;
 /** Pine's `max_boxes_count = 500`: older boxes are deleted. */
 export const MAX_BOXES = 500;
 
-/** Pine v5 colour constants and the script's colours. */
+/** Pine v5 color constants and the script's colors. */
 export const WYCKOFF_COLORS = {
   lime: '#00E676', // color.lime (bull bars)
   purple: '#9C27B0', // color.purple (bear bars)
@@ -98,19 +98,19 @@ export interface WyckoffSignal {
   /** Bar the shape is plotted on (the pivot bar: the confirmation bar − pivotLen). */
   index: number;
   kind: WyckoffSignalKind;
-  /** Shape text ('' for the unlabelled orange pivots). */
+  /** Shape text ('' for the unlabeled orange pivots). */
   text: string;
   /** 'below': triangle up under the bar's low; 'above': triangle down over the bar's high. */
   position: 'below' | 'above';
   color: string;
 }
 export interface WyckoffBox {
-  /** Bar index of the box's left / right edge (bar centres, like Pine's xloc.bar_index). */
+  /** Bar index of the box's left / right edge (bar centers, like Pine's xloc.bar_index). */
   left: number;
   right: number;
   top: number;
   bottom: number;
-  /** Background colour, or null for none (Pine `na`). */
+  /** Background color, or null for none (Pine `na`). */
   bgColor: string | null;
   /** Centered text ('Accumulation' / 'Distribution'), or null. */
   text: string | null;
@@ -120,7 +120,7 @@ export interface WyckoffResult {
   rsi: number[];
   boxes: WyckoffBox[];
   signals: WyckoffSignal[];
-  /** barcolor per bar (null = default candle colour). */
+  /** barcolor per bar (null = default candle color). */
   barColors: Array<string | null>;
 }
 

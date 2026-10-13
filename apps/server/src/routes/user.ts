@@ -9,7 +9,7 @@ import { z } from 'zod';
 import type { Repos } from '../db/repos.js';
 import { isSymbolId, parse, SymbolIdSchema } from './validation.js';
 
-const Hex = z.string().regex(HEX_COLOR_RE, 'colour must be #rrggbb');
+const Hex = z.string().regex(HEX_COLOR_RE, 'color must be #rrggbb');
 const LineWidth = z.number().int().min(MIN_LINE_WIDTH).max(MAX_LINE_WIDTH);
 const LineStyle = z.enum(['solid', 'dashed', 'dotted']);
 const LineStyleSchema = z.object({ color: Hex, size: LineWidth, style: LineStyle });

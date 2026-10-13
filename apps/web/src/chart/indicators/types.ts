@@ -10,14 +10,14 @@ export interface CatalogEntry {
   defaultParams: number[];
   /** One label per param (settings dialog). */
   paramLabels: string[];
-  /** One name per line figure, in figure order (colour inputs; colours map to `styles.lines[i]`). */
+  /** One name per line figure, in figure order (color inputs; colors map to `styles.lines[i]`). */
   lines: string[];
   /**
    * Palette slot (0-based, into `INDICATOR_PALETTE[theme]`) of each line, index-aligned with `lines`.
    * Default: line i uses slot i (so an indicator must not have more lines than palette slots).
    */
   lineSlots?: number[];
-  /** Draws histogram bars (styles.bars[0] up/down colours are editable). */
+  /** Draws histogram bars (styles.bars[0] up/down colors are editable). */
   bars?: boolean;
   /** Indices of params that accept decimals > 0; every other param must be an integer in 1…1000. */
   decimalParams?: number[];

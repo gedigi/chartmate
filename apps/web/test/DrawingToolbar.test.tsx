@@ -33,7 +33,7 @@ function FormControls() {
   return (
     <>
       <div role="toolbar" aria-label="Drawing style">
-        <input type="color" aria-label="Drawing colour" defaultValue="#123456" />
+        <input type="color" aria-label="Drawing color" defaultValue="#123456" />
         <select aria-label="Line width"><option>1px</option></select>
         <input type="number" aria-label="Price" defaultValue="5" />
         <input type="checkbox" aria-label="Price on line" />
@@ -49,7 +49,7 @@ function FormControls() {
   );
 }
 const formControls = () => [
-  'Drawing colour', 'Line width', 'Price', 'Price on line', 'radio', 'range', 'dialog checkbox',
+  'Drawing color', 'Line width', 'Price', 'Price on line', 'radio', 'range', 'dialog checkbox',
 ].map((l) => screen.getByLabelText(l)).concat(
   screen.getByRole('button', { name: 'style button' }), screen.getByRole('button', { name: 'dialog button' }),
 );
@@ -298,7 +298,7 @@ describe('DrawingToolbar', () => {
     expect(lock).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('Clear all cancelled in the confirm keeps the in-progress drawing', async () => {
+  it('Clear all canceled in the confirm keeps the in-progress drawing', async () => {
     const { c } = makeControls();
     vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<DrawingToolbar controls={c} ticker="AAPL" />);
@@ -409,7 +409,7 @@ describe('DrawingToolbar keyboard shortcuts (Option/Alt+T trend line, Option/Alt
     expect(c.startDrawing).not.toHaveBeenCalled();
   });
 
-  it('never fires on a form control: checkbox, radio, colour, range, number, select or button (style bar, dialogs)', () => {
+  it('never fires on a form control: checkbox, radio, color, range, number, select or button (style bar, dialogs)', () => {
     const { c } = makeControls();
     render(<><DrawingToolbar controls={c} ticker="AAPL" /><FormControls /></>);
     for (const el of formControls()) {

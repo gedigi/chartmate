@@ -23,8 +23,8 @@ function withThemedAppearance(l: Layout): Layout {
 }
 
 /**
- * Colours equal to an earlier release's defaults are read as "default" (see LEGACY_DEFAULTS): the dialogs store
- * the shown default next to the edited field, so those values were not chosen. Every other user colour is kept.
+ * Colors equal to an earlier release's defaults are read as "default" (see LEGACY_DEFAULTS): the dialogs store
+ * the shown default next to the edited field, so those values were not chosen. Every other user color is kept.
  * Use migrateColorDefaults (runs once per layout); this is the unconditional cleanup it applies.
  */
 export function withoutLegacyDefaults(l: Layout): Layout {
@@ -59,9 +59,9 @@ export function withoutLegacyDefaults(l: Layout): Layout {
 }
 
 /**
- * One-time colour migration: a layout saved under an older COLOR_DEFAULTS_REV gets its old-default colours unset
+ * One-time color migration: a layout saved under an older COLOR_DEFAULTS_REV gets its old-default colors unset
  * and is stamped with the current revision; a layout already at (or past) it is returned unchanged (same object),
- * so a colour picked later — even one equal to an old default — is never touched again.
+ * so a color picked later — even one equal to an old default — is never touched again.
  */
 export function migrateColorDefaults(l: Layout): Layout {
   if ((l.colorDefaultsRev ?? 0) >= COLOR_DEFAULTS_REV) return l;
@@ -104,17 +104,17 @@ export function useLayout(): UseLayout {
 
   useEffect(() => {
     if (loadedRef.current) return;
-    let cancelled = false;
+    let canceled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = (attempt: number) => {
       api.layouts.get('default').then(
         (l) => {
-          if (cancelled) return;
+          if (canceled) return;
           if (l) {
             const themed = withThemedAppearance(l);
             const migrated = migrateColorDefaults(themed);
             setLayoutState(migrated);
-            // The loaded value is the save baseline (not saved): persist the one-time colour migration explicitly.
+            // The loaded value is the save baseline (not saved): persist the one-time color migration explicitly.
             // On failure the next layout change saves it (the revision is in the state).
             if (migrated !== themed) api.layouts.put('default', migrated).catch(() => {});
           } // null = nothing saved yet → DEFAULT_LAYOUT
@@ -122,7 +122,7 @@ export function useLayout(): UseLayout {
           setLoaded(true);
         },
         (err: unknown) => {
-          if (cancelled) return;
+          if (canceled) return;
           setLoadError(errorMessage(err));
           timer = setTimeout(() => load(attempt + 1), retryDelayMs(attempt));
         },
@@ -130,7 +130,7 @@ export function useLayout(): UseLayout {
     };
     load(0);
     return () => {
-      cancelled = true;
+      canceled = true;
       clearTimeout(timer);
     };
   }, [loadKey]);

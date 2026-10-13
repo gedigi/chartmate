@@ -49,7 +49,7 @@ describe('DrawingStyleBar: long / short positions', () => {
     expect(field('Target ticks').value).toBe('200');
     expect(field('Stop %').value).toBe('2.00');
     expect(field('Stop ticks').value).toBe('200');
-    expect(screen.queryByLabelText('Drawing colour')).toBeNull();
+    expect(screen.queryByLabelText('Drawing color')).toBeNull();
   });
 
   it('Enter or blur applies a price, Escape reverts', () => {

@@ -37,7 +37,7 @@
 .settings-row { display: grid; grid-template-columns: 1fr 120px; align-items: center; gap: 4px 12px; }
 .settings-row input[type='text'] { width: 100%; }
 .settings-row input[type='color'] { width: 48px; height: 28px; padding: 2px; justify-self: start; }
-/* Line rows: label | colour | width | style. */
+/* Line rows: label | color | width | style. */
 .settings-row.settings-line { grid-template-columns: 1fr 48px 64px 84px; gap: 4px 6px; }
 .settings-row.settings-line select { width: 100%; }
 .chart-appearance .settings-row select { width: 100%; }

@@ -36,7 +36,7 @@ const texts = (f: Fig[]) => f.filter((x) => x.type === 'text').map((x) => x.attr
 const label = (f: Fig[], prefix: string) => f.find((x) => x.type === 'text' && String(x.attrs.text).startsWith(prefix))!;
 
 describe('positionFigures', () => {
-  it('profit zone (entry→target, up colour 20 %) and loss zone (entry→stop, down colour 20 %) from entry to end time', () => {
+  it('profit zone (entry→target, up color 20 %) and loss zone (entry→stop, down color 20 %) from entry to end time', () => {
     const f = positionFigures(base) as Fig[];
     const rects = f.filter((x) => x.type === 'rect');
     expect(rects[0]).toMatchObject({ attrs: { x: 10, y: 80, width: 200, height: 20 }, styles: { style: 'fill', color: 'rgba(38,166,154,0.2)' } });
@@ -44,13 +44,13 @@ describe('positionFigures', () => {
     expect(f.find((x) => x.type === 'line')).toMatchObject({ attrs: { coordinates: [{ x: 10, y: 100 }, { x: 210, y: 100 }] } });
   });
 
-  it('labels: target, stop, centre (contrast-aware text, theme font) and the waiting state in a neutral style', () => {
+  it('labels: target, stop, center (contrast-aware text, theme font) and the waiting state in a neutral style', () => {
     const f = positionFigures(base) as Fig[];
     expect(texts(f)).toEqual(['Target: 102.00 (+2.00%) +100.00 USD', 'Stop: 98.00 (-2.00%) -100.00 USD', 'Long · Qty 50 · R:R 1.00', 'Waiting for entry']);
     const target = label(f, 'Target');
     expect(target.ignoreEvent).toBe(true);
     expect(target.styles).toMatchObject({ backgroundColor: '#26a69a', color: '#ffffff', family: 'Arial', size: 12 });
-    // Centred on the box (x 110) but kept fully inside the pane: half its width is 130 px.
+    // Centerd on the box (x 110) but kept fully inside the pane: half its width is 130 px.
     expect(target.attrs).toMatchObject({ x: 130, y: 78, align: 'center', baseline: 'bottom' });
     expect(label(f, 'Stop').attrs).toMatchObject({ y: 122, baseline: 'top' });
     expect(label(f, 'Waiting').styles).toMatchObject({ backgroundColor: '#868b98' });
@@ -93,14 +93,14 @@ describe('positionFigures', () => {
     expect(target.attrs.x).toBeGreaterThanOrEqual(half);
   });
 
-  it('a box narrower than the centre / outcome labels shows them outside, right of the box', () => {
+  it('a box narrower than the center / outcome labels shows them outside, right of the box', () => {
     const narrow = [{ x: 300, y: 100 }, { x: 300, y: 80 }, { x: 300, y: 120 }, { x: 320, y: 100 }];
     const f = positionFigures({ ...base, coords: narrow }) as Fig[];
     expect(label(f, 'Long').attrs).toMatchObject({ x: 324, align: 'left' });
     expect(label(f, 'Waiting').attrs).toMatchObject({ x: 324, align: 'left' });
   });
 
-  it('without room beside the box, the centre / outcome labels stay centred and fully on the pane', () => {
+  it('without room beside the box, the center / outcome labels stay centerd and fully on the pane', () => {
     const mid = [{ x: 140, y: 100 }, { x: 140, y: 80 }, { x: 140, y: 120 }, { x: 390, y: 100 }];
     const f = positionFigures({ ...base, coords: mid, paneWidth: 530, outcome: { kind: 'stop', fillTs: T0, ts: T0 + 2 * DAY, price: 98, pnl: -100, pnlPct: -2 } }) as Fig[];
     const o = label(f, 'Stop hit');

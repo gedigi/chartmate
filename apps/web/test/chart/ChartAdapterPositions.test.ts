@@ -259,7 +259,7 @@ describe('ChartAdapter long / short positions', () => {
     expect(a.serializeDrawings()).toEqual([saved]);
   });
 
-  it('sets the overlay context per load / theme: bar duration, quantity decimals, colours, defaults', async () => {
+  it('sets the overlay context per load / theme: bar duration, quantity decimals, colors, defaults', async () => {
     const a = await loadAt(BTC, '1h');
     expect(positionContext.barMs).toBe(3_600_000);
     expect(positionContext.qtyDecimals).toBe(6);

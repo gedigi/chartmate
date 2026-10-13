@@ -14,7 +14,7 @@ export interface ModalProps {
 }
 
 /**
- * Accessible modal dialog rendered into document.body: role=dialog + aria-modal, labelled by its title,
+ * Accessible modal dialog rendered into document.body: role=dialog + aria-modal, labeled by its title,
  * Escape and backdrop click close it, Tab is trapped inside, and focus returns to the previously focused
  * element when it unmounts. Initial focus goes to the first element marked `data-autofocus`, else the
  * first focusable element.

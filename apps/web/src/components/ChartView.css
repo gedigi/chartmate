@@ -80,7 +80,7 @@
   pointer-events: none;
 }
 
-/* Style bar of the selected drawing (top centre of the chart). */
+/* Style bar of the selected drawing (top center of the chart). */
 .drawing-style-bar {
   position: absolute;
   top: 8px;

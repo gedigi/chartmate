@@ -164,27 +164,27 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
 - **Drawings** are saved per symbol on the server (debounced ~1 s after each change). Points are stored in
   time/price coordinates (bar timestamp + price), not pixels, so they stay anchored to the same price and
   time across timeframes, zoom levels and window sizes.
-- **Chart appearance** (gear icon in the top bar): candle up/down colours, body style (filled, hollow,
-  hollow up, hollow down; OHLC bars use the colours only), line/area colour and width, and the default
-  style (colour, width, solid/dashed/dotted) of new drawings. It is global (stored in the `default` layout, not
+- **Chart appearance** (gear icon in the top bar): candle up/down colors, body style (filled, hollow,
+  hollow up, hollow down; OHLC bars use the colors only), line/area color and width, and the default
+  style (color, width, solid/dashed/dotted) of new drawings. It is global (stored in the `default` layout, not
   per symbol) and applies live. Appearance is **per theme**: the dialog edits the active theme ("Dark
   theme" / "Light theme"), toggling the theme switches to the other theme's settings, and "Reset to
-  defaults" resets only the active theme. A colour that barely shows on the theme background (contrast
+  defaults" resets only the active theme. A color that barely shows on the theme background (contrast
   ratio below 1.5) gets an inline "Low contrast" warning. Layouts saved before appearance was per theme
   (one flat appearance) still load: their settings become the dark theme's.
-- **Default candle colours** follow the theme's `--up` / `--down` CSS tokens (dark `#26a69a` / `#ef5350`,
+- **Default candle colors** follow the theme's `--up` / `--down` CSS tokens (dark `#26a69a` / `#ef5350`,
   light `#089981` / `#f23645`), so candles and the watchlist agree. Histogram indicators (VOL, MACD, AO)
-  default to the same up / down colours.
+  default to the same up / down colors.
 - **Readable labels**: the last-price label, text annotations and crosshair labels keep white text while it
-  reaches about 3:1 (2.99, so the default teal keeps white text) contrast with the label colour; otherwise
-  they use white or near-black, whichever contrasts more. KLineChart draws the last-price text in one colour
-  for up, down and unchanged labels, so the rule uses the worst case over the three colours. Start/version
-  marker labels keep their muted colour on the chart background under the same rule.
+  reaches about 3:1 (2.99, so the default teal keeps white text) contrast with the label color; otherwise
+  they use white or near-black, whichever contrasts more. KLineChart draws the last-price text in one color
+  for up, down and unchanged labels, so the rule uses the worst case over the three colors. Start/version
+  marker labels keep their muted color on the chart background under the same rule.
 - **Indicator settings** also set each line's width (1–4 px) and solid/dashed/dotted style, and the up/down bar
-  colours of histogram indicators (VOL, MACD, AO); unchanged bar colours follow the theme.
-- **Drawing styles**: selecting a drawing shows a small style bar at the top of the chart (colour, width,
-  solid/dashed/dotted; text annotations: colour and font size). Styles are saved with the drawing; drawings
-  without their own style follow the default drawing style. Legacy drawings with non-hex colours (or other
+  colors of histogram indicators (VOL, MACD, AO); unchanged bar colors follow the theme.
+- **Drawing styles**: selecting a drawing shows a small style bar at the top of the chart (color, width,
+  solid/dashed/dotted; text annotations: color and font size). Styles are saved with the drawing; drawings
+  without their own style follow the default drawing style. Legacy drawings with non-hex colors (or other
   unsupported style values) fall back to the default style on their next save.
 - **⌘ magnet**: hold **⌘** (macOS) or **Ctrl** (other systems) while placing or dragging a drawing to snap
   it to the nearest open/high/low/close (strong magnet); releasing the key returns to the toolbar's magnet
@@ -209,11 +209,11 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
     ⌘/Ctrl snaps it to OHLC). Target and stop start at ±2 % (long: target above, stop below; short inverted) and
     the box is about 20 bars wide (counted on the loaded bars, extrapolated with the timeframe past the last bar).
   - **Chart**: a green profit zone (entry → target) and a red loss zone (entry → stop) in the candle up / down
-    colours at 20 % opacity, the entry line, and labels `Target: <price> (<±%>) <±amount>`,
+    colors at 20 % opacity, the entry line, and labels `Target: <price> (<±%>) <±amount>`,
     `Stop: <price> (<±%>) <±amount>` and `<Long|Short> · Qty <q> · R:R <ratio>` (% and amounts are the
-    position's gain / loss at that level; label text is white or dark, whichever reads on its colour). Labels
-    are centred on the visible part of the box and stay inside the chart (a box wider than the screen still shows
-    them); the centre / outcome labels move to the right of a box narrower than them, the outcome label moves
+    position's gain / loss at that level; label text is white or dark, whichever reads on its color). Labels
+    are centerd on the visible part of the box and stay inside the chart (a box wider than the screen still shows
+    them); the center / outcome labels move to the right of a box narrower than them, the outcome label moves
     beyond the stop label when the stop zone is too short, and labels wider than the chart are cut with "…".
   - **Editing**: drag the target handle (top/bottom left corner) or the stop handle to change only that price
     (it stays on its side of the entry, at least 12 px away on screen so the entry handle stays reachable, and
@@ -244,7 +244,7 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
     - **Hits**: checked from the bar after the fill bar up to the end time (the order of prices inside the fill bar
       is unknown, so a target or stop also touched there counts only on later bars): the first bar reaching the
       target (long: high ≥ target, short: low ≤ target) or the stop (long: low ≤ stop, short: high ≥ stop) gives
-      "Target hit" / "Stop hit" with the realised P&L (amount and %) and the bar's date, and the traversed part of
+      "Target hit" / "Stop hit" with the realized P&L (amount and %) and the bar's date, and the traversed part of
       that zone (from the fill bar) is shaded more strongly. A bar reaching both counts as a stop hit (conservative).
     - **Gaps**: a bar opening beyond the stop (long: open < stop, short: open > stop) books the loss at its open;
       a bar opening beyond the target still books the gain at the target (never flattering).
@@ -260,8 +260,8 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
     other drawings.
 - **Parallel channels** are finite by default: click the start and end of the base line, then a third point for
   the channel's width. Both lines span exactly from the first to the second point's time, with a dashed midline
-  halfway between them (in the channel's colour and width, longer dashes when the channel itself is dashed or
-  dotted; not a stored point) and a subtle fill (the channel's colour at 8% opacity). Clicking a line, the
+  halfway between them (in the channel's color and width, longer dashes when the channel itself is dashed or
+  dotted; not a stored point) and a subtle fill (the channel's color at 8% opacity). Clicking a line, the
   midline or the fill selects (and drags) the channel; clicking beyond its ends does not. A right click inside
   the fill is ignored (a right click on a line removes the channel, as for other drawings).
   - **Extend left / Extend right** (style bar, TradingView-style) extend the lines, midline and fill to the
@@ -385,8 +385,8 @@ examples. Restart `pnpm dev` (or rebuild) after adding a file.
 params in the settings dialog (default 1…1000).
 
 `custom/wyckoff.ts` (with its calculation in `wyckoffCalc.ts`) is a port of the TradingView script
-'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colours in a `draw`
-callback. **Licence:** these two files (and their tests) are covered by the
+'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colors in a `draw`
+callback. **License:** these two files (and their tests) are covered by the
 [Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/), not by the rest of the project's terms; keep
 their MPL-2.0 headers and attribution when modifying or redistributing them.
 

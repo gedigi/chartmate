@@ -46,13 +46,13 @@ function usePollMs(info: SymbolInfo | null): { pollMs: number | null; basketHasC
   }, [isBasket, id]);
   useEffect(() => {
     if (!isBasket || !id) return;
-    let cancelled = false;
-    const done = (crypto: boolean) => { if (!cancelled) setBasket({ id, crypto }); };
+    let canceled = false;
+    const done = (crypto: boolean) => { if (!canceled) setBasket({ id, crypto }); };
     api.baskets.get(parseSymbolId(id).code).then(
       (b) => done(b.versions.some((v) => Object.keys(v.weights).some((w) => w.startsWith('crypto:')))),
       () => done(false),
     );
-    return () => { cancelled = true; };
+    return () => { canceled = true; };
   }, [isBasket, id, basketRev]);
   if (!info) return { pollMs: null, basketHasCrypto: false };
   if (!isBasket) return { pollMs: pollIntervalMs(info.assetClass), basketHasCrypto: false };
@@ -131,7 +131,7 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
 
   useEffect(() => { adapter?.setTheme(theme); }, [adapter, theme]);
   useEffect(() => { adapter?.setChartType(chartType); }, [adapter, chartType]);
-  // Global appearance (candle colours, line width, default drawing style); re-applied only on a change by value.
+  // Global appearance (candle colors, line width, default drawing style); re-applied only on a change by value.
   const appearanceJson = JSON.stringify(layout.appearance ?? null);
   useEffect(() => {
     adapter?.setAppearance(JSON.parse(appearanceJson) ?? undefined);
@@ -225,7 +225,7 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
 
   useEffect(() => {
     if (!adapter) return;
-    let cancelled = false;
+    let canceled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     setDrawingsFor(null);
     adapter.restoreDrawings([]);
@@ -233,12 +233,12 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
     const fetchDrawings = (attempt: number) => {
       api.drawings.get(symbol).then(
         (d) => {
-          if (cancelled) return;
+          if (canceled) return;
           adapter.restoreDrawings(d, symbol); // created once this symbol's data is in
           setDrawingsFor(symbol);
         },
         (err: unknown) => {
-          if (cancelled) return;
+          if (canceled) return;
           if (attempt === 0) setToast(`Could not load drawings (retrying): ${errorMessage(err)}`);
           timer = setTimeout(() => fetchDrawings(attempt + 1), retryDelayMs(attempt));
         },
@@ -246,7 +246,7 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
     };
     fetchDrawings(0);
     return () => {
-      cancelled = true;
+      canceled = true;
       clearTimeout(timer);
     };
   }, [adapter, symbol]);

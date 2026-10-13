@@ -10,7 +10,7 @@ export interface IndicatorSettingsProps {
   state: IndicatorState;
   onSave: (s: IndicatorState) => void;
   onClose: () => void;
-  /** Active theme: the default bar colours of histogram indicators follow its up / down colours. */
+  /** Active theme: the default bar colors of histogram indicators follow its up / down colors. */
   theme?: ThemeName;
 }
 
@@ -18,9 +18,9 @@ const WIDTHS = Array.from({ length: MAX_LINE_WIDTH - MIN_LINE_WIDTH + 1 }, (_, i
 
 /**
  * Edits one indicator's params (validated: integers ≥ 1, except params the catalog marks as decimal, which
- * must be > 0) and line colours. Colours are only saved while they differ from the defaults, so untouched
+ * must be > 0) and line colors. Colors are only saved while they differ from the defaults, so untouched
  * (or reset) indicators keep following the active theme's indicator palette. The same applies to line widths
- * (1–4) / styles (solid, dashed, dotted) and, for histogram indicators, the up/down bar colours.
+ * (1–4) / styles (solid, dashed, dotted) and, for histogram indicators, the up/down bar colors.
  */
 export function IndicatorSettings({ state, onSave, onClose, theme = 'dark' }: IndicatorSettingsProps): JSX.Element {
   const DEFAULT_BAR_COLORS = defaultBarColors(theme);
@@ -95,12 +95,12 @@ export function IndicatorSettings({ state, onSave, onClose, theme = 'dark' }: In
         })}
         {lines.length > 0 && (
           <fieldset className="settings-colors">
-            <legend>Colours</legend>
+            <legend>Colors</legend>
             {lines.map((line, i) => {
               const id = `${idBase}-c${i}`;
               return (
                 <div key={id} className="settings-row settings-line">
-                  <label htmlFor={id}>{line} colour</label>
+                  <label htmlFor={id}>{line} color</label>
                   <input
                     id={id}
                     type="color"
@@ -131,7 +131,7 @@ export function IndicatorSettings({ state, onSave, onClose, theme = 'dark' }: In
               const id = `${idBase}-bar-${k}`;
               return (
                 <div key={k} className="settings-row">
-                  <label htmlFor={id}>{k === 'up' ? 'Up' : 'Down'} bar colour</label>
+                  <label htmlFor={id}>{k === 'up' ? 'Up' : 'Down'} bar color</label>
                   <input id={id} type="color" value={bars[k]} onChange={(e) => setBars((b) => ({ ...b, [k]: e.target.value }))} />
                 </div>
               );

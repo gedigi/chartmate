@@ -46,22 +46,22 @@ export function useWatchlist(): UseWatchlist {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    let canceled = false;
     api.watchlist.get().then(
       (list) => {
-        if (cancelled) return;
+        if (canceled) return;
         if (list.length === 0 && !readFlag()) {
           setEntries(DEFAULT_ENTRIES);
           setLoaded(true);
-          saveList(DEFAULT_ENTRIES).catch((err: unknown) => { if (!cancelled) setSeedError(errorMessage(err)); });
+          saveList(DEFAULT_ENTRIES).catch((err: unknown) => { if (!canceled) setSeedError(errorMessage(err)); });
         } else {
           setEntries(list);
           setLoaded(true);
         }
       },
-      (err: unknown) => { if (!cancelled) setLoadError(errorMessage(err)); },
+      (err: unknown) => { if (!canceled) setLoadError(errorMessage(err)); },
     );
-    return () => { cancelled = true; };
+    return () => { canceled = true; };
   }, [saveList]);
 
   // Saving stays disabled until the server list is loaded (so a failed load never overwrites it).

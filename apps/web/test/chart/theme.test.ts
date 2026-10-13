@@ -27,7 +27,7 @@ describe('resolveAppearance', () => {
   });
 });
 
-describe('per-theme default candle colours (match the --up / --down CSS tokens)', () => {
+describe('per-theme default candle colors (match the --up / --down CSS tokens)', () => {
   it('dark #00d68f / #ff3b5c, light #00a870 / #d4113b', () => {
     expect(THEME_TOKENS.dark).toMatchObject({ up: '#00d68f', down: '#ff3b5c' });
     expect(THEME_TOKENS.light).toMatchObject({ up: '#00a870', down: '#d4113b' });
@@ -43,7 +43,7 @@ describe('per-theme default candle colours (match the --up / --down CSS tokens)'
   });
 });
 
-describe('indicator histogram bar defaults follow the theme up / down colours', () => {
+describe('indicator histogram bar defaults follow the theme up / down colors', () => {
   it('defaultBarColors(theme) and the chart-level indicator bar styles', () => {
     expect(defaultBarColors('dark')).toEqual({ up: '#00d68f', down: '#ff3b5c' });
     expect(defaultBarColors('light')).toEqual({ up: '#00a870', down: '#d4113b' });
@@ -56,7 +56,7 @@ describe('indicator histogram bar defaults follow the theme up / down colours', 
 });
 
 describe('candleStyles', () => {
-  it('maps up/down colours onto bodies, borders, wicks and the last-price mark', () => {
+  it('maps up/down colors onto bodies, borders, wicks and the last-price mark', () => {
     const s = candleStyles('candle', 'dark', { dark: { upColor: '#00ff00', downColor: '#ff00ff' } });
     expect(s.type).toBe('candle_solid');
     expect(s.bar).toMatchObject({
@@ -66,7 +66,7 @@ describe('candleStyles', () => {
     expect(s.priceMark?.last).toMatchObject({ upColor: '#00ff00', downColor: '#ff00ff' });
   });
 
-  it('maps the body style for candles; OHLC bars keep type ohlc but take the colours', () => {
+  it('maps the body style for candles; OHLC bars keep type ohlc but take the colors', () => {
     expect(candleStyles('candle', 'dark', { dark: { candleBody: 'hollow' } }).type).toBe('candle_stroke');
     expect(candleStyles('candle', 'dark', { dark: { candleBody: 'hollow_up' } }).type).toBe('candle_up_stroke');
     expect(candleStyles('candle', 'dark', { dark: { candleBody: 'hollow_down' } }).type).toBe('candle_down_stroke');
@@ -75,7 +75,7 @@ describe('candleStyles', () => {
     expect(ohlc.bar?.upColor).toBe('#010203');
   });
 
-  it('line/area use the appearance line colour and width; defaults follow the theme accent', () => {
+  it('line/area use the appearance line color and width; defaults follow the theme accent', () => {
     const line = candleStyles('line', 'dark', { dark: { lineColor: '#ff8800', lineWidth: 3 } });
     expect(line.type).toBe('area');
     expect(line.area).toMatchObject({ lineColor: '#ff8800', lineSize: 3 });
@@ -90,7 +90,7 @@ describe('candleStyles', () => {
 describe('readable label text', () => {
   const lastText = (theme: 'dark' | 'light', a: Parameters<typeof candleStyles>[2]) => candleStyles('candle', theme, a).priceMark?.last?.text?.color;
 
-  it('the last price label text stays readable on a white up colour, in both themes', () => {
+  it('the last price label text stays readable on a white up color, in both themes', () => {
     // The reported layout: white up, pink down (white text on the white label was invisible).
     const user = { upColor: '#ffffff', downColor: '#e63b7a' };
     for (const theme of ['dark', 'light'] as const) {
@@ -100,7 +100,7 @@ describe('readable label text', () => {
     }
   });
 
-  it('the default last price label text reads on every label colour: dark on the light dark-theme mint, white in light', () => {
+  it('the default last price label text reads on every label color: dark on the light dark-theme mint, white in light', () => {
     const expected = { dark: DARK_TEXT, light: LIGHT_TEXT } as const;
     for (const theme of ['dark', 'light'] as const) {
       expect(lastText(theme, undefined)).toBe(expected[theme]);
@@ -110,16 +110,16 @@ describe('readable label text', () => {
     }
   });
 
-  it('the last price label text is light on dark label colours', () => {
+  it('the last price label text is light on dark label colors', () => {
     expect(lastText('dark', { dark: { upColor: '#000000', downColor: '#1a237e' } })).toBe(LIGHT_TEXT);
   });
 
-  it('the default overlay text (annotation bubble = drawing colour) is readable', () => {
+  it('the default overlay text (annotation bubble = drawing color) is readable', () => {
     expect(overlayStyles({ color: '#ffffff', size: 1, style: 'solid' }).text).toMatchObject({ color: DARK_TEXT, backgroundColor: '#ffffff' });
     expect(overlayStyles({ color: '#2b66ff', size: 1, style: 'solid' }).text).toMatchObject({ color: LIGHT_TEXT });
   });
 
-  it('per-drawing annotation styles carry a readable text colour', () => {
+  it('per-drawing annotation styles carry a readable text color', () => {
     expect(textToOverlay({ color: '#ffffff', size: 14 }).text).toMatchObject({ color: DARK_TEXT, backgroundColor: '#ffffff', size: 14 });
     expect(textToOverlay({ color: '#000000', size: 14 }).text).toMatchObject({ color: LIGHT_TEXT });
   });
@@ -139,7 +139,7 @@ describe('readable label text', () => {
     }
   });
 
-  it('marker text falls back to white / dark when the muted colour would not read on the background', () => {
+  it('marker text falls back to white / dark when the muted color would not read on the background', () => {
     const root = document.documentElement;
     root.dataset['theme'] = 'dark';
     root.style.setProperty('--text-muted', '#1a1e2a');
@@ -188,9 +188,9 @@ describe('theme tokens from CSS custom properties', () => {
     expect(themeTokens('light')).toEqual(THEME_TOKENS.light);
   });
 
-  it('falls back to the constants when the variables are missing or not colours', () => {
+  it('falls back to the constants when the variables are missing or not colors', () => {
     root.dataset['theme'] = 'dark';
-    root.style.setProperty('--accent', 'not a colour');
+    root.style.setProperty('--accent', 'not a color');
     refreshThemeTokens('dark');
     expect(themeTokens('dark')).toEqual(THEME_TOKENS.dark);
   });

@@ -92,28 +92,28 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
   const sectionCount = entries.length - ids.length;
 
   // Symbol info (names, price precision), cached per id; failures are retried with backoff.
-  // Each pending id owns a load chain; cancelling it (id removed, or unmount) stops any further retry,
+  // Each pending id owns a load chain; canceling it (id removed, or unmount) stops any further retry,
   // including one a request still in flight would otherwise schedule.
-  const infoLoads = useRef(new Map<string, { cancelled: boolean; timer?: ReturnType<typeof setTimeout> }>());
+  const infoLoads = useRef(new Map<string, { canceled: boolean; timer?: ReturnType<typeof setTimeout> }>());
   useEffect(() => {
     const loads = infoLoads.current;
     const current = new Set(key === '' ? [] : key.split(','));
     for (const [id, chain] of loads) {
       if (current.has(id)) continue;
-      chain.cancelled = true;
+      chain.canceled = true;
       clearTimeout(chain.timer);
       loads.delete(id);
       requestedInfo.current.delete(id); // re-adding the id later starts a fresh chain
     }
-    const load = (id: SymbolId, chain: { cancelled: boolean; timer?: ReturnType<typeof setTimeout> }, attempt: number) => {
+    const load = (id: SymbolId, chain: { canceled: boolean; timer?: ReturnType<typeof setTimeout> }, attempt: number) => {
       api.symbol(id).then(
         (info) => {
-          if (chain.cancelled) return;
+          if (chain.canceled) return;
           loads.delete(id);
           setInfos((cur) => ({ ...cur, [id]: info }));
         },
         () => {
-          if (chain.cancelled) return;
+          if (chain.canceled) return;
           chain.timer = setTimeout(() => load(id, chain, attempt + 1), retryDelayMs(attempt));
         },
       );
@@ -121,7 +121,7 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
     for (const id of current) {
       if (requestedInfo.current.has(id)) continue;
       requestedInfo.current.add(id);
-      const chain = { cancelled: false };
+      const chain = { canceled: false };
       loads.set(id, chain);
       load(id, chain, 0);
     }
@@ -131,7 +131,7 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
     const requested = requestedInfo.current;
     return () => {
       for (const [id, chain] of loads) {
-        chain.cancelled = true;
+        chain.canceled = true;
         clearTimeout(chain.timer);
         requested.delete(id);
       }
@@ -143,12 +143,12 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
   useEffect(() => {
     if (setKey === '') return;
     const list = setKey.split(',');
-    let cancelled = false;
+    let canceled = false;
     const pollQuotes = () => {
       if (document.hidden) return;
       api.quotes(list).then(
         (res) => {
-          if (cancelled) return;
+          if (canceled) return;
           setQuotes((cur) => {
             const next = { ...cur };
             for (const q of res) next[q.id] = q;
@@ -161,7 +161,7 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
     const pollSparks = () => {
       if (document.hidden) return;
       api.sparklines(list).then(
-        (map) => { if (!cancelled) setSparks((cur) => ({ ...cur, ...map })); },
+        (map) => { if (!canceled) setSparks((cur) => ({ ...cur, ...map })); },
         () => { /* keep previous sparklines */ },
       );
     };
@@ -172,7 +172,7 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
     const onVis = () => { if (!document.hidden) { pollQuotes(); pollSparks(); } };
     document.addEventListener('visibilitychange', onVis);
     return () => {
-      cancelled = true;
+      canceled = true;
       clearInterval(qt);
       clearInterval(st);
       document.removeEventListener('visibilitychange', onVis);

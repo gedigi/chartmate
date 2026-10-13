@@ -16,7 +16,7 @@ export interface WyckoffBarResult {
   boxes: WyckoffBox[];
 }
 
-/** Theme text colour (Pine's default `color_` is white; the theme colour keeps labels readable in light mode). */
+/** Theme text color (Pine's default `color_` is white; the theme color keeps labels readable in light mode). */
 function textColor(chart: Chart): string {
   const s = chart.getStyles();
   return s.candle?.tooltip?.title?.color ?? s.indicator?.tooltip?.title?.color ?? '#888888';
@@ -32,7 +32,7 @@ const LABEL_SIZE = 10;
 export interface BarRect { x: number; y: number; w: number; h: number; stroke: boolean }
 
 /**
- * Rectangles of a recoloured bar (Pine's barcolor keeps the bar style), with the same geometry KLineChart's
+ * Rectangles of a recolored bar (Pine's barcolor keeps the bar style), with the same geometry KLineChart's
  * CandleBarView uses for `type`: solid candle (wick + filled body), hollow candle (wick halves + stroke-only
  * body; per direction for candle_up_stroke / candle_down_stroke) or OHLC bar (vertical bar + open tick on the
  * left, close tick on the right). Nothing for 'area'. `px` are the bar's prices in pixels.
@@ -73,7 +73,7 @@ export function barcolorRects(
   }
 }
 
-/** Draws a triangle (tip up when `up`) whose base/tip spans [y, y ± h] centred on x. */
+/** Draws a triangle (tip up when `up`) whose base/tip spans [y, y ± h] centerd on x. */
 function triangle(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, up: boolean, color: string): void {
   ctx.fillStyle = color;
   ctx.beginPath();
@@ -105,7 +105,7 @@ export function drawWyckoff({ ctx, chart, indicator, xAxis, yAxis }: IndicatorDr
 
   ctx.save();
 
-  // Boxes (rect + centred text), in creation order so newer boxes paint over older ones.
+  // Boxes (rect + centerd text), in creation order so newer boxes paint over older ones.
   for (const r of result) {
     for (const b of r?.boxes ?? []) {
       const l = Math.min(b.left, b.right);
@@ -179,7 +179,7 @@ export function drawWyckoff({ ctx, chart, indicator, xAxis, yAxis }: IndicatorDr
     let below = yAxis.convertToPixel(d.low) + TRIANGLE_GAP;
     let above = yAxis.convertToPixel(d.high) - TRIANGLE_GAP;
     for (const s of signals) {
-      const small = s.text === '' ? 0.8 : 1; // the unlabelled orange pivots (size.auto) are a little smaller
+      const small = s.text === '' ? 0.8 : 1; // the unlabeled orange pivots (size.auto) are a little smaller
       const w = tw * small;
       const h = th * small;
       if (s.position === 'below') {
@@ -222,8 +222,8 @@ export function wyckoffBarResults(
 
 /**
  * Wyckoff accumulation/distribution (port of faytterro's Pine script): RSI-based sideways ranges drawn as boxes
- * (recoloured Accumulation / Distribution by the trend that follows), Wyckoff events (SC, AR, ST / BC, AR, ST)
- * on pivots, and trend bar colours. Computed on the last 1000 bars, like the original's calc_bars_count.
+ * (recolored Accumulation / Distribution by the trend that follows), Wyckoff events (SC, AR, ST / BC, AR, ST)
+ * on pivots, and trend bar colors. Computed on the last 1000 bars, like the original's calc_bars_count.
  */
 const indicator: CustomIndicator = {
   template: {

@@ -235,7 +235,7 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     getStyles: () => ({ overlay: { line: { color: '#2962ff', size: 1, style: 'solid' } } }),
   });
 
-  it('re-registers the affected built-ins once, keeping their own behaviour', () => {
+  it('re-registers the affected built-ins once, keeping their own behavior', () => {
     T.registerDrawingTemplates();
     expect([...k.templates.keys()].sort()).toEqual(['horizontalStraightLine', 'parallelChannel', 'parallelStraightLine', 'priceLine', 'rayLine', 'segment', 'straightLine']);
     expect(tpl('segment').totalStep).toBe(3);
@@ -280,7 +280,7 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     const mid = midOf(figs)!;
     expect(mid.attrs.coordinates).toEqual([{ x: 0, y: -20 }, { x: 200, y: 180 }]);
     expect(mid.styles).toEqual({ style: 'dashed', dashedValue: midlineDash('dashed', 2), lineCap: 'butt' });
-    expect(mid.styles).not.toHaveProperty('color'); // colour and width come from the channel's line style
+    expect(mid.styles).not.toHaveProperty('color'); // color and width come from the channel's line style
   });
 
   it('new channel: finite by default; lines and midline span the first to the second point, a translucent fill between', () => {
@@ -301,7 +301,7 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     expect(fill.attrs.coordinates).toEqual([{ x: 100, y: 50 }, { x: 200, y: 100 }, { x: 200, y: 200 }, { x: 100, y: 150 }]);
     expect(fill.styles).toMatchObject({ style: 'fill', color: 'rgba(255, 0, 0, 0.08)' });
     expect(fill.ignoreEvent).toEqual(['onRightClick']); // left click selects / drags; right click (remove) is ignored
-    // Default (theme) line colour when the channel has none of its own.
+    // Default (theme) line color when the channel has none of its own.
     const plain = t.createPointFigures({ chart: chart(), overlay: { name: 'parallelChannel', styles: null }, coordinates: coords, bounding });
     expect(plain[0].styles.color).toBe('rgba(41, 98, 255, 0.08)');
   });

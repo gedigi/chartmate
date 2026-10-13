@@ -15,7 +15,7 @@ import { getOverlayClass, registerOverlay, type OverlayFigure, type OverlayTempl
 
 /** `v` rounded to `decimals` decimals (clean binary value, e.g. 1.005 → 1.01, never 1.0049999). */
 export function roundPrice(v: number, decimals: number): number {
-  // Decimal shift via the exponent notation avoids binary artefacts (1.005 * 100 = 100.49999…).
+  // Decimal shift via the exponent notation avoids binary artifacts (1.005 * 100 = 100.49999…).
   const shifted = Number(`${Math.round(Number(`${v}e${decimals}`))}e-${decimals}`);
   if (Number.isFinite(shifted)) return shifted;
   const f = 10 ** decimals; // v itself was in exponent notation
@@ -116,7 +116,7 @@ export function channelGeometry(
   };
 }
 
-/** Opacity of a channel's fill (its line colour). */
+/** Opacity of a channel's fill (its line color). */
 export const CHANNEL_FILL_ALPHA = 0.08;
 
 /** `color` ('#rrggbb' / '#rgb', else the default accent) at `alpha`, as an rgba() string. */
@@ -269,7 +269,7 @@ function withChannel(t: Template, fill: boolean): Template {
       figures.push({ type: 'line', attrs: g.lines } as unknown as OverlayFigure);
       if (g.midline) {
         const size = typeof line.size === 'number' ? line.size : 1;
-        // Colour and width are inherited from the channel's line style (KLineChart merges figure styles over it).
+        // Color and width are inherited from the channel's line style (KLineChart merges figure styles over it).
         figures.push({ type: 'line', attrs: g.midline, styles: { style: 'dashed', dashedValue: midlineDash(kindOf(line), size), lineCap: 'butt' } } as OverlayFigure);
       }
       return figures;

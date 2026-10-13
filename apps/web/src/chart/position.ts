@@ -165,7 +165,7 @@ export function stopLabel(g: PositionGeometry, m: PositionMetrics, precision: nu
   return `Stop: ${g.stop.toFixed(precision)} (${formatPct(-m.stopPct)}) ${formatAmount(-m.riskAmount, currency)}`;
 }
 
-export function centreLabel(side: PositionSide, m: Pick<PositionMetrics, 'qty' | 'rr'>): string {
+export function centerLabel(side: PositionSide, m: Pick<PositionMetrics, 'qty' | 'rr'>): string {
   return `${side === 'long' ? 'Long' : 'Short'} · Qty ${formatQty(m.qty)} · R:R ${m.rr.toFixed(2)}`;
 }
 

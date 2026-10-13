@@ -14,7 +14,7 @@ const indicator: CustomIndicator = {
     series: 'price',
     calcParams: [],
     figures: [{ key: 'vwap', title: 'VWAP: ', type: 'line' }],
-    styles: { lines: [{ style: 'solid', smooth: false, size: 1, dashedValue: [2, 2] }] }, // colour: palette slot 3 (cyan), set by the chart adapter per theme
+    styles: { lines: [{ style: 'solid', smooth: false, size: 1, dashedValue: [2, 2] }] }, // color: palette slot 3 (cyan), set by the chart adapter per theme
     calc: (dataList, ind) => {
       const ext = ind.extendData as IndicatorExtendData | undefined;
       if (ext?.intraday === false) return vwap(dataList, () => 0);

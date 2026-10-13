@@ -359,7 +359,7 @@ describe('ChartView', () => {
     expect(update(LAYOUT)).toEqual({ ...LAYOUT, positionDefaults: settings });
   });
 
-  it('passes indicator line widths / styles / bar colours to the adapter', async () => {
+  it('passes indicator line widths / styles / bar colors to the adapter', async () => {
     const vol = { name: 'VOL', pane: 'sub' as const, calcParams: [5, 10, 20], visible: true, lineWidths: [2], lineStyles: ['dashed' as const], barColors: { up: '#00ff00', down: '#ff0000' } };
     const { rerenderWith } = renderView({ ...LAYOUT, indicators: [vol] });
     await flush();
@@ -383,7 +383,7 @@ describe('ChartView', () => {
     act(() => adapter().selectionCb!({ id: 'ov_1', kind: 'line', style: { color: '#ff0000', size: 2, style: 'solid' } }));
     const bar = screen.getByRole('toolbar', { name: 'Drawing style' });
     expect(bar).toBeInTheDocument();
-    const color = screen.getByLabelText('Drawing colour') as HTMLInputElement;
+    const color = screen.getByLabelText('Drawing color') as HTMLInputElement;
     expect(color.value).toBe('#ff0000');
     act(() => { fireInput(color, '#00ff00'); });
     expect(adapter().setSelectedStyle).toHaveBeenLastCalledWith({ color: '#00ff00' });

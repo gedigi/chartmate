@@ -352,7 +352,7 @@ describe('createDataLoader polling', () => {
     expect(events.onConnection.mock.calls.map((c) => c[0])).toEqual([true, false]);
   });
 
-  it('a newer bar backfills [lastTs, bar.ts + tf) in order, finalising the previously forming bar', async () => {
+  it('a newer bar backfills [lastTs, bar.ts + tf) in order, finalizing the previously forming bar', async () => {
     const { fetchBars, fetchLatest, onBar } = await subscribed();
     fetchBars.mockClear();
     fetchBars.mockResolvedValueOnce(barsRes([

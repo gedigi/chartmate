@@ -28,7 +28,7 @@ const BODY_STYLES: ReadonlyArray<{ value: CandleBodyStyle; label: string }> = [
   { value: 'hollow_down', label: 'Hollow down' },
 ];
 
-/** Up + down candle drawn with the chosen colours and body style. */
+/** Up + down candle drawn with the chosen colors and body style. */
 function CandlePreview({ up, down, body }: { up: string; down: string; body: CandleBodyStyle }): JSX.Element {
   const hollowUp = body === 'hollow' || body === 'hollow_up';
   const hollowDown = body === 'hollow' || body === 'hollow_down';
@@ -46,15 +46,15 @@ function CandlePreview({ up, down, body }: { up: string; down: string; body: Can
   );
 }
 
-/** Below this contrast ratio against the chart background a colour barely shows. */
+/** Below this contrast ratio against the chart background a color barely shows. */
 export const LOW_CONTRAST_RATIO = 1.5;
 
 const THEME_LABEL: Record<ThemeName, string> = { dark: 'Dark theme', light: 'Light theme' };
 
 /**
- * Chart appearance of the active theme (each theme keeps its own): candle colours and body style, line/area
- * colour and width, and the default style of new drawings. Changes apply live; "Reset to defaults" returns this
- * theme to its default colours. Colours that barely show on the theme background get an inline warning.
+ * Chart appearance of the active theme (each theme keeps its own): candle colors and body style, line/area
+ * color and width, and the default style of new drawings. Changes apply live; "Reset to defaults" returns this
+ * theme to its default colors. Colors that barely show on the theme background get an inline warning.
  */
 export function ChartAppearanceDialog({ appearance, theme, chartType, onChange, onClose }: ChartAppearanceDialogProps): JSX.Element {
   const r = resolveThemeAppearance(theme, appearance);
@@ -63,8 +63,8 @@ export function ChartAppearanceDialog({ appearance, theme, chartType, onChange, 
   const bg = themeTokens(theme).bg;
   const warningText = `Low contrast on the ${theme} background`;
   const lowContrast = (c: string) => contrastRatio(c, bg) < LOW_CONTRAST_RATIO;
-  /** Input + inline warning for a colour drawn on the chart background. */
-  const colourInput = (k: string, label: string, value: string, onPick: (v: string) => void, autoFocus = false) => {
+  /** Input + inline warning for a color drawn on the chart background. */
+  const colorInput = (k: string, label: string, value: string, onPick: (v: string) => void, autoFocus = false) => {
     const low = lowContrast(value);
     return (
       <>
@@ -86,8 +86,8 @@ export function ChartAppearanceDialog({ appearance, theme, chartType, onChange, 
       <p className="indicator-settings-subtitle appearance-theme">{THEME_LABEL[theme]}</p>
       <fieldset className="settings-colors">
         <legend>Candles</legend>
-        {colourInput('up', 'Up colour', r.upColor, (v) => set({ upColor: v }), true)}
-        {colourInput('down', 'Down colour', r.downColor, (v) => set({ downColor: v }))}
+        {colorInput('up', 'Up color', r.upColor, (v) => set({ upColor: v }), true)}
+        {colorInput('down', 'Down color', r.downColor, (v) => set({ downColor: v }))}
         <div className="settings-row">
           <label htmlFor={id('body')}>Body style</label>
           <select id={id('body')} value={r.candleBody} onChange={(e) => set({ candleBody: e.target.value as CandleBodyStyle })}>
@@ -95,11 +95,11 @@ export function ChartAppearanceDialog({ appearance, theme, chartType, onChange, 
           </select>
         </div>
         <CandlePreview up={r.upColor} down={r.downColor} body={r.candleBody} />
-        {chartType === 'ohlc' && <p className="indicator-settings-note">OHLC bars use the up/down colours only.</p>}
+        {chartType === 'ohlc' && <p className="indicator-settings-note">OHLC bars use the up/down colors only.</p>}
       </fieldset>
       <fieldset className="settings-colors">
         <legend>Line / area</legend>
-        {colourInput('line', 'Line colour', r.lineColor, (v) => set({ lineColor: v }))}
+        {colorInput('line', 'Line color', r.lineColor, (v) => set({ lineColor: v }))}
         <div className="settings-row">
           <label htmlFor={id('lw')}>Line width</label>
           <select id={id('lw')} value={r.lineWidth} onChange={(e) => set({ lineWidth: Number(e.target.value) })}>{widthOptions}</select>
@@ -107,7 +107,7 @@ export function ChartAppearanceDialog({ appearance, theme, chartType, onChange, 
       </fieldset>
       <fieldset className="settings-colors">
         <legend>Default drawing style</legend>
-        {colourInput('dc', 'Drawing colour', r.drawing.color, (v) => setDrawing({ color: v }))}
+        {colorInput('dc', 'Drawing color', r.drawing.color, (v) => setDrawing({ color: v }))}
         <div className="settings-row">
           <label htmlFor={id('dw')}>Drawing width</label>
           <select id={id('dw')} value={r.drawing.size} onChange={(e) => setDrawing({ size: Number(e.target.value) })}>{widthOptions}</select>

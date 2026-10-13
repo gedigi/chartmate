@@ -35,11 +35,11 @@ describe('DrawingStyleBar', () => {
     expect(bar()).toBeNull();
   });
 
-  it('line kind: colour, widths 1–4 and solid/dashed', () => {
+  it('line kind: color, widths 1–4 and solid/dashed', () => {
     const { c, emit } = makeControls();
     render(<DrawingStyleBar controls={c} />);
     emit({ id: 'a', kind: 'line', style: { color: '#123456', size: 3, style: 'dashed' }, locked: false });
-    expect(screen.getByLabelText('Drawing colour')).toHaveValue('#123456');
+    expect(screen.getByLabelText('Drawing color')).toHaveValue('#123456');
     const width = screen.getByLabelText('Line width');
     expect(width).toHaveValue('3');
     expect(within(width).getAllByRole('option').map((o) => o.textContent)).toEqual(['1px', '2px', '3px', '4px']);
@@ -51,7 +51,7 @@ describe('DrawingStyleBar', () => {
     expect(c.setSelectedStyle).toHaveBeenLastCalledWith({ style: 'solid' });
   });
 
-  it('text kind: colour + font sizes 10–24 (an unusual current size is listed too)', () => {
+  it('text kind: color + font sizes 10–24 (an unusual current size is listed too)', () => {
     const { c, emit } = makeControls();
     render(<DrawingStyleBar controls={c} />);
     emit({ id: 't', kind: 'text', style: { color: '#ff0000', size: 12 }, locked: false });
@@ -62,7 +62,7 @@ describe('DrawingStyleBar', () => {
     expect(screen.queryByLabelText('Line style')).toBeNull();
     fireEvent.change(size, { target: { value: '24' } });
     expect(c.setSelectedStyle).toHaveBeenLastCalledWith({ size: 24 });
-    fireEvent.input(screen.getByLabelText('Drawing colour'), { target: { value: '#00ff00' } });
+    fireEvent.input(screen.getByLabelText('Drawing color'), { target: { value: '#00ff00' } });
     expect(c.setSelectedStyle).toHaveBeenLastCalledWith({ color: '#00ff00' });
     emit({ id: 't', kind: 'text', style: { color: '#ff0000', size: 13 }, locked: false });
     expect(within(screen.getByLabelText('Font size')).getAllByRole('option').map((o) => o.textContent)).toContain('13px');
@@ -74,7 +74,7 @@ describe('DrawingStyleBar', () => {
     emit({ id: 'a', kind: 'line', style: { color: '#123456', size: 1, style: 'solid' }, locked: true });
     expect(bar()).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByText('Locked')).toBeInTheDocument();
-    for (const label of ['Drawing colour', 'Line width', 'Line style']) expect(screen.getByLabelText(label)).toBeDisabled();
+    for (const label of ['Drawing color', 'Line width', 'Line style']) expect(screen.getByLabelText(label)).toBeDisabled();
   });
 
   it('unsubscribes on unmount', () => {

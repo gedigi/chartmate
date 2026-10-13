@@ -60,13 +60,13 @@ function useSymbolInfo(symbol: SymbolId): { state: SymbolInfoState; retry: () =>
   const [state, setState] = useState<{ id: SymbolId; value: SymbolInfoState } | null>(null);
   const [attemptKey, setAttemptKey] = useState(0);
   useEffect(() => {
-    let cancelled = false;
+    let canceled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = (attempt: number) => {
       api.symbol(symbol).then(
-        (info) => { if (!cancelled) setState({ id: symbol, value: { status: 'ready', info } }); },
+        (info) => { if (!canceled) setState({ id: symbol, value: { status: 'ready', info } }); },
         (err: unknown) => {
-          if (cancelled) return;
+          if (canceled) return;
           setState({ id: symbol, value: { status: 'error', message: errorMessage(err) } });
           timer = setTimeout(() => load(attempt + 1), retryDelayMs(attempt));
         },
@@ -74,7 +74,7 @@ function useSymbolInfo(symbol: SymbolId): { state: SymbolInfoState; retry: () =>
     };
     load(0);
     return () => {
-      cancelled = true;
+      canceled = true;
       clearTimeout(timer);
     };
   }, [symbol, attemptKey]);
@@ -99,15 +99,15 @@ function useShowSession(symbol: SymbolId): boolean {
 
   useEffect(() => {
     if (assetClass !== 'basket') return;
-    let cancelled = false;
+    let canceled = false;
     api.baskets.get(code).then(
       (b) => {
         const hasStock = b.versions.some((v) => Object.keys(v.weights).some((id) => id.startsWith('stock:')));
-        if (!cancelled) setBasketHasStock({ id: symbol, value: hasStock });
+        if (!canceled) setBasketHasStock({ id: symbol, value: hasStock });
       },
-      () => { if (!cancelled) setBasketHasStock({ id: symbol, value: false }); },
+      () => { if (!canceled) setBasketHasStock({ id: symbol, value: false }); },
     );
-    return () => { cancelled = true; };
+    return () => { canceled = true; };
   }, [symbol, assetClass, code, basketRev]);
 
   if (assetClass === 'stock') return true;

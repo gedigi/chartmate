@@ -7,9 +7,9 @@ import { DEFAULT_LAYOUT, migrateColorDefaults, useLayout, withoutLegacyDefaults 
 
 const ma = { name: 'MA', pane: 'main' as const, calcParams: [20], visible: true };
 const rsi = { name: 'RSI', pane: 'sub' as const, calcParams: [14], visible: true };
-/** Saved by the current version (colours already migrated). */
+/** Saved by the current version (colors already migrated). */
 const saved: Layout = { symbol: 'stock:AAPL', tf: '1h', session: 'rth', chartType: 'candle', indicators: [ma], colorDefaultsRev: COLOR_DEFAULTS_REV };
-/** The same layout as saved before the colour-defaults revision existed. */
+/** The same layout as saved before the color-defaults revision existed. */
 const { colorDefaultsRev: _rev, ...savedRev0 } = saved;
 /** A legacy per-symbol row: must be ignored (never requested, never adopted). */
 const legacyMsftSym: Layout = { ...saved, symbol: 'stock:MSFT', indicators: [rsi] };
@@ -78,7 +78,7 @@ describe('useLayout (one global indicator set in the default layout)', () => {
     expect(result.current.layout).toEqual({ ...saved, appearance: { dark: flat } });
   });
 
-  it('once: a layout from before the colour revision gets old-default colours unset, is stamped and saved back', async () => {
+  it('once: a layout from before the color revision gets old-default colors unset, is stamped and saved back', async () => {
     const appearance = {
       dark: { upColor: '#26A69A', downColor: '#e63b7a', drawing: { color: '#2962ff', size: 1, style: 'solid' as const } },
       light: { upColor: '#10a37a', downColor: '#f23645', lineColor: '#3d6af5' },
@@ -99,7 +99,7 @@ describe('useLayout (one global indicator set in the default layout)', () => {
     expect(put).toHaveBeenCalledTimes(1);
   });
 
-  it('a layout already at the current revision keeps old-default colours the user picked (no revert on reload)', async () => {
+  it('a layout already at the current revision keeps old-default colors the user picked (no revert on reload)', async () => {
     const l = { ...saved, appearance: { dark: { upColor: '#26a69a', lineColor: '#2962ff' } } };
     vi.mocked(api.layouts.get).mockResolvedValue(l);
     const { result } = renderHook(() => useLayout());
@@ -114,12 +114,12 @@ describe('useLayout (one global indicator set in the default layout)', () => {
     expect(withoutLegacyDefaults({ ...saved, appearance: { dark: { upColor: '#26a69a' } } })).toEqual(saved);
     expect(withoutLegacyDefaults({ ...saved, appearance: { light: { drawing: { color: '#2962FF', size: 3, style: 'dashed' } } } }))
       .toEqual({ ...saved, appearance: { light: { drawing: { color: '#2b66ff', size: 3, style: 'dashed' } } } });
-    // The other theme's old defaults are user colours here (light #089981 in the dark theme stays).
+    // The other theme's old defaults are user colors here (light #089981 in the dark theme stays).
     expect(withoutLegacyDefaults({ ...saved, appearance: { dark: { upColor: '#089981' } } })).toEqual({ ...saved, appearance: { dark: { upColor: '#089981' } } });
     expect(withoutLegacyDefaults(saved)).toBe(saved);
   });
 
-  it('bar colours: direction-aware — an inverted legacy pair is the user\'s choice and is kept', () => {
+  it('bar colors: direction-aware — an inverted legacy pair is the user\'s choice and is kept', () => {
     const ind = (barColors: { up: string; down: string }) => ({ ...saved, indicators: [{ ...ma, barColors }] });
     expect(withoutLegacyDefaults(ind({ up: '#ef5350', down: '#26a69a' }))).toEqual(ind({ up: '#ef5350', down: '#26a69a' }));
     expect(withoutLegacyDefaults(ind({ up: '#089981', down: '#123456' }))).toEqual(ind({ up: '#00a870', down: '#123456' }));

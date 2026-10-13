@@ -1,5 +1,5 @@
 /*
- * Design tokens. Colours per theme; the chart reads the ones listed in THEME_CSS_VARS (src/chart/theme.ts, whose
+ * Design tokens. Colors per theme; the chart reads the ones listed in THEME_CSS_VARS (src/chart/theme.ts, whose
  * THEME_TOKENS fallback must stay equal: a parity test checks it). Keep each theme block free of var() for those.
  *   surfaces  --bg (app + chart) < --bg-panel (bars, sidebars) < --bg-elevated (inputs, menus, dialogs)
  *   text      --text > --text-muted (secondary, ≥ 4.5:1) > --text-subtle (placeholders, disabled)
@@ -160,7 +160,7 @@ input[type='color']::-webkit-color-swatch-wrapper { padding: 0; }
 input[type='color']::-webkit-color-swatch { border: none; border-radius: 3px; }
 input[type='checkbox'] { min-height: 0; accent-color: var(--accent); }
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-/* Text fields and selects show focus with the border + halo above; checkboxes and colour swatches keep the ring. */
+/* Text fields and selects show focus with the border + halo above; checkboxes and color swatches keep the ring. */
 input:not([type='checkbox']):not([type='color']):focus-visible, select:focus-visible { outline: none; }
 input[type='checkbox']:focus-visible, input[type='color']:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 

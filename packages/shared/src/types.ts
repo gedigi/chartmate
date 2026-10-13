@@ -29,7 +29,7 @@ export interface IndicatorState {
   lineWidths?: number[];
   /** Per line style; default solid. */
   lineStyles?: LineStyleKind[];
-  /** Histogram (bar figure) colours; default KLineChart's green/red. */
+  /** Histogram (bar figure) colors; default KLineChart's green/red. */
   barColors?: { up: string; down: string };
 }
 export type ChartType = 'candle'|'ohlc'|'line'|'area';
@@ -45,7 +45,7 @@ export interface ChartAppearance {
   upColor?: string;
   downColor?: string;
   candleBody?: CandleBodyStyle;
-  /** Line / area chart line colour and width (1–4). */
+  /** Line / area chart line color and width (1–4). */
   lineColor?: string;
   lineWidth?: number;
   /** Style of new drawings. */
@@ -53,7 +53,7 @@ export interface ChartAppearance {
 }
 export type AppearanceTheme = 'dark' | 'light';
 /**
- * Global chart appearance, one set per theme (stored in the 'default' layout only): colours that read well on
+ * Global chart appearance, one set per theme (stored in the 'default' layout only): colors that read well on
  * the dark background rarely do on the light one, so each theme keeps its own settings.
  */
 export interface ThemedAppearance { dark?: ChartAppearance; light?: ChartAppearance }
@@ -63,8 +63,8 @@ export interface Layout {
   /** Risk settings new long / short positions start with (missing → DEFAULT_POSITION_SETTINGS). */
   positionDefaults?: PositionDefaults;
   /**
-   * Revision of the default colours this layout's stored colours were last migrated to (missing → 0). The web app
-   * clears colours equal to an older default once and then stores its current revision.
+   * Revision of the default colors this layout's stored colors were last migrated to (missing → 0). The web app
+   * clears colors equal to an older default once and then stores its current revision.
    */
   colorDefaultsRev?: number;
 }
@@ -150,7 +150,7 @@ export function migrateAppearance(a: unknown): ThemedAppearance | undefined {
   return a as ThemedAppearance;
 }
 /**
- * Normalized drawing styles: `line` for line tools, `text` (annotation bubble colour + font size) for text,
+ * Normalized drawing styles: `line` for line tools, `text` (annotation bubble color + font size) for text,
  * `label` (price text on the line / price label on the y-axis) for price and horizontal lines; `extend` (lines
  * extended past the left / right end) for parallel channels; missing → defaults (a new 'parallelChannel' is finite,
  * a legacy 'parallelStraightLine' is extended both ways).

@@ -10,14 +10,14 @@ const BOLL: IndicatorState = { name: 'BOLL', pane: 'main', calcParams: [20, 2], 
 const save = () => screen.getByRole('button', { name: 'Save' });
 
 describe('IndicatorSettings', () => {
-  it('renders a dialog with one numeric input per param and one colour input per line', () => {
+  it('renders a dialog with one numeric input per param and one color input per line', () => {
     render(<IndicatorSettings state={RSI} onSave={() => {}} onClose={() => {}} />);
     expect(screen.getByRole('dialog', { name: /RSI/ })).toHaveAttribute('aria-modal', 'true');
     expect(screen.getByLabelText('RSI1 period')).toHaveValue('6');
     expect(screen.getByLabelText('RSI2 period')).toHaveValue('12');
     expect(screen.getByLabelText('RSI3 period')).toHaveValue('24');
-    expect(screen.getByLabelText('RSI1 colour')).toHaveAttribute('type', 'color');
-    expect(screen.getByLabelText('RSI3 colour')).toBeInTheDocument();
+    expect(screen.getByLabelText('RSI1 color')).toHaveAttribute('type', 'color');
+    expect(screen.getByLabelText('RSI3 color')).toBeInTheDocument();
   });
 
   it('entering 0 for an RSI period shows an error and disables Save', async () => {
@@ -34,7 +34,7 @@ describe('IndicatorSettings', () => {
     expect(save()).toBeDisabled();
   });
 
-  it('a valid edit saves the new params (no colours unless changed)', async () => {
+  it('a valid edit saves the new params (no colors unless changed)', async () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
     render(<IndicatorSettings state={RSI} onSave={onSave} onClose={onClose} />);
@@ -47,14 +47,14 @@ describe('IndicatorSettings', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('BOLL std-dev accepts decimals; colour edits are saved as lineColors', async () => {
+  it('BOLL std-dev accepts decimals; color edits are saved as lineColors', async () => {
     const onSave = vi.fn();
     const { fireEvent } = await import('@testing-library/react');
     render(<IndicatorSettings state={BOLL} onSave={onSave} onClose={() => {}} />);
     const sd = screen.getByLabelText('Std dev');
     await userEvent.clear(sd);
     await userEvent.type(sd, '2.5');
-    fireEvent.input(screen.getByLabelText('Middle colour'), { target: { value: '#00ff00' } });
+    fireEvent.input(screen.getByLabelText('Middle color'), { target: { value: '#00ff00' } });
     await userEvent.click(save());
     const saved = onSave.mock.calls[0]![0] as IndicatorState;
     expect(saved.calcParams).toEqual([20, 2.5]);
@@ -62,7 +62,7 @@ describe('IndicatorSettings', () => {
     expect(saved.lineColors![1]).toBe('#00ff00');
   });
 
-  it('Reset restores default params and colours', async () => {
+  it('Reset restores default params and colors', async () => {
     const onSave = vi.fn();
     render(<IndicatorSettings state={{ ...RSI, calcParams: [3, 4, 5], lineColors: ['#000000', '#111111', '#222222'] }} onSave={onSave} onClose={() => {}} />);
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
@@ -70,11 +70,11 @@ describe('IndicatorSettings', () => {
     await userEvent.click(save());
     const saved = onSave.mock.calls[0]![0] as IndicatorState;
     expect(saved.calcParams).toEqual([6, 12, 24]);
-    // Clean shape: colours equal to the defaults are dropped (the adapter writes the defaults back itself).
+    // Clean shape: colors equal to the defaults are dropped (the adapter writes the defaults back itself).
     expect(saved).not.toHaveProperty('lineColors');
   });
 
-  it('stored colours that all equal the defaults are dropped on save (clean shape)', async () => {
+  it('stored colors that all equal the defaults are dropped on save (clean shape)', async () => {
     const onSave = vi.fn();
     render(<IndicatorSettings state={{ ...RSI, lineColors: ['#2488f7', '#e56c19', '#00b3c2'] }} onSave={onSave} onClose={() => {}} />);
     await userEvent.click(save());

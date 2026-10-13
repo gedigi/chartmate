@@ -205,7 +205,7 @@ describe('ChartAdapter', () => {
     expect(a.listIndicators()).toEqual([]);
   });
 
-  it('updateIndicator without lineColors resets a previous colour override to the default line colours', () => {
+  it('updateIndicator without lineColors resets a previous color override to the default line colors', () => {
     const a = make();
     const id = a.addIndicator({ name: 'MA', pane: 'main', calcParams: [20], lineColors: ['#fff'] });
     a.updateIndicator(id, { calcParams: [30] });
@@ -563,7 +563,7 @@ describe('ChartAdapter', () => {
   });
 
   describe('appearance', () => {
-    it('setAppearance merges the active theme\'s candle colours / body style into the theme styles', () => {
+    it('setAppearance merges the active theme\'s candle colors / body style into the theme styles', () => {
       const a = make();
       a.setAppearance({ dark: { upColor: '#00ff00', downColor: '#ff00ff', candleBody: 'hollow' }, light: { upColor: '#010203', candleBody: 'hollow' } });
       let s = chart().setStyles.mock.calls.at(-1)![0];
@@ -584,7 +584,7 @@ describe('ChartAdapter', () => {
       expect(s.candle.area).toMatchObject({ lineColor: '#2b66ff', lineSize: 2 });
     });
 
-    it('default indicator bars follow the theme up / down colours', () => {
+    it('default indicator bars follow the theme up / down colors', () => {
       const a = make();
       expect(chart().setStyles).not.toHaveBeenCalled();
       a.setTheme('light');
@@ -606,7 +606,7 @@ describe('ChartAdapter', () => {
     });
   });
 
-  describe('indicator default line colours follow the theme palette', () => {
+  describe('indicator default line colors follow the theme palette', () => {
     it('new indicators get the active theme palette by slot (BOLL upper/middle/lower = slots 2/1/3, VWAP = slot 3)', () => {
       const a = make();
       a.addIndicator({ name: 'MA', pane: 'main' });
@@ -620,7 +620,7 @@ describe('ChartAdapter', () => {
       expect(lineColors(chart().createIndicator.mock.calls.at(-1)![0])).toEqual(MA_LIGHT);
     });
 
-    it('a theme toggle re-applies the palette to indicators without user colours (also with only width overrides); user colours stay exactly', () => {
+    it('a theme toggle re-applies the palette to indicators without user colors (also with only width overrides); user colors stay exactly', () => {
       const a = make();
       const plain = a.addIndicator({ name: 'MA', pane: 'main' });
       const wide = a.addIndicator({ name: 'EMA', pane: 'main', lineWidths: [3] });
@@ -639,7 +639,7 @@ describe('ChartAdapter', () => {
       expect(lineColors(chart().overrideIndicator.mock.calls.map((c) => c[0] as { id: string } & LineStyles).find((c) => c.id === plain))).toEqual(MA_DARK);
     });
 
-    it('removing a user colour override (Reset) writes the current theme palette', () => {
+    it('removing a user color override (Reset) writes the current theme palette', () => {
       const a = make();
       a.setTheme('light');
       const id = a.addIndicator({ name: 'MA', pane: 'main', lineColors: ['#fff'] });
@@ -654,7 +654,7 @@ describe('ChartAdapter', () => {
     });
   });
 
-  describe('indicator line widths / styles / bar colours', () => {
+  describe('indicator line widths / styles / bar colors', () => {
     it('histogram bars are always filled: a template bar drawn as an outline (MACD / AO rising) gets style fill', () => {
       const a = make();
       const create = chart().createIndicator.getMockImplementation()!;
@@ -675,7 +675,7 @@ describe('ChartAdapter', () => {
       expect(chart().overrideIndicator).not.toHaveBeenCalled();
     });
 
-    it('addIndicator maps widths, dashed style and bar colours to KLineChart styles', () => {
+    it('addIndicator maps widths, dashed style and bar colors to KLineChart styles', () => {
       const a = make();
       const id = a.addIndicator({ name: 'VOL', pane: 'sub', lineWidths: [3], lineStyles: ['solid', 'dashed'], barColors: { up: '#00ff00', down: '#ff0000' } });
       const create = chart().createIndicator.mock.calls.at(-1)![0] as { styles: { lines: unknown[]; bars: unknown[] } };
@@ -728,7 +728,7 @@ describe('ChartAdapter', () => {
       expect(calls.filter((c) => c.id === reset && c.styles?.bars)).toEqual([
         expect.objectContaining({ styles: { bars: [expect.objectContaining({ style: 'fill', upColor: 'rgba(0,168,112,0.7)', downColor: 'rgba(212,17,59,0.7)' })] } }),
       ]);
-      expect(calls.filter((c) => c.id === custom && c.styles?.bars)).toEqual([]); // the user's bar colours win
+      expect(calls.filter((c) => c.id === custom && c.styles?.bars)).toEqual([]); // the user's bar colors win
       expect(a.listIndicators().find((i) => i.id === reset)).not.toHaveProperty('barColors');
       // Setting an override again stops the theme updates for that indicator; removing it stops them for good.
       a.updateIndicator(reset, { barColors: { up: '#123456', down: '#654321' } });

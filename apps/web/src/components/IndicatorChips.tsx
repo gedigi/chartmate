@@ -8,7 +8,7 @@ import './Indicators.css';
 export interface IndicatorChipsProps {
   layout: Layout;
   setLayout: (fn: (l: Layout) => Layout) => void;
-  /** Active theme (indicator settings show its default bar colours). */
+  /** Active theme (indicator settings show its default bar colors). */
   theme?: ThemeName;
 }
 

@@ -8,13 +8,13 @@ describe('contrast helpers', () => {
     expect(relativeLuminance('#808080')).toBeCloseTo(0.2159, 3);
   });
 
-  it('contrast ratio is symmetric, 21 for black/white and 1 for equal colours', () => {
+  it('contrast ratio is symmetric, 21 for black/white and 1 for equal colors', () => {
     expect(contrastRatio('#000000', '#ffffff')).toBeCloseTo(21, 5);
     expect(contrastRatio('#ffffff', '#000000')).toBeCloseTo(21, 5);
     expect(contrastRatio('#e63b7a', '#e63b7a')).toBe(1);
   });
 
-  it('readableTextOn keeps white while it reaches 3:1, else picks the higher-contrast colour', () => {
+  it('readableTextOn keeps white while it reaches 3:1, else picks the higher-contrast color', () => {
     expect(LIGHT_TEXT).toBe('#ffffff');
     expect(DARK_TEXT).toBe('#131722');
     expect(WHITE_TEXT_MIN_CONTRAST).toBe(2.99);
@@ -24,7 +24,7 @@ describe('contrast helpers', () => {
     expect(readableTextOn('#2962ff')).toBe(LIGHT_TEXT); // accent blue
     expect(readableTextOn('#363a45')).toBe(LIGHT_TEXT); // dark crosshair background
     // White reaches 3:1 here although dark contrasts more: white is kept (TradingView-style labels).
-    expect(readableTextOn('#808080')).toBe(LIGHT_TEXT); // mid grey: white 3.95, dark 4.53
+    expect(readableTextOn('#808080')).toBe(LIGHT_TEXT); // mid gray: white 3.95, dark 4.53
     expect(readableTextOn('#ef5350')).toBe(LIGHT_TEXT); // white 3.49, dark 5.13
     expect(readableTextOn('#26a69a')).toBe(LIGHT_TEXT); // white 2.9985: inside the 0.01 tolerance
     // Below 3:1 for white: the better of the two.
@@ -50,16 +50,16 @@ describe('contrast helpers', () => {
   });
 
   it('readableTextOnAll applies the rule to the worst case over several backgrounds', () => {
-    // Default last-price label colours (up / down / unchanged) of each theme: white text.
+    // Default last-price label colors (up / down / unchanged) of each theme: white text.
     expect(readableTextOnAll(['#26a69a', '#ef5350', '#868b98'])).toBe(LIGHT_TEXT);
     expect(readableTextOnAll(['#089981', '#f23645', '#6a6d78'])).toBe(LIGHT_TEXT);
-    // The user's colours: white up, pink down. White text would vanish on the up label.
+    // The user's colors: white up, pink down. White text would vanish on the up label.
     expect(readableTextOnAll(['#ffffff', '#e63b7a'])).toBe(DARK_TEXT);
     expect(readableTextOnAll(['#000000', '#1a237e'])).toBe(LIGHT_TEXT);
     expect(readableTextOnAll(['#ffffff'])).toBe(readableTextOn('#ffffff'));
   });
 
-  it('a preferred colour other than white is kept while it reaches 3:1 (e.g. muted marker text)', () => {
+  it('a preferred color other than white is kept while it reaches 3:1 (e.g. muted marker text)', () => {
     expect(readableTextOnAll(['#131722'], '#868b98')).toBe('#868b98');
     expect(readableTextOnAll(['#ffffff'], '#6a6d78')).toBe('#6a6d78');
     expect(readableTextOnAll(['#131722'], '#1a1e2a')).toBe(LIGHT_TEXT);

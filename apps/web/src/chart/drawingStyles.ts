@@ -47,7 +47,7 @@ export function isDottedLine(l: Record<string, unknown> | undefined): boolean {
 
 /**
  * KLineChart line styles for a line style kind. `lineCap` is not in KLineChart's typings but its line figure
- * honours it; it is always set because KLineChart merges overridden styles (dotted → solid must reset it).
+ * honors it; it is always set because KLineChart merges overridden styles (dotted → solid must reset it).
  */
 export function klineLine(style: LineStyleKind, size: number, dashed: number[] = DRAWING_DASH): { style: 'solid' | 'dashed'; dashedValue: number[]; lineCap: 'round' | 'butt' } {
   return {
@@ -61,7 +61,7 @@ export function lineToOverlay(l: DrawingLineStyle): DeepPartial<OverlayStyle> {
   return { line: { color: l.color, size: l.size, ...klineLine(l.style, l.size) } as DeepPartial<OverlayStyle['line']> };
 }
 
-/** A text annotation's colour is its bubble (background, border, pointer); the glyphs are white or dark, whichever reads on it. */
+/** A text annotation's color is its bubble (background, border, pointer); the glyphs are white or dark, whichever reads on it. */
 export function textToOverlay(t: TextStyle): DeepPartial<OverlayStyle> {
   return {
     text: { size: t.size, color: readableTextOn(t.color), backgroundColor: t.color, borderColor: t.color },

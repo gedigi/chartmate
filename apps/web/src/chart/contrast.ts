@@ -1,7 +1,7 @@
-/** Text colours for labels drawn on a coloured background (the dark one is the dark theme's background). */
+/** Text colors for labels drawn on a colored background (the dark one is the dark theme's background). */
 export const LIGHT_TEXT = '#ffffff';
 export const DARK_TEXT = '#131722';
-export type LabelTextColour = typeof LIGHT_TEXT | typeof DARK_TEXT;
+export type LabelTextColor = typeof LIGHT_TEXT | typeof DARK_TEXT;
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -17,7 +17,7 @@ export function relativeLuminance(hex: string): number {
   return 0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255);
 }
 
-/** WCAG 2 contrast ratio of two '#rrggbb' colours (1 … 21). */
+/** WCAG 2 contrast ratio of two '#rrggbb' colors (1 … 21). */
 export function contrastRatio(a: string, b: string): number {
   const la = relativeLuminance(a);
   const lb = relativeLuminance(b);
@@ -25,25 +25,25 @@ export function contrastRatio(a: string, b: string): number {
 }
 
 /**
- * Contrast ratio at which the preferred label text colour (white by default) is kept: the WCAG 3:1 level for
+ * Contrast ratio at which the preferred label text color (white by default) is kept: the WCAG 3:1 level for
  * UI components / large text, with a deliberate 0.01 tolerance so TradingView's teal #26a69a (2.9985:1 against
- * white; this app's earlier dark-theme up colour, still a common user pick) keeps white text as TradingView does.
+ * white; this app's earlier dark-theme up color, still a common user pick) keeps white text as TradingView does.
  * Compared unrounded.
  */
 export const WHITE_TEXT_MIN_CONTRAST = 2.99;
 
-/** Label text colour on `bg`: white at about 3:1 or more, else whichever of white / near-black contrasts more. */
-export function readableTextOn(bg: string): LabelTextColour {
+/** Label text color on `bg`: white at about 3:1 or more, else whichever of white / near-black contrasts more. */
+export function readableTextOn(bg: string): LabelTextColor {
   return readableTextOnAll([bg]);
 }
 
 /**
- * One text colour for labels whose background varies (e.g. KLineChart's last-price label: up / down /
- * unchanged colour, but a single text colour). `preferred` (white by default) is kept while its worst-case
+ * One text color for labels whose background varies (e.g. KLineChart's last-price label: up / down /
+ * unchanged color, but a single text color). `preferred` (white by default) is kept while its worst-case
  * contrast over `bgs` is at least WHITE_TEXT_MIN_CONTRAST; otherwise the one of white / near-black with the higher worst case
  * (ties keep white).
  */
-export function readableTextOnAll(bgs: readonly string[]): LabelTextColour;
+export function readableTextOnAll(bgs: readonly string[]): LabelTextColor;
 export function readableTextOnAll(bgs: readonly string[], preferred: string): string;
 export function readableTextOnAll(bgs: readonly string[], preferred: string = LIGHT_TEXT): string {
   const worst = (text: string) => Math.min(...bgs.map((bg) => contrastRatio(text, bg)));

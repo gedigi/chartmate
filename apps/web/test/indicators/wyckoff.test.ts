@@ -62,8 +62,8 @@ describe('pivotHigh / pivotLow (ta.pivothigh/ta.pivotlow(len, len))', () => {
   it('ties: equal to an older (left) bar still pivots; equal to a newer (right) bar does not', () => {
     // flat top 5,5: the NEWER of the two is the pivot (left tie allowed, right tie rejected)
     const ph = pivotHigh([1, 5, 5, 2, 1], 1, 1);
-    expect(Number.isNaN(ph[2]!)).toBe(true); // centre index 1 has an equal newer neighbour
-    expect(ph[3]).toBe(5); // centre index 2 ties only with the older neighbour
+    expect(Number.isNaN(ph[2]!)).toBe(true); // center index 1 has an equal newer neighbor
+    expect(ph[3]).toBe(5); // center index 2 ties only with the older neighbor
     const pl = pivotLow([9, 2, 2, 7, 9], 1, 1);
     expect(Number.isNaN(pl[2]!)).toBe(true);
     expect(pl[3]).toBe(2);
@@ -83,12 +83,12 @@ describe('wyckoff: side → trend boxes and barcolor', () => {
   // side (RSI or RSI[1] in the band) on 2…7; 8 is the first non-side bar → box from x1 = 2 to x2 = 8 − 2 = 6.
   const accumulation = fromCloses([10, 11, 10, 11, 10, 11, 10, 12, 14, 16, 18, 20, 19, 20, 19, 20, 19, 20]);
 
-  it('side → bull: one box over bars 2…6 (high/low of that range), recoloured "Accumulation"', () => {
+  it('side → bull: one box over bars 2…6 (high/low of that range), recolored "Accumulation"', () => {
     const r = wyckoff(accumulation, P);
     expect(r.boxes).toEqual([{ left: 2, right: 6, top: 11.5, bottom: 9.5, bgColor: C.accumulationBg, text: 'Accumulation' }]);
   });
 
-  it('barcolor is applied two bars back: bull on bars 8…11 colours bars 6…9 lime', () => {
+  it('barcolor is applied two bars back: bull on bars 8…11 colors bars 6…9 lime', () => {
     const r = wyckoff(accumulation, P);
     expect(r.barColors.map((c, i) => (c ? i : -1)).filter((i) => i >= 0)).toEqual([6, 7, 8, 9]);
     expect(r.barColors[6]).toBe(C.lime);
@@ -107,7 +107,7 @@ describe('wyckoff: side → trend boxes and barcolor', () => {
     expect(r.boxes).toEqual([{ left: 2, right: 2, top: 10.5, bottom: 9.5, bgColor: null, text: null }]);
   });
 
-  it('after_trend recolours only the most recent box, every bar', () => {
+  it('after_trend recolors only the most recent box, every bar', () => {
     // RSI 2:50 3:66.7 4:47.6 5:93.6 6:19.9 7:68.9 8:31 9:27.2 10:21.9 11:15.8 12:10.1 13:33.9 14:22.2 15:54
     //     16:29.7 17:63 18:90.4 19:96.8 20:98.6 21:99.3
     const r = wyckoff(fromCloses([10, 11, 10, 10.5, 10.2, 14, 6, 14, 6, 5, 4, 3, 2, 2.5, 2, 2.5, 2, 2.5, 4, 6, 8, 10]), P);
@@ -166,7 +166,7 @@ describe('wyckoff: signals (plotted on the pivot bar, offset −pivotLen)', () =
     expect(kinds(r)).toContainEqual([3, 'PIVOT_LOW']);
   });
 
-  it('unlabelled pivots are orange triangles on the pivot bar', () => {
+  it('unlabeled pivots are orange triangles on the pivot bar', () => {
     const r = wyckoff(fromCloses([10, 11, 10, 11, 10, 11, 10, 12, 14, 16, 18, 20, 19, 20, 19, 20, 19, 20]), P);
     expect(kinds(r)).toEqual([
       [1, 'PIVOT_HIGH'], [2, 'ST'], [3, 'PIVOT_HIGH'], [4, 'PIVOT_LOW'], [5, 'PIVOT_HIGH'], [6, 'PIVOT_LOW'],

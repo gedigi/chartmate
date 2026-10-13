@@ -168,7 +168,7 @@ export class ChartAdapter {
   private indicatorExt: IndicatorExtendData = {};
   private readonly overrides = new Map<string, IndicatorOverrides>();
   /**
-   * Indicators whose bar-colour override was removed: their default bars were written explicitly (KLineChart
+   * Indicators whose bar-color override was removed: their default bars were written explicitly (KLineChart
    * merges indicator styles, so an override cannot be unset), so a theme toggle must rewrite them.
    */
   private readonly themedBars = new Set<string>();
@@ -185,7 +185,7 @@ export class ChartAdapter {
     registerCustomIndicators();
     this.el = el;
     this.theme = opts.theme;
-    refreshThemeTokens(opts.theme); // chart colours come from the CSS tokens (constants as fallback)
+    refreshThemeTokens(opts.theme); // chart colors come from the CSS tokens (constants as fallback)
     this.updatePositionColors();
     positionContext.defaults = resolvePositionDefaults(undefined);
     positionContext.endFor = (start) => this.positionEnd(start);
@@ -193,7 +193,7 @@ export class ChartAdapter {
     positionContext.shiftEnd = (end, from, to) => shiftByBars(this.chart.getDataList(), end, from, to, positionContext.barMs);
     positionContext.historyComplete = () => !this.hasOlderData();
     const chart = init(el, { styles: this.styles() });
-    if (!chart) throw new Error('Failed to initialise the chart');
+    if (!chart) throw new Error('Failed to initialize the chart');
     this.chart = chart;
     // Capture phase on the host: runs before KLineChart's own mousedown handler on its inner container.
     el.addEventListener('mousedown', this.onPressCapture, true);
@@ -214,7 +214,7 @@ export class ChartAdapter {
     return resolveAppearance(this.theme, this.appearance).drawing;
   }
 
-  /** Position zones / labels: the candle up / down colours of the active theme, muted grey for neutral parts. */
+  /** Position zones / labels: the candle up / down colors of the active theme, muted gray for neutral parts. */
   private updatePositionColors(): void {
     const a = resolveAppearance(this.theme, this.appearance);
     positionContext.colors = { up: a.upColor, down: a.downColor, neutral: themeTokens(this.theme).muted };
@@ -304,15 +304,15 @@ export class ChartAdapter {
     this.updatePositionColors();
     this.chart.setStyles(this.styles());
     for (const o of this.chart.getOverlays({ groupId: MARKERS })) this.chart.overrideOverlay({ id: o.id, styles: markerStyles(t) });
-    // Indicator lines without a colour override carry the palette of the theme they were written in: rewrite
-    // them (width / style overrides kept; user colours are never touched).
+    // Indicator lines without a color override carry the palette of the theme they were written in: rewrite
+    // them (width / style overrides kept; user colors are never touched).
     for (const i of this.chart.getIndicators()) {
       const o = this.overrides.get(i.id) ?? {};
       if (o.lineColors) continue;
       const styles = this.indicatorStyles(i.name, o, undefined, 'all-lines');
       if (styles?.lines) this.chart.overrideIndicator({ id: i.id, name: i.name, styles: { lines: styles.lines } });
     }
-    // Indicators without a bar-colour override follow the chart styles, except those whose override was removed
+    // Indicators without a bar-color override follow the chart styles, except those whose override was removed
     // (their defaults were written explicitly): give them the new theme's default bars.
     if (this.themedBars.size === 0) return;
     const d = this.chart.getStyles().indicator.bars[0]!;
@@ -327,7 +327,7 @@ export class ChartAdapter {
   }
 
   /**
-   * Global chart appearance, per theme (candle colours/body, line colour/width, default drawing style); the
+   * Global chart appearance, per theme (candle colors/body, line color/width, default drawing style); the
    * active theme's settings apply (unset = theme defaults), and setTheme switches to the other theme's.
    */
   setAppearance(a: ThemedAppearance | undefined): void {
@@ -407,7 +407,7 @@ export class ChartAdapter {
 
   // ── indicators ────────────────────────────────────────────────────────────
 
-  /** Default lines of indicator `name`: KLineChart's line style with the active theme's palette colour per slot. */
+  /** Default lines of indicator `name`: KLineChart's line style with the active theme's palette color per slot. */
   private defaultLines(name: string): IndicatorStyle['lines'] {
     const base = this.chart.getStyles().indicator.lines;
     const n = Math.max(catalogEntry(name)?.lines.length ?? 0, base.length);
@@ -466,7 +466,7 @@ export class ChartAdapter {
     if (spec.visible !== undefined) create.visible = spec.visible;
     const overrides = ChartAdapter.overridesOf(spec);
     // Always written (force), every catalog line: the lines carry the active theme's palette (a template's own
-    // colour would stick), including lines past a partial override array such as lineWidths: [3].
+    // color would stick), including lines past a partial override array such as lineWidths: [3].
     const styles = this.indicatorStyles(spec.name, overrides, undefined, true);
     if (styles) create.styles = styles;
     create.extendData = this.indicatorExt;
@@ -817,7 +817,7 @@ export class ChartAdapter {
     // Internal (KLineChart 10.0.3: chart._chartEvent._event._resetClickTimeout); a no-op if it ever changes.
     const handler = (this.chart as unknown as { _chartEvent?: { _event?: { _resetClickTimeout?: unknown } } })._chartEvent?._event;
     if (handler && typeof handler._resetClickTimeout === 'function') {
-      try { (handler._resetClickTimeout as () => void).call(handler); } catch { /* keep KLineChart's behaviour */ }
+      try { (handler._resetClickTimeout as () => void).call(handler); } catch { /* keep KLineChart's behavior */ }
     }
   };
 

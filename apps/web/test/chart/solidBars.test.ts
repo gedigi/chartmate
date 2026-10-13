@@ -6,7 +6,7 @@ type Params = Parameters<NonNullable<IndicatorFigure['styles']>>[0];
 const params = {} as Params;
 
 describe('solidBarFigures', () => {
-  it('turns outline-only (stroke) bars into filled ones, keeping the template colour; fill stays fill', () => {
+  it('turns outline-only (stroke) bars into filled ones, keeping the template color; fill stays fill', () => {
     let rising = true;
     const styles = vi.fn(() => ({ style: rising ? 'stroke' as const : 'fill' as const, color: rising ? '#00ff00' : '#ff0000', borderColor: '#00ff00' }));
     const line: IndicatorFigure = { key: 'dif', title: 'DIF: ', type: 'line' };
