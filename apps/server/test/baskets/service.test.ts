@@ -524,6 +524,20 @@ describe('BasketService', () => {
       expect(q.ext!.ts).toBe(D(10, 10, 0, 15));
     });
 
+    it('a constituent quote stamped in the future (e.g. a day-end closeTime) is clamped to now for ts and the day', async () => {
+      const b = await svc.create({ name: 'mix', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
+      now = D(10, 9, 23); // Fri 23:00Z
+      stock.quotePrice = () => 100;
+      crypto.quotePrice = () => 1000;
+      stock.quoteTs = () => D(10, 9, 20);
+      crypto.quoteTs = () => now;
+      const sane = (await svc.liveQuotes([b.id], [])).baskets[0]!;
+      crypto.quoteTs = () => D(10, 10, 0, 30); // past UTC midnight: would make the quote "Saturday's"
+      const q = (await svc.liveQuotes([b.id], [])).baskets[0]!;
+      expect(q.ts).toBe(now);
+      expect(q.changePct).toBeCloseTo(sane.changePct!, 9);
+    });
+
     it('a stock + crypto basket: crypto counts at its live price in the ext value; no ext without stock ext', async () => {
       const b = await svc.create({ name: 'mix', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
       crypto.quotePrice = () => 1000;

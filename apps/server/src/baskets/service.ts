@@ -307,6 +307,8 @@ export class BasketService {
       price += u * q.price;
       ts = Math.max(ts, q.ts);
     }
+    // A provider stamp in the future (e.g. a day-end closeTime) must not move the quote into the next day.
+    ts = Math.min(ts, this.now());
     return Number.isFinite(price) && Number.isFinite(ts) ? { price, ts } : null;
   }
 

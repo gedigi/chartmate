@@ -169,9 +169,21 @@ describe('BinanceProvider', () => {
     expect(res[0]!.changePct).toBeCloseTo(((+wal.lastPrice / WAL_PREV) - 1) * 100, 9);
     expect(res[0]!.changePct).not.toBeCloseTo(+wal.priceChangePercent, 3);
     expect(res[1]!.changePct).toBeCloseTo(((+sui.lastPrice / SUI_PREV) - 1) * 100, 9);
-    expect(res[0]!.ts).toBe(wal.closeTime);
+    // closeTime is the END of the UTC trading day (23:59:59.999), in the future: the quote is stamped now instead
+    expect(wal.closeTime).toBeGreaterThan(NOW);
+    expect(res[0]!.ts).toBe(NOW);
     const k = calls.find((c) => c.pathname === '/api/v3/klines')!;
     expect(Object.fromEntries(k.searchParams)).toMatchObject({ interval: '1d', endTime: String(DAY_OPEN - 1), limit: '1' });
+  });
+
+  it('quotes: ts is min(closeTime, now), never in the future', async () => {
+    const tick = fixture<any[]>('binance/ticker-tradingday.json');
+    const wal = tick.find((t) => t.symbol === 'WALUSDT');
+    const pastClose = NOW - 5_000;
+    const { p } = make(tradingDayHandler(tick.map((t) => (t.symbol === 'SUIUSDT' ? { ...t, closeTime: pastClose } : t))));
+    const res = await p.quotes(['WAL', 'SUI']);
+    expect(wal.closeTime).toBeGreaterThan(NOW);
+    expect(res.map((q) => q.ts)).toEqual([NOW, pastClose]);
   });
 
   it('quotes: the previous close is cached for the UTC day', async () => {
