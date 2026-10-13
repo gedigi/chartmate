@@ -26,12 +26,14 @@ describe('menuTemplate', () => {
 });
 
 describe('window background', () => {
-  it('matches the web theme --bg tokens (no flash of a different color before first paint)', () => {
+  it('matches the web page background, --bg-panel (no flash of a different color before first paint)', () => {
     const css = readFileSync(new URL('../../web/src/styles.css', import.meta.url), 'utf8');
     const token = (selector: string) => {
       const block = css.slice(css.indexOf(selector));
-      return /--bg:\s*(#[0-9a-fA-F]{3,8})\s*;/.exec(block)?.[1]?.toLowerCase();
+      return /--bg-panel:\s*(#[0-9a-fA-F]{3,8})\s*;/.exec(block)?.[1]?.toLowerCase();
     };
+    // The page body paints the ground (--bg-panel); the chart sheet sits on it.
+    expect(css).toMatch(/\bbody \{[^}]*background: var\(--bg-panel\)/);
     expect(BACKGROUND.dark).toBe(token(":root[data-theme='dark']"));
     expect(BACKGROUND.light).toBe(token(":root[data-theme='light']"));
   });
