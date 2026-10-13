@@ -136,7 +136,7 @@ describe('DrawingToolbar', () => {
     const { c, end } = makeControls();
     render(<DrawingToolbar controls={c} ticker="AAPL" />);
     const btn = screen.getByRole('button', { name: label });
-    expect(btn).toHaveAttribute('title', label);
+    expect(btn.getAttribute('title')).toMatch(new RegExp(`^${label}( \\(.+\\))?$`)); // shortcut tools add e.g. (Alt+T)
     await userEvent.click(btn);
     expect(c.startDrawing).toHaveBeenCalledWith(tool, expect.objectContaining({ onEnd: expect.any(Function) }));
     expect(btn).toHaveAttribute('aria-pressed', 'true');
@@ -293,5 +293,110 @@ describe('DrawingToolbar', () => {
     render(<DrawingToolbar controls={null} ticker="AAPL" />);
     expect(screen.getByRole('button', { name: 'Trend line' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Clear all drawings' })).toBeDisabled();
+  });
+});
+
+describe('DrawingToolbar keyboard shortcuts (Option/Alt+T trend line, Option/Alt+H horizontal line)', () => {
+  const setPlatform = (p: string) => vi.spyOn(navigator, 'platform', 'get').mockReturnValue(p);
+  // On macOS Option+T types '†' and Option+H '˙': shortcuts must match the physical key (event.code).
+  const altT = (target: Element | Document = document.body, extra: Partial<KeyboardEventInit> = {}) =>
+    fireEvent.keyDown(target, { key: '†', code: 'KeyT', altKey: true, ...extra });
+  const altH = (target: Element | Document = document.body, extra: Partial<KeyboardEventInit> = {}) =>
+    fireEvent.keyDown(target, { key: '˙', code: 'KeyH', altKey: true, ...extra });
+
+  it('Alt+T starts a trend line and Alt+H a horizontal line, like clicking the buttons (matched by code)', () => {
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    expect(altT()).toBe(false); // preventDefault → dispatchEvent returns false
+    expect(c.startDrawing).toHaveBeenLastCalledWith('segment', expect.objectContaining({ onEnd: expect.any(Function) }));
+    expect(screen.getByRole('button', { name: 'Trend line' })).toHaveAttribute('aria-pressed', 'true');
+    altH();
+    expect(c.startDrawing).toHaveBeenLastCalledWith('horizontalStraightLine', expect.objectContaining({ onEnd: expect.any(Function) }));
+    expect(screen.getByRole('button', { name: 'Horizontal line' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Trend line' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('pressing the shortcut of the active tool toggles it off', () => {
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    altT();
+    altT();
+    expect(c.startDrawing).toHaveBeenCalledTimes(1);
+    expect(c.cancelDrawing).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Trend line' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('needs Alt alone: plain T, Ctrl/Meta+Alt+T and other Alt keys do nothing (not prevented)', () => {
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    expect(fireEvent.keyDown(document.body, { key: 't', code: 'KeyT' })).toBe(true);
+    expect(altT(document.body, { metaKey: true })).toBe(true);
+    expect(altT(document.body, { ctrlKey: true })).toBe(true);
+    expect(fireEvent.keyDown(document.body, { key: '∫', code: 'KeyB', altKey: true })).toBe(true);
+    // A 't' produced by another physical key does not match (code-based, layout independent).
+    expect(fireEvent.keyDown(document.body, { key: 't', code: 'KeyY', altKey: true })).toBe(true);
+    expect(c.startDrawing).not.toHaveBeenCalled();
+  });
+
+  it('is ignored while typing in inputs / textareas / selects / contenteditable and inside dialogs', () => {
+    const { c } = makeControls();
+    render(
+      <>
+        <DrawingToolbar controls={c} ticker="AAPL" />
+        <input aria-label="field" />
+        <textarea aria-label="area" />
+        <select aria-label="pick"><option>a</option></select>
+        <div aria-label="editable" contentEditable suppressContentEditableWarning />
+        <div role="dialog" aria-label="dlg"><button type="button">inside</button></div>
+      </>,
+    );
+    for (const el of [
+      screen.getByLabelText('field'), screen.getByLabelText('area'), screen.getByLabelText('pick'),
+      screen.getByLabelText('editable'), screen.getByRole('button', { name: 'inside' }),
+    ]) {
+      // jsdom has no isContentEditable: emulate the browser for the editable div
+      if (el.getAttribute('aria-label') === 'editable') Object.defineProperty(el, 'isContentEditable', { value: true });
+      expect(altT(el), el.tagName).toBe(true);
+      altH(el);
+    }
+    expect(c.startDrawing).not.toHaveBeenCalled();
+  });
+
+  it('does nothing while disabled or without a chart', () => {
+    const { c } = makeControls();
+    const { rerender } = render(<DrawingToolbar controls={c} disabled ticker="AAPL" />);
+    expect(altT()).toBe(true);
+    rerender(<DrawingToolbar controls={null} ticker="AAPL" />);
+    expect(altH()).toBe(true);
+    expect(c.startDrawing).not.toHaveBeenCalled();
+  });
+
+  it('shows the shortcut in the button title and aria-keyshortcuts (⌥ on Apple platforms, Alt+ elsewhere)', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    const { unmount } = render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    const trend = screen.getByRole('button', { name: 'Trend line' });
+    expect(trend).toHaveAttribute('title', 'Trend line (⌥T)');
+    expect(trend).toHaveAttribute('aria-keyshortcuts', 'Alt+T');
+    expect(screen.getByRole('button', { name: 'Horizontal line' })).toHaveAttribute('title', 'Horizontal line (⌥H)');
+    expect(screen.getByRole('button', { name: 'Ray' })).toHaveAttribute('title', 'Ray');
+    expect(screen.getByRole('button', { name: 'Ray' })).not.toHaveAttribute('aria-keyshortcuts');
+    unmount();
+    setPlatform('Win32');
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    expect(screen.getByRole('button', { name: 'Trend line' })).toHaveAttribute('title', 'Trend line (Alt+T)');
+    expect(screen.getByRole('button', { name: 'Horizontal line' })).toHaveAttribute('aria-keyshortcuts', 'Alt+H');
+  });
+
+  it('closes the text prompt like a click on the tool would', async () => {
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Text' }));
+    const input = screen.getByLabelText('Annotation text');
+    altT(input); // typing in the text prompt: ignored
+    expect(c.startDrawing).not.toHaveBeenCalled();
+    altT(document.body);
+    expect(screen.queryByLabelText('Annotation text')).toBeNull();
+    expect(c.startDrawing).toHaveBeenCalledWith('segment', expect.anything());
   });
 });

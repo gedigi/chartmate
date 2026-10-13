@@ -49,6 +49,27 @@ const CLEAR_ICON = <Icon><path d="M3 5h14M8 5V3h4v2M5 5l1 12h8l1-12M8.5 8.5v5.5M
 
 type Active = DrawingTool | null;
 
+/**
+ * Tool shortcuts: Option (macOS) / Alt + the physical key. Matched by `event.code`: on macOS Option+T types
+ * '†', so `event.key` would never be 'T'. Add an entry here to give another tool a shortcut.
+ */
+export const TOOL_SHORTCUTS: Readonly<Partial<Record<DrawingTool, { code: string; key: string }>>> = {
+  segment: { code: 'KeyT', key: 'T' },
+  horizontalStraightLine: { code: 'KeyH', key: 'H' },
+};
+
+/** The tool whose shortcut `e` is (Alt alone + its key), or null. */
+function shortcutTool(e: KeyboardEvent): DrawingTool | null {
+  if (!e.altKey || e.metaKey || e.ctrlKey) return null;
+  for (const [tool, s] of Object.entries(TOOL_SHORTCUTS)) if (s.code === e.code) return tool as DrawingTool;
+  return null;
+}
+
+/** "⌥T" on Apple platforms, "Alt+T" elsewhere. */
+function shortcutLabel(key: string): string {
+  return isApplePlatform() ? `⌥${key}` : `Alt+${key}`;
+}
+
 /** True when keyboard input is going to a text field (shortcuts must not fire then). */
 function isTyping(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -80,7 +101,8 @@ function isOtherWidget(target: EventTarget | null): boolean {
 /**
  * Vertical drawing toolbar (left column of the chart): drawing tools, magnet, lock all, delete selected, clear all.
  * Keyboard: Delete/Backspace removes the selected drawing, Escape cancels the active tool, holding ⌘ (macOS) / Ctrl
- * snaps the drawing being placed or dragged to OHLC values.
+ * snaps the drawing being placed or dragged to OHLC values, Option/Alt+T starts a trend line and Option/Alt+H a
+ * horizontal line (see TOOL_SHORTCUTS).
  */
 export function DrawingToolbar({ controls, disabled: disabledProp = false, ticker }: DrawingToolbarProps): JSX.Element {
   const [active, setActiveState] = useState<Active>(null);
@@ -103,10 +125,20 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
   useEffect(() => controls?.onLockAllChange(setLocked), [controls]);
 
   const start = (tool: DrawingTool, opts?: { text?: string }) => {
-    if (!controls) return;
+    const c = controlsRef.current;
+    if (!c) return;
     setActive(tool);
-    controls.startDrawing(tool, { ...opts, onEnd: () => { if (activeRef.current === tool) setActive(null); } });
+    c.startDrawing(tool, { ...opts, onEnd: () => { if (activeRef.current === tool) setActive(null); } });
   };
+
+  /** What a click on a line tool's button does: start it, or cancel it when it is the active tool. */
+  const toggleTool = (tool: DrawingTool) => {
+    setTextPrompt(null);
+    if (activeRef.current === tool) cancel();
+    else start(tool);
+  };
+  const toggleToolRef = useRef(toggleTool);
+  toggleToolRef.current = toggleTool;
 
   const cancel = () => {
     setTextPrompt(null);
@@ -116,6 +148,13 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const tool = shortcutTool(e);
+      if (tool) {
+        if (isTyping(e.target) || isInPopup(e.target) || disabledRef.current || e.defaultPrevented) return;
+        e.preventDefault();
+        toggleToolRef.current(tool);
+        return;
+      }
       if (e.key === 'Escape') {
         if (!isTyping(e.target) && !isInPopup(e.target) && !e.defaultPrevented) {
           cancel();
@@ -181,27 +220,27 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
     start('simpleAnnotation', { text: t });
   };
 
-  const toolButton = (tool: DrawingTool, label: string, icon: JSX.Element, onClick: (btn: HTMLElement) => void) => (
+  const toolButton = (tool: DrawingTool, label: string, icon: JSX.Element, onClick: (btn: HTMLElement) => void) => {
+    const shortcut = TOOL_SHORTCUTS[tool];
+    return (
     <button
       key={tool}
       type="button"
       className="dt-btn"
-      title={label}
+      title={shortcut ? `${label} (${shortcutLabel(shortcut.key)})` : label}
       aria-label={label}
+      aria-keyshortcuts={shortcut ? `Alt+${shortcut.key}` : undefined}
       aria-pressed={active === tool}
       disabled={disabled}
       onClick={(e) => onClick(e.currentTarget)}
     >{icon}</button>
-  );
+    );
+  };
 
   return (
     <div className="drawing-toolbar" ref={rootRef}>
       <div className="dt-scroll" role="toolbar" aria-orientation="vertical" aria-label="Drawing tools">
-        {TOOLS.map(({ tool, label, icon }) => toolButton(tool, label, icon, () => {
-          setTextPrompt(null);
-          if (active === tool) cancel();
-          else start(tool);
-        }))}
+        {TOOLS.map(({ tool, label, icon }) => toolButton(tool, label, icon, () => toggleTool(tool)))}
         {toolButton('simpleAnnotation', 'Text', TEXT_ICON, (btn) => {
           if (active === 'simpleAnnotation') cancel();
           else if (textPrompt) setTextPrompt(null);
