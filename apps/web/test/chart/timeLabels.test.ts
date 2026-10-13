@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { axisTickLabels, countdownText, crosshairDate, hasCountdown, zonedParts } from '../../src/chart/timeLabels';
+import { axisTickLabels, barCloseTime, countdownText, crosshairDate, hasCountdown, zonedParts } from '../../src/chart/timeLabels';
 
 const NY = 'America/New_York';
 const utc = (s: string) => Date.parse(`${s}Z`);
@@ -50,5 +50,24 @@ describe('bar-close countdown', () => {
     expect(countdownText(bar, '4h', bar + 1_000)).toBe('3:59:59');
     expect(countdownText(bar, '1D', bar)).toBe('24:00:00');
     expect(countdownText(bar, '5m', bar + 5 * 60_000)).toBe('Closed');
+  });
+
+  it('stock-like charts: the bar ends at the session close (16:00 NY regular, 20:00 extended; DST-aware)', () => {
+    // EDT (UTC-4): 15:30 NY = 19:30Z; the 1h bar closes at 16:00 NY = 20:00Z, not 16:30.
+    const b1530 = utc('2026-10-13T19:30:00');
+    expect(barCloseTime(b1530, '1h', 'rth')).toBe(utc('2026-10-13T20:00:00'));
+    expect(countdownText(b1530, '1h', utc('2026-10-13T19:45:00'), 'rth')).toBe('15:00');
+    expect(countdownText(b1530, '1h', utc('2026-10-13T20:00:00'), 'rth')).toBe('Closed');
+    // 4h bar from 13:30 NY: closes at 16:00 NY (2.5 h), not 17:30.
+    const b1330 = utc('2026-10-13T17:30:00');
+    expect(barCloseTime(b1330, '4h', 'rth')).toBe(utc('2026-10-13T20:00:00'));
+    expect(countdownText(b1330, '4h', b1330, 'rth')).toBe('2:30:00');
+    // Extended hours: 20:00 NY; a 4h bar from 16:00 NY ends exactly then.
+    expect(barCloseTime(utc('2026-10-13T20:00:00'), '4h', 'eth')).toBe(utc('2026-10-14T00:00:00'));
+    expect(barCloseTime(utc('2026-10-13T22:00:00'), '4h', 'eth')).toBe(utc('2026-10-14T00:00:00'));
+    // EST (UTC-5) in January: 16:00 NY = 21:00Z.
+    expect(barCloseTime(utc('2026-01-13T20:30:00'), '1h', 'rth')).toBe(utc('2026-01-13T21:00:00'));
+    // Crypto (no session): the clock alone.
+    expect(barCloseTime(b1530, '1h')).toBe(b1530 + 3_600_000);
   });
 });

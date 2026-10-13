@@ -582,7 +582,10 @@ describe('ChartAdapter', () => {
       a.load({ symbol: AAPL, tf: '1h', session: 'rth', pollMs: 15000 }, events());
       const fmt = chart().setFormatter.mock.calls.at(-1)![0] as { formatDate: (p: { timestamp: number }) => string; formatExtendText: (p: { data: { timestamp: number } }) => string };
       expect(fmt.formatDate({ timestamp: Date.parse('2026-09-30T16:30:00Z') })).toBe("Wed Sep 30 '26 · 12:30");
-      expect(fmt.formatExtendText({ data: { timestamp: Date.now() - 30 * 60_000 } })).toMatch(/^(29|30):\d\d$/);
+      // A stock's 1h bar from 15:30 New York closes with the session at 16:00 (Oct: UTC-4).
+      const spy = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-13T19:45:00Z'));
+      expect(fmt.formatExtendText({ data: { timestamp: Date.parse('2026-10-13T19:30:00Z') } })).toBe('15:00');
+      spy.mockRestore();
       const x = chart().overrideXAxis.mock.calls.at(-1)![0] as { createTicks: (p: { defaultTicks: Array<{ coord: number; value: number; text: string }> }) => Array<{ text: string }> };
       const ticks = x.createTicks({ defaultTicks: [Date.parse('2026-09-29T14:00:00Z'), Date.parse('2026-09-30T14:00:00Z')].map((value, i) => ({ coord: i * 50, value, text: '' })) });
       expect(ticks.map((t) => t.text)).toEqual(['Sep 29', '30']);

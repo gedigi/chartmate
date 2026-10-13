@@ -279,7 +279,7 @@ export class ChartAdapter {
     this.setIndicatorContext({ assetClass: p.symbol.assetClass, intraday: isIntraday(p.tf), pricePrecision: p.symbol.pricePrecision });
     const timezone = timezoneFor(p.symbol, p.tf);
     this.chart.setTimezone(timezone);
-    this.setTimeTexts(p.tf, timezone);
+    this.setTimeTexts(p.tf, timezone, p.session);
     this.chart.setSymbol({
       ticker: p.symbol.id,
       pricePrecision: p.symbol.pricePrecision,
@@ -304,10 +304,11 @@ export class ChartAdapter {
    * Time texts of timeframe `tf` in the chart `timezone`: axis ticks with context ("Sep 21", "22", "13:30"), the
    * crosshair date chip and the last price capsule's bar-close countdown (shown for intraday / daily crypto bars).
    */
-  private setTimeTexts(tf: Timeframe, timezone: string): void {
+  private setTimeTexts(tf: Timeframe, timezone: string, session: SessionMode): void {
     this.chart.setFormatter({
       formatDate: ({ timestamp }) => crosshairDate(timestamp, tf, timezone),
-      formatExtendText: ({ data }) => countdownText(data.timestamp, tf, Date.now()),
+      // Stock-like charts: the bar also closes with the session (16:00 / 20:00 New York).
+      formatExtendText: ({ data }) => countdownText(data.timestamp, tf, Date.now(), this.stockLike() ? session : undefined),
     });
     this.chart.overrideXAxis({
       createTicks: ({ defaultTicks }) => {
