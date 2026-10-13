@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ChildProcess } from 'node:child_process';
 import { _electron as electron, chromium, expect, test, type Browser, type ElectronApplication, type Page } from '@playwright/test';
+import { TITLE_BAR_OVERLAY } from '../src/lib/titleBar.js';
 import { debugEndpointKind, executableOf, listeningSockets, processTree, spawnWithCdp } from './helpers.js';
 
 const APP_DIR = fileURLToPath(new URL('..', import.meta.url));
@@ -84,7 +85,8 @@ test('frameless window: the top bar is the title bar (drag region, room for the 
   expect(r.shell).toBe(shell);
   if (!shell) return;
   expect(r).toMatchObject({ bar: 'drag', button: 'no-drag' });
-  expect(r.themeColor).toMatch(/^#(141820|f7f8fa)$/);
+  // The page's theme-color must be one of the two top bar colors the main process allowlists.
+  expect([TITLE_BAR_OVERLAY.dark.color, TITLE_BAR_OVERLAY.light.color]).toContain(r.themeColor);
   if (shell === 'mac') {
     expect(r.padLeft).toBe('80px');
     if (app) {
