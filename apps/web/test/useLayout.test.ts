@@ -2,7 +2,7 @@ import type { Layout } from '@chartmate/shared';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { api, ApiError } from '../src/api/client';
-import { COLOR_DEFAULTS_REV, THEME_TOKENS } from '../src/chart/theme';
+import { COLOR_DEFAULTS_REV, INDICATOR_PALETTE, THEME_TOKENS } from '../src/chart/theme';
 import { DEFAULT_LAYOUT, migrateColorDefaults, useLayout, withoutLegacyDefaults } from '../src/state/useLayout';
 
 const ma = { name: 'MA', pane: 'main' as const, calcParams: [20], visible: true };
@@ -140,14 +140,25 @@ describe('useLayout (one global indicator set in the default layout)', () => {
       .toEqual([vol({ up: '#abcdef', down: THEME_TOKENS.light.down })]);
   });
 
-  it('indicator line colors made only of the old palette are dropped (lines follow the new palette); any user color keeps the list', () => {
-    const ema = (lineColors?: string[]) => ({ name: 'EMA', pane: 'main' as const, calcParams: [6, 12, 20], visible: true, ...(lineColors ? { lineColors } : {}) });
-    expect(withoutLegacyDefaults({ ...saved, indicators: [ema(['#2488f7', '#E56C19', '#00b3c2'])] }).indicators).toEqual([ema()]);
-    expect(withoutLegacyDefaults({ ...saved, indicators: [ema(['#1272da', '#eb6111', '#0095a0'])] }).indicators).toEqual([ema()]);
-    expect(withoutLegacyDefaults({ ...saved, indicators: [ema(['#ff0000', '#e56c19', '#00b3c2'])] }).indicators)
-      .toEqual([ema(['#ff0000', '#e56c19', '#00b3c2'])]);
+  it('indicator line colors: old defaults move per line to today\'s palette, user picks stay', () => {
+    const ind = (name: string, lineColors?: string[]) => ({ name, pane: 'main' as const, calcParams: [20, 2], visible: true, ...(lineColors ? { lineColors } : {}) });
+    const migrate = (name: string, lineColors: string[]) => withoutLegacyDefaults({ ...saved, indicators: [ind(name, lineColors)] }).indicators[0];
+    const dark = INDICATOR_PALETTE.dark;
+    const light = INDICATOR_PALETTE.light;
+    // All old defaults (rev 2 dark, any case) → dropped: the lines follow the active theme.
+    expect(migrate('EMA', ['#2488f7', '#E56C19', '#00b3c2'])).toEqual(ind('EMA'));
+    // Rev 1 light and rev 0 (KLineChart's colors by line index) too.
+    expect(migrate('EMA', ['#2a78d6', '#eb6834', '#0097a7'])).toEqual(ind('EMA'));
+    expect(migrate('EMA', ['#ff9600', '#935ebd', '#1677ff'])).toEqual(ind('EMA'));
+    expect(migrate('VWAP', ['#01c5c4'])).toEqual(ind('VWAP'));
+    // BOLL (upper / middle / lower = slots 2 / 1 / 3): one edited line, old-default siblings → siblings get today's
+    // default for their own slot (in the theme of the palette they came from), the edit is kept.
+    expect(migrate('BOLL', ['#e56c19', '#ff0000', '#00b3c2'])).toEqual(ind('BOLL', [dark[1]!, '#ff0000', dark[2]!]));
+    expect(migrate('BOLL', ['#eb6111', '#123456', '#0095a0'])).toEqual(ind('BOLL', [light[1]!, '#123456', light[2]!]));
+    // A swapped palette (slot 1 color on line 0) is a user pick, kept as is.
+    expect(migrate('EMA', ['#e56c19', '#2488f7', '#00b3c2'])).toEqual(ind('EMA', ['#e56c19', '#2488f7', dark[2]!]));
     // Already migrated layouts are never touched again.
-    const current = { ...saved, indicators: [ema(['#2488f7', '#e56c19', '#00b3c2'])] };
+    const current = { ...saved, indicators: [ind('EMA', ['#2488f7', '#e56c19', '#00b3c2'])] };
     expect(migrateColorDefaults(current)).toBe(current);
   });
 

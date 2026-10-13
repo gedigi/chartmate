@@ -1,4 +1,4 @@
-import { indicatorPaletteColor, type ThemeName } from '../theme';
+import { indicatorPaletteColor, LEGACY_INDICATOR_PALETTES, LEGACY_KLINE_LINE_COLORS, LEGACY_VWAP_COLOR, type ThemeName } from '../theme';
 import { CUSTOM_INDICATORS } from './extensions';
 import type { CatalogEntry } from './types';
 
@@ -72,6 +72,28 @@ export function defaultLineColor(i: number, name: string | undefined, theme: The
 /** Default colors of all lines of indicator `name` in `theme`, in line order. */
 export function defaultLineColors(name: string, theme: ThemeName): string[] {
   return (catalogEntry(name)?.lines ?? []).map((_, i) => defaultLineColor(i, name, theme));
+}
+
+/**
+ * Stored line colors of indicator `name` with earlier default palettes resolved, per line: an entry equal to ITS
+ * line's old default (any earlier palette generation, either theme; rev 0: KLineChart's colors by line index) becomes
+ * today's default for that line in the theme of the palette it came from (rev 0 was the dark-first release); any
+ * other entry — including an old palette color on another line, i.e. a swapped / reordered palette — is the user's
+ * pick and is kept. Undefined when every entry ends up a default (the lines then follow the active theme).
+ */
+export function migrateLegacyLineColors(name: string, colors: readonly string[]): string[] | undefined {
+  let custom = false;
+  const out = colors.map((raw, i) => {
+    const c = raw.toLowerCase();
+    const slot = catalogEntry(name)?.lineSlots?.[i] ?? i;
+    const generation = LEGACY_INDICATOR_PALETTES.find((p) => p.colors[slot] === c);
+    if (generation) return defaultLineColor(i, name, generation.theme);
+    const rev0 = name === 'VWAP' && i === 0 ? LEGACY_VWAP_COLOR : LEGACY_KLINE_LINE_COLORS[i % LEGACY_KLINE_LINE_COLORS.length];
+    if (c === rev0) return defaultLineColor(i, name, 'dark');
+    custom = true;
+    return raw;
+  });
+  return custom ? out : undefined;
 }
 
 /**

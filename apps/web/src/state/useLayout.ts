@@ -1,7 +1,8 @@
 import { migrateAppearance, type Layout, type SymbolId } from '@chartmate/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
-import { COLOR_DEFAULTS_REV, dropLegacyAppearanceDefaults, dropLegacyBarColors, dropLegacyLineColors } from '../chart/theme';
+import { migrateLegacyLineColors } from '../chart/indicators/catalog';
+import { COLOR_DEFAULTS_REV, dropLegacyAppearanceDefaults, dropLegacyBarColors } from '../chart/theme';
 import { retryDelayMs } from './retry';
 import { useDebouncedSave } from './useDebouncedSave';
 
@@ -54,9 +55,10 @@ export function withoutLegacyDefaults(l: Layout): Layout {
           const clean = dropLegacyBarColors(barColors);
           next = clean ? { ...rest, barColors: clean } : rest;
         }
-        if (next.lineColors && !dropLegacyLineColors(next.lineColors)) {
-          const { lineColors: _old, ...rest } = next;
-          next = rest;
+        if (next.lineColors) {
+          const { lineColors, ...rest } = next;
+          const migrated = migrateLegacyLineColors(next.name, lineColors);
+          next = migrated ? { ...rest, lineColors: migrated } : rest;
         }
         return next;
       }),

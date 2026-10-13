@@ -63,22 +63,21 @@ export const LEGACY_DEFAULTS = {
 } as const satisfies Record<ThemeName, Record<'up' | 'down' | 'accent', readonly string[]>>;
 
 /**
- * Indicator line palettes of earlier revisions (rev 2), per theme. A stored `lineColors` list made only of these (each
- * line an old palette color) was the default palette written along with another edit, so the migration drops it and
- * the lines follow the current palette.
+ * Indicator line palettes of earlier revisions, per theme, by slot (rev 1 and rev 2; slots as in the catalog's
+ * `lineSlots`). Before them (rev 0) line i took KLineChart's own palette by line index (LEGACY_KLINE_LINE_COLORS), VWAP
+ * its own cyan. The settings dialog saved the whole `lineColors` list when one line changed, so an entry equal to its
+ * line's old default was not picked by the user: the migration moves it to today's default (see
+ * migrateLegacyLineColors in the catalog).
  */
-export const LEGACY_INDICATOR_PALETTES: readonly (readonly string[])[] = [
-  ['#3987e5', '#d95926', '#1a9fb2', '#9085e9', '#c98500', '#d55181'],
-  ['#2a78d6', '#eb6834', '#0097a7', '#4a3aa7', '#eda100', '#e87ba4'],
-  ['#2488f7', '#e56c19', '#00b3c2', '#8d7cf8', '#e49916', '#f631aa'],
-  ['#1272da', '#eb6111', '#0095a0', '#541cdc', '#eda100', '#e12ca0'],
+export const LEGACY_INDICATOR_PALETTES: ReadonlyArray<{ theme: ThemeName; colors: readonly string[] }> = [
+  { theme: 'dark', colors: ['#3987e5', '#d95926', '#1a9fb2', '#9085e9', '#c98500', '#d55181'] },
+  { theme: 'light', colors: ['#2a78d6', '#eb6834', '#0097a7', '#4a3aa7', '#eda100', '#e87ba4'] },
+  { theme: 'dark', colors: ['#2488f7', '#e56c19', '#00b3c2', '#8d7cf8', '#e49916', '#f631aa'] },
+  { theme: 'light', colors: ['#1272da', '#eb6111', '#0095a0', '#541cdc', '#eda100', '#e12ca0'] },
 ];
-
-/** `lineColors` without legacy palette defaults: undefined when every entry is an old palette color. */
-export function dropLegacyLineColors(colors: readonly string[]): readonly string[] | undefined {
-  const old = new Set(LEGACY_INDICATOR_PALETTES.flat());
-  return colors.length > 0 && colors.every((c) => old.has(c.toLowerCase())) ? undefined : colors;
-}
+/** Rev 0: KLineChart's default indicator line colors by line index, and the first VWAP color. */
+export const LEGACY_KLINE_LINE_COLORS = ['#ff9600', '#935ebd', '#1677ff', '#e11d74', '#01c5c4'] as const;
+export const LEGACY_VWAP_COLOR = '#01c5c4';
 
 const isOneOf = (a: string | undefined, list: readonly string[]): boolean => typeof a === 'string' && list.includes(a.toLowerCase());
 
