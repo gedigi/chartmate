@@ -6,6 +6,7 @@ import { ChartView } from './components/ChartView';
 import { Login } from './components/Login';
 import { TopBar, type Theme, type View } from './components/TopBar';
 import { Watchlist } from './components/Watchlist';
+import { syncShellThemeColor } from './desktopShell';
 import { onBasketChanged } from './state/useBaskets';
 import { useLayout } from './state/useLayout';
 import { retryDelayMs } from './state/retry';
@@ -25,6 +26,7 @@ function useTheme(): [Theme, () => void] {
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
     writeStored(THEME_KEY, theme);
+    syncShellThemeColor(theme);
   }, [theme]);
   const toggle = useCallback(() => setTheme((t) => (t === 'dark' ? 'light' : 'dark')), []);
   return [theme, toggle];

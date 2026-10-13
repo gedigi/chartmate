@@ -191,6 +191,25 @@ input[type='checkbox']:focus-visible, input[type='color']:focus-visible { outlin
   min-width: 0;
 }
 .top-bar > * { flex-shrink: 0; }
+
+/*
+ * Desktop app only (<html data-shell>, set on the app://chartmate origin by src/desktopShell.ts): the window is
+ * frameless and the top bar is its title bar. Its empty areas drag the window (double-click zooms / maximizes,
+ * natively); every control on it, and anything that can overlap it (dialogs, the symbol search dropdown), opts out.
+ * macOS: room on the left for the traffic lights (apps/desktop/src/lib/titleBar.ts TRAFFIC_LIGHT_POSITION), none in
+ * full screen where they are hidden. Windows: room on the right for the caption button overlay (Window Controls
+ * Overlay env() values, with the standard 3 × 46 px as fallback).
+ */
+:root[data-shell] .top-bar { -webkit-app-region: drag; }
+:root[data-shell] .top-bar :is(button, input, select, textarea, a, label, [role='button'], [role='group'], [tabindex]),
+:root[data-shell] .top-bar :is(.tabs, .symbol-search, .timeframe-bar, .top-bar-end),
+:root[data-shell] :is(.modal-backdrop, .modal, .search-dropdown) { -webkit-app-region: no-drag; }
+:root[data-shell='mac'] .top-bar { padding-left: 80px; }
+:root[data-shell='windows'] .top-bar {
+  padding-right: calc(10px + 100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 138px)));
+}
+/* Set by the desktop main process while the window is in native full screen. */
+:root[data-shell='mac'][data-fullscreen] .top-bar { padding-left: 10px; }
 .brand {
   display: inline-flex;
   align-items: center;
