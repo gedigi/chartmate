@@ -82,4 +82,13 @@ describe('desktop.yml secret scoping and release', () => {
     expect(run).toMatch(/--prerelease/);
     expect(run).toMatch(/unsigned/i);
   });
+  it('both OS jobs smoke-test the shipped build with the expected signing state', () => {
+    for (const job of ['package-mac', 'package-win']) {
+      const smoke = (wf.jobs[job].steps as Step[]).find((s) => /Smoke test/.test(s.name ?? ''))!;
+      expect(smoke.run, job).toMatch(/SMOKE_HARDENED_APP=/);
+      expect(smoke.run, job).toMatch(/SMOKE_EXPECT_UNSIGNED=1/);
+      expect(smoke.run, job).toMatch(/SMOKE_EXPECT_UNSIGNED=0/);
+      expect(smoke.env?.SIGNING, job).toBe('${{ steps.package.outputs.signing }}');
+    }
+  });
 });

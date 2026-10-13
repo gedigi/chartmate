@@ -17,11 +17,12 @@ import { DB_FILE_NAME, desktopConfig, resolveUserDataDir } from './lib/desktopCo
 import {
   APP_ENTRY_URL, APP_HOST, APP_SCHEME, hardenAllSessions, hardenApp, PRIVILEGED_SCHEMES, secureWebPreferences,
 } from './lib/hardening.js';
-import { createCrashLimiter } from './lib/crashLimiter.js';
+import { createCrashPolicy } from './lib/crashLimiter.js';
 import { installListenGuard } from './lib/listenGuard.js';
 import { serverLoggerOptions } from './lib/serverLog.js';
 import { createRotatingLog } from './lib/logger.js';
 import { menuTemplate } from './lib/menu.js';
+import { createDirectFetch } from './lib/directFetch.js';
 import { createGuardedFetch, installFetchAllowlist, providerHosts } from './lib/netAllowlist.js';
 import { createNodeSqliteDb, type NodeSqliteHandle } from './lib/nodeSqlite.js';
 import { createAppProtocolHandler } from './lib/protocol.js';
@@ -32,6 +33,8 @@ import {
 } from './lib/windowState.js';
 
 declare const __WEB_ROOT_REL__: string;
+/** True only in the TEST-ONLY inspectable copy (smoke/prepare-inspectable.mjs). */
+declare const __TEST_INSPECTABLE__: boolean;
 /** Build signed for THIS platform (build/signing.cjs, decided at bundle time). False → updater not even bundled. */
 declare const __BUILD_SIGNED__: boolean;
 
@@ -42,7 +45,8 @@ const isPackaged = app.isPackaged;
 process.umask(0o077);
 
 app.setName(product.productName);
-const userData = resolveUserDataDir(join(app.getPath('appData'), product.productName), process.env);
+// Packaged builds always use the per-user default (only dev runs and the TEST-ONLY copy honour ALTV_USER_DATA_DIR).
+const userData = resolveUserDataDir(join(app.getPath('appData'), product.productName), process.env, { allowOverride: !isPackaged || __TEST_INSPECTABLE__ });
 app.setPath('userData', userData);
 app.setPath('sessionData', userData);
 app.setAppLogsPath(join(userData, 'logs'));
@@ -60,7 +64,10 @@ hardenApp(app, hardenOpts);
 const { config } = desktopConfig({ userData, env: process.env });
 // Outbound network: providers only, HTTPS only, exact hosts, every redirect hop checked.
 const allowed = providerHosts(config);
-installFetchAllowlist(globalThis, allowed, { onBlocked: (host) => log.warn(`blocked outbound request to ${host}`) });
+// Transport: direct connections (no env proxy) trusting only Node's bundled root CAs, whatever the environment says.
+const directFetch = createDirectFetch();
+const onBlocked = (host: string) => log.warn(`blocked outbound request to ${host}`);
+installFetchAllowlist(globalThis, allowed, { base: directFetch, onBlocked });
 
 let mainWindow: BrowserWindow | null = null;
 let shutdown: (() => Promise<void>) | null = null;
@@ -96,7 +103,7 @@ async function start(): Promise<void> {
   restrictFiles(dbFiles.map((f) => join(userData, f)));
 
   const repos = createRepos(handle.db, 'sqlite');
-  const guarded = createGuardedFetch(globalThis.fetch, allowed);
+  const guarded = createGuardedFetch(directFetch, allowed, { onBlocked });
   const registry = createRegistry({
     mode: config.providers, cryptoProvider: config.cryptoProvider, binanceBaseUrl: config.binanceBaseUrl, fetchImpl: guarded,
   });
@@ -161,13 +168,19 @@ function createWindow(): void {
     win.show();
     log.info(`startup: window shown ${Date.now() - t0} ms after process start`);
   });
-  const crashes = createCrashLimiter({ max: 3, windowMs: 60_000 });
+  const crashes = createCrashPolicy({ maxReloads: 3, maxErrorPages: 1, windowMs: 60_000 });
   win.webContents.on('render-process-gone', (_e, details) => {
     log.error(`renderer gone: ${details.reason}`);
     if (details.reason === 'clean-exit' || win.isDestroyed()) return;
-    // Reload at most 3 times a minute; after that show a static error page instead of looping.
-    if (crashes.shouldReload()) win.reload();
-    else void win.loadURL(`${APP_ENTRY_URL}crashed.html`);
+    // At most 3 reloads a minute, then the static error page once; if that crashes too, stop for good.
+    const action = crashes.onCrash();
+    if (action === 'reload') win.reload();
+    else if (action === 'error-page') void win.loadURL(`${APP_ENTRY_URL}crashed.html`);
+    else {
+      log.error('renderer keeps crashing: giving up');
+      dialog.showErrorBox(product.productName, 'The window keeps crashing and was closed. Please restart the app.');
+      win.destroy();
+    }
   });
 
   let saved = false;

@@ -6,6 +6,7 @@
 import { app, session } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import type { ListenGuard } from './lib/listenGuard.js';
+import { armOnUpdateDownloaded, type MacUpdaterLike } from './lib/updateArming.js';
 import type { RotatingLog } from './lib/logger.js';
 import { UPDATE_HOSTS } from './lib/updatePolicy.js';
 
@@ -23,21 +24,12 @@ export function startAutoUpdate(log: RotatingLog, listenGuard: ListenGuard): voi
     callback({ cancel: !ok });
   });
 
-  // macOS: electron-updater serves the downloaded zip to Squirrel.Mac from a one-off 127.0.0.1 server. Arm the
-  // listener guard for exactly that, from the moment a download starts; disarm on failure or when nothing is due.
-  let disarm: (() => void) | null = null;
-  const arm = () => {
-    if (process.platform !== 'darwin') return;
-    disarm?.();
-    disarm = listenGuard.armForUpdateInstall();
-  };
-  const stop = () => {
-    disarm?.();
-    disarm = null;
-  };
-  autoUpdater.on('update-available', arm);
-  autoUpdater.on('update-not-available', stop);
-  autoUpdater.on('error', stop);
+  // macOS: electron-updater serves the downloaded zip to Squirrel.Mac from a one-off 127.0.0.1 server. The listener
+  // guard is armed only for that hand-over, after the download has completed (single use, 60 s).
+  armOnUpdateDownloaded(autoUpdater as unknown as MacUpdaterLike, listenGuard, {
+    platform: process.platform,
+    onUnsupported: () => log.warn('updater: Squirrel.Mac hand-over hook not found; macOS updates will fail closed'),
+  });
 
   autoUpdater.logger = {
     info: (m: unknown) => log.info(`updater: ${String(m)}`),

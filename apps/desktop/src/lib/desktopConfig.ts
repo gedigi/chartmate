@@ -59,8 +59,12 @@ export function desktopConfig(opts: { userData: string; env: Env }): { config: C
   return { config, dbPath };
 }
 
-/** `ALTV_USER_DATA_DIR` (absolute) overrides Electron's per-user data directory, e.g. for tests or portable use. */
-export function resolveUserDataDir(platformDefault: string, env: Env): string {
+/**
+ * `ALTV_USER_DATA_DIR` (absolute) overrides Electron's per-user data directory for development runs and tests.
+ * Packaged builds ignore it (`allowOverride: false`), just as they refuse Chromium's --user-data-dir.
+ */
+export function resolveUserDataDir(platformDefault: string, env: Env, opts: { allowOverride: boolean }): string {
+  if (!opts.allowOverride) return platformDefault;
   const override = val(env, 'ALTV_USER_DATA_DIR');
   if (override === undefined) return platformDefault;
   if (!isAbsolute(override)) throw new Error('ALTV_USER_DATA_DIR must be an absolute path');

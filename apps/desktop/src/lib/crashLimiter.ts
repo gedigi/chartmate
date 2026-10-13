@@ -1,16 +1,35 @@
-/** Sliding-window limit for automatic renderer reloads after crashes (avoids a crash → reload → crash loop). */
-export function createCrashLimiter(opts: { max?: number; windowMs?: number; now?: () => number } = {}): { shouldReload(): boolean } {
-  const max = opts.max ?? 3;
+export type CrashAction = 'reload' | 'error-page' | 'give-up';
+
+/**
+ * What to do after a renderer crash, so a crash can never turn into a reload loop:
+ * - up to `maxReloads` automatic reloads per sliding `windowMs`;
+ * - then the static error page, at most `maxErrorPages` times per window (the page itself could crash);
+ * - beyond that, give up (the caller shows a native dialog and closes the window).
+ */
+export function createCrashPolicy(opts: { maxReloads?: number; maxErrorPages?: number; windowMs?: number; now?: () => number } = {}): { onCrash(): CrashAction } {
+  const maxReloads = opts.maxReloads ?? 3;
+  const maxErrorPages = opts.maxErrorPages ?? 1;
   const windowMs = opts.windowMs ?? 60_000;
   const now = opts.now ?? Date.now;
-  const times: number[] = [];
+  const reloads: number[] = [];
+  const errorPages: number[] = [];
+  const prune = (list: number[], t: number) => {
+    while (list.length > 0 && t - list[0]! >= windowMs) list.shift();
+  };
   return {
-    shouldReload() {
+    onCrash() {
       const t = now();
-      while (times.length > 0 && t - times[0]! >= windowMs) times.shift();
-      if (times.length >= max) return false;
-      times.push(t);
-      return true;
+      prune(reloads, t);
+      prune(errorPages, t);
+      if (reloads.length < maxReloads) {
+        reloads.push(t);
+        return 'reload';
+      }
+      if (errorPages.length < maxErrorPages) {
+        errorPages.push(t);
+        return 'error-page';
+      }
+      return 'give-up';
     },
   };
 }

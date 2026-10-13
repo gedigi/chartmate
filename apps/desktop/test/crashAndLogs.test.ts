@@ -1,17 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { createCrashLimiter } from '../src/lib/crashLimiter.js';
+import { createCrashPolicy } from '../src/lib/crashLimiter.js';
 import { scrub } from '../src/lib/logger.js';
 import { safeErr, serverLoggerOptions } from '../src/lib/serverLog.js';
 
-describe('renderer crash limiter', () => {
-  it('allows 3 reloads per minute, then gives up until the window slides', () => {
+describe('renderer crash policy', () => {
+  it('reloads 3 times per minute, then shows the error page once, then gives up (no loop)', () => {
     let now = 0;
-    const lim = createCrashLimiter({ max: 3, windowMs: 60_000, now: () => now });
-    expect([lim.shouldReload(), lim.shouldReload(), lim.shouldReload()]).toEqual([true, true, true]);
-    now = 30_000;
-    expect(lim.shouldReload()).toBe(false);
-    now = 61_000; // the first three are out of the window again
-    expect(lim.shouldReload()).toBe(true);
+    const p = createCrashPolicy({ maxReloads: 3, maxErrorPages: 1, windowMs: 60_000, now: () => now });
+    expect([p.onCrash(), p.onCrash(), p.onCrash()]).toEqual(['reload', 'reload', 'reload']);
+    now = 10_000;
+    expect(p.onCrash()).toBe('error-page');
+    now = 20_000; // the error page itself crashed
+    expect(p.onCrash()).toBe('give-up');
+    expect(p.onCrash()).toBe('give-up');
+  });
+
+  it('recovers once the crashes are out of the window', () => {
+    let now = 0;
+    const p = createCrashPolicy({ now: () => now });
+    for (let i = 0; i < 4; i++) p.onCrash();
+    now = 61_000;
+    expect(p.onCrash()).toBe('reload');
   });
 });
 

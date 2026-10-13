@@ -4,12 +4,13 @@ import type { Server } from 'node:net';
  * "No listener" enforcement for the main process: `net.Server.prototype.listen` (and therefore http/https servers)
  * throws. The ONLY exception is the macOS auto-update install: electron-updater hands the downloaded zip to the
  * native Squirrel.Mac updater through a short-lived HTTP server on 127.0.0.1 (random port, random URL, basic auth).
- * While the updater arms the guard, exactly one listener may open, and only on a loopback address with an
+ * While the updater arms the guard (right when electron-updater starts serving a finished download, see
+ * updateArming.ts), exactly one listener may open, and only on a loopback address with an
  * ephemeral port (0). Every decision is reported through `audit`.
  */
 export interface ListenGuard {
-  /** Allows one loopback listener for the next `armMs` (default 30 min); returns a disarm function. */
-  armForUpdateInstall(): () => void;
+  /** Allows one loopback listener for the next `ms` (default: the guard's `armMs`); returns a disarm function. */
+  armForUpdateInstall(ms?: number): () => void;
   uninstall(): void;
 }
 
@@ -33,7 +34,7 @@ export function installListenGuard(
 ): ListenGuard {
   const original = proto.listen;
   const now = opts.now ?? Date.now;
-  const armMs = opts.armMs ?? 30 * 60_000;
+  const armMs = opts.armMs ?? 60_000;
   let armedUntil = 0;
 
   function guardedListen(this: Server, ...args: unknown[]): Server {
@@ -55,8 +56,8 @@ export function installListenGuard(
 
   proto.listen = guardedListen as Server['listen'];
   return {
-    armForUpdateInstall() {
-      armedUntil = now() + armMs;
+    armForUpdateInstall(ms?: number) {
+      armedUntil = now() + (ms ?? armMs);
       opts.audit('listener guard armed for an update install');
       return () => {
         armedUntil = 0;

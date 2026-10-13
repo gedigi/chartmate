@@ -58,9 +58,16 @@ describe('desktopConfig', () => {
 
 describe('resolveUserDataDir', () => {
   it('uses the platform default unless ALTV_USER_DATA_DIR is an absolute path', () => {
-    expect(resolveUserDataDir(UD, {})).toBe(UD);
-    expect(resolveUserDataDir(UD, { ALTV_USER_DATA_DIR: '/tmp/altv-test' })).toBe('/tmp/altv-test');
-    expect(resolveUserDataDir(UD, { ALTV_USER_DATA_DIR: '' })).toBe(UD);
-    expect(() => resolveUserDataDir(UD, { ALTV_USER_DATA_DIR: 'rel/dir' })).toThrow(/absolute/);
+    const dev = { allowOverride: true };
+    expect(resolveUserDataDir(UD, {}, dev)).toBe(UD);
+    expect(resolveUserDataDir(UD, { ALTV_USER_DATA_DIR: '/tmp/altv-test' }, dev)).toBe('/tmp/altv-test');
+    expect(resolveUserDataDir(UD, { ALTV_USER_DATA_DIR: '' }, dev)).toBe(UD);
+    expect(() => resolveUserDataDir(UD, { ALTV_USER_DATA_DIR: 'rel/dir' }, dev)).toThrow(/absolute/);
+  });
+
+  it('packaged builds ignore the override (like the refused --user-data-dir switch)', () => {
+    const packaged = { allowOverride: false };
+    expect(resolveUserDataDir(UD, { ALTV_USER_DATA_DIR: '/tmp/elsewhere' }, packaged)).toBe(UD);
+    expect(resolveUserDataDir(UD, { ALTV_USER_DATA_DIR: 'rel/dir' }, packaged)).toBe(UD);
   });
 });

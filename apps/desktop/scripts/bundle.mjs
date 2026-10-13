@@ -12,7 +12,7 @@
 import { build } from 'esbuild';
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
@@ -25,6 +25,12 @@ const platform = arg('platform') ?? process.platform;
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const out = arg('out') ? resolve(arg('out')) : here('../dist');
 const webDist = here('../../web/dist');
+
+// The test-only variant must never land in dist/ (which electron-builder packages).
+if (testInspectable && (!arg('out') || out === here('../dist') || out.startsWith(here('../dist') + sep))) {
+  console.error('--test-inspectable requires --out=<dir> outside apps/desktop/dist (it must never be packaged)');
+  process.exit(2);
+}
 
 if (!existsSync(`${webDist}/index.html`)) {
   console.error('apps/web/dist is missing: run `pnpm --filter @altv/web build` first');
