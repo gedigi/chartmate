@@ -1009,15 +1009,16 @@ export class ChartAdapter {
   }
 
   /**
-   * Handles of a locked drawing: hollow rings (the theme background inside, the default drawing color around) that
-   * do not grow on hover, since they cannot be dragged.
+   * Handles of a locked drawing: hollow rings (the theme background inside, a 1.5 px ring in the default drawing
+   * color), as wide as the default filled dot (radius 5 + border 1) and the same size on hover, since they cannot be
+   * dragged.
    */
   private lockedPoint(): DeepPartial<OverlayStyle['point']> {
     const bg = themeTokens(this.theme).bg;
     const ring = this.defaultDrawing().color;
     return {
-      color: bg, borderColor: ring, borderSize: 1.5, radius: 3.5,
-      activeColor: bg, activeBorderColor: ring, activeBorderSize: 1.5, activeRadius: 3.5,
+      color: bg, borderColor: ring, borderSize: 1.5, radius: 4.5,
+      activeColor: bg, activeBorderColor: ring, activeBorderSize: 1.5, activeRadius: 4.5,
     };
   }
 
@@ -1196,6 +1197,7 @@ export class ChartAdapter {
     if (pending) {
       pending.drawings = pending.drawings.map((d) => {
         const own = ChartAdapter.ownLock(d, was);
+        if (d.lock !== (locked || own)) changed = true;
         const next: DrawingState = { ...d, lock: locked || own };
         if (own) next.locked = true;
         else delete next.locked;

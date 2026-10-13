@@ -635,11 +635,55 @@ describe('ChartAdapter', () => {
       it('"Lock all" toggled while drawings wait for data applies to them too', async () => {
         const a = make();
         a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 15000 }, events());
+        const changed = vi.fn();
+        a.onDrawingsChange(changed);
         a.restoreDrawings([seg({ lock: true, locked: true }), seg()]);
         a.setLockAll(true);
         expect(a.serializeDrawings()).toEqual([seg({ lock: true, locked: true }), seg({ lock: true })]);
+        expect(changed).toHaveBeenCalledTimes(1); // saved like any lock change
         a.setLockAll(false);
         expect(a.serializeDrawings()).toEqual([seg({ lock: true, locked: true }), seg()]);
+        expect(changed).toHaveBeenCalledTimes(2);
+        // Nothing changes (every pending drawing locked on its own): no save.
+        a.restoreDrawings([seg({ lock: true, locked: true })]);
+        changed.mockClear();
+        a.setLockAll(true);
+        a.setLockAll(false);
+        expect(changed).not.toHaveBeenCalled();
+      });
+
+      it('clearDrawings({ keepLocked }) on drawings waiting for data keeps the locked ones', async () => {
+        const a = make();
+        a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 15000 }, events());
+        const changed = vi.fn();
+        a.onDrawingsChange(changed);
+        a.restoreDrawings([seg({ lock: true, locked: true }), seg()]);
+        expect(a.drawingCount()).toEqual({ total: 2, locked: 1 });
+        a.clearDrawings({ keepLocked: true });
+        expect(changed).toHaveBeenCalledTimes(1);
+        expect(a.serializeDrawings()).toEqual([seg({ lock: true, locked: true })]);
+        await fireInit();
+        expect(userOverlays().map((o) => o.lock)).toEqual([true]);
+      });
+
+      it('a locked drawing keeps its own style and the handle look; style edits after unlocking survive re-locking', async () => {
+        const a = await loaded();
+        const red = { line: { color: '#ff0000', size: 2, style: 'dashed' as const } };
+        a.restoreDrawings([{ ...seg({ lock: true, locked: true }), styles: red }]);
+        const [o] = userOverlays();
+        const point = () => (o!.styles as { point?: Record<string, unknown> | null } | null)?.point;
+        select(o!);
+        expect(point()).toEqual(expect.objectContaining({ color: THEME_TOKENS.dark.bg }));
+        a.setSelectedStyle({ color: '#00ff00' }); // ignored while locked
+        expect(a.serializeDrawings()[0]!.styles).toEqual(red);
+        expect(point()).toEqual(expect.objectContaining({ color: THEME_TOKENS.dark.bg }));
+        a.setSelectedLock(false);
+        a.setSelectedStyle({ color: '#00ff00' });
+        a.setSelectedLock(true);
+        expect(point()).toEqual(expect.objectContaining({ color: THEME_TOKENS.dark.bg }));
+        a.setSelectedStyle({ size: 4 }); // ignored again
+        expect(point()).toEqual(expect.objectContaining({ color: THEME_TOKENS.dark.bg }));
+        expect(a.serializeDrawings()[0]).toEqual({ ...seg({ lock: true, locked: true }), styles: { line: { ...red.line, color: '#00ff00' } } });
       });
 
       it('a locked drawing shows hollow handles (theme background inside); unlocking restores the default handles', async () => {
@@ -648,6 +692,8 @@ describe('ChartAdapter', () => {
         const [first, second] = userOverlays();
         const point = (o: FakeOverlay) => (o.styles as { point?: Record<string, unknown> | null } | null)?.point;
         expect(point(first!)).toEqual(expect.objectContaining({ color: THEME_TOKENS.dark.bg, activeColor: THEME_TOKENS.dark.bg }));
+        // A ring as wide as the default dot (radius 5 + border 1), clearly hollow, the same size on hover.
+        expect(point(first!)).toEqual(expect.objectContaining({ radius: 4.5, borderSize: 1.5, activeRadius: 4.5, activeBorderSize: 1.5 }));
         expect(point(second!) ?? null).toBeNull();
         a.setTheme('light');
         expect(point(first!)).toEqual(expect.objectContaining({ color: THEME_TOKENS.light.bg }));
@@ -662,7 +708,7 @@ describe('ChartAdapter', () => {
         expect(a.serializeDrawings()).toEqual([seg(), seg()]);
       });
 
-      it('lockedDrawingCount and clearDrawings({ keepLocked }) keep locked drawings', async () => {
+      it('drawingCount counts locked drawings; clearDrawings({ keepLocked }) keeps them', async () => {
         const a = await loaded();
         const changed = vi.fn();
         a.onDrawingsChange(changed);
