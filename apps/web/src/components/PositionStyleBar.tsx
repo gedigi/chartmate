@@ -23,9 +23,11 @@ function parsePositive(text: string, what: string): Parsed<number> {
  * A text field that applies on Enter or blur and reverts on Escape. `parse` validates the text (inline error);
  * `apply` may still refuse (its error is shown too). Re-synced whenever the shown value changes.
  */
-function EditField<T>({ label, shown, parse, apply, disabled, className, inputMode = 'decimal', title }: {
+function EditField<T>({ label, shown, parse, apply, disabled, className, inputMode = 'decimal', title, caption, suffix }: {
   label: string; shown: string; parse: (text: string) => Parsed<T>; apply: (v: T) => string | null | void; disabled: boolean;
   className?: string; inputMode?: 'decimal' | 'numeric' | 'text'; title?: string;
+  /** Visible text before / after the input (the accessible name is `label`). */
+  caption?: string; suffix?: string;
 }): JSX.Element {
   const [text, setText] = useState(shown);
   const [error, setError] = useState<string | null>(null);
@@ -50,13 +52,15 @@ function EditField<T>({ label, shown, parse, apply, disabled, className, inputMo
     }
   };
   return (
-    <span className={`drawing-style-price ${className ?? ''}`}>
+    <span className={`drawing-style-price position-field ${className ?? ''}`}>
+      {caption && <span className="position-caption" aria-hidden="true">{caption}</span>}
       <input
         type="text" inputMode={inputMode} aria-label={label} title={title ?? label} value={text} disabled={disabled}
         aria-invalid={error ? true : undefined} aria-describedby={error ? errorId : undefined}
         onChange={(e) => { setText(e.target.value); setError(null); }}
         onKeyDown={onKeyDown} onBlur={commit}
       />
+      {suffix && <span className="position-caption" aria-hidden="true">{suffix}</span>}
       {error && <span id={errorId} role="alert" className="drawing-style-error">{error}</span>}
     </span>
   );
@@ -86,7 +90,7 @@ export function PositionStyleBar({ controls, sel, onUseAsDefault }: {
   const price = (label: 'Entry' | 'Target' | 'Stop') => {
     const key = label.toLowerCase() as keyof typeof prices;
     return (
-      <EditField label={label} shown={fixed(prices[key])} disabled={locked} parse={(t) => parsePositive(t, 'Price')}
+      <EditField label={label} caption={label} shown={fixed(prices[key])} disabled={locked} parse={(t) => parsePositive(t, 'Price')}
         apply={(v) => setPrices({ [key]: v })} />
     );
   };
@@ -95,10 +99,10 @@ export function PositionStyleBar({ controls, sel, onUseAsDefault }: {
     const pct = kind === 'target' ? m.targetPct : m.stopPct;
     return (
       <>
-        <EditField label={`${Label} %`} title={`${Label} distance (% of entry)`} className="position-narrow" shown={pct.toFixed(2)} disabled={locked}
+        <EditField label={`${Label} %`} suffix="%" title={`${Label} distance (% of entry)`} className="position-narrow" shown={pct.toFixed(2)} disabled={locked}
           parse={(t) => parsePositive(t, 'Distance')}
           apply={(v) => setPrices({ [kind]: priceFromPct(side, kind, sel.entry, v, precision) })} />
-        <EditField label={`${Label} ticks`} title={`${Label} distance (ticks of ${(10 ** -precision).toFixed(precision)})`} className="position-narrow"
+        <EditField label={`${Label} ticks`} suffix="ticks" title={`${Label} distance (ticks of ${(10 ** -precision).toFixed(precision)})`} className="position-narrow"
           shown={String(distanceTicks(sel.entry, prices[kind], precision))} disabled={locked} inputMode="numeric"
           parse={(t) => {
             const r = parsePositive(t, 'Ticks');
@@ -123,13 +127,13 @@ export function PositionStyleBar({ controls, sel, onUseAsDefault }: {
         {distance('stop')}
       </div>
       <div className="position-row">
-        <EditField label="Account size" shown={String(settings.accountSize)} disabled={locked}
+        <EditField label="Account size" caption="Account" shown={String(settings.accountSize)} disabled={locked}
           parse={(t) => parsePositive(t, 'Account size')} apply={(v) => setSettings({ accountSize: v })} />
         <select aria-label="Risk mode" title="Risk mode" value={settings.riskMode} disabled={locked}
           onChange={(e) => setSettings({ riskMode: e.target.value === 'amount' ? 'amount' : 'percent' })}>
           {RISK_MODES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
         </select>
-        <EditField label="Risk" title={settings.riskMode === 'percent' ? 'Risk (% of account)' : 'Risk (amount)'} className="position-narrow"
+        <EditField label="Risk" caption="Risk" title={settings.riskMode === 'percent' ? 'Risk (% of account)' : 'Risk (amount)'} className="position-narrow"
           shown={String(settings.riskValue)} disabled={locked}
           parse={(t) => {
             const r = parsePositive(t, 'Risk');
@@ -137,7 +141,7 @@ export function PositionStyleBar({ controls, sel, onUseAsDefault }: {
             return r;
           }}
           apply={(v) => setSettings({ riskValue: v })} />
-        <EditField label="Currency" className="position-narrow" shown={settings.currency} disabled={locked} inputMode="text"
+        <EditField label="Currency" caption="Currency" className="position-narrow" shown={settings.currency} disabled={locked} inputMode="text"
           parse={(t) => {
             const c = t.trim();
             if (c.length === 0) return { error: 'Enter a currency label' };

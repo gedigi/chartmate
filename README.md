@@ -182,6 +182,40 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
 - **Price labels**: price lines and horizontal lines have **On line** (price text on the line) and **On axis**
   (price label on the right axis) toggles in the style bar; defaults: price line both on, horizontal line
   axis only. Saved with the drawing.
+- **Long / short positions** (toolbar: "Long position", "Short position"), like TradingView's:
+  - **Placing**: one click sets the entry at the clicked time and price (rounded to the symbol's precision;
+    ⌘/Ctrl snaps it to OHLC). Target and stop start at ±2 % (long: target above, stop below; short inverted) and
+    the box is about 20 bars wide (counted on the loaded bars, extrapolated with the timeframe past the last bar).
+  - **Chart**: a green profit zone (entry → target) and a red loss zone (entry → stop) in the candle up / down
+    colours at 20 % opacity, the entry line, and labels `Target: <price> (<±%>) <±amount>`,
+    `Stop: <price> (<±%>) <±amount>` and `<Long|Short> · Qty <q> · R:R <ratio>` (% and amounts are the
+    position's gain / loss at that level; label text is white or dark, whichever reads on its colour).
+  - **Editing**: drag the target handle (top/bottom left corner) or the stop handle to change only that price
+    (it cannot cross the entry); drag the entry handle, the entry line or a zone to move the whole position
+    (prices and time); drag the right-edge handle to change the end time. ⌘/Ctrl snaps like other drawings.
+    Prices are rounded to the symbol precision.
+  - **Settings bar** (select the position): precise Entry / Target / Stop fields (Enter or leave the field to
+    apply, Escape reverts; long needs stop < entry < target, short target < entry < stop, otherwise an inline
+    error), target / stop distance as % of the entry and in ticks (1 tick = 10^-precision), kept in sync; risk:
+    account size, risk mode (% of account or fixed amount), risk value and currency label (≤ 8 characters).
+    It shows Qty = risk / |entry − stop| (whole shares for stocks and baskets, up to 6 decimals for crypto,
+    always rounded down), the risk and reward amounts at that quantity and R:R = |target − entry| / |entry − stop|.
+    **Use as default** stores the risk settings as the defaults of new positions (`positionDefaults` in the
+    `default` layout; unset → 10 000 account, 1 %, USD). A new position copies the defaults at placement, so
+    later default changes do not alter existing positions. Locked positions are read-only.
+  - **Outcome**: the bars of the displayed timeframe after the entry bar, up to the end time, are scanned:
+    the first bar reaching the target (long: high ≥ target, short: low ≤ target) or the stop (long: low ≤ stop,
+    short: high ≥ stop) gives "Target hit" / "Stop hit" with the realised P&L (amount and %) and the bar's date;
+    the traversed part of that zone is shaded more strongly up to that bar. A bar reaching both counts as a
+    stop hit (the order within a bar is unknown: conservative). With no hit and the last bar inside the range:
+    "Open" with the P&L at the last close; no hit and the range over: "Ended, no hit" with the P&L at the last
+    close in range. The entry counts as filled at the entry bar (no fill logic). Recomputed when bars arrive
+    (polling / backfill) and when the position changes; since it uses the displayed bars, the hit bar can
+    differ between timeframes.
+  - **Stored** as `longPosition` / `shortPosition` drawings with four points: `[0]` entry (start time, entry
+    price), `[1]` (start time, target), `[2]` (start time, stop), `[3]` (end time, entry price), plus optional
+    `styles.position` (`accountSize`, `riskMode`, `riskValue`, `currency`). Daily anchoring works as for
+    other drawings.
 - **Parallel channels** show a dashed midline halfway between the two lines, in the channel's colour and width
   (longer dashes when the channel itself is dashed or dotted); it is not a stored point.
 

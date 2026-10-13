@@ -234,6 +234,19 @@ describe('ChartAdapter long / short positions', () => {
     expect(a.serializeDrawings()[0]!.points).toEqual(position({ entry: 100.12, target: 102.12, stop: 98.12, start: D1 + DAY, end: D1 + 21 * DAY }));
   });
 
+  it('dragging an edge of the selected position refreshes the style bar selection', async () => {
+    const a = await loadAt(AAPL, '1D');
+    const selection = vi.fn();
+    a.onSelectionChange(selection);
+    a.restoreDrawings([{ name: 'longPosition', points: position(), lock: false }]);
+    const o = userOverlays()[0]! as Pressable;
+    select(o);
+    o.onPressedMoveStart?.({ overlay: o });
+    o.points[1]!.value = 105; // KLineChart moves the point in place
+    o.onPressedMoveEnd?.({ overlay: o });
+    expect(selection).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'position', target: 105 }));
+  });
+
   it('a press without movement keeps a daily-anchored position as stored', async () => {
     const a = await loadAt(AAPL, '1h');
     const saved = { name: 'longPosition', points: position(), lock: false, anchorTf: '1D' as const };

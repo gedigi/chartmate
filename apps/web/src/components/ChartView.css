@@ -135,3 +135,6 @@
 .position-summary { color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .position-outcome { font-variant-numeric: tabular-nums; }
 .position-default { height: 24px; font-size: 12px; white-space: nowrap; }
+.position-field { align-items: center; gap: 3px; }
+.position-caption { color: var(--text-muted); white-space: nowrap; }
+.position-bar .drawing-style-error { z-index: 1; }
