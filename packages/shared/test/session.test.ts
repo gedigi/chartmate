@@ -80,6 +80,12 @@ describe('session tagging', () => {
     const out = tagSessions(bars, windows);
     const ms = performance.now() - t0;
     expect(out).toHaveLength(N);
-    expect(ms).toBeLessThan(60);
+    // Compare with a linear scan timed on the same machine, so a slow or busy CI runner can't make this flaky.
+    const t1 = performance.now();
+    let hits = 0;
+    for (const bar of bars) if (windows.find((w) => bar.ts >= w.start && bar.ts < w.end)) hits++;
+    const linearMs = performance.now() - t1;
+    expect(hits).toBe(N);
+    expect(ms).toBeLessThan(linearMs / 4);
   });
 });
