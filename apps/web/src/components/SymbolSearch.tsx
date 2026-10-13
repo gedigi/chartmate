@@ -1,6 +1,7 @@
 import type { SymbolId, SymbolInfo } from '@chartmate/shared';
 import { useEffect, useId, useRef, useState, type JSX, type KeyboardEvent } from 'react';
 import { api, errorMessage } from '../api/client';
+import { hasCommandModifier, isApplePlatform, isInPopup, isModalOpen } from '../keyboard';
 
 const DEBOUNCE_MS = 200;
 
@@ -12,7 +13,10 @@ export interface SymbolSearchProps {
   /** Accessible label of the input. Default: "Search symbol". */
   ariaLabel?: string;
   disabled?: boolean;
-  /** Cmd+K (macOS) / Ctrl+K focuses this field from anywhere in the page; a key hint shows inside it. */
+  /**
+   * Cmd+K (Apple platforms) / Ctrl+K (others) focuses this field from anywhere in the page (not behind a modal dialog,
+   * not from inside a popup, not when another handler took the key); a key hint shows inside it.
+   */
   shortcut?: boolean;
 }
 
@@ -29,7 +33,6 @@ const IDLE: State = { items: null, forQuery: '', loading: false, error: null };
 
 /** Debounced symbol search combobox (stocks, crypto and baskets). */
 const ASSET_LABEL = { stock: 'Stock', crypto: 'Crypto', basket: 'Basket' } as const;
-const isMac = () => typeof navigator !== 'undefined' && /mac/i.test(navigator.platform || navigator.userAgent);
 
 export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filter, ariaLabel = 'Search symbol', disabled, shortcut }: SymbolSearchProps): JSX.Element {
   const [query, setQuery] = useState('');
@@ -43,11 +46,14 @@ export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filte
   useEffect(() => {
     if (!shortcut) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k' && inputRef.current && !inputRef.current.disabled) {
-        e.preventDefault();
-        inputRef.current.focus();
-        inputRef.current.select();
-      }
+      if (e.defaultPrevented || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'k' || !hasCommandModifier(e)) return;
+      // Not behind a modal dialog, nor from inside a popup (its keys are its own).
+      if (isModalOpen() || isInPopup(e.target)) return;
+      const input = inputRef.current;
+      if (!input || input.disabled) return;
+      e.preventDefault();
+      input.focus();
+      input.select();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -142,7 +148,7 @@ export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filte
         }}
         onBlur={() => { blurTimer.current = setTimeout(() => setOpen(false), 150); }}
       />
-      {shortcut && <kbd className="symbol-search-kbd" aria-hidden="true">{isMac() ? '⌘K' : 'Ctrl K'}</kbd>}
+      {shortcut && <kbd className="symbol-search-kbd" aria-hidden="true">{isApplePlatform() ? '⌘K' : 'Ctrl K'}</kbd>}
       {expanded && (
         <div className="search-dropdown">
           {state.loading && (

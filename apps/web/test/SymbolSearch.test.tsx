@@ -32,19 +32,59 @@ describe('SymbolSearch', () => {
     expect(screen.getByRole('combobox')).toHaveAttribute('aria-expanded', 'true');
   });
 
-  it('with a shortcut, Cmd/Ctrl+K focuses the field from anywhere (and shows the hint); without one it does not', async () => {
-    const { unmount } = render(<SymbolSearch onSelect={() => {}} shortcut />);
-    const input = screen.getByRole('combobox');
-    expect(screen.getByText(/⌘K|Ctrl K/)).toHaveAttribute('aria-hidden', 'true');
-    fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
-    expect(input).toHaveFocus();
-    input.blur();
-    fireEvent.keyDown(document.body, { key: 'K', ctrlKey: true });
-    expect(input).toHaveFocus();
-    unmount();
-    render(<SymbolSearch onSelect={() => {}} />);
-    fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
-    expect(screen.getByRole('combobox')).not.toHaveFocus();
+  describe('Cmd/Ctrl+K shortcut', () => {
+    const setPlatform = (p: string) => Object.defineProperty(navigator, 'platform', { value: p, configurable: true });
+    afterEach(() => setPlatform(''));
+
+    it('Apple platforms: ⌘K focuses the field from anywhere; Ctrl+K is left alone (e.g. a text field\'s own Ctrl+K)', () => {
+      setPlatform('MacIntel');
+      render(<SymbolSearch onSelect={() => {}} shortcut />);
+      const input = screen.getByRole('combobox');
+      expect(screen.getByText('⌘K')).toHaveAttribute('aria-hidden', 'true');
+      fireEvent.keyDown(document.body, { key: 'K', ctrlKey: true });
+      expect(input).not.toHaveFocus();
+      fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
+      expect(input).toHaveFocus();
+    });
+
+    it('other platforms: Ctrl+K; ⌘ does nothing', () => {
+      setPlatform('Win32');
+      render(<SymbolSearch onSelect={() => {}} shortcut />);
+      const input = screen.getByRole('combobox');
+      expect(screen.getByText('Ctrl K')).toBeInTheDocument();
+      fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
+      expect(input).not.toHaveFocus();
+      fireEvent.keyDown(document.body, { key: 'k', ctrlKey: true });
+      expect(input).toHaveFocus();
+    });
+
+    it('does nothing behind a modal dialog, from inside a popup, when already handled, or without the prop', () => {
+      setPlatform('Win32');
+      const { unmount } = render(
+        <>
+          <SymbolSearch onSelect={() => {}} shortcut />
+          <div role="menu"><button type="button">Item</button></div>
+        </>,
+      );
+      const input = screen.getByRole('combobox');
+      fireEvent.keyDown(screen.getByRole('button', { name: 'Item' }), { key: 'k', ctrlKey: true });
+      expect(input).not.toHaveFocus();
+      const handled = new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true });
+      handled.preventDefault();
+      document.body.dispatchEvent(handled);
+      expect(input).not.toHaveFocus();
+      const modal = document.createElement('div');
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('aria-modal', 'true');
+      document.body.append(modal);
+      fireEvent.keyDown(document.body, { key: 'k', ctrlKey: true });
+      expect(input).not.toHaveFocus();
+      modal.remove();
+      unmount();
+      render(<SymbolSearch onSelect={() => {}} />);
+      fireEvent.keyDown(document.body, { key: 'k', ctrlKey: true });
+      expect(screen.getByRole('combobox')).not.toHaveFocus();
+    });
   });
 
   it('ArrowDown + Enter selects the highlighted result', async () => {

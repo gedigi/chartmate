@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX, type ReactNode } from 'react';
 import type { ChartAdapter, DrawingTool } from '../chart/ChartAdapter';
+import { isApplePlatform, isInPopup } from '../keyboard';
 import './DrawingToolbar.css';
 
 /** The slice of ChartAdapter the toolbar drives. */
@@ -91,18 +92,6 @@ function isTyping(target: EventTarget | null): boolean {
 function isFormControl(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable || target.closest('input, select, textarea, button, [contenteditable]:not([contenteditable="false"])') !== null;
-}
-
-/** True when the event comes from inside a dialog / modal / popup: its Escape closes that, nothing else. */
-function isInPopup(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  return target.closest('[role="dialog"], [role="alertdialog"], dialog, [aria-modal="true"], [role="listbox"], [role="menu"], [role="tooltip"]') !== null;
-}
-
-/** macOS (and iOS) use Meta (⌘) as the snap modifier; other platforms Ctrl. */
-function isApplePlatform(): boolean {
-  const uaPlatform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform;
-  return /Mac|iPhone|iPad|iPod/i.test(uaPlatform || navigator.platform);
 }
 
 /**
