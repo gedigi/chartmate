@@ -408,8 +408,9 @@ Windows, built with Electron 44. The self-hosted server is unchanged; the deskto
   and never calls `listen()`. `net.Server.prototype.listen` is guarded (`src/lib/listenGuard.ts`) and throws for
   every call. The one exception is narrow and audited: during an auto-update install on macOS (signed builds
   only), electron-updater must hand the downloaded zip to Squirrel.Mac over a short-lived HTTP server. For that
-  case only, the updater arms the guard for one listener, which must be on `127.0.0.1`/`::1` with an ephemeral port.
-  Every allowed or refused listener is written to the log.
+  case only, the guard is armed once the download has **completed**, right as electron-updater starts that
+  hand-over. The window lasts 60 s and allows a single listener, which must be on `127.0.0.1`/`::1` with an
+  ephemeral port. Every allowed or refused listener is written to the log.
 - **The app:// scheme.** The window loads `app://altv/`, a privileged custom scheme:
   - `/api/*` goes to `fastify.inject`, with the same 1 MB body limit as the server;
   - everything else is a read-only static file from the built web UI, with an SPA fallback for HTML navigations.
@@ -445,7 +446,8 @@ pnpm --filter @altv/desktop bundle && pnpm --filter @altv/desktop smoke     # un
 cd apps/desktop
 node smoke/prepare-inspectable.mjs release/mac-arm64/Chartmate.app release/test-only
 SMOKE_APP="$PWD/release/test-only/Chartmate TEST-ONLY.app" \
-SMOKE_HARDENED_APP="$PWD/release/mac-arm64/Chartmate.app" pnpm smoke
+SMOKE_HARDENED_APP="$PWD/release/mac-arm64/Chartmate.app" \
+SMOKE_EXPECT_UNSIGNED=1 pnpm smoke                       # 1 = unsigned build (no updater), 0 = signed
 SMOKE_LIVE=1 pnpm smoke                                                       # + live providers (internet)
 ```
 
@@ -459,14 +461,19 @@ functional tests:
 - on Windows, the copy turns asar integrity validation off, because the hash lives in a PE resource.
 
 The functional tests (`app.spec.ts`) drive that copy over CDP. `packaged-hardening.spec.ts` checks the
-**unmodified** artifact:
+**unmodified** artifact; CI runs it on macOS and on Windows, where it also covers the `/switch` syntax:
 
 - it opens no listening socket;
-- it exits with code 1 on `--remote-debugging-port=0`, `--inspect` and similar switches, with no CDP or debugger
-  endpoint reachable;
+- it exits with code 1 on `--remote-debugging-port=0`, `--inspect` and the other refused switches, with no CDP or
+  debugger endpoint reachable;
+- it exits with code 1 when the refused environment variables are set;
 - `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` have no effect;
-- a tampered `app.asar` refuses to start;
-- an unsigned build contains no updater code.
+- it ignores `ALTV_USER_DATA_DIR`;
+- a tampered `app.asar` refuses to start (macOS);
+- the updater is present only in signed builds (`SMOKE_EXPECT_UNSIGNED`).
+
+Because packaged builds ignore `ALTV_USER_DATA_DIR`, this spec runs against the real per-user data directory. It
+moves that directory aside first and restores it afterwards. Don't run it while Chartmate is open.
 
 ### CI and releases
 
@@ -509,7 +516,8 @@ What gets logged:
   stack, request URLs drop their query strings, and headers are never logged.
 - **Before writing any line**: absolute paths, URL credentials and secret-looking values are scrubbed.
 
-`ALTV_USER_DATA_DIR=/abs/path` overrides the directory (used by tests). Migrations run before the window loads.
+`ALTV_USER_DATA_DIR=/abs/path` overrides the directory in **development runs only**; packaged builds ignore it,
+just as they refuse `--user-data-dir`. Migrations run before the window loads.
 
 Environment overrides the desktop app honours:
 
@@ -518,8 +526,19 @@ Environment overrides the desktop app honours:
 - `BINANCE_BASE_URL` (https only);
 - `ALTV_DISABLE_UPDATES=1`.
 
-At startup the app removes `NODE_USE_ENV_PROXY`, `NODE_USE_SYSTEM_CA` and `NODE_EXTRA_CA_CERTS` from its
-environment. Everything else that concerns the network surface or storage is fixed.
+A packaged build **refuses to start** if `NODE_USE_ENV_PROXY`, `NODE_USE_SYSTEM_CA` or `SSLKEYLOGFILE` is set.
+Node applies the first two during pre-execution, before any app code runs, so the app cannot undo them, and the
+last one would let TLS session keys be logged.
+
+`NODE_EXTRA_CA_CERTS` is dropped by Electron itself: the `EnableNodeOptionsEnvironmentVariable` fuse covers it
+along with `NODE_OPTIONS`. The guard still refuses it if it ever got through.
+
+Independently of that, provider requests never use Node's global dispatcher. They go through an explicit undici
+`Agent` (`src/lib/directFetch.ts`) that connects directly, ignoring `HTTP(S)_PROXY`, and trusts only Node's
+bundled root CAs (`tls.rootCertificates`). Real Node and Electron child processes prove this
+(`test/directFetch.test.ts`).
+
+Everything else that concerns the network surface or storage is fixed.
 
 ### Security model
 
@@ -535,19 +554,22 @@ The renderer is treated as untrusted web content, and the main process exposes n
   - DevTools are available only in unpackaged runs. In a packaged build, DevTools are also closed if they ever
     open, and the menu has no DevTools item.
 - **Sandboxing and crashes**: `app.enableSandbox()` is called before ready, and only a single instance can run. A
-  crashed renderer is reloaded at most 3 times per minute; after that, a static error page is shown.
-- **Command-line switches** (`src/boot.ts`, the first module evaluated): a packaged build exits with code 1 if any
-  of these switches is present:
+  crashed renderer is reloaded at most 3 times per minute. After that, a static error page is shown once, and if
+  that page crashes too, the window is closed with an error dialog. There is never a reload loop.
+- **Command-line switches and environment** (`src/boot.ts`, the first module evaluated): a packaged build exits
+  with code 1 if any of the environment variables listed under "Data location" is set, or any of these switches is present (`--x`, `-x`, and `/x`
+  on Windows):
 
   | Group | Switches |
   |---|---|
-  | Remote debugging | `--remote-debugging-port`, `--remote-debugging-pipe`, `--remote-debugging-address`, `--remote-allow-origins` |
+  | Debugging and automation | `--remote-debugging-port`, `--remote-debugging-pipe`, `--remote-debugging-address`, `--remote-debugging-targets`, `--remote-allow-origins`, `--auto-open-devtools-for-tabs`, `--enable-automation` |
   | Node inspector and V8 | `--inspect*`, `--js-flags` |
-  | Sandbox and web security | `--no-sandbox`, `--disable-web-security`, `--disable-site-isolation-trials` |
-  | TLS checks | `--ignore-certificate-errors(-spki-list)`, `--allow-insecure-localhost`, `--unsafely-treat-insecure-origin-as-secure` |
-  | Proxy and DNS | `--proxy-server`, `--proxy-pac-url`, `--host-resolver-rules`, `--host-rules` |
-  | Foreign code | `--load-extension`, `--enable-blink-features`, `--renderer-cmd-prefix`, `--utility-cmd-prefix`, `--gpu-launcher`, `--browser-subprocess-path` |
-  | Logging and profile | `--log-net-log`, `--user-data-dir` |
+  | Sandbox and process model | `--no-sandbox`, `--disable-gpu-sandbox`, `--disable-setuid-sandbox`, `--disable-seccomp-filter-sandbox`, `--disable-namespace-sandbox`, `--no-zygote`, `--single-process`, `--in-process-gpu` |
+  | Web security and engine features | `--disable-web-security`, `--disable-site-isolation-trials`, `--allow-file-access(-from-files)`, `--allow-running-insecure-content`, `--reduce-security-for-testing`, `--unsafely-treat-insecure-origin-as-secure`, `--enable-features`, `--disable-features`, `--force-fieldtrials`, `--force-fieldtrial-params`, `--enable-blink-features`, `--disable-blink-features`, `--enable-experimental-web-platform-features`, `--enable-unsafe-webgpu`, `--enable-unsafe-swiftshader` |
+  | TLS | `--ignore-certificate-errors(-spki-list)`, `--allow-insecure-localhost`, `--ssl-key-log-file`, `--ssl-version-min`, `--ssl-version-max`, `--cipher-suite-blacklist` |
+  | Proxy, DNS and capture | `--proxy-server`, `--proxy-pac-url`, `--proxy-bypass-list`, `--proxy-auto-detect`, `--winhttp-proxy-resolver`, `--host-resolver-rules`, `--host-rules`, `--log-net-log` |
+  | Foreign code | `--load-extension`, `--renderer-cmd-prefix`, `--utility-cmd-prefix`, `--gpu-launcher`, `--browser-subprocess-path` |
+  | Profile relocation | `--user-data-dir`, `--disk-cache-dir` |
 
   Chromium switches have no fuse; the fuses below cover the Node equivalents.
 - **CSP**: every `app://` response sets it as a header:
@@ -572,7 +594,8 @@ The renderer is treated as untrusted web content, and the main process exposes n
   ones created later, through `session-created`.
 - **Renderer network**: `webRequest.onBeforeRequest` cancels every request that is not `app://altv`. `devtools:`
   is also allowed in development.
-- **Main-process network**: `globalThis.fetch` is wrapped by an allowlist. It allows HTTPS only, exact hosts and
+- **Main-process network**: `globalThis.fetch` is wrapped by an allowlist on top of the direct, CA-pinned undici
+  transport described above. It allows HTTPS only, exact hosts and
   the default port, and it follows redirects itself so that every hop is checked. On a redirect to another
   origin it drops the `Authorization`, `Cookie` and `Proxy-Authorization` headers. The allowed hosts are:
   - `query1/query2.finance.yahoo.com` and `finance.yahoo.com`, found by observing live traffic;
