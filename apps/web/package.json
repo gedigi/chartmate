@@ -1,6 +1,7 @@
 {
   "name": "@chartmate/web",
   "version": "0.0.0",
+  "description": "Chartmate web UI (React + KLineChart).",
   "private": true,
   "type": "module",
   "scripts": {

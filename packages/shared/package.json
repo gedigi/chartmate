@@ -1,6 +1,7 @@
 {
   "name": "@chartmate/shared",
   "version": "0.0.0",
+  "description": "Chartmate shared types and pure logic: timeframes, sessions, resampling, basket math, watchlist model.",
   "private": true,
   "type": "module",
   "exports": {

@@ -1,6 +1,7 @@
 {
   "name": "@chartmate/server",
   "version": "0.0.0",
+  "description": "Chartmate API server (Fastify + Kysely over SQLite or Postgres); also serves the web build.",
   "private": true,
   "type": "module",
   "scripts": {
