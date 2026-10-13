@@ -3,7 +3,7 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /repo
 RUN corepack enable
 # Manifests + lockfile first so the dependency layer is cached until they change.
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .pnpmfile.cjs ./
 COPY packages/shared/package.json packages/shared/
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
