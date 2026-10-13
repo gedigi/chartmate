@@ -267,7 +267,7 @@ describe('ChartAdapter long / short positions', () => {
     expect(positionContext.barMs).toBe(DAY);
     expect(positionContext.qtyDecimals).toBe(0);
     a.setTheme('light');
-    expect(positionContext.colors.up).toBe('#089981');
+    expect(positionContext.colors.up).toBe('#10a37a');
     a.setPositionDefaults(undefined);
     expect(positionContext.defaults).toEqual({ accountSize: 10000, riskMode: 'percent', riskValue: 1, currency: 'USD' });
   });

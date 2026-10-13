@@ -7,7 +7,7 @@ import {
   sideOf, stopLabel, targetLabel, toPositionPoints, type OutcomeBar, type PositionGeometry, type PositionMetrics, type PositionOutcome,
   type PositionSide,
 } from './position';
-import { hexToRgba } from './theme';
+import { hexToRgba, THEME_TOKENS } from './theme';
 
 export { POSITION_STYLE_KEY };
 
@@ -37,7 +37,7 @@ export const positionContext: {
   barMs: 86_400_000,
   qtyDecimals: 0,
   defaults: { ...DEFAULT_POSITION_SETTINGS },
-  colors: { up: '#26a69a', down: '#ef5350', neutral: '#868b98' },
+  colors: { up: THEME_TOKENS.dark.up, down: THEME_TOKENS.dark.down, neutral: THEME_TOKENS.dark.muted },
   endFor: (start) => start + DEFAULT_WIDTH_BARS * positionContext.barMs,
   minEnd: (start) => start + positionContext.barMs,
   shiftEnd: (end, from, to) => end + (to - from),

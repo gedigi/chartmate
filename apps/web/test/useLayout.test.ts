@@ -2,7 +2,7 @@ import type { Layout } from '@altv/shared';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { api, ApiError } from '../src/api/client';
-import { DEFAULT_LAYOUT, useLayout } from '../src/state/useLayout';
+import { DEFAULT_LAYOUT, useLayout, withoutLegacyDefaults } from '../src/state/useLayout';
 
 const ma = { name: 'MA', pane: 'main' as const, calcParams: [20], visible: true };
 const rsi = { name: 'RSI', pane: 'sub' as const, calcParams: [14], visible: true };
@@ -72,6 +72,30 @@ describe('useLayout (one global indicator set in the default layout)', () => {
     const { result } = renderHook(() => useLayout());
     await waitFor(() => expect(result.current.loaded).toBe(true));
     expect(result.current.layout).toEqual({ ...saved, appearance: { dark: flat } });
+  });
+
+  it('reads colours equal to the previous release defaults as unset on load; user colours stay', async () => {
+    const appearance = {
+      dark: { upColor: '#26A69A', downColor: '#e63b7a', drawing: { color: '#2962ff', size: 1, style: 'solid' as const } },
+      light: { upColor: '#089981', downColor: '#f23645', lineColor: '#2962ff' },
+    };
+    const vol = { name: 'VOL', pane: 'sub' as const, calcParams: [5, 10, 20], visible: true, barColors: { up: '#26a69a', down: '#ef5350' } };
+    const macd = { name: 'MACD', pane: 'sub' as const, calcParams: [12, 26, 9], visible: true, barColors: { up: '#00ff00', down: '#f23645' } };
+    vi.mocked(api.layouts.get).mockResolvedValue({ ...saved, indicators: [ma, vol, macd], appearance });
+    const { result } = renderHook(() => useLayout());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.layout.appearance).toEqual({ dark: { downColor: '#e63b7a' } });
+    const { barColors: _gone, ...volPlain } = vol;
+    expect(result.current.layout.indicators).toEqual([ma, volPlain, { ...macd, barColors: { up: '#00ff00', down: '#c41d3d' } }]);
+  });
+
+  it('withoutLegacyDefaults: an all-default appearance is dropped; a custom drawing width keeps it with the new accent', () => {
+    expect(withoutLegacyDefaults({ ...saved, appearance: { dark: { upColor: '#26a69a' } } })).toEqual(saved);
+    expect(withoutLegacyDefaults({ ...saved, appearance: { light: { drawing: { color: '#2962FF', size: 3, style: 'dashed' } } } }))
+      .toEqual({ ...saved, appearance: { light: { drawing: { color: '#3d6af5', size: 3, style: 'dashed' } } } });
+    // The other theme's old defaults are user colours here (light #089981 in the dark theme stays).
+    expect(withoutLegacyDefaults({ ...saved, appearance: { dark: { upColor: '#089981' } } })).toEqual({ ...saved, appearance: { dark: { upColor: '#089981' } } });
+    expect(withoutLegacyDefaults(saved)).toBe(saved);
   });
 
   it('an appearance change saves the default key only', async () => {

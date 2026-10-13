@@ -68,15 +68,15 @@ describe('IndicatorSettings line width / style and bar colours', () => {
   it('bar colour defaults follow the active theme; untouched defaults are not saved; overrides win', async () => {
     const onSave = vi.fn();
     const { unmount } = render(<IndicatorSettings state={VOL} theme="light" onSave={onSave} onClose={() => {}} />);
-    expect(screen.getByLabelText('Up bar colour')).toHaveValue('#089981');
-    expect(screen.getByLabelText('Down bar colour')).toHaveValue('#f23645');
+    expect(screen.getByLabelText('Up bar colour')).toHaveValue('#10a37a');
+    expect(screen.getByLabelText('Down bar colour')).toHaveValue('#c41d3d');
     await userEvent.click(save());
     expect(onSave).toHaveBeenLastCalledWith(VOL);
     unmount();
     render(<IndicatorSettings state={{ ...VOL, barColors: { up: '#00ff00', down: '#ff0000' } }} theme="light" onSave={onSave} onClose={() => {}} />);
     expect(screen.getByLabelText('Up bar colour')).toHaveValue('#00ff00');
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
-    expect(screen.getByLabelText('Up bar colour')).toHaveValue('#089981');
+    expect(screen.getByLabelText('Up bar colour')).toHaveValue('#10a37a');
   });
 });
 

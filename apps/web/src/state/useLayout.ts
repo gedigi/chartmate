@@ -1,6 +1,7 @@
 import { migrateAppearance, type Layout, type SymbolId } from '@altv/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
+import { dropLegacyAppearanceDefaults, dropLegacyBarColors } from '../chart/theme';
 import { retryDelayMs } from './retry';
 import { useDebouncedSave } from './useDebouncedSave';
 
@@ -18,6 +19,41 @@ function withThemedAppearance(l: Layout): Layout {
   const { appearance, ...rest } = l;
   const themed = migrateAppearance(appearance);
   return themed ? { ...rest, appearance: themed } : rest;
+}
+
+/**
+ * Colours equal to an earlier release's defaults are read as "default" (see LEGACY_DEFAULTS): the dialogs store
+ * the shown default next to the edited field, so those values were not chosen. Every other user colour is kept.
+ */
+export function withoutLegacyDefaults(l: Layout): Layout {
+  let out = l;
+  if (l.appearance) {
+    const appearance = { ...l.appearance };
+    for (const t of ['dark', 'light'] as const) {
+      const a = appearance[t];
+      if (!a) continue;
+      const clean = dropLegacyAppearanceDefaults(t, a);
+      if (clean) appearance[t] = clean;
+      else delete appearance[t];
+    }
+    if (Object.keys(appearance).length > 0) out = { ...out, appearance };
+    else {
+      const { appearance: _dropped, ...rest } = out;
+      out = rest;
+    }
+  }
+  if (l.indicators.some((i) => i.barColors)) {
+    out = {
+      ...out,
+      indicators: l.indicators.map((i) => {
+        if (!i.barColors) return i;
+        const { barColors, ...rest } = i;
+        const clean = dropLegacyBarColors(barColors);
+        return clean ? { ...rest, barColors: clean } : rest;
+      }),
+    };
+  }
+  return out;
 }
 
 export interface UseLayout {
@@ -62,7 +98,7 @@ export function useLayout(): UseLayout {
       api.layouts.get('default').then(
         (l) => {
           if (cancelled) return;
-          if (l) setLayoutState(withThemedAppearance(l)); // null = nothing saved yet → DEFAULT_LAYOUT
+          if (l) setLayoutState(withoutLegacyDefaults(withThemedAppearance(l))); // null = nothing saved yet → DEFAULT_LAYOUT
           setLoadError(null);
           setLoaded(true);
         },

@@ -97,7 +97,7 @@ describe('TopBar chart appearance button', () => {
     const { rerender } = render(<TopBar {...props} layout={current} theme="light" setLayout={setLayout} />);
     await userEvent.click(screen.getByRole('button', { name: 'Chart appearance' }));
     expect(screen.getByText('Light theme')).toBeInTheDocument();
-    expect(screen.getByLabelText('Up colour')).toHaveValue('#089981'); // light default; the dark theme's white is not used here
+    expect(screen.getByLabelText('Up colour')).toHaveValue('#10a37a'); // light default; the dark theme's white is not used here
     fireEvent.input(screen.getByLabelText('Down colour'), { target: { value: '#ff00ff' } });
     expect(current.appearance).toEqual({ dark: { upColor: '#ffffff' }, light: { downColor: '#ff00ff' } });
     rerender(<TopBar {...props} layout={current} theme="light" setLayout={setLayout} />);

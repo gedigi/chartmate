@@ -282,11 +282,11 @@ describe('ChartAdapter', () => {
     a.setAppearance({ dark: { drawing: { color: '#ff0000', size: 4, style: 'solid' } } });
     a.setMarkers([{ ts: 1000, label: 'Start' }]);
     const marker = () => chart().overlays.find((o) => o.groupId === 'markers')!;
-    expect(marker().styles).toMatchObject({ line: { color: '#868b98', style: 'dashed', size: 1 }, text: { color: '#868b98' } });
+    expect(marker().styles).toMatchObject({ line: { color: '#8b93a3', style: 'dashed', size: 1 }, text: { color: '#8b93a3' } });
     a.setAppearance({ dark: { drawing: { color: '#00ff00', size: 2, style: 'dashed' } } });
-    expect(marker().styles).toMatchObject({ line: { color: '#868b98' } });
+    expect(marker().styles).toMatchObject({ line: { color: '#8b93a3' } });
     a.setTheme('light');
-    expect(marker().styles).toMatchObject({ line: { color: '#6a6d78' }, text: { color: '#6a6d78' } });
+    expect(marker().styles).toMatchObject({ line: { color: '#5b6474' }, text: { color: '#5b6474' } });
   });
 
   it.each([
@@ -571,7 +571,7 @@ describe('ChartAdapter', () => {
       expect(s.grid).toBeDefined(); // theme styles are kept
       a.setTheme('light'); // the light theme's own settings apply live
       s = chart().setStyles.mock.calls.at(-1)![0];
-      expect(s.candle).toMatchObject({ type: 'candle_stroke', bar: { upColor: '#010203', downColor: '#f23645' } }); // light default down
+      expect(s.candle).toMatchObject({ type: 'candle_stroke', bar: { upColor: '#010203', downColor: '#c41d3d' } }); // light default down
       a.setTheme('dark');
       s = chart().setStyles.mock.calls.at(-1)![0];
       expect(s.candle).toMatchObject({ bar: { upColor: '#00ff00' } });
@@ -581,16 +581,16 @@ describe('ChartAdapter', () => {
       expect(s.candle.area).toMatchObject({ lineColor: '#123456', lineSize: 4 });
       a.setAppearance(undefined);
       s = chart().setStyles.mock.calls.at(-1)![0];
-      expect(s.candle.area).toMatchObject({ lineColor: '#2962ff', lineSize: 2 });
+      expect(s.candle.area).toMatchObject({ lineColor: '#3d6af5', lineSize: 2 });
     });
 
     it('default indicator bars follow the theme up / down colours', () => {
       const a = make();
       expect(chart().setStyles).not.toHaveBeenCalled();
       a.setTheme('light');
-      expect(chart().setStyles.mock.calls.at(-1)![0].indicator.bars).toEqual([{ upColor: 'rgba(8,153,129,0.7)', downColor: 'rgba(242,54,69,0.7)' }]);
+      expect(chart().setStyles.mock.calls.at(-1)![0].indicator.bars).toEqual([{ upColor: 'rgba(16,163,122,0.7)', downColor: 'rgba(196,29,61,0.7)' }]);
       a.setTheme('dark');
-      expect(chart().setStyles.mock.calls.at(-1)![0].indicator.bars).toEqual([{ upColor: 'rgba(38,166,154,0.7)', downColor: 'rgba(239,83,80,0.7)' }]);
+      expect(chart().setStyles.mock.calls.at(-1)![0].indicator.bars).toEqual([{ upColor: 'rgba(52,211,153,0.7)', downColor: 'rgba(242,60,80,0.7)' }]);
     });
 
     it('the reported layout: last price label text is readable; light mode falls back to defaults', () => {
@@ -601,8 +601,8 @@ describe('ChartAdapter', () => {
       expect(s.overlay.text).toMatchObject({ backgroundColor: '#ffffff', color: '#131722' });
       a.setTheme('light');
       s = chart().setStyles.mock.calls.at(-1)![0];
-      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#089981', downColor: '#f23645', text: { color: '#ffffff' } });
-      expect(s.overlay.line).toMatchObject({ color: '#2962ff' });
+      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#10a37a', downColor: '#c41d3d', text: { color: '#ffffff' } });
+      expect(s.overlay.line).toMatchObject({ color: '#3d6af5' });
     });
   });
 
@@ -706,7 +706,7 @@ describe('ChartAdapter', () => {
       a.setTheme('light');
       const calls = chart().overrideIndicator.mock.calls.map((c) => c[0] as { id: string; styles?: { bars?: unknown[] } });
       expect(calls.filter((c) => c.id === reset && c.styles?.bars)).toEqual([
-        expect.objectContaining({ styles: { bars: [expect.objectContaining({ style: 'fill', upColor: 'rgba(8,153,129,0.7)', downColor: 'rgba(242,54,69,0.7)' })] } }),
+        expect.objectContaining({ styles: { bars: [expect.objectContaining({ style: 'fill', upColor: 'rgba(16,163,122,0.7)', downColor: 'rgba(196,29,61,0.7)' })] } }),
       ]);
       expect(calls.filter((c) => c.id === custom && c.styles?.bars)).toEqual([]); // the user's bar colours win
       expect(a.listIndicators().find((i) => i.id === reset)).not.toHaveProperty('barColors');
@@ -730,7 +730,7 @@ describe('ChartAdapter', () => {
       const o = chart().overrideIndicator.mock.calls.at(-1)![0] as { styles: { lines: unknown[]; bars: unknown[] } };
       expect(o.styles.lines).toEqual(['#3987e5', '#d95926'].map((color) => expect.objectContaining({ color, size: 1, style: 'solid' })));
       // The theme's default bars (dark), not KLineChart's own green / red.
-      expect(o.styles.bars).toEqual([expect.objectContaining({ style: 'fill', upColor: 'rgba(38,166,154,0.7)', downColor: 'rgba(239,83,80,0.7)' })]);
+      expect(o.styles.bars).toEqual([expect.objectContaining({ style: 'fill', upColor: 'rgba(52,211,153,0.7)', downColor: 'rgba(242,60,80,0.7)' })]);
       expect(a.listIndicators()[0]).not.toHaveProperty('lineStyles');
       expect(a.listIndicators()[0]).not.toHaveProperty('barColors');
     });
@@ -791,9 +791,9 @@ describe('ChartAdapter', () => {
       const a = await loaded();
       // Theme default: overlay styles follow the theme accent (not KLineChart's own blue), from init on.
       expect((k.init.mock.calls.at(-1) as unknown as [unknown, { styles: { overlay: { line: unknown } } }])[1].styles.overlay.line)
-        .toMatchObject({ color: '#2962ff', size: 1, style: 'solid' });
+        .toMatchObject({ color: '#3d6af5', size: 1, style: 'solid' });
       a.setTheme('dark');
-      expect(lastStyles().overlay.line).toMatchObject({ color: '#2962ff', size: 1, style: 'solid' });
+      expect(lastStyles().overlay.line).toMatchObject({ color: '#3d6af5', size: 1, style: 'solid' });
       const drawing = { color: '#abcdef', size: 2, style: 'dashed' as const };
       a.setAppearance({ dark: { drawing }, light: { drawing } });
       expect(lastStyles().overlay.line).toMatchObject(drawing);

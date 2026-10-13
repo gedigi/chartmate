@@ -124,7 +124,7 @@ export function translucent(color: unknown, alpha: number): string {
   if (!hex && typeof color === 'string' && /^#[0-9a-fA-F]{3}$/.test(color)) hex = [...color.slice(1)].map((c) => c + c).join('');
   if (!hex) {
     const m = typeof color === 'string' ? /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(color) : null;
-    return m ? `rgba(${m[1]}, ${m[2]}, ${m[3]}, ${alpha})` : `rgba(41, 98, 255, ${alpha})`;
+    return m ? `rgba(${m[1]}, ${m[2]}, ${m[3]}, ${alpha})` : `rgba(61, 106, 245, ${alpha})`;
   }
   const n = parseInt(hex, 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
@@ -296,7 +296,7 @@ function withLabels(t: Template): Template {
       const text = priceText(p);
       if (!opts.onAxis || !c || text === null) return [];
       const fromZero = (p.yAxis as { isFromZero?: () => boolean } | null)?.isFromZero?.() ?? false;
-      const color = String(lineStyles(p).color ?? '#2962ff');
+      const color = String(lineStyles(p).color ?? '#3d6af5');
       return [{
         type: 'text',
         ignoreEvent: true,

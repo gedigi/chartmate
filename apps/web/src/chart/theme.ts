@@ -8,18 +8,73 @@ export type ThemeName = 'dark' | 'light';
 /**
  * Fallback chart tokens. The ones with a CSS custom property (THEME_CSS_VARS) are read from src/styles.css at
  * runtime (refreshThemeTokens); these constants are only used when that is not possible, and a parity test
- * keeps them equal to styles.css. `grid` and `crossBg` are chart-only.
+ * keeps them equal to styles.css.
  */
 export const THEME_TOKENS = {
   dark: {
-    bg: '#131722', panel: '#1e222d', elevated: '#2a2e39', border: '#363a45', grid: '#1f2330', text: '#d1d4dc', muted: '#868b98', accent: '#2962ff',
-    up: '#26a69a', down: '#ef5350', crossBg: '#363a45',
+    bg: '#0f1218', panel: '#141820', elevated: '#1b2029', border: '#262c38', grid: '#181d26', text: '#e4e7ee', muted: '#8b93a3', accent: '#3d6af5',
+    up: '#34d399', down: '#f23c50', crossBg: '#2a303c',
   },
   light: {
-    bg: '#ffffff', panel: '#f8f9fd', elevated: '#ffffff', border: '#e0e3eb', grid: '#f0f3fa', text: '#131722', muted: '#6a6d78', accent: '#2962ff',
-    up: '#089981', down: '#f23645', crossBg: '#131722',
+    bg: '#ffffff', panel: '#f7f8fa', elevated: '#ffffff', border: '#e3e6eb', grid: '#f1f3f6', text: '#111827', muted: '#5b6474', accent: '#3d6af5',
+    up: '#10a37a', down: '#c41d3d', crossBg: '#1f2937',
   },
 } as const;
+
+/*
+ * Up / down (candles, volume / MACD / AO bars, position zones, watchlist and basket changes): an emerald and a
+ * crimson-rose. Besides the hue they differ in LIGHTNESS so they stay apart for red-green colour-blind readers:
+ * on dark the up colour is the light one (OKLCH L 0.77 vs 0.64), on white the down colour is the dark one
+ * (L 0.53 vs 0.64; protanopia darkens reds, which only widens that gap). OKLab ΔE×100 up↔down: dark 38 (protan 29,
+ * deutan 13), light 33 (protan 25, deutan 11) — the previous teal / red pair had deutan 11–12 with no lightness gap.
+ * Both sit ≥ 3:1 against their background, and keep further from the indicator palette's cyan / orange / magenta
+ * than the old pair did (nearest ΔE 8–17 vs 5–9).
+ */
+
+/**
+ * Default colours of earlier releases. A stored appearance / bar colour exactly equal to one of them was (almost
+ * certainly) never picked by the user — the dialogs write the shown defaults along with the edited field — so it
+ * is read as "default" (see dropLegacyDefaults) and follows the current tokens.
+ */
+export const LEGACY_DEFAULTS = {
+  dark: { up: '#26a69a', down: '#ef5350', accent: '#2962ff' },
+  light: { up: '#089981', down: '#f23645', accent: '#2962ff' },
+} as const;
+
+const sameColour = (a: string | undefined, b: string): boolean => typeof a === 'string' && a.toLowerCase() === b;
+
+/** One theme's stored appearance without the fields that equal that theme's legacy defaults (undefined when empty). */
+export function dropLegacyAppearanceDefaults(theme: ThemeName, a: ChartAppearance): ChartAppearance | undefined {
+  const old = LEGACY_DEFAULTS[theme];
+  const out: ChartAppearance = { ...a };
+  if (sameColour(out.upColor, old.up)) delete out.upColor;
+  if (sameColour(out.downColor, old.down)) delete out.downColor;
+  if (sameColour(out.lineColor, old.accent)) delete out.lineColor;
+  if (out.drawing && sameColour(out.drawing.color, old.accent)) {
+    // The whole default drawing style → unset; a custom width / dash keeps that, with today's accent.
+    if (out.drawing.size === 1 && out.drawing.style === 'solid') delete out.drawing;
+    else out.drawing = { ...out.drawing, color: THEME_TOKENS[theme].accent };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Legacy default bar colour → the current default of the same theme and direction. */
+const LEGACY_BAR_COLOURS: Readonly<Record<string, string>> = {
+  [LEGACY_DEFAULTS.dark.up]: THEME_TOKENS.dark.up, [LEGACY_DEFAULTS.dark.down]: THEME_TOKENS.dark.down,
+  [LEGACY_DEFAULTS.light.up]: THEME_TOKENS.light.up, [LEGACY_DEFAULTS.light.down]: THEME_TOKENS.light.down,
+};
+
+/**
+ * An indicator's stored bar colours with legacy defaults resolved: both legacy defaults → undefined (the bars
+ * follow the theme again); one legacy default next to a user colour → that side becomes the current default it
+ * stood for (bar colours are not per theme, so it cannot be left unset alone).
+ */
+export function dropLegacyBarColors(b: { up: string; down: string }): { up: string; down: string } | undefined {
+  const up = LEGACY_BAR_COLOURS[b.up.toLowerCase()];
+  const down = LEGACY_BAR_COLOURS[b.down.toLowerCase()];
+  if (up !== undefined && down !== undefined) return undefined;
+  return { up: up ?? b.up, down: down ?? b.down };
+}
 
 /**
  * Categorical palette of indicator LINES, per theme (surface #131722 / #ffffff), validated for colour-vision
@@ -44,7 +99,7 @@ type ThemeTokens = { -readonly [K in keyof typeof THEME_TOKENS.dark]: string };
 /** Chart token → CSS custom property in styles.css. */
 export const THEME_CSS_VARS: Readonly<Partial<Record<keyof ThemeTokens, string>>> = {
   bg: '--bg', panel: '--bg-panel', elevated: '--bg-elevated', border: '--border', text: '--text', muted: '--text-muted', accent: '--accent',
-  up: '--up', down: '--down',
+  up: '--up', down: '--down', grid: '--grid', crossBg: '--cross-bg',
 };
 
 const live: Partial<Record<ThemeName, ThemeTokens>> = {};
@@ -222,7 +277,7 @@ export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
     },
     xAxis: axis,
     yAxis: axis,
-    separator: { color: t.border, activeBackgroundColor: 'rgba(41,98,255,0.15)' },
+    separator: { color: t.border, activeBackgroundColor: hexToRgba(t.accent, 0.15) },
     crosshair: {
       horizontal: { line: { color: t.muted }, text: crossText },
       vertical: { line: { color: t.muted }, text: crossText },
