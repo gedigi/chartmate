@@ -29,6 +29,7 @@ import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
 import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
 import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS } from './sessionShade';
+import { solidBarFigures } from './solidBars';
 import {
   candleStyles, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, overlayStyles, refreshThemeTokens, resolveAppearance, themeTokens,
   type ThemeName,
@@ -472,6 +473,9 @@ export class ChartAdapter {
     if (PRICE_PRECISION_INDICATORS.has(spec.name)) create.precision = this.indicatorExt.pricePrecision ?? 4;
     const id = this.chart.createIndicator(create, main);
     if (!id) throw new Error(`Cannot create indicator ${spec.name}`);
+    // Histogram bars are always filled (MACD / AO outline rising bars by default).
+    const figures = solidBarFigures(this.chart.getIndicators().find((i) => i.id === id)?.figures);
+    if (figures) this.chart.overrideIndicator({ id, name: spec.name, figures });
     if (OVERRIDE_KEYS.some((k) => overrides[k])) this.overrides.set(id, overrides);
     return id;
   }
