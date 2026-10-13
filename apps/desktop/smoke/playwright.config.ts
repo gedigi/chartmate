@@ -15,6 +15,8 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   timeout: 120_000,
+  // A hung Electron process must fail the run with a report, not stall CI until the job timeout.
+  globalTimeout: 10 * 60_000,
   expect: { timeout: 20_000 },
   reporter: 'list',
 });
