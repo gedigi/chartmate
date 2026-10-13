@@ -1,5 +1,7 @@
 # Chartmate Implementation Plan
 
+> **Historical document.** The original implementation plan as written on 2026-10-11, before implementation; it is not maintained. It has been carried out: do not execute it again. The code, `README.md` and `AGENTS.md` describe the current state.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build Chartmate — a self-hosted TradingView alternative with charts, indicators, drawings, watchlist and custom chained baskets — for US stocks/ETFs (incl. extended hours) and crypto.

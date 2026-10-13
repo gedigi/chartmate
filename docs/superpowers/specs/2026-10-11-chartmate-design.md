@@ -1,5 +1,7 @@
 # Chartmate — Design Spec
 
+> **Historical document.** The original design spec as written on 2026-10-11, before implementation; it is not maintained. The code, `README.md` and `AGENTS.md` describe the current state.
+
 Date: 2026-10-11
 Status: Draft, awaiting review
 
