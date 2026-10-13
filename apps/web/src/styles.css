@@ -23,7 +23,7 @@
   --bg-hover: #181c29;
   --bg-active: #1f2433;
   --bg-inset: #0e111b;
-  /* The selected list row (current watchlist symbol): a quiet sky-graphite, the bracket marks it. */
+  /* The selected list row (current watchlist symbol): a quiet sky-graphite fill. */
   --bg-selected: #131a28;
   --border: #1c202c;
   --border-strong: #2a3040;
