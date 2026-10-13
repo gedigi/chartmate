@@ -614,13 +614,39 @@ describe('ChartAdapter', () => {
       expect(a.listIndicators()[0]).toMatchObject({ id, lineWidths: [3], lineStyles: ['solid', 'dashed'], barColors: { up: '#00ff00', down: '#ff0000' } });
     });
 
+    it('a theme toggle gives reset (non-overridden) indicators the new theme\'s default bars live; overrides stay', () => {
+      const a = make();
+      const reset = a.addIndicator({ name: 'VOL', pane: 'sub', barColors: { up: '#00ff00', down: '#ff0000' } });
+      const custom = a.addIndicator({ name: 'MACD', pane: 'sub', barColors: { up: '#0000ff', down: '#ffff00' } });
+      a.updateIndicator(reset, { calcParams: [5, 10, 20] }); // override removed → dark defaults written explicitly
+      chart().overrideIndicator.mockClear();
+      a.setTheme('light');
+      const calls = chart().overrideIndicator.mock.calls.map((c) => c[0] as { id: string; styles?: { bars?: unknown[] } });
+      expect(calls.filter((c) => c.id === reset)).toEqual([
+        expect.objectContaining({ styles: { bars: [expect.objectContaining({ style: 'fill', upColor: 'rgba(8,153,129,0.7)', downColor: 'rgba(242,54,69,0.7)' })] } }),
+      ]);
+      expect(calls.filter((c) => c.id === custom)).toEqual([]); // the user's colours win
+      expect(a.listIndicators().find((i) => i.id === reset)).not.toHaveProperty('barColors');
+      // Setting an override again stops the theme updates for that indicator; removing it stops them for good.
+      a.updateIndicator(reset, { barColors: { up: '#123456', down: '#654321' } });
+      chart().overrideIndicator.mockClear();
+      a.setTheme('dark');
+      expect(chart().overrideIndicator.mock.calls.filter((c) => (c[0] as { id: string }).id === reset)).toEqual([]);
+      a.updateIndicator(reset, {});
+      a.removeIndicator(reset);
+      chart().overrideIndicator.mockClear();
+      a.setTheme('light');
+      expect(chart().overrideIndicator).not.toHaveBeenCalled();
+    });
+
     it('removing the overrides writes the defaults back explicitly (KLineChart merges styles)', () => {
       const a = make();
       const id = a.addIndicator({ name: 'MACD', pane: 'sub', lineStyles: ['dashed'], barColors: { up: '#00ff00', down: '#ff0000' } });
       a.updateIndicator(id, { calcParams: [12, 26, 9] });
       const o = chart().overrideIndicator.mock.calls.at(-1)![0] as { styles: { lines: unknown[]; bars: unknown[] } };
       expect(o.styles.lines).toEqual(['#d1', '#d2', '#d3'].map((color) => expect.objectContaining({ color, size: 1, style: 'solid' })));
-      expect(o.styles.bars).toEqual([expect.objectContaining({ upColor: 'rgba(45,192,142,0.7)', downColor: 'rgba(249,40,85,0.7)' })]);
+      // The theme's default bars (dark), not KLineChart's own green / red.
+      expect(o.styles.bars).toEqual([expect.objectContaining({ style: 'fill', upColor: 'rgba(38,166,154,0.7)', downColor: 'rgba(239,83,80,0.7)' })]);
       expect(a.listIndicators()[0]).not.toHaveProperty('lineStyles');
       expect(a.listIndicators()[0]).not.toHaveProperty('barColors');
     });
