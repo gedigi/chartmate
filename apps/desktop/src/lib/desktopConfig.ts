@@ -1,22 +1,14 @@
 import { randomBytes } from 'node:crypto';
 import { isAbsolute, join } from 'node:path';
-import { brandEnv } from '../../../server/src/brandEnv.js';
 import type { Config } from '../../../server/src/config.js';
 
-// Kept from before the rename to Chartmate: existing installs (and the legacy-directory migration) use this name.
-export const DB_FILE_NAME = 'altv.db';
+export const DB_FILE_NAME = 'chartmate.db';
 export const DEFAULT_BINANCE_BASE_URL = 'https://data-api.binance.vision';
 
 type Env = Record<string, string | undefined>;
 
 const val = (env: Env, key: string): string | undefined => {
   const v = env[key]?.trim();
-  return v === undefined || v === '' ? undefined : v;
-};
-
-/** CHARTMATE_<name>, falling back to the legacy ALTV_<name> (see server/src/brandEnv.ts); blank = unset. */
-const brandVal = (env: Env, name: string): string | undefined => {
-  const v = brandEnv(env, name)?.trim();
   return v === undefined || v === '' ? undefined : v;
 };
 
@@ -47,7 +39,7 @@ function binanceBaseUrl(raw: string | undefined): string {
 export function desktopConfig(opts: { userData: string; env: Env }): { config: Config; dbPath: string } {
   if (!isAbsolute(opts.userData)) throw new Error('userData must be an absolute path');
   const { env } = opts;
-  const providers = brandVal(env, 'PROVIDERS') ?? 'live';
+  const providers = val(env, 'CHARTMATE_PROVIDERS') ?? 'live';
   if (providers !== 'live' && providers !== 'fixture') throw new Error('Invalid CHARTMATE_PROVIDERS: expected live or fixture');
   const crypto = val(env, 'CRYPTO_PROVIDER') ?? 'binance';
   if (crypto !== 'binance' && crypto !== 'coinbase') throw new Error('Invalid CRYPTO_PROVIDER: expected binance or coinbase');
@@ -68,13 +60,12 @@ export function desktopConfig(opts: { userData: string; env: Env }): { config: C
 }
 
 /**
- * `CHARTMATE_USER_DATA_DIR` (absolute; the legacy `ALTV_USER_DATA_DIR` is still accepted) overrides Electron's
- * per-user data directory for development runs and tests.
+ * `CHARTMATE_USER_DATA_DIR` (absolute) overrides Electron's per-user data directory for development runs and tests.
  * Packaged builds ignore it (`allowOverride: false`), just as they refuse Chromium's --user-data-dir.
  */
 export function resolveUserDataDir(platformDefault: string, env: Env, opts: { allowOverride: boolean }): string {
   if (!opts.allowOverride) return platformDefault;
-  const override = brandVal(env, 'USER_DATA_DIR');
+  const override = val(env, 'CHARTMATE_USER_DATA_DIR');
   if (override === undefined) return platformDefault;
   if (!isAbsolute(override)) throw new Error('CHARTMATE_USER_DATA_DIR must be an absolute path');
   return override;

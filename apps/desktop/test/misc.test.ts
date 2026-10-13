@@ -96,8 +96,7 @@ describe('shouldEnableAutoUpdate', () => {
     expect(shouldEnableAutoUpdate({ ...base, updateConfig: null })).toBe(false);
     expect(shouldEnableAutoUpdate({ ...base, isSigned: false })).toBe(false);
     expect(shouldEnableAutoUpdate({ ...base, env: { CHARTMATE_DISABLE_UPDATES: '1' } })).toBe(false);
-    expect(shouldEnableAutoUpdate({ ...base, env: { ALTV_DISABLE_UPDATES: '1' } })).toBe(false); // legacy name
-    expect(shouldEnableAutoUpdate({ ...base, env: { CHARTMATE_DISABLE_UPDATES: '0', ALTV_DISABLE_UPDATES: '1' } })).toBe(true);
+    expect(shouldEnableAutoUpdate({ ...base, env: { CHARTMATE_DISABLE_UPDATES: '0' } })).toBe(true);
     expect(shouldEnableAutoUpdate({ ...base, platform: 'linux' })).toBe(false);
   });
   it('Windows: refuses to update unless app-update.yml pins publisherName', () => {

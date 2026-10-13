@@ -9,9 +9,7 @@ const { signingFor } = require('./signing.cjs');
  * always runs with --publish never). The repository comes from GITHUB_REPOSITORY (owner/name), never hardcoded.
  */
 function githubPublish(env) {
-  // CHARTMATE_PUBLISH, with the pre-rename ALTV_PUBLISH as a fallback when the new variable is not set.
-  const mode = env.CHARTMATE_PUBLISH !== undefined ? env.CHARTMATE_PUBLISH : env.ALTV_PUBLISH;
-  if (mode !== 'github') return null;
+  if (env.CHARTMATE_PUBLISH !== 'github') return null;
   const [owner, repo] = String(env.GITHUB_REPOSITORY ?? '').split('/');
   if (!owner || !repo) throw new Error('CHARTMATE_PUBLISH=github needs GITHUB_REPOSITORY=owner/name');
   return [{ provider: 'github', owner, repo, releaseType: 'release' }];

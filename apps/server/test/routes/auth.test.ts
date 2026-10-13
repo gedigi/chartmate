@@ -296,24 +296,4 @@ describe('session expiry and logout', () => {
       expect(String(r.headers['set-cookie'])).toMatch(/^chartmate_session=;/);
     }
   });
-
-  it('accepts the pre-rename altv_session cookie and replaces it on the next login/logout', async () => {
-    t = await makeApp({ password: 'hunter2' });
-    const legacy = `altv_session=${encodeURIComponent(t.app.signCookie(`v1.${Date.now()}`))}`;
-    expect((await t.app.inject({ method: 'GET', url: '/api/watchlist', headers: { cookie: legacy } })).statusCode).toBe(200);
-    expect((await t.app.inject({ method: 'GET', url: '/api/session', headers: { cookie: legacy } })).json())
-      .toEqual({ authRequired: true, authenticated: true });
-    // Unsigned legacy cookies are rejected like any other.
-    expect((await t.app.inject({ method: 'GET', url: '/api/watchlist', headers: { cookie: 'altv_session=v1.1' } })).statusCode).toBe(401);
-
-    const login = await t.app.inject({ method: 'POST', url: '/api/login', payload: { password: 'hunter2' }, headers: { cookie: legacy } });
-    const set = ([] as string[]).concat(login.headers['set-cookie'] as string | string[]);
-    expect(set.some((c) => /^chartmate_session=v1\./.test(c))).toBe(true);
-    expect(set.some((c) => /^altv_session=;/.test(c))).toBe(true);
-
-    const out = await t.app.inject({ method: 'POST', url: '/api/logout', headers: { cookie: legacy } });
-    const cleared = ([] as string[]).concat(out.headers['set-cookie'] as string | string[]);
-    expect(cleared.some((c) => /^chartmate_session=;/.test(c))).toBe(true);
-    expect(cleared.some((c) => /^altv_session=;/.test(c))).toBe(true);
-  });
 });

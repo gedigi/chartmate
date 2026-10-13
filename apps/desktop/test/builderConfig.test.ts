@@ -63,9 +63,7 @@ describe('electron-builder config', () => {
     expect(buildConfig({ CHARTMATE_PUBLISH: 'github', GITHUB_REPOSITORY: 'someone/somerepo' }).publish)
       .toEqual([{ provider: 'github', owner: 'someone', repo: 'somerepo', releaseType: 'release' }]);
     expect(() => buildConfig({ CHARTMATE_PUBLISH: 'github' })).toThrow(/GITHUB_REPOSITORY/);
-    // The pre-rename ALTV_PUBLISH still works; CHARTMATE_PUBLISH wins when both are set.
-    expect(buildConfig({ ALTV_PUBLISH: 'github', GITHUB_REPOSITORY: 'someone/somerepo' }).publish).toHaveLength(1);
-    expect(buildConfig({ CHARTMATE_PUBLISH: '', ALTV_PUBLISH: 'github', GITHUB_REPOSITORY: 'someone/somerepo' }).publish).toBeNull();
+    expect(buildConfig({ CHARTMATE_PUBLISH: '', GITHUB_REPOSITORY: 'someone/somerepo' }).publish).toBeNull();
     expect(buildConfig({}).publish).toBeNull();
   });
 

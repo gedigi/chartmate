@@ -1,5 +1,3 @@
-import { brandEnv } from '../../../server/src/brandEnv.js';
-
 /** Hosts electron-updater needs for the GitHub provider (release metadata + asset downloads). */
 export const UPDATE_HOSTS: readonly string[] = Object.freeze([
   'github.com',
@@ -31,7 +29,7 @@ export function hasWindowsPublisher(appUpdateYml: string): boolean {
  * - product.json `autoUpdate: true`;
  * - electron-builder generated `app-update.yml` (publish provider configured at build time);
  * - on Windows, app-update.yml pins `publisherName` (Authenticode publisher check);
- * - the user has not disabled it with CHARTMATE_DISABLE_UPDATES=1 (legacy ALTV_DISABLE_UPDATES=1 also works).
+ * - the user has not disabled it with CHARTMATE_DISABLE_UPDATES=1.
  */
 export function shouldEnableAutoUpdate(i: {
   isPackaged: boolean;
@@ -42,7 +40,7 @@ export function shouldEnableAutoUpdate(i: {
   updateConfig: string | null;
   env: Record<string, string | undefined>;
 }): boolean {
-  if (brandEnv(i.env, 'DISABLE_UPDATES') === '1') return false;
+  if (i.env.CHARTMATE_DISABLE_UPDATES === '1') return false;
   if (!i.isSigned || !i.isPackaged || !i.productAutoUpdate || i.updateConfig === null) return false;
   if (i.platform === 'darwin') return true;
   if (i.platform === 'win32') return hasWindowsPublisher(i.updateConfig);

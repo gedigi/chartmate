@@ -8,8 +8,8 @@ describe('desktopConfig', () => {
   it('defaults: SQLite in userData, live providers, auth disabled, no web dist (served by app://)', () => {
     const { config, dbPath } = desktopConfig({ userData: UD, env: {} });
     expect(dbPath).toBe(join(UD, DB_FILE_NAME));
-    expect(DB_FILE_NAME).toBe('altv.db');
-    expect(config.databaseUrl).toBe(`sqlite:${join(UD, 'altv.db')}`);
+    expect(DB_FILE_NAME).toBe('chartmate.db');
+    expect(config.databaseUrl).toBe(`sqlite:${join(UD, 'chartmate.db')}`);
     expect(config.providers).toBe('live');
     expect(config.password).toBeNull();
     expect(config.cryptoProvider).toBe('binance');
@@ -23,7 +23,7 @@ describe('desktopConfig', () => {
       userData: UD,
       env: {
         CHARTMATE_PASSWORD: 'x', HOST: '0.0.0.0', PORT: '80', DATABASE_URL: 'postgres://h/db', CHARTMATE_WEB_DIST: '/tmp',
-        CHARTMATE_TRUST_PROXY: 'true', ALTV_PASSWORD: 'x', ALTV_WEB_DIST: '/tmp', ALTV_TRUST_PROXY: 'true',
+        CHARTMATE_TRUST_PROXY: 'true',
       },
     });
     expect(config.password).toBeNull();
@@ -35,8 +35,6 @@ describe('desktopConfig', () => {
 
   it('honors the provider overrides', () => {
     expect(desktopConfig({ userData: UD, env: { CHARTMATE_PROVIDERS: 'fixture' } }).config.providers).toBe('fixture');
-    expect(desktopConfig({ userData: UD, env: { ALTV_PROVIDERS: 'fixture' } }).config.providers).toBe('fixture');
-    expect(desktopConfig({ userData: UD, env: { CHARTMATE_PROVIDERS: 'live', ALTV_PROVIDERS: 'fixture' } }).config.providers).toBe('live');
     expect(desktopConfig({ userData: UD, env: { CRYPTO_PROVIDER: 'coinbase' } }).config.cryptoProvider).toBe('coinbase');
     expect(desktopConfig({ userData: UD, env: { BINANCE_BASE_URL: 'https://api.binance.com/' } }).config.binanceBaseUrl).toBe('https://api.binance.com');
   });
@@ -67,9 +65,6 @@ describe('resolveUserDataDir', () => {
     expect(resolveUserDataDir(UD, {}, dev)).toBe(UD);
     expect(resolveUserDataDir(UD, { CHARTMATE_USER_DATA_DIR: '/tmp/chartmate-test' }, dev)).toBe('/tmp/chartmate-test');
     expect(resolveUserDataDir(UD, { CHARTMATE_USER_DATA_DIR: '' }, dev)).toBe(UD);
-    // Legacy name still accepted; the new one wins when both are set.
-    expect(resolveUserDataDir(UD, { ALTV_USER_DATA_DIR: '/tmp/legacy' }, dev)).toBe('/tmp/legacy');
-    expect(resolveUserDataDir(UD, { CHARTMATE_USER_DATA_DIR: '/tmp/new', ALTV_USER_DATA_DIR: '/tmp/legacy' }, dev)).toBe('/tmp/new');
     expect(() => resolveUserDataDir(UD, { CHARTMATE_USER_DATA_DIR: 'rel/dir' }, dev)).toThrow(/absolute/);
   });
 
@@ -77,6 +72,5 @@ describe('resolveUserDataDir', () => {
     const packaged = { allowOverride: false };
     expect(resolveUserDataDir(UD, { CHARTMATE_USER_DATA_DIR: '/tmp/elsewhere' }, packaged)).toBe(UD);
     expect(resolveUserDataDir(UD, { CHARTMATE_USER_DATA_DIR: 'rel/dir' }, packaged)).toBe(UD);
-    expect(resolveUserDataDir(UD, { ALTV_USER_DATA_DIR: '/tmp/elsewhere' }, packaged)).toBe(UD);
   });
 });
