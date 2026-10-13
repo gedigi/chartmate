@@ -12,6 +12,8 @@ export interface SymbolSearchProps {
   /** Accessible label of the input. Default: "Search symbol". */
   ariaLabel?: string;
   disabled?: boolean;
+  /** Cmd+K (macOS) / Ctrl+K focuses this field from anywhere in the page; a key hint shows inside it. */
+  shortcut?: boolean;
 }
 
 interface State {
@@ -26,13 +28,30 @@ interface State {
 const IDLE: State = { items: null, forQuery: '', loading: false, error: null };
 
 /** Debounced symbol search combobox (stocks, crypto and baskets). */
-export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filter, ariaLabel = 'Search symbol', disabled }: SymbolSearchProps): JSX.Element {
+const ASSET_LABEL = { stock: 'Stock', crypto: 'Crypto', basket: 'Basket' } as const;
+const isMac = () => typeof navigator !== 'undefined' && /mac/i.test(navigator.platform || navigator.userAgent);
+
+export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filter, ariaLabel = 'Search symbol', disabled, shortcut }: SymbolSearchProps): JSX.Element {
   const [query, setQuery] = useState('');
   const [state, setState] = useState<State>(IDLE);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const listId = useId();
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!shortcut) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k' && inputRef.current && !inputRef.current.disabled) {
+        e.preventDefault();
+        inputRef.current.focus();
+        inputRef.current.select();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [shortcut]);
 
   useEffect(() => {
     const q = query.trim();
@@ -102,6 +121,7 @@ export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filte
   return (
     <div className="symbol-search">
       <input
+        ref={inputRef}
         type="text"
         role="combobox"
         aria-label={ariaLabel}
@@ -122,6 +142,7 @@ export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filte
         }}
         onBlur={() => { blurTimer.current = setTimeout(() => setOpen(false), 150); }}
       />
+      {shortcut && <kbd className="symbol-search-kbd" aria-hidden="true">{isMac() ? '⌘K' : 'Ctrl K'}</kbd>}
       {expanded && (
         <div className="search-dropdown">
           {state.loading && (
@@ -144,8 +165,8 @@ export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filte
                   onClick={() => choose(item)}
                 >
                   <span className="search-ticker">{item.ticker}</span>
-                  <span className="search-name">{item.name}</span>
-                  <span className={`badge badge-${item.assetClass}`}>{item.assetClass.toUpperCase()}</span>
+                  <span className="search-name">{item.name === item.ticker ? '' : item.exchange && item.assetClass === 'stock' ? `${item.name} · ${item.exchange}` : item.name}</span>
+                  <span className={`badge badge-${item.assetClass}`}>{ASSET_LABEL[item.assetClass]}</span>
                 </li>
               ))}
             </ul>

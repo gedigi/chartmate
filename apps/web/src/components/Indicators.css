@@ -3,12 +3,11 @@
 .indicator-groups { overflow: auto; min-height: 0; flex: 1; }
 .indicator-group + .indicator-group { margin-top: 8px; }
 .indicator-group-title {
-  margin: 4px 0;
-  font-size: 11px;
+  margin: 6px 0 4px;
+  padding: 0 10px;
+  font-size: 11.5px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
+  color: var(--text-subtle);
 }
 .indicator-group ul { list-style: none; margin: 0; padding: 0; }
 .indicator-option {
@@ -25,7 +24,7 @@
   font-weight: 400;
   text-align: left;
 }
-.indicator-option:hover:not(:disabled) { background: var(--bg-hover); }
+.indicator-option:hover:not(:disabled) { background: var(--bg-hover); border-color: transparent; }
 .indicator-option-name { min-width: 48px; font-weight: 600; }
 .indicator-option-label { color: var(--text-muted); }
 .indicator-empty { color: var(--text-muted); margin: 8px 0; }
@@ -46,7 +45,7 @@
 .chart-appearance .appearance-warning { margin: 0; padding: 3px 8px; border-radius: var(--radius); font-size: 12px; background: var(--warn-bg); color: var(--warn-text); }
 .settings-error { grid-column: 2; font-size: 12px; }
 .settings-colors { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 0; padding: 8px 12px 10px; border: 1px solid var(--border); border-radius: var(--radius-lg); }
-.settings-colors legend { padding: 0 4px; color: var(--text-muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.settings-colors legend { padding: 0 4px; color: var(--text-muted); font-size: 12px; font-weight: 600; }
 .settings-check { display: flex; align-items: center; gap: 6px; }
 .settings-actions { display: flex; gap: 8px; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--border); }
 /* The appearance dialog has no inner scroller: the modal scrolls when the viewport is short. */
@@ -54,47 +53,48 @@
 .chart-appearance > * { flex-shrink: 0; }
 .settings-actions-spacer { flex: 1; }
 
-/* Active-indicator chips: wrapping strip above the chart canvas (first child of .chart-area) */
+/* Active-indicator chips: a wrapping strip of flat chips above the chart canvas (first child of .chart-area) */
 .indicator-chips {
   list-style: none;
   margin: 0;
-  padding: 4px 8px;
+  padding: 8px 10px 2px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
+  background: var(--bg);
 }
 .indicator-chip {
   display: flex;
   align-items: center;
   gap: 1px;
-  padding: 0 2px 0 8px;
-  font-size: 11px;
+  height: 24px;
+  padding: 0 3px 0 9px;
+  font-size: 11.5px;
   font-weight: 500;
-  line-height: 18px;
+  font-variant-numeric: tabular-nums;
   color: var(--text);
-  background: var(--bg-elevated);
+  background: var(--bg-raised);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 8px;
 }
+.indicator-chip-dot { flex: none; width: 8px; height: 2px; margin-right: 6px; border-radius: 2px; }
 .indicator-chip.is-hidden .indicator-chip-label { color: var(--text-muted); text-decoration: line-through; }
-.indicator-chip-label { margin-right: 2px; white-space: nowrap; }
+.indicator-chip.is-hidden .indicator-chip-dot { opacity: 0.4; }
+.indicator-chip-label { margin-right: 3px; white-space: nowrap; }
 .indicator-chip-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   min-height: 0;
   padding: 0;
   border: none;
-  border-radius: 9px;
+  border-radius: 6px;
   background: none;
-  box-shadow: none;
-  color: var(--text-muted);
+  color: var(--text-subtle);
   font-size: 13px;
   line-height: 1;
 }

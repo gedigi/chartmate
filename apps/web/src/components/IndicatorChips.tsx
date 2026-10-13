@@ -1,7 +1,7 @@
 import type { IndicatorState, Layout } from '@chartmate/shared';
 import { useState, type JSX } from 'react';
-import { catalogEntry, indicatorLabel } from '../chart/indicators/catalog';
-import type { ThemeName } from '../chart/theme';
+import { catalogEntry, defaultLineColor, indicatorLabel } from '../chart/indicators/catalog';
+import { resolveAppearance, type ThemeName } from '../chart/theme';
 import { IndicatorSettings } from './IndicatorSettings';
 import './Indicators.css';
 
@@ -60,6 +60,13 @@ export function IndicatorChips({ layout, setLayout, theme = 'dark' }: IndicatorC
             return (
               // Index keys match ChartView's index-based indicator diff.
               <li key={i} className={`indicator-chip${s.visible ? '' : ' is-hidden'}`} title={chipTitle(s.name)}>
+                {(() => {
+                  // The chip's key: the indicator's first line color, or the candle up color for histogram-only ones.
+                  const e = catalogEntry(s.name);
+                  const color = e && e.lines.length > 0 ? s.lineColors?.[0] ?? defaultLineColor(0, s.name, theme)
+                    : e?.bars ? s.barColors?.up ?? resolveAppearance(theme, layout.appearance).upColor : null;
+                  return color ? <span className="indicator-chip-dot" aria-hidden="true" style={{ background: color }} /> : null;
+                })()}
                 <span className="indicator-chip-label">{label}</span>
                 <button
                   type="button"

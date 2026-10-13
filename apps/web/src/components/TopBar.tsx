@@ -50,13 +50,14 @@ export function TopBar(p: TopBarProps): JSX.Element {
       </nav>
       {p.view === 'chart' && (
         <>
-          <SymbolSearch onSelect={p.onSelectSymbol} disabled={p.controlsDisabled} />
+          <SymbolSearch onSelect={p.onSelectSymbol} disabled={p.controlsDisabled} shortcut />
           <div className="symbol-label" title={symbolInfo?.name ?? layout.symbol}>
             <strong>{symbolInfo?.ticker ?? layout.symbol}</strong>
             {/* A basket's ticker is its name: show it once. */}
             {symbolInfo && symbolInfo.assetClass !== 'basket' && symbolInfo.name !== symbolInfo.ticker
               && <span className="symbol-name">{symbolInfo.name}</span>}
           </div>
+          <span className="top-bar-grow" aria-hidden="true" />
           <TimeframeBar
             tf={layout.tf}
             onTf={(tf) => setLayout((l) => ({ ...l, tf }))}
@@ -70,7 +71,9 @@ export function TopBar(p: TopBarProps): JSX.Element {
           <IndicatorButton layout={layout} setLayout={setLayout} disabled={p.controlsDisabled} />
         </>
       )}
+      {p.view !== 'chart' && <span className="top-bar-grow" aria-hidden="true" />}
       <div className="top-bar-end">
+        <span className="top-bar-sep" aria-hidden="true" />
         <button type="button" className="icon-button" onClick={p.onToggleTheme}
           aria-label={p.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
           {p.theme === 'dark' ? (

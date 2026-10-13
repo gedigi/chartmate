@@ -19,19 +19,18 @@
   padding: 16px 18px 18px;
   background: var(--bg-elevated);
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
   outline: none;
   animation: modal-in 160ms var(--ease);
 }
 @keyframes modal-fade { from { opacity: 0; } }
 @keyframes modal-in { from { opacity: 0; transform: translateY(6px) scale(0.985); } }
 .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.modal-title { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.modal-title { margin: 0; font: 650 16px/1.25 var(--font-display); letter-spacing: -0.02em; }
 .modal-close {
   display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; min-height: 0; padding: 0;
-  background: none; border: none; box-shadow: none; font-size: 18px; line-height: 1; color: var(--text-muted);
+  background: none; border: none; border-radius: 8px; font-size: 18px; line-height: 1; color: var(--text-muted);
 }
 .modal-close:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
 

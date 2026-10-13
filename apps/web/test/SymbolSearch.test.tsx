@@ -24,10 +24,27 @@ describe('SymbolSearch', () => {
     expect(options).toHaveLength(3);
     expect(options[0]).toHaveTextContent('AAPL');
     expect(options[0]).toHaveTextContent('Apple Inc.');
-    expect(options[0]).toHaveTextContent('STOCK');
-    expect(options[1]).toHaveTextContent('CRYPTO');
-    expect(options[2]).toHaveTextContent('BASKET');
+    expect(options[0]).toHaveTextContent('Stock');
+    expect(options[1]).toHaveTextContent('Crypto');
+    expect(options[2]).toHaveTextContent('Basket');
+    // Sentence case, no all-caps labels.
+    expect(options[0]).not.toHaveTextContent('STOCK');
     expect(screen.getByRole('combobox')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('with a shortcut, Cmd/Ctrl+K focuses the field from anywhere (and shows the hint); without one it does not', async () => {
+    const { unmount } = render(<SymbolSearch onSelect={() => {}} shortcut />);
+    const input = screen.getByRole('combobox');
+    expect(screen.getByText(/⌘K|Ctrl K/)).toHaveAttribute('aria-hidden', 'true');
+    fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
+    expect(input).toHaveFocus();
+    input.blur();
+    fireEvent.keyDown(document.body, { key: 'K', ctrlKey: true });
+    expect(input).toHaveFocus();
+    unmount();
+    render(<SymbolSearch onSelect={() => {}} />);
+    fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
+    expect(screen.getByRole('combobox')).not.toHaveFocus();
   });
 
   it('ArrowDown + Enter selects the highlighted result', async () => {

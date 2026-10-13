@@ -13,7 +13,7 @@
   font-size: 12px;
   line-height: 1.4;
 }
-.chart-notice { background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-md); }
+.chart-notice { background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border-strong); }
 
 .chart-toast {
   position: absolute;
@@ -92,9 +92,8 @@
   gap: 6px;
   padding: 5px 6px;
   background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
 }
 .drawing-style-bar button, .drawing-style-bar select, .drawing-style-bar input { min-height: 26px; }
 .drawing-style-bar input[type="color"] {
