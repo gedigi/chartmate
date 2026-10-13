@@ -57,9 +57,6 @@ export function catalogEntry(name: string): CatalogEntry | undefined {
 /** KLineChart's default indicator line palette (lower-case, as `<input type="color">` reports it). */
 export const DEFAULT_LINE_COLORS = ['#ff9600', '#935ebd', '#1677ff', '#e11d74', '#01c5c4'] as const;
 
-/** KLineChart's default histogram colours (its green / red), as `<input type="color">` reports them. */
-export const DEFAULT_BAR_COLORS = { up: '#2dc08e', down: '#f92855' } as const;
-
 /** Default colour of line `i`: the indicator's own default (catalog `defaultColors`) or KLineChart's palette. */
 export function defaultLineColor(i: number, name?: string): string {
   const own = name === undefined ? undefined : catalogEntry(name)?.defaultColors?.[i];
@@ -91,8 +88,10 @@ export function validateParam(name: string, index: number, raw: string): string 
   if (text === '') return 'Required';
   const v = Number(text);
   if (!Number.isFinite(v)) return 'Must be a number';
-  const decimal = catalogEntry(name)?.decimalParams?.includes(index) ?? false;
-  if (decimal) return v > 0 ? null : 'Must be greater than 0';
-  if (!Number.isInteger(v) || v < 1) return 'Must be a whole number ≥ 1';
-  return v <= MAX_PERIOD ? null : `Must be at most ${MAX_PERIOD}`;
+  const entry = catalogEntry(name);
+  if (entry?.decimalParams?.includes(index)) return v > 0 ? null : 'Must be greater than 0';
+  const min = entry?.paramMin?.[index] ?? 1;
+  const max = entry?.paramMax?.[index] ?? MAX_PERIOD;
+  if (!Number.isInteger(v) || v < min) return `Must be a whole number ≥ ${min}`;
+  return v <= max ? null : `Must be at most ${max}`;
 }

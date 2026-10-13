@@ -317,15 +317,15 @@ describe('ChartView', () => {
   });
 
   it('applies the appearance and re-applies it only when it changes by value', async () => {
-    const appearance = { upColor: '#00ff00' };
+    const appearance = { dark: { upColor: '#00ff00' } };
     const { rerenderWith } = renderView({ ...LAYOUT, appearance });
     await flush();
     expect(adapter().setAppearance).toHaveBeenLastCalledWith(appearance);
     const n = adapter().setAppearance.mock.calls.length;
     rerenderWith({ ...LAYOUT, appearance: { ...appearance } });
     expect(adapter().setAppearance).toHaveBeenCalledTimes(n);
-    rerenderWith({ ...LAYOUT, appearance: { upColor: '#0000ff' } });
-    expect(adapter().setAppearance).toHaveBeenLastCalledWith({ upColor: '#0000ff' });
+    rerenderWith({ ...LAYOUT, appearance: { dark: { upColor: '#0000ff' } } });
+    expect(adapter().setAppearance).toHaveBeenLastCalledWith({ dark: { upColor: '#0000ff' } });
     rerenderWith(LAYOUT);
     expect(adapter().setAppearance).toHaveBeenLastCalledWith(undefined);
   });

@@ -5,7 +5,7 @@ import {
 } from 'klinecharts';
 import {
   isIntraday, nyToUtc, tfMs,
-  type ChartAppearance, type ChartType, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker,
+  type ChartType, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker, type ThemedAppearance,
   type SessionMode, type SymbolInfo, type Timeframe,
 } from '@altv/shared';
 import {
@@ -24,7 +24,7 @@ import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
 import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
 import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS } from './sessionShade';
-import { candleStyles, chartStyles, DEFAULT_TEXT_SIZE, overlayStyles, refreshThemeTokens, resolveAppearance, type ThemeName } from './theme';
+import { candleStyles, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, overlayStyles, refreshThemeTokens, resolveAppearance, type ThemeName } from './theme';
 
 export type DrawingTool =
   | 'segment' | 'rayLine' | 'straightLine' | 'horizontalStraightLine' | 'verticalStraightLine'
@@ -138,7 +138,12 @@ export class ChartAdapter {
   /** Passed to every indicator as `extendData` (VWAP picks its session day from it). */
   private indicatorExt: IndicatorExtendData = {};
   private readonly overrides = new Map<string, IndicatorOverrides>();
-  private appearance: ChartAppearance | undefined;
+  /**
+   * Indicators whose bar-colour override was removed: their default bars were written explicitly (KLineChart
+   * merges indicator styles, so an override cannot be unset), so a theme toggle must rewrite them.
+   */
+  private readonly themedBars = new Set<string>();
+  private appearance: ThemedAppearance | undefined;
   private readonly changeListeners = new Set<() => void>();
   private silent = 0;
   private destroyed = false;
@@ -250,6 +255,13 @@ export class ChartAdapter {
     refreshThemeTokens(t);
     this.chart.setStyles(this.styles());
     for (const o of this.chart.getOverlays({ groupId: MARKERS })) this.chart.overrideOverlay({ id: o.id, styles: markerStyles(t) });
+    // Indicators without a bar-colour override follow the chart styles, except those whose override was removed
+    // (their defaults were written explicitly): give them the new theme's default bars.
+    if (this.themedBars.size === 0) return;
+    const d = this.chart.getStyles().indicator.bars[0]!;
+    for (const i of this.chart.getIndicators()) {
+      if (this.themedBars.has(i.id)) this.chart.overrideIndicator({ id: i.id, name: i.name, styles: { bars: [{ ...d, ...defaultIndicatorBars(t) }] } });
+    }
   }
 
   setChartType(t: ChartType): void {
@@ -257,8 +269,11 @@ export class ChartAdapter {
     this.chart.setStyles(this.styles());
   }
 
-  /** Global chart appearance (candle colours/body, line colour/width, default drawing style); unset = theme. */
-  setAppearance(a: ChartAppearance | undefined): void {
+  /**
+   * Global chart appearance, per theme (candle colours/body, line colour/width, default drawing style); the
+   * active theme's settings apply (unset = theme defaults), and setTheme switches to the other theme's.
+   */
+  setAppearance(a: ThemedAppearance | undefined): void {
     this.appearance = a;
     this.chart.setStyles(this.styles());
   }
@@ -356,7 +371,7 @@ export class ChartAdapter {
     }
     if (o.barColors || reset?.barColors) {
       const d = this.chart.getStyles().indicator.bars[0]!;
-      styles.bars = [o.barColors ? { ...d, upColor: o.barColors.up, downColor: o.barColors.down } : { ...d }];
+      styles.bars = [o.barColors ? { ...d, upColor: o.barColors.up, downColor: o.barColors.down } : { ...d, ...defaultIndicatorBars(this.theme) }];
     }
     return styles.lines || styles.bars ? styles : undefined;
   }
@@ -398,6 +413,8 @@ export class ChartAdapter {
     const styles = this.indicatorStyles(existing.name, next, this.overrides.get(id));
     if (styles) override.styles = styles;
     this.chart.overrideIndicator(override);
+    if (next.barColors) this.themedBars.delete(id);
+    else if (this.overrides.get(id)?.barColors) this.themedBars.add(id); // defaults written back explicitly
     if (OVERRIDE_KEYS.some((k) => next[k])) this.overrides.set(id, next);
     else this.overrides.delete(id);
   }
@@ -418,6 +435,7 @@ export class ChartAdapter {
   removeIndicator(id: string): void {
     this.chart.removeIndicator({ id });
     this.overrides.delete(id);
+    this.themedBars.delete(id);
   }
 
   listIndicators(): Array<{ id: string } & IndicatorSpec> {

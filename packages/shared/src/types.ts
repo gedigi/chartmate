@@ -33,8 +33,7 @@ export const MAX_INDICATORS = 30;
 export type CandleBodyStyle = 'solid'|'hollow'|'hollow_up'|'hollow_down';
 export interface DrawingLineStyle { color: string; size: number; style: LineStyleKind }
 /**
- * Global chart appearance (stored in the 'default' layout only). Every field is optional: unset fields follow
- * the theme's defaults.
+ * Chart appearance of one theme. Every field is optional: unset fields follow the theme's defaults.
  */
 export interface ChartAppearance {
   upColor?: string;
@@ -46,9 +45,31 @@ export interface ChartAppearance {
   /** Style of new drawings. */
   drawing?: DrawingLineStyle;
 }
+export type AppearanceTheme = 'dark' | 'light';
+/**
+ * Global chart appearance, one set per theme (stored in the 'default' layout only): colours that read well on
+ * the dark background rarely do on the light one, so each theme keeps its own settings.
+ */
+export interface ThemedAppearance { dark?: ChartAppearance; light?: ChartAppearance }
 export interface Layout {
   symbol: SymbolId; tf: Timeframe; session: SessionMode; chartType: ChartType; indicators: IndicatorState[];
-  appearance?: ChartAppearance;
+  appearance?: ThemedAppearance;
+}
+
+const APPEARANCE_THEMES: readonly AppearanceTheme[] = ['dark', 'light'];
+
+/**
+ * The per-theme appearance from a stored value. Layouts saved before appearance was per theme hold one flat
+ * ChartAppearance: it was chosen in dark mode (the default theme), so it becomes the dark theme's settings.
+ * Non-objects → undefined. Values are not validated here.
+ */
+export function migrateAppearance(a: unknown): ThemedAppearance | undefined {
+  if (!a || typeof a !== 'object' || Array.isArray(a)) return undefined;
+  const keys = Object.keys(a);
+  // Any theme key means the per-theme shape. A mixed object ({ dark: {...}, upColor: ... }) would lose its flat
+  // keys here, but the server rejects mixed shapes, so stored layouts never hold one.
+  if (keys.length > 0 && keys.every((k) => !(APPEARANCE_THEMES as readonly string[]).includes(k))) return { dark: a as ChartAppearance };
+  return a as ThemedAppearance;
 }
 /**
  * Normalized drawing styles: `line` for line tools, `text` (annotation bubble colour + font size) for text,

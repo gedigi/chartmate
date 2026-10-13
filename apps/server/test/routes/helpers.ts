@@ -4,7 +4,7 @@ import { BasketService } from '../../src/baskets/service.js';
 import type { Config } from '../../src/config.js';
 import { createDb } from '../../src/db/connect.js';
 import { migrate } from '../../src/db/migrations.js';
-import { createRepos } from '../../src/db/repos.js';
+import { createRepos, type Repos } from '../../src/db/repos.js';
 import { MarketDataService } from '../../src/market/service.js';
 import { RequestQueue } from '../../src/providers/queue.js';
 import { createRegistry } from '../../src/providers/registry.js';
@@ -15,7 +15,7 @@ export function isoDate(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);
 }
 
-export interface TestApp { app: FastifyInstance; market: MarketDataService; baskets: BasketService; close(): Promise<void> }
+export interface TestApp { app: FastifyInstance; market: MarketDataService; baskets: BasketService; repos: Repos; close(): Promise<void> }
 
 export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () => number } = {}): Promise<TestApp> {
   const h = createDb('sqlite::memory:');
@@ -46,6 +46,7 @@ export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () 
     app,
     market,
     baskets,
+    repos,
     async close() {
       await app.close();
       await h.close();

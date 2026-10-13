@@ -1,6 +1,7 @@
 import { MAX_LINE_WIDTH, MIN_LINE_WIDTH, type IndicatorState, type LineStyleKind } from '@altv/shared';
 import { useId, useState, type FormEvent, type JSX } from 'react';
-import { catalogEntry, DEFAULT_BAR_COLORS, defaultLineColor, migrateCalcParams, validateParam } from '../chart/indicators/catalog';
+import { catalogEntry, defaultLineColor, migrateCalcParams, validateParam } from '../chart/indicators/catalog';
+import { defaultBarColors, type ThemeName } from '../chart/theme';
 import { LINE_STYLES, parseLineStyle } from '../chart/drawingStyles';
 import { Modal } from './Modal';
 import './Indicators.css';
@@ -9,6 +10,8 @@ export interface IndicatorSettingsProps {
   state: IndicatorState;
   onSave: (s: IndicatorState) => void;
   onClose: () => void;
+  /** Active theme: the default bar colours of histogram indicators follow its up / down colours. */
+  theme?: ThemeName;
 }
 
 const WIDTHS = Array.from({ length: MAX_LINE_WIDTH - MIN_LINE_WIDTH + 1 }, (_, i) => MIN_LINE_WIDTH + i);
@@ -19,7 +22,8 @@ const WIDTHS = Array.from({ length: MAX_LINE_WIDTH - MIN_LINE_WIDTH + 1 }, (_, i
  * (or reset) indicators keep following KLineChart's palette. The same applies to line widths
  * (1–4) / styles (solid, dashed, dotted) and, for histogram indicators, the up/down bar colours.
  */
-export function IndicatorSettings({ state, onSave, onClose }: IndicatorSettingsProps): JSX.Element {
+export function IndicatorSettings({ state, onSave, onClose, theme = 'dark' }: IndicatorSettingsProps): JSX.Element {
+  const DEFAULT_BAR_COLORS = defaultBarColors(theme);
   const entry = catalogEntry(state.name);
   const defaults = entry?.defaultParams ?? state.calcParams;
   const labels = entry?.paramLabels ?? state.calcParams.map((_, i) => `Param ${i + 1}`);

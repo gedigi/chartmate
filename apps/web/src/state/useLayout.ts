@@ -1,4 +1,4 @@
-import type { Layout, SymbolId } from '@altv/shared';
+import { migrateAppearance, type Layout, type SymbolId } from '@altv/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import { retryDelayMs } from './retry';
@@ -11,6 +11,14 @@ export const DEFAULT_LAYOUT: Layout = {
   chartType: 'candle',
   indicators: [{ name: 'VOL', pane: 'sub', calcParams: [5, 10, 20], visible: true }],
 };
+
+/** A layout saved before appearance was per theme holds the flat shape: it becomes the dark theme's. */
+function withThemedAppearance(l: Layout): Layout {
+  if (l.appearance === undefined) return l;
+  const { appearance, ...rest } = l;
+  const themed = migrateAppearance(appearance);
+  return themed ? { ...rest, appearance: themed } : rest;
+}
 
 export interface UseLayout {
   layout: Layout;
@@ -54,7 +62,7 @@ export function useLayout(): UseLayout {
       api.layouts.get('default').then(
         (l) => {
           if (cancelled) return;
-          if (l) setLayoutState(l); // null = nothing saved yet → DEFAULT_LAYOUT
+          if (l) setLayoutState(withThemedAppearance(l)); // null = nothing saved yet → DEFAULT_LAYOUT
           setLoadError(null);
           setLoaded(true);
         },

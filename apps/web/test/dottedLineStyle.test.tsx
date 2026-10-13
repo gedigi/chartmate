@@ -48,17 +48,24 @@ describe('dotted line style', () => {
   it('indicator settings offer Dotted and save it', async () => {
     const RSI: IndicatorState = { name: 'RSI', pane: 'sub', calcParams: [6, 12, 24], visible: true };
     const onSave = vi.fn();
-    render(<IndicatorSettings state={RSI} onSave={onSave} onClose={() => {}} />);
+    render(<IndicatorSettings state={RSI} theme="light" onSave={onSave} onClose={() => {}} />);
     expect(within(screen.getByLabelText('RSI2 style')).getAllByRole('option').map((o) => o.textContent)).toContain('Dotted');
     await userEvent.selectOptions(screen.getByLabelText('RSI2 style'), 'dotted');
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(onSave).toHaveBeenCalledWith({ ...RSI, lineStyles: ['solid', 'dotted', 'solid'] });
   });
 
-  it('chart appearance offers a dotted default drawing style', async () => {
-    const onChange = vi.fn();
-    render(<ChartAppearanceDialog appearance={undefined} theme="dark" chartType="candle" onChange={onChange} onClose={() => {}} />);
-    await userEvent.selectOptions(screen.getByLabelText('Drawing line style'), 'dotted');
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ drawing: expect.objectContaining({ style: 'dotted' }) }));
+  it('chart appearance offers a dotted default drawing style (edits the active theme\'s appearance)', async () => {
+    for (const theme of ['dark', 'light'] as const) {
+      const onChange = vi.fn();
+      const { unmount } = render(
+        <ChartAppearanceDialog appearance={{ upColor: '#00ff00' }} theme={theme} chartType="candle" onChange={onChange} onClose={() => {}} />,
+      );
+      const select = screen.getByLabelText('Drawing line style');
+      expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['Solid', 'Dashed', 'Dotted']);
+      await userEvent.selectOptions(select, 'dotted');
+      expect(onChange, theme).toHaveBeenLastCalledWith(expect.objectContaining({ upColor: '#00ff00', drawing: expect.objectContaining({ style: 'dotted' }) }));
+      unmount();
+    }
   });
 });

@@ -1,12 +1,15 @@
 import type { IndicatorState, Layout } from '@altv/shared';
 import { useState, type JSX } from 'react';
 import { catalogEntry, indicatorLabel } from '../chart/indicators/catalog';
+import type { ThemeName } from '../chart/theme';
 import { IndicatorSettings } from './IndicatorSettings';
 import './Indicators.css';
 
 export interface IndicatorChipsProps {
   layout: Layout;
   setLayout: (fn: (l: Layout) => Layout) => void;
+  /** Active theme (indicator settings show its default bar colours). */
+  theme?: ThemeName;
 }
 
 const svg = { width: 12, height: 12, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, 'aria-hidden': true } as const;
@@ -35,7 +38,7 @@ const chipTitle = (name: string) => {
  * Active-indicator chips: a wrapping strip above the chart canvas (no space when empty) — label(params) with
  * show/hide, settings and remove buttons.
  */
-export function IndicatorChips({ layout, setLayout }: IndicatorChipsProps): JSX.Element | null {
+export function IndicatorChips({ layout, setLayout, theme = 'dark' }: IndicatorChipsProps): JSX.Element | null {
   const [editing, setEditing] = useState<{ index: number; state: IndicatorState } | null>(null);
   const { indicators } = layout;
 
@@ -90,6 +93,7 @@ export function IndicatorChips({ layout, setLayout }: IndicatorChipsProps): JSX.
           state={editing.state}
           onSave={(next) => update(editing.index, editing.state, () => next)}
           onClose={() => setEditing(null)}
+          theme={theme}
         />
       )}
     </>

@@ -145,9 +145,21 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
 - **Chart appearance** (gear icon in the top bar): candle up/down colours, body style (filled, hollow,
   hollow up, hollow down; OHLC bars use the colours only), line/area colour and width, and the default
   style (colour, width, solid/dashed/dotted) of new drawings. It is global (stored in the `default` layout, not
-  per symbol), applies live, survives theme switches, and "Reset to defaults" returns to the theme colours.
+  per symbol) and applies live. Appearance is **per theme**: the dialog edits the active theme ("Dark
+  theme" / "Light theme"), toggling the theme switches to the other theme's settings, and "Reset to
+  defaults" resets only the active theme. A colour that barely shows on the theme background (contrast
+  ratio below 1.5) gets an inline "Low contrast" warning. Layouts saved before appearance was per theme
+  (one flat appearance) still load: their settings become the dark theme's.
+- **Default candle colours** follow the theme's `--up` / `--down` CSS tokens (dark `#26a69a` / `#ef5350`,
+  light `#089981` / `#f23645`), so candles and the watchlist agree. Histogram indicators (VOL, MACD, AO)
+  default to the same up / down colours.
+- **Readable labels**: the last-price label, text annotations and crosshair labels keep white text while it
+  reaches about 3:1 (2.99, so the default teal keeps white text) contrast with the label colour; otherwise
+  they use white or near-black, whichever contrasts more. KLineChart draws the last-price text in one colour
+  for up, down and unchanged labels, so the rule uses the worst case over the three colours. Start/version
+  marker labels keep their muted colour on the chart background under the same rule.
 - **Indicator settings** also set each line's width (1–4 px) and solid/dashed/dotted style, and the up/down bar
-  colours of histogram indicators (VOL, MACD, AO).
+  colours of histogram indicators (VOL, MACD, AO); unchanged bar colours follow the theme.
 - **Drawing styles**: selecting a drawing shows a small style bar at the top of the chart (colour, width,
   solid/dashed/dotted; text annotations: colour and font size). Styles are saved with the drawing; drawings
   without their own style follow the default drawing style. Legacy drawings with non-hex colours (or other
@@ -242,6 +254,15 @@ The files are picked up at build time with `import.meta.glob` (eager), registere
 listed in the picker; no other file needs editing. `custom/vwap.ts` and `custom/atr.ts` are the built-in
 examples. Restart `pnpm dev` (or rebuild) after adding a file.
 
+`catalog.paramMin` / `catalog.paramMax` (optional, one entry per param) set the accepted range of integer
+params in the settings dialog (default 1…1000).
+
+`custom/wyckoff.ts` (with its calculation in `wyckoffCalc.ts`) is a port of the TradingView script
+'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colours in a `draw`
+callback. **Licence:** these two files (and their tests) are covered by the
+[Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/), not by the rest of the project's terms; keep
+their MPL-2.0 headers and attribution when modifying or redistributing them.
+
 Example: `apps/web/src/chart/indicators/custom/range.ts`
 
 ```ts
@@ -295,6 +316,11 @@ pnpm e2e         # Playwright end-to-end test (Chromium)
 `pnpm e2e` builds everything, starts the built server on port 8799 in fixture mode (`ALTV_PROVIDERS=fixture`,
 no network) with a fresh SQLite file under `test-results/`, and runs `e2e/tests/`. The first time, install
 the browser with `pnpm exec playwright install chromium`.
+
+Set `E2E_PORT` to run on another port, e.g. `E2E_PORT=8873 pnpm e2e`. The database
+(`test-results/e2e-<port>.db`) and the results folder (`test-results/e2e-<port>/`) are named after the port.
+Runs that happen at the same time (several worktrees or checkouts) therefore cannot collide as long as each
+uses its own port. The run fails if the port is already in use.
 
 ## Roadmap (v2 backlog)
 

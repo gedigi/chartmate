@@ -66,8 +66,16 @@ describe('useLayout (one global indicator set in the default layout)', () => {
     expect(keysRequested().filter((k) => k !== 'default')).toEqual([]);
   });
 
+  it('migrates a legacy flat appearance to the dark theme on load', async () => {
+    const flat = { upColor: '#ffffff', downColor: '#e63b7a', drawing: { color: '#ffffff', size: 1, style: 'solid' as const } };
+    vi.mocked(api.layouts.get).mockResolvedValue({ ...saved, appearance: flat } as unknown as Layout);
+    const { result } = renderHook(() => useLayout());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.layout).toEqual({ ...saved, appearance: { dark: flat } });
+  });
+
   it('an appearance change saves the default key only', async () => {
-    const appearance = { upColor: '#00ff00', drawing: { color: '#123456', size: 2, style: 'dashed' as const } };
+    const appearance = { dark: { upColor: '#00ff00', drawing: { color: '#123456', size: 2, style: 'dashed' as const } } };
     const { result } = renderHook(() => useLayout());
     await waitFor(() => expect(result.current.loaded).toBe(true));
     await settle();
