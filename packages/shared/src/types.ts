@@ -9,7 +9,13 @@ export interface Bar {
   simulated?: boolean;
 }
 export interface SymbolInfo { id: SymbolId; assetClass: AssetClass; ticker: string; name: string; exchange?: string; pricePrecision: number }
-export interface Quote { id: SymbolId; price: number; changePct: number | null; ts: number }
+/** Extended-hours price: `changePct` is vs the latest REGULAR close (the quote's own `price`). */
+export interface QuoteExt { session: 'pre' | 'post'; price: number; changePct: number; ts: number }
+/**
+ * `price`/`changePct`/`ts` are always the REGULAR session pair: the last regular price and its day change vs the
+ * previous regular close. `ext` is set only while a stock trades pre/post-market (never for crypto).
+ */
+export interface Quote { id: SymbolId; price: number; changePct: number | null; ts: number; ext?: QuoteExt }
 export interface BasketVersion { effectiveFrom: string /* 'YYYY-MM-DD' */; weights: Record<SymbolId, number> }
 export interface Basket { id: string; name: string; baseValue: number; versions: BasketVersion[]; createdAt: number; updatedAt: number }
 export interface Marker { ts: number; label: string }
