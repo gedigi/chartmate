@@ -40,6 +40,7 @@
 /* Line rows: label | color | width | style. */
 .settings-row.settings-line { grid-template-columns: 1fr 48px 64px 84px; gap: 4px 6px; }
 .settings-row.settings-line select { width: 100%; }
+.chart-appearance .settings-row { grid-template-columns: 1fr 156px; }
 .chart-appearance .settings-row select { width: 100%; }
 .chart-appearance .appearance-preview { align-self: flex-start; }
 .chart-appearance .appearance-warning { margin: 0; padding: 3px 8px; border-radius: var(--radius); font-size: 12px; background: var(--warn-bg); color: var(--warn-text); }
