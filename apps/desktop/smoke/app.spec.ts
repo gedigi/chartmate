@@ -27,6 +27,11 @@ test.beforeAll(async () => {
   const t = Date.now();
   if (packaged) {
     const { child, wsUrl } = await spawnWithCdp(packaged, env);
+    // Attach only once the window is up: connecting while the first page target is being created can stall
+    // Playwright's CDP handshake.
+    const logFile = join(userData, 'logs', 'main.log');
+    await expect.poll(() => { try { return readFileSync(logFile, 'utf8'); } catch { return ''; } }, { timeout: 30_000 })
+      .toMatch(/startup: window shown/);
     const browser = await chromium.connectOverCDP(wsUrl);
     cdp = { browser, child };
     const ctx = browser.contexts()[0]!;
