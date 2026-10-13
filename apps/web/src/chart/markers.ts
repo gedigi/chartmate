@@ -1,6 +1,6 @@
 import { registerOverlay, type DeepPartial, type OverlayStyle } from 'klinecharts';
 import { readableTextOnAll } from './contrast';
-import { themeTokens, type ThemeName } from './theme';
+import { CHART_FONT, themeTokens, type ThemeName } from './theme';
 
 /** Overlay template of chart markers (basket Start, version changes). Never a user drawing. */
 export const MARKER_OVERLAY = 'chartmateMarker';
@@ -45,7 +45,7 @@ export function markerStyles(theme: ThemeName): DeepPartial<OverlayStyle> {
   return {
     line: { color, size: 1, style: 'dashed', dashedValue: MARKER_DASH },
     text: {
-      color: textColor, size: 11, backgroundColor: 'rgba(0,0,0,0)', borderColor: 'rgba(0,0,0,0)', borderSize: 0,
+      color: textColor, size: 11, family: CHART_FONT, backgroundColor: 'rgba(0,0,0,0)', borderColor: 'rgba(0,0,0,0)', borderSize: 0,
       paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0,
     },
   };

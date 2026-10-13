@@ -3,7 +3,11 @@
  * THEME_TOKENS fallback must stay equal: a parity test checks it). Keep each theme block free of var() for those.
  *   surfaces  --bg (app + chart) < --bg-panel (bars, sidebars) < --bg-elevated (inputs, menus, dialogs)
  *   text      --text > --text-muted (secondary, ≥ 4.5:1) > --text-subtle (placeholders, disabled)
- *   up/down   price direction everywhere (candles, bars, watchlist, baskets, positions)
+ *   market    one family per direction, the SAME color everywhere (candles, volume / MACD / AO bars, positions,
+ *             watchlist, baskets, sparklines): --up / --down strong; --up-soft / --down-soft the opaque soft tone of rising
+ *             MACD / AO bars (softTone() in src/chart/color.ts, hue-locked, never an alpha); --up-fg / --down-fg as small
+ *             text (≥ 4.5:1 incl. a tinted pill on the current watchlist row); --up-tint / --down-tint pill backgrounds
+ *   chart     --grid, --crosshair (dashed crosshair), --level (muted dashed reference lines), --last-price
  */
 :root,
 :root[data-theme='dark'] {
@@ -14,6 +18,8 @@
   --bg-hover: #232935;
   --bg-active: #2a3140;
   --bg-inset: #0b0e13;
+  /* The selected list row (current watchlist symbol): a quiet blue-graphite, the accent bar marks it. */
+  --bg-selected: #1b2233;
   --border: #262c38;
   --border-strong: #353d4c;
   --grid: #181d26;
@@ -27,15 +33,19 @@
   --accent-soft: rgb(43 102 255 / 0.18);
   --focus-ring: #6b8cff;
   --cross-bg: #2a303c;
+  --crosshair: #5f6878;
+  --level: #4a5263;
+  --last-price: #ffffff;
   --field-bg: #0c0f14;
   --field-border: #2e3542;
   --up: #00d68f;
   --down: #ff3b5c;
-  /* Up / down as small text: ≥ 4.5:1 on every surface, pill and the current watchlist row. */
+  --up-soft: #008255;
+  --down-soft: #aa0031;
   --up-fg: #00d68f;
-  --down-fg: #ff6b80;
-  --up-soft: rgb(0 214 143 / 0.14);
-  --down-soft: rgb(255 59 92 / 0.14);
+  --down-fg: #ff7c85;
+  --up-tint: rgb(0 214 143 / 0.14);
+  --down-tint: rgb(255 59 92 / 0.14);
   --warn-bg: #3a2f12;
   --warn-text: #f5c96a;
   --error: #ff6b78;
@@ -56,6 +66,7 @@
   --bg-hover: #eef0f4;
   --bg-active: #e4e8ef;
   --bg-inset: #eef0f3;
+  --bg-selected: #edf1fb;
   --border: #e3e6eb;
   --border-strong: #cfd4dc;
   --grid: #f1f3f6;
@@ -69,14 +80,19 @@
   --accent-soft: rgb(43 102 255 / 0.1);
   --focus-ring: #2b66ff;
   --cross-bg: #1f2937;
+  --crosshair: #8a93a3;
+  --level: #b6bcc6;
+  --last-price: #111827;
   --field-bg: #ffffff;
   --field-border: #d5dae1;
   --up: #00a870;
   --down: #d4113b;
-  --up-fg: #00704a;
-  --down-fg: #b80d32;
-  --up-soft: rgb(0 168 112 / 0.1);
-  --down-soft: rgb(212 17 59 / 0.1);
+  --up-soft: #65d39f;
+  --down-soft: #ff787e;
+  --up-fg: #006944;
+  --down-fg: #b0002d;
+  --up-tint: rgb(0 168 112 / 0.1);
+  --down-tint: rgb(212 17 59 / 0.1);
   --warn-bg: #fff4d6;
   --warn-text: #8a5a00;
   --error: #c8283c;

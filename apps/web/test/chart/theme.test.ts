@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { oklch, parseColor, softTone } from '../../src/chart/color';
 import { contrastRatio, DARK_TEXT, LIGHT_TEXT } from '../../src/chart/contrast';
 import { textToOverlay } from '../../src/chart/drawingStyles';
 import { markerStyles } from '../../src/chart/markers';
 import {
-  candleStyles, chartStyles, defaultAppearance, defaultBarColors, hexToRgba, overlayStyles, refreshThemeTokens, resolveAppearance, THEME_CSS_VARS, THEME_TOKENS, themeTokens,
+  candleStyles, CHART_FONT, chartStyles, defaultAppearance, defaultBarColors, hexToRgba, indicatorLevelColor, overlayStyles, themeSoftTone, refreshThemeTokens, resolveAppearance, THEME_CSS_VARS, THEME_TOKENS, themeTokens,
 } from '../../src/chart/theme';
 
 describe('resolveAppearance', () => {
@@ -49,8 +50,9 @@ describe('indicator histogram bar defaults follow the theme up / down colors', (
     expect(defaultBarColors('light')).toEqual({ up: '#00a870', down: '#d4113b' });
     for (const theme of ['dark', 'light'] as const) {
       const { up, down } = defaultBarColors(theme);
-      // Same translucency as KLineChart's own default bars.
-      expect(chartStyles(theme).indicator?.bars).toEqual([{ style: 'fill', upColor: hexToRgba(up, 0.7), downColor: hexToRgba(down, 0.7) }]);
+      // Opaque: exactly the candle colors (an rgba() of them reads pink on white / brown on dark).
+      expect(chartStyles(theme).indicator?.bars).toEqual([{ style: 'fill', borderSize: 0, upColor: up, downColor: down, noChangeColor: THEME_TOKENS[theme].muted }]);
+      expect(chartStyles(theme).candle?.bar).toMatchObject({ upColor: up, downColor: down });
     }
   });
 });
@@ -89,14 +91,59 @@ describe('candleStyles', () => {
   });
 });
 
+describe('market color family (one source of truth per theme)', () => {
+  it('soft tones are the opaque softTone() of the strong colors on the chart background', () => {
+    for (const theme of ['dark', 'light'] as const) {
+      const t = THEME_TOKENS[theme];
+      expect(t.upSoft).toBe(softTone(t.up, t.bg));
+      expect(t.downSoft).toBe(softTone(t.down, t.bg));
+      expect(themeSoftTone(theme, t.down)).toBe(t.downSoft);
+      // A user's custom color gets its soft tone the same way.
+      expect(themeSoftTone(theme, '#123abc')).toBe(softTone('#123abc', t.bg));
+    }
+  });
+
+  it('text tones reach 4.5:1 on every surface they sit on (incl. a tinted pill on the selected row) and keep the hue', () => {
+    const over = (fg: string, a: number, bg: string) => {
+      const f = parseColor(fg)!.rgb;
+      const b = parseColor(bg)!.rgb;
+      return `#${f.map((v, i) => Math.round(v * a + b[i]! * (1 - a)).toString(16).padStart(2, '0')).join('')}`;
+    };
+    const tints = { dark: { tint: 0.14, selected: '#1b2233' }, light: { tint: 0.1, selected: '#edf1fb' } } as const;
+    for (const theme of ['dark', 'light'] as const) {
+      const t = THEME_TOKENS[theme];
+      const { tint, selected } = tints[theme];
+      const surfaces = [t.bg, t.panel, t.elevated, selected];
+      for (const [fg, strong] of [[t.upFg, t.up], [t.downFg, t.down]] as const) {
+        for (const s of [...surfaces, over(strong, tint, t.panel), over(strong, tint, selected)]) {
+          expect(contrastRatio(fg, s), `${theme} ${fg} on ${s}`).toBeGreaterThanOrEqual(4.5);
+        }
+        const dh = Math.abs(((oklch(fg)[2] - oklch(strong)[2] + 540) % 360) - 180);
+        expect(dh, `${theme} ${fg} hue`).toBeLessThan(2);
+      }
+    }
+  });
+
+  it('strong up / down stay apart by lightness (color-vision deficiency) on both themes', () => {
+    expect(oklch(THEME_TOKENS.dark.up)[0] - oklch(THEME_TOKENS.dark.down)[0]).toBeGreaterThan(0.08);
+    expect(oklch(THEME_TOKENS.light.up)[0] - oklch(THEME_TOKENS.light.down)[0]).toBeGreaterThan(0.08);
+  });
+
+  it('indicator reference levels use the muted, opaque level token', () => {
+    expect(indicatorLevelColor('dark')).toBe(THEME_TOKENS.dark.level);
+    expect(indicatorLevelColor('light')).toBe(THEME_TOKENS.light.level);
+  });
+});
+
 describe('last price line', () => {
   it('is neutral by default: white on dark, the primary text color on light, with contrasting label text', () => {
     for (const s of [chartStyles('dark').candle?.priceMark?.last, candleStyles('candle', 'dark', undefined).priceMark?.last]) {
-      expect(s).toEqual({ upColor: '#ffffff', downColor: '#ffffff', noChangeColor: '#ffffff', text: { color: DARK_TEXT } });
+      expect(s).toMatchObject({ upColor: '#ffffff', downColor: '#ffffff', noChangeColor: '#ffffff', text: { color: DARK_TEXT } });
     }
     const ink = THEME_TOKENS.light.text;
     for (const s of [chartStyles('light').candle?.priceMark?.last, candleStyles('candle', 'light', undefined).priceMark?.last]) {
-      expect(s).toEqual({ upColor: ink, downColor: ink, noChangeColor: ink, text: { color: LIGHT_TEXT } });
+      expect(s).toMatchObject({ upColor: ink, downColor: ink, noChangeColor: ink, text: { color: LIGHT_TEXT } });
+      expect(THEME_TOKENS.light.lastPrice).toBe(ink);
     }
     expect(contrastRatio(DARK_TEXT, '#ffffff')).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(LIGHT_TEXT, ink)).toBeGreaterThanOrEqual(4.5);
@@ -218,6 +265,16 @@ describe('theme tokens from CSS custom properties', () => {
     root.style.setProperty('--accent', 'not a color');
     refreshThemeTokens('dark');
     expect(themeTokens('dark')).toEqual(THEME_TOKENS.dark);
+  });
+
+  it('every chart token has a CSS custom property', () => {
+    expect(Object.keys(THEME_CSS_VARS).sort()).toEqual(Object.keys(THEME_TOKENS.dark).sort());
+    expect(Object.keys(THEME_TOKENS.light).sort()).toEqual(Object.keys(THEME_TOKENS.dark).sort());
+  });
+
+  it('the chart canvas typeface is the UI one (--font-sans)', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
+    expect(/--font-sans:\s*([^;]+);/.exec(css)?.[1]?.trim()).toBe(CHART_FONT);
   });
 
   it('parity: the fallback constants match the token values in styles.css', () => {

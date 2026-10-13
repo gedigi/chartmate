@@ -85,11 +85,10 @@ describe('levelsDraw', () => {
     expect(levelsRange([])).toEqual({ minValue: null, maxValue: null });
   });
 
-  it('the level color is the theme muted color, translucent, per theme', () => {
-    expect(indicatorLevelColor('dark')).toMatch(/^rgba\(\d+,\d+,\d+,0\.55\)$/);
+  it('the level color is the theme\'s opaque level token, per theme', () => {
+    expect(indicatorLevelColor('dark')).toBe(THEME_TOKENS.dark.level);
+    expect(indicatorLevelColor('light')).toBe(THEME_TOKENS.light.level);
     expect(indicatorLevelColor('dark')).not.toBe(indicatorLevelColor('light'));
-    const n = parseInt(THEME_TOKENS.light.muted.slice(1), 16);
-    expect(indicatorLevelColor('light')).toBe(`rgba(${n >> 16},${(n >> 8) & 255},${n & 255},0.55)`);
   });
 });
 

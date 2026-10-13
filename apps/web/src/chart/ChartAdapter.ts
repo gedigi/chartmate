@@ -32,7 +32,7 @@ import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
 import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS } from './sessionShade';
 import { solidBarFigures } from './solidBars';
 import {
-  candleStyles, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeTokens,
+  candleStyles, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeSoftTone, themeTokens,
   type ThemeName,
 } from './theme';
 
@@ -221,7 +221,8 @@ export class ChartAdapter {
   /** Position zones / labels: the candle up / down colors of the active theme, muted gray for neutral parts. */
   private updatePositionColors(): void {
     const a = resolveAppearance(this.theme, this.appearance);
-    positionContext.colors = { up: a.upColor, down: a.downColor, neutral: themeTokens(this.theme).muted };
+    const t = themeTokens(this.theme);
+    positionContext.colors = { up: a.upColor, down: a.downColor, neutral: t.muted, bg: t.bg };
   }
 
   // ── data ──────────────────────────────────────────────────────────────────
@@ -491,8 +492,8 @@ export class ChartAdapter {
     const id = this.chart.createIndicator(create, main);
     if (!id) throw new Error(`Cannot create indicator ${spec.name}`);
     if (levels) this.drawnLevels.set(id, JSON.stringify(effectiveLevels(spec)));
-    // Histogram bars are always filled (MACD / AO outline rising bars by default).
-    const figures = solidBarFigures(this.chart.getIndicators().find((i) => i.id === id)?.figures);
+    // Histogram bars are always filled (MACD / AO outline rising bars by default): rising ones in the soft tone.
+    const figures = solidBarFigures(this.chart.getIndicators().find((i) => i.id === id)?.figures, (c) => themeSoftTone(this.theme, c));
     if (figures) this.chart.overrideIndicator({ id, name: spec.name, figures });
     if (hasOverrides(overrides)) this.overrides.set(id, overrides);
     return id;
