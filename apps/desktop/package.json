@@ -1,0 +1,27 @@
+{
+  "name": "@altv/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "altv desktop app (Electron): the altv server and web UI in one hardened, offline-first window.",
+  "author": "altv",
+  "type": "module",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "bundle": "node scripts/bundle.mjs",
+    "start": "pnpm --filter @altv/web build && node scripts/bundle.mjs --dev && electron .",
+    "pack:dir": "pnpm --filter @altv/web build && node scripts/bundle.mjs && electron-builder --config electron-builder.config.cjs --dir",
+    "dist:mac": "pnpm --filter @altv/web build && node scripts/bundle.mjs && electron-builder --config electron-builder.config.cjs --mac --publish never",
+    "dist:win": "pnpm --filter @altv/web build && node scripts/bundle.mjs && electron-builder --config electron-builder.config.cjs --win --publish never",
+    "smoke": "playwright test -c smoke/playwright.config.ts",
+    "test": "vitest run && vitest run -c vitest.server-suite.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@electron/fuses": "2.1.3",
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3",
+    "electron-updater": "6.8.9",
+    "esbuild": "0.28.2",
+    "kysely": "0.29.6"
+  }
+}
