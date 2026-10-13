@@ -80,6 +80,7 @@ describe('desktop.yml secret scoping and release', () => {
     const run = (wf.jobs.release.steps as Step[]).map((s) => s.run ?? '').join('\n');
     expect(run).toMatch(/--repo "\$GITHUB_REPOSITORY"/);
     expect(run).toMatch(/--prerelease/);
+    expect(run).toContain('*-*) prerelease=(--prerelease)'); // only suffixed tags (v1.2.3-beta.1) are pre-releases
     expect(run).toMatch(/unsigned/i);
   });
   it('both OS jobs smoke-test the shipped build with the expected signing state', () => {

@@ -174,7 +174,7 @@ jobs:
         run: |
           set -euo pipefail
           prerelease=()
-          case "$TAG" in v0.*) prerelease=(--prerelease) ;; esac
+          case "$TAG" in *-*) prerelease=(--prerelease) ;; esac  # v1.2.3 = release, v1.2.3-beta.1 = pre-release
           {
             echo "## Chartmate ${TAG#v}"
             echo

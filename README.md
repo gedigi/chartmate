@@ -507,7 +507,7 @@ locally with `SMOKE_ALLOW_REAL_USERDATA=1`.
 - **`package-mac` and `package-win` jobs**: build, sign and smoke-test on each OS. Signing secrets are visible only
   to the packaging step of their own OS.
 - **`release` job** (tags only): the only job with `contents: write`. It creates the GitHub Release for the tag
-  (a pre-release for `v0.x`) and attaches:
+  (a pre-release only for suffixed tags such as `v1.2.0-beta.1`) and attaches:
   - the dmg and zip for macOS arm64 and x64;
   - the NSIS installer and zip for Windows x64 and arm64.
 
