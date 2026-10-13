@@ -57,9 +57,6 @@ export function catalogEntry(name: string): CatalogEntry | undefined {
 /** KLineChart's default indicator line palette (lower-case, as `<input type="color">` reports it). */
 export const DEFAULT_LINE_COLORS = ['#ff9600', '#935ebd', '#1677ff', '#e11d74', '#01c5c4'] as const;
 
-/** KLineChart's default histogram colours (its green / red), as `<input type="color">` reports them. */
-export const DEFAULT_BAR_COLORS = { up: '#2dc08e', down: '#f92855' } as const;
-
 /** Default colour of line `i`: the indicator's own default (catalog `defaultColors`) or KLineChart's palette. */
 export function defaultLineColor(i: number, name?: string): string {
   const own = name === undefined ? undefined : catalogEntry(name)?.defaultColors?.[i];

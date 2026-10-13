@@ -67,6 +67,21 @@ export interface ResolvedAppearance {
   upColor: string; downColor: string; candleBody: CandleBodyStyle; lineColor: string; lineWidth: number; drawing: DrawingLineStyle;
 }
 
+/**
+ * Default up / down colours of indicator histograms (VOL, MACD, AO): the theme's up / down colours. Per-indicator
+ * `barColors` overrides still win.
+ */
+export function defaultBarColors(theme: ThemeName): { up: string; down: string } {
+  const { up, down } = themeTokens(theme);
+  return { up, down };
+}
+
+/** Chart default histogram bar colours: the theme's up / down, as translucent as KLineChart's own defaults. */
+export function defaultIndicatorBars(theme: ThemeName): { upColor: string; downColor: string } {
+  const { up, down } = defaultBarColors(theme);
+  return { upColor: hexToRgba(up, 0.7), downColor: hexToRgba(down, 0.7) };
+}
+
 export function defaultAppearance(theme: ThemeName): ResolvedAppearance {
   const { accent, up, down } = themeTokens(theme);
   return { upColor: up, downColor: down, candleBody: 'solid', lineColor: accent, lineWidth: 2, drawing: { color: accent, size: 1, style: 'solid' } };
@@ -182,6 +197,8 @@ export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
       tooltip: { title: { color: t.text, template: '{displayName} · {tf}' }, legend: { color: t.muted } },
     },
     indicator: {
+      // Default histogram bars: the theme's up / down colours, as translucent as KLineChart's own defaults.
+      bars: [defaultIndicatorBars(theme)],
       tooltip: { title: { color: t.text }, legend: { color: t.muted } },
       lastValueMark: { show: false },
     },
