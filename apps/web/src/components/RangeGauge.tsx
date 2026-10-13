@@ -8,18 +8,16 @@ export interface RangeGaugeProps {
   /** Colors the marker: up / down / neutral. */
   dir: 'up' | 'down' | '';
   width?: number;
-  /** Accessible description, e.g. "30-day range 180.10 – 214.50". */
-  label: string;
 }
 
 /**
  * A thin engraved track with end ticks and a marker at `value`'s place between `low` and `high` (watchlist rows).
- * Colors come from CSS classes (no inline styles).
+ * Decorative (aria-hidden): the caller says what it measures in a tooltip. Colors come from CSS classes.
  */
-export function RangeGauge({ value, low, high, dir, width = 140, label }: RangeGaugeProps): JSX.Element {
+export function RangeGauge({ value, low, high, dir, width = 140 }: RangeGaugeProps): JSX.Element {
   const x = rangePosition(value, low, high) * (width - 3);
   return (
-    <svg className="range-gauge" width={width} height={8} viewBox={`0 0 ${width} 8`} role="img" aria-label={label}>
+    <svg className="range-gauge" width={width} height={8} viewBox={`0 0 ${width} 8`} aria-hidden="true" focusable="false">
       <line className="rg-track" x1={0} x2={width} y1={4.5} y2={4.5} />
       <line className="rg-track" x1={0.5} x2={0.5} y1={1.5} y2={7.5} />
       <line className="rg-track" x1={width - 0.5} x2={width - 0.5} y1={1.5} y2={7.5} />

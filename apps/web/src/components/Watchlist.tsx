@@ -429,7 +429,7 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
     const label = info ? (info.assetClass === 'basket' ? info.name : info.ticker) : fallbackTicker(id);
     const chg = q?.changePct == null ? null : fmtChange(q.changePct);
     const spark = sparks[id] ?? [];
-    // 30-day range: the daily closes of the sparkline and the live price.
+    // 30-day closing range: the sparkline's daily closes and the live price.
     const range = q && spark.length > 1 ? { lo: Math.min(q.price, ...spark), hi: Math.max(q.price, ...spark) } : null;
     // Second line when there is no pre / post price: the full name (a basket's name is already its label).
     const name = info && info.assetClass !== 'basket' && info.name !== info.ticker ? info.name : info?.assetClass === 'basket' ? 'Basket' : null;
@@ -461,11 +461,15 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
             <span className="wl-ext-slot" aria-hidden="true" />
           )}
           {!(q?.ext && info) && name && <span className="wl-name">{name}</span>}
-          <span className="wl-gauge">
-            {range && info && (
-              <RangeGauge value={q!.price} low={range.lo} high={range.hi} dir={chg?.dir ?? ''}
-                label={`30-day range ${fmtPrice(range.lo, info.pricePrecision)} – ${fmtPrice(range.hi, info.pricePrecision)}`} />
-            )}
+          {/* Decorative for screen readers (the row's name stays short); the tooltip says what it measures. */}
+          <span
+            className="wl-gauge"
+            aria-hidden="true"
+            title={range && info
+              ? `30-day closing range ${fmtPrice(range.lo, info.pricePrecision)} – ${fmtPrice(range.hi, info.pricePrecision)} (with the live price)`
+              : undefined}
+          >
+            {range && <RangeGauge value={q!.price} low={range.lo} high={range.hi} dir={chg?.dir ?? ''} />}
           </span>
         </div>
         <button

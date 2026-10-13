@@ -285,7 +285,7 @@ open its chart; Delete removes the focused row; drag rows or press **Alt+↑/↓
 is marked with a bracket.
 The row always shows the regular-session price and day change (a tinted pill); during pre/post-market a second
 line ("Pre 231.40 +0.82%") shows the extended price and its change vs the last regular close (`Quote.ext`),
-otherwise the name. A small gauge under the price places the price in its 30-day range (the sparkline's daily
+otherwise the name. A small gauge under the price places the price in its 30-day closing range (the sparkline's daily
 closes and the live price).
 
 Below the list, a **detail panel** shows the open symbol: market status (stocks: open / pre-market / after hours /

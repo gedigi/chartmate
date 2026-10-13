@@ -63,6 +63,16 @@ describe('Watchlist', () => {
     expect(lastQuote('stock:AAPL')).toMatchObject({ price: 1234.5 });
   });
 
+  it('the 30-day closing range gauge is decorative (short row names) and says what it measures in a tooltip', async () => {
+    setup(['stock:AAPL']);
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={vi.fn()} />);
+    await waitFor(() => expect(document.querySelector('.range-gauge')).not.toBeNull());
+    const gauge = document.querySelector<HTMLElement>('.wl-gauge')!;
+    expect(gauge).toHaveAttribute('aria-hidden', 'true');
+    expect(gauge.title).toMatch(/^30-day closing range 1\.00 – 1,234\.50/);
+    expect(rows()[0]).toHaveAccessibleName(/^AAPL\s?1,234\.50\s?\+1\.23%\s?Apple Inc\.$/);
+  });
+
   it('click selects a symbol', async () => {
     setup(['stock:AAPL', 'crypto:BTC']);
     const onSelect = vi.fn();
