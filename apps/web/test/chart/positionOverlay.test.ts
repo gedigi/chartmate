@@ -43,6 +43,15 @@ describe('positionFigures', () => {
     expect(f.find((x) => x.type === 'line')).toMatchObject({ attrs: { coordinates: [{ x: 10, y: 100 }, { x: 210, y: 100 }] } });
   });
 
+  it('with the chart background known, zones are hue-locked tints where an rgba() can produce one (color.ts tintFill)', async () => {
+    const { tintFill } = await import('../../src/chart/color');
+    const light = { up: '#00a870', down: '#d4113b', neutral: '#5b6474', bg: '#ffffff' };
+    const rects = (positionFigures({ ...base, colors: light }) as Fig[]).filter((x) => x.type === 'rect');
+    expect(rects[0]!.styles.color).toBe(tintFill('#00a870', '#ffffff', P.ZONE_TINT, P.ZONE_ALPHA));
+    expect(rects[1]!.styles.color).toBe(tintFill('#d4113b', '#ffffff', P.ZONE_TINT, P.ZONE_ALPHA));
+    expect(rects[1]!.styles.color).not.toBe('rgba(212,17,59,0.2)'); // not the plain (pink on white) rgba
+  });
+
   it('labels: target, stop, center (contrast-aware text, theme font) and the waiting state in a neutral style', () => {
     const f = positionFigures(base) as Fig[];
     expect(texts(f)).toEqual(['Target: 102.00 (+2.00%)', 'Stop: 98.00 (-2.00%)', 'Long · R:R 1.00', 'Waiting for entry']);

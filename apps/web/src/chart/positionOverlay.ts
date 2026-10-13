@@ -1,5 +1,6 @@
 import { DEFAULT_POSITION_DEFAULTS, type PositionDefaults } from '@chartmate/shared';
 import { registerOverlay, type OverlayFigure, type OverlayTemplate } from 'klinecharts';
+import { tintFill } from './color';
 import { readableTextOn } from './contrast';
 import { drawingConstraint } from './drawingTemplates';
 import {
@@ -7,15 +8,21 @@ import {
   sideOf, stopLabel, targetLabel, toPositionPoints, type OutcomeBar, type PositionGeometry, type PositionMetrics, type PositionOutcome,
   type PositionSide,
 } from './position';
-import { hexToRgba, THEME_TOKENS } from './theme';
+import { hexToRgba, LABEL_RADIUS, THEME_TOKENS } from './theme';
 
 /** Fill opacity of the profit / loss zones, and of the part already traversed by the price (outcome). */
 export const ZONE_ALPHA = 0.2;
 export const TRAVERSED_ALPHA = 0.4;
+/** With the chart background known, the zones are hue-locked tints where an rgba() can produce one (see color.ts tintFill). */
+export const ZONE_TINT = 0.8;
+export const TRAVERSED_TINT = 0.6;
+const zoneFill = (color: string, bg: string | undefined, tint: number, alpha: number) =>
+  bg ? tintFill(color, bg, tint, alpha) : hexToRgba(color, alpha);
 /** Smallest on-screen distance (px) between the entry handle and a dragged target / stop handle. */
 export const HANDLE_GAP_PX = 12;
 
-export interface PositionColors { up: string; down: string; neutral: string }
+/** Up / down / neutral label and zone colors; `bg` (the chart background) lets the zones use hue-locked tints (tintFill). */
+export interface PositionColors { up: string; down: string; neutral: string; bg?: string }
 
 /**
  * Shared rendering / placement state of the position overlays (one chart per page), set by the ChartAdapter:
@@ -115,11 +122,11 @@ export function positionFigures(p: PositionFigureInput): OverlayFigure[] {
   const left = Math.min(e.x, end.x);
   const right = Math.max(e.x, end.x);
   const w = right - left;
-  const { up, down, neutral } = p.colors;
+  const { up, down, neutral, bg: chartBg } = p.colors;
   const { metrics: m, outcome } = p;
   const figures: OverlayFigure[] = [
-    zone(left, w, e.y, t.y, hexToRgba(up, ZONE_ALPHA)),
-    zone(left, w, e.y, s.y, hexToRgba(down, ZONE_ALPHA)),
+    zone(left, w, e.y, t.y, zoneFill(up, chartBg, ZONE_TINT, ZONE_ALPHA)),
+    zone(left, w, e.y, s.y, zoneFill(down, chartBg, ZONE_TINT, ZONE_ALPHA)),
   ];
   const profit = hasResult(outcome) && (outcome.kind === 'target' || (outcome.kind !== 'stop' && outcome.pnlPct >= 0));
   if (hasResult(outcome)) {
@@ -127,7 +134,7 @@ export function positionFigures(p: PositionFigureInput): OverlayFigure[] {
     const x0 = clampX(p.xOf(outcome.fillTs));
     const x1 = clampX(p.xOf(outcome.ts));
     const y = outcome.kind === 'target' ? t.y : outcome.kind === 'stop' ? s.y : p.yOf(outcome.price);
-    if (x1 > x0) figures.push(zone(x0, x1 - x0, e.y, y, hexToRgba(profit ? up : down, TRAVERSED_ALPHA)));
+    if (x1 > x0) figures.push(zone(x0, x1 - x0, e.y, y, zoneFill(profit ? up : down, chartBg, TRAVERSED_TINT, TRAVERSED_ALPHA)));
   }
   figures.push({ type: 'line', attrs: { coordinates: [{ x: left, y: e.y }, { x: right, y: e.y }] }, styles: { color: neutral, size: 1, style: 'solid' } });
 
@@ -154,7 +161,7 @@ export function positionFigures(p: PositionFigureInput): OverlayFigure[] {
       ignoreEvent: true,
       attrs: { x, y: at.y, text, align, baseline: at.baseline },
       styles: {
-        color: readableTextOn(bg), backgroundColor: bg, borderColor: bg, borderSize: 0, borderRadius: 2,
+        color: readableTextOn(bg), backgroundColor: bg, borderColor: bg, borderSize: 0, borderRadius: LABEL_RADIUS,
         family: p.font.family, size, paddingLeft: PAD_X, paddingRight: PAD_X, paddingTop: 2, paddingBottom: 2,
       },
     } as OverlayFigure;
