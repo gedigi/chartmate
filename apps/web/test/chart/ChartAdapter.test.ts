@@ -246,6 +246,18 @@ describe('ChartAdapter', () => {
     expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({ id: atrId, precision: 6 }));
   });
 
+  it('axis / legend precision: price-unit oscillators (MACD, AO, MTM) take the price precision, bounded ones (RSI …) 2', () => {
+    const a = make();
+    const macd = a.addIndicator({ name: 'MACD', pane: 'sub' });
+    expect(chart().createIndicator).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'MACD', precision: 4 }), false);
+    a.addIndicator({ name: 'RSI', pane: 'sub' });
+    expect(chart().createIndicator).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'RSI', precision: 2 }), false);
+    a.addIndicator({ name: 'VOL', pane: 'sub' });
+    expect(chart().createIndicator.mock.calls.at(-1)![0]).not.toHaveProperty('precision');
+    a.load({ symbol: AAPL, tf: '1h', session: 'rth', pollMs: 15000 }, events());
+    expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({ id: macd, precision: 2 }));
+  });
+
   it('setSessionShading creates/removes the SESSION_SHADE indicator on the candle pane', () => {
     const a = make();
     a.setSessionShading(true);

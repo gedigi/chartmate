@@ -154,6 +154,19 @@ function lowerBound(data: KLineData[], ts: number): number {
   return lo;
 }
 
+/** Oscillators in price units (their axis and legend read like prices). */
+const PRICE_UNIT_INDICATORS: ReadonlySet<string> = new Set(['MACD', 'AO', 'MTM']);
+/** Bounded oscillators (0–100 and the like): two decimals, never KLineChart's default four. */
+const BOUNDED_INDICATORS: ReadonlySet<string> = new Set(['RSI', 'KDJ', 'WR', 'CCI', 'DMI']);
+const FIXED_PRECISION = 2;
+
+/** Value precision of indicator `name` (undefined = KLineChart's own). */
+function indicatorPrecision(name: string, pricePrecision: number): number | undefined {
+  if (PRICE_PRECISION_INDICATORS.has(name) || PRICE_UNIT_INDICATORS.has(name)) return pricePrecision;
+  if (BOUNDED_INDICATORS.has(name)) return FIXED_PRECISION;
+  return undefined;
+}
+
 /**
  * The only bridge between the app and KLineChart. Everything else in the app talks to this class.
  */
@@ -517,7 +530,8 @@ export class ChartAdapter {
     const styles = this.indicatorStyles(spec.name, overrides, undefined, true);
     if (styles) create.styles = styles;
     create.extendData = this.indicatorExt;
-    if (PRICE_PRECISION_INDICATORS.has(spec.name)) create.precision = this.indicatorExt.pricePrecision ?? 4;
+    const precision = indicatorPrecision(spec.name, this.indicatorExt.pricePrecision ?? 4);
+    if (precision !== undefined) create.precision = precision;
     const levels = this.levelFields(spec.name, spec);
     if (levels) Object.assign(create, levels);
     const id = this.chart.createIndicator(create, main);
@@ -561,7 +575,11 @@ export class ChartAdapter {
     for (const i of this.chart.getIndicators()) {
       if (SHADE_INDICATORS.has(i.name)) continue;
       const override: IndicatorCreate = { id: i.id, name: i.name, extendData: ext };
-      if (PRICE_PRECISION_INDICATORS.has(i.name)) override.precision = ext.pricePrecision;
+      // Bounded oscillators keep their fixed precision; price-unit ones follow the symbol.
+      if (!BOUNDED_INDICATORS.has(i.name)) {
+        const precision = indicatorPrecision(i.name, ext.pricePrecision);
+        if (precision !== undefined) override.precision = precision;
+      }
       this.chart.overrideIndicator(override);
     }
   }
