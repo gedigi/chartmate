@@ -1,4 +1,4 @@
-// Bundles the Electron main process (desktop shell + the whole altv server) into one minified CommonJS file and
+// Bundles the Electron main process (desktop shell + the whole Chartmate server) into one minified CommonJS file and
 // copies the built web UI next to it:
 //   dist/main.cjs, dist/web/**, dist/icon.png   (+ dist/*.LEGAL.txt with third-party license comments)
 //   dist/updater.cjs — ONLY when the build is code-signed for the target platform (build/signing.cjs); unsigned

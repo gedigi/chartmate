@@ -9,7 +9,7 @@ const mode = (p: string) => statSync(p).mode & 0o777;
 
 let base: string;
 beforeEach(() => {
-  base = mkdtempSync(join(tmpdir(), 'altv-storage-'));
+  base = mkdtempSync(join(tmpdir(), 'chartmate-storage-'));
 });
 
 describe('ensurePrivateDir', () => {

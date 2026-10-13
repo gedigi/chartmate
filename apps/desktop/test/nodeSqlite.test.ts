@@ -39,7 +39,7 @@ describe('adaptNodeSqlite', () => {
 
 describe('createNodeSqliteDb', () => {
   it('opens a file DB in WAL mode with foreign keys on, migrates, and supports repos + transactions', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'altv-nsq-'));
+    const dir = mkdtempSync(join(tmpdir(), 'chartmate-nsq-'));
     const h = createNodeSqliteDb(join(dir, 'altv.db'));
     await migrate(h.db);
     const mode = await sql<{ journal_mode: string }>`pragma journal_mode`.execute(h.db);

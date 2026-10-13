@@ -1,6 +1,8 @@
 import type { App, CustomScheme, Session, WebContents, WebPreferences } from 'electron';
 
 export const APP_SCHEME = 'app';
+// Kept from before the rename to Chartmate on purpose: the origin (app://altv) keys the renderer's localStorage,
+// so changing it would silently drop every saved browser-side setting of existing installs.
 export const APP_HOST = 'altv';
 export const APP_ORIGIN = `${APP_SCHEME}://${APP_HOST}`;
 export const APP_ENTRY_URL = `${APP_ORIGIN}/`;

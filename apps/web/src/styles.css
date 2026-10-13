@@ -200,16 +200,7 @@ input[type='checkbox']:focus-visible, input[type='color']:focus-visible { outlin
   font-size: 14px;
   letter-spacing: -0.01em;
 }
-.brand::before {
-  content: '';
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  background:
-    linear-gradient(135deg, transparent 45%, rgb(255 255 255 / 0.9) 46%, rgb(255 255 255 / 0.9) 54%, transparent 55%),
-    linear-gradient(135deg, var(--accent), #7b5cff);
-  box-shadow: var(--shadow-sm);
-}
+.brand img { display: block; }
 
 /* Segmented controls: a recessed track, the selected item raised. */
 .tabs, .segmented {
@@ -338,6 +329,8 @@ input[type='checkbox']:focus-visible, input[type='color']:focus-visible { outlin
   box-shadow: var(--shadow-lg);
 }
 .login-card h1 { margin: 0 0 8px; font-size: 20px; letter-spacing: -0.02em; }
+.login-brand { display: flex; align-items: center; gap: 8px; }
+.login-brand img { display: block; }
 .login-card input, .login-card button { min-height: 34px; }
 
 @media (max-width: 1100px) {

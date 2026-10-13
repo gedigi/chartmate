@@ -39,7 +39,7 @@ export function TopBar(p: TopBarProps): JSX.Element {
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   return (
     <header className="top-bar">
-      <span className="brand">altv</span>
+      <span className="brand"><img src="/favicon.svg" alt="" width={20} height={20} />Chartmate</span>
       {/* Page navigation (not tabs): each button switches the whole view; aria-current marks the open one. */}
       <nav className="tabs" aria-label="View">
         {(['chart', 'baskets'] as const).map((v) => (

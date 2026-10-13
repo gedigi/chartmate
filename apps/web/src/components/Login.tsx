@@ -24,7 +24,7 @@ export function Login({ onSuccess }: { onSuccess: () => void }): JSX.Element {
   return (
     <div className="login-screen">
       <form className="login-card" onSubmit={submit}>
-        <h1>altv</h1>
+        <h1 className="login-brand"><img src="/favicon.svg" alt="" width={28} height={28} />Chartmate</h1>
         <label htmlFor="login-password">Password</label>
         <input id="login-password" type="password" autoFocus autoComplete="current-password"
           value={password} onChange={(e) => setPassword(e.target.value)} />

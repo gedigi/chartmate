@@ -11,10 +11,10 @@ let root: string;
 let webRoot: string;
 
 beforeAll(() => {
-  root = mkdtempSync(join(tmpdir(), 'altv-proto-'));
+  root = mkdtempSync(join(tmpdir(), 'chartmate-proto-'));
   webRoot = join(root, 'web');
   mkdirSync(join(webRoot, 'assets'), { recursive: true });
-  writeFileSync(join(webRoot, 'index.html'), '<!doctype html><title>altv</title>');
+  writeFileSync(join(webRoot, 'index.html'), '<!doctype html><title>Chartmate</title>');
   writeFileSync(join(webRoot, 'assets', 'index-abc.js'), 'console.log(1)');
   writeFileSync(join(webRoot, 'assets', 'index-abc.css'), 'body{}');
   writeFileSync(join(webRoot, 'theme-init.js'), '1');
@@ -56,7 +56,7 @@ describe('app:// protocol handler — static files', () => {
     expect(res.headers.get('content-type')).toBe('text/html; charset=utf-8');
     expect(res.headers.get('content-security-policy')).toBe(CONTENT_SECURITY_POLICY);
     expect(res.headers.get('cache-control')).toBe('no-cache');
-    expect(await res.text()).toContain('<title>altv</title>');
+    expect(await res.text()).toContain('<title>Chartmate</title>');
   });
 
   it.each([

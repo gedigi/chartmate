@@ -1,4 +1,4 @@
-// Electron main process: the altv server (Fastify, in-process, no listener; see listenGuard.ts for the single
+// Electron main process: the Chartmate server (Fastify, in-process, no listener; see listenGuard.ts for the single
 // macOS update-install exception) + one hardened window that talks
 // to it only through the privileged app:// scheme. Bundled by scripts/bundle.mjs into dist/main.cjs.
 import './boot.js'; // MUST stay first: command-line switch guard + environment sanitizing

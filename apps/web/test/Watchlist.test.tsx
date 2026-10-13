@@ -123,11 +123,11 @@ describe('Watchlist', () => {
     await screen.findByText('SPY');
     expect(order()).toEqual(['stock:SPY', 'stock:AAPL', 'crypto:BTC', 'crypto:ETH']);
     await waitFor(() => expect(put).toHaveBeenCalledWith(syms(['stock:SPY', 'stock:AAPL', 'crypto:BTC', 'crypto:ETH'])));
-    await waitFor(() => expect(localStorage.getItem('altv.watchlist.initialized')).toBe('1'));
+    await waitFor(() => expect(localStorage.getItem('chartmate.watchlist.initialized')).toBe('1'));
   });
 
-  it('does not seed when flag is set (user emptied list)', async () => {
-    localStorage.setItem('altv.watchlist.initialized', '1');
+  it.each(['chartmate.watchlist.initialized', 'altv.watchlist.initialized'])('does not seed when flag %s is set (user emptied list)', async (key) => {
+    localStorage.setItem(key, '1');
     setup([]);
     render(<Watchlist currentSymbol="stock:SPY" onSelect={() => {}} />);
     await waitFor(() => expect(api.watchlist.get).toHaveBeenCalled());

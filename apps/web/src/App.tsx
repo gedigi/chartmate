@@ -9,16 +9,14 @@ import { Watchlist } from './components/Watchlist';
 import { onBasketChanged } from './state/useBaskets';
 import { useLayout } from './state/useLayout';
 import { retryDelayMs } from './state/retry';
+import { readStored, writeStored } from './state/storage';
 
-const THEME_KEY = 'altv.theme';
+/** Stored as `chartmate.theme` (see state/storage.ts; public/theme-init.js reads the same key before first paint). */
+const THEME_KEY = 'theme';
 const SIDEBAR_BREAKPOINT = 900;
 
 function readTheme(): Theme {
-  try {
-    return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark';
-  } catch {
-    return 'dark';
-  }
+  return readStored(THEME_KEY) === 'light' ? 'light' : 'dark';
 }
 
 function useTheme(): [Theme, () => void] {
@@ -26,7 +24,7 @@ function useTheme(): [Theme, () => void] {
   // A layout effect: data-theme must be current before the chart's (passive) effects read the CSS tokens.
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
-    try { localStorage.setItem(THEME_KEY, theme); } catch { /* storage unavailable */ }
+    writeStored(THEME_KEY, theme);
   }, [theme]);
   const toggle = useCallback(() => setTheme((t) => (t === 'dark' ? 'light' : 'dark')), []);
   return [theme, toggle];

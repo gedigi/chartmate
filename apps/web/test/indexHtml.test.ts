@@ -15,7 +15,7 @@ afterEach(() => {
 
 describe('index.html pre-paint theme script', () => {
   it('is a classic (blocking) external script in <head>, before the app module', () => {
-    expect(script).toContain("localStorage.getItem('altv.theme')");
+    expect(script).toContain("localStorage.getItem('chartmate.theme')");
     const tag = html.indexOf('<script src="/theme-init.js"></script>');
     expect(tag).toBeGreaterThan(-1);
     expect(tag).toBeLessThan(html.indexOf('</head>'));
@@ -29,9 +29,25 @@ describe('index.html pre-paint theme script', () => {
   });
 
   it('applies the saved light theme', () => {
+    localStorage.setItem('chartmate.theme', 'light');
+    run();
+    expect(document.documentElement.dataset.theme).toBe('light');
+  });
+
+  it('migrates a theme saved before the rename (altv.theme → chartmate.theme)', () => {
     localStorage.setItem('altv.theme', 'light');
     run();
     expect(document.documentElement.dataset.theme).toBe('light');
+    expect(localStorage.getItem('chartmate.theme')).toBe('light');
+    expect(localStorage.getItem('altv.theme')).toBeNull();
+  });
+
+  it('prefers chartmate.theme over a stale altv.theme', () => {
+    localStorage.setItem('chartmate.theme', 'dark');
+    localStorage.setItem('altv.theme', 'light');
+    document.documentElement.dataset.theme = 'light';
+    run();
+    expect(document.documentElement.dataset.theme).toBe('dark');
   });
 
   it('falls back to dark when nothing is saved', () => {

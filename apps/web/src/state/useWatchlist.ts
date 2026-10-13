@@ -1,19 +1,21 @@
 import { MAX_WATCHLIST_SYMBOLS, watchlistSymbols, type SymbolId, type WatchlistEntry } from '@chartmate/shared';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, errorMessage } from '../api/client';
+import { readStored, writeStored } from './storage';
 import { useDebouncedSave } from './useDebouncedSave';
 import { addSymbol, removeSymbol } from './watchlistModel';
 
 export const DEFAULT_WATCHLIST: SymbolId[] = ['stock:SPY', 'stock:AAPL', 'crypto:BTC', 'crypto:ETH'];
-export const INITIALIZED_KEY = 'altv.watchlist.initialized';
+/** Stored as `chartmate.watchlist.initialized` (state/storage.ts). */
+export const INITIALIZED_KEY = 'watchlist.initialized';
 const SAVE_DELAY_MS = 500;
 const DEFAULT_ENTRIES: WatchlistEntry[] = DEFAULT_WATCHLIST.map((id) => ({ type: 'symbol', id }));
 
 function readFlag(): boolean {
-  try { return localStorage.getItem(INITIALIZED_KEY) !== null; } catch { return false; }
+  return readStored(INITIALIZED_KEY) !== null;
 }
 function setFlag(): void {
-  try { localStorage.setItem(INITIALIZED_KEY, '1'); } catch { /* storage unavailable */ }
+  writeStored(INITIALIZED_KEY, '1');
 }
 
 export interface UseWatchlist {
