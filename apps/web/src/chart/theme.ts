@@ -1,6 +1,7 @@
 import type { CandleBodyStyle, ChartAppearance, ChartType, DrawingLineStyle, LastPriceLineStyle, ThemedAppearance } from '@chartmate/shared';
 import type { DeepPartial, Styles } from 'klinecharts';
 import { readableTextOn, readableTextOnAll } from './contrast';
+import { softTone } from './color';
 import { klineLine } from './drawingStyles';
 
 export type ThemeName = 'dark' | 'light';
@@ -13,11 +14,13 @@ export type ThemeName = 'dark' | 'light';
 export const THEME_TOKENS = {
   dark: {
     bg: '#0f1218', panel: '#141820', elevated: '#1b2029', border: '#262c38', grid: '#181d26', text: '#e4e7ee', muted: '#8b93a3', accent: '#2b66ff',
-    up: '#00d68f', down: '#ff3b5c', crossBg: '#2a303c',
+    up: '#00d68f', down: '#ff3b5c', upSoft: '#008255', downSoft: '#aa0031', upFg: '#00d68f', downFg: '#ff7c85',
+    crossBg: '#2a303c', crosshair: '#5f6878', level: '#4a5263', lastPrice: '#ffffff',
   },
   light: {
     bg: '#ffffff', panel: '#f7f8fa', elevated: '#ffffff', border: '#e3e6eb', grid: '#f1f3f6', text: '#111827', muted: '#5b6474', accent: '#2b66ff',
-    up: '#00a870', down: '#d4113b', crossBg: '#1f2937',
+    up: '#00a870', down: '#d4113b', upSoft: '#65d39f', downSoft: '#ff787e', upFg: '#006944', downFg: '#b0002d',
+    crossBg: '#1f2937', crosshair: '#8a93a3', level: '#b6bcc6', lastPrice: '#111827',
   },
 } as const;
 
@@ -28,7 +31,17 @@ export const THEME_TOKENS = {
  * the dark one (L 0.56 vs 0.65; protanopia darkens reds, which only widens that gap). OKLab ΔE×100 up↔down: dark 40
  * (protan 28, deutan 10), light 35 (protan 25, deutan 9). Both are ≥ 3:1 against their background; the down red sits
  * between the palette's orange and pink at ΔE ≥ 12 (dark) / 14 (light) from both. Small TEXT uses the --up-fg /
- * --down-fg CSS tokens instead (≥ 4.5:1 on every surface they are drawn on).
+ * --down-fg CSS tokens instead (≥ 4.5:1 on every surface they are drawn on, including a tinted pill on the current
+ * watchlist row), hue-locked to the strong color.
+ *
+ * One family per direction: every strong up / down mark (candles, volume, MACD / AO, positions, watchlist, baskets,
+ * sparklines) uses the SAME opaque color; the only other member is the soft tone (upSoft / downSoft: rising MACD /
+ * AO bars), an OPAQUE color derived by softTone() (src/chart/color.ts) — same OKLCH hue, lightness moved toward the
+ * chart background. Never an rgba() of the strong color: over white that reads pink, over the dark bg brown. The
+ * upSoft / downSoft constants are softTone(up / down, bg) (a test checks it); custom colors get theirs at runtime.
+ *
+ * Neutral chart tokens: crosshair (thin dashed crosshair lines), level (muted dashed reference lines, e.g. oscillator
+ * levels), lastPrice (the neutral last price line and label).
  */
 
 /**
@@ -110,7 +123,8 @@ type ThemeTokens = { -readonly [K in keyof typeof THEME_TOKENS.dark]: string };
 /** Chart token → CSS custom property in styles.css. */
 export const THEME_CSS_VARS: Readonly<Partial<Record<keyof ThemeTokens, string>>> = {
   bg: '--bg', panel: '--bg-panel', elevated: '--bg-elevated', border: '--border', text: '--text', muted: '--text-muted', accent: '--accent',
-  up: '--up', down: '--down', grid: '--grid', crossBg: '--cross-bg',
+  up: '--up', down: '--down', upSoft: '--up-soft', downSoft: '--down-soft', upFg: '--up-fg', downFg: '--down-fg', grid: '--grid',
+  crossBg: '--cross-bg', crosshair: '--crosshair', level: '--level', lastPrice: '--last-price',
 };
 
 const live: Partial<Record<ThemeName, ThemeTokens>> = {};
@@ -161,10 +175,26 @@ export function defaultBarColors(theme: ThemeName): { up: string; down: string }
   return { up, down };
 }
 
-/** Chart default histogram bar colors: the theme's up / down, as translucent as KLineChart's own defaults. */
-export function defaultIndicatorBars(theme: ThemeName): { upColor: string; downColor: string } {
+/**
+ * Chart default histogram bar colors: the theme's up / down, OPAQUE — the exact candle colors (an rgba() of them
+ * would read pink on white / brown on dark next to the candles).
+ */
+export function defaultIndicatorBars(theme: ThemeName): { upColor: string; downColor: string; noChangeColor: string } {
   const { up, down } = defaultBarColors(theme);
-  return { upColor: hexToRgba(up, 0.7), downColor: hexToRgba(down, 0.7) };
+  return { upColor: up, downColor: down, noChangeColor: themeTokens(theme).muted };
+}
+
+/**
+ * Color of indicator reference levels (dashed oscillator levels such as RSI 30 / 70): the theme's opaque, muted
+ * `level` token, quieter than any data line.
+ */
+export function indicatorLevelColor(theme: ThemeName): string {
+  return themeTokens(theme).level;
+}
+
+/** The soft tone of `color` on `theme`'s chart background (rising MACD / AO bars): see softTone. */
+export function themeSoftTone(theme: ThemeName, color: string): string {
+  return softTone(color, themeTokens(theme).bg);
 }
 
 export function defaultAppearance(theme: ThemeName): ResolvedAppearance {
@@ -218,7 +248,7 @@ export function overlayStyles(d: DrawingLineStyle): DeepPartial<Styles['overlay'
     line: { color: d.color, size: d.size, ...klineLine(d.style, d.size) },
     point: { color: d.color, borderColor: soft, activeColor: d.color, activeBorderColor: soft },
     // Annotation bubbles are filled with the drawing color: the glyphs take whichever of white / dark reads on it.
-    text: { color: readableTextOn(d.color), backgroundColor: d.color, borderColor: d.color, size: DEFAULT_TEXT_SIZE },
+    text: { color: readableTextOn(d.color), backgroundColor: d.color, borderColor: d.color, size: DEFAULT_TEXT_SIZE, family: CHART_FONT },
     polygon: { color: d.color, borderColor: d.color },
     rect: { color: hexToRgba(d.color, 0.25), borderColor: d.color },
     circle: { color: hexToRgba(d.color, 0.25), borderColor: d.color },
@@ -252,51 +282,78 @@ export function candleStyles(type: ChartType, theme: ThemeName, appearance: Them
 }
 
 /**
- * KLineChart fills the last-price label with the up / down / no-change color but draws its text in a single
- * color, so the text cannot follow the bar direction: white while its worst-case contrast over the three
- * label colors is at least 3:1, else whichever of white / dark has the higher worst case.
+ * Typeface of everything drawn on the chart canvas (axes, legends, price labels, drawings, positions): the same
+ * stack as the UI's --font-sans in styles.css (a test keeps them equal), instead of KLineChart's Helvetica Neue,
+ * so chart and chrome speak with one voice.
  */
+export const CHART_FONT = "'Inter', 'InterVariable', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Roboto, 'Helvetica Neue', Arial, sans-serif";
+
+/** Corner radius of chart labels (crosshair, last price, positions): the UI's --radius-sm. */
+export const LABEL_RADIUS = 4;
+
 /**
  * Color of the neutral last price line (the default): white on the dark theme, the theme's primary text color
  * (near-black) on the light one, where white would not show.
  */
 export function neutralLastPriceColor(theme: ThemeName): string {
-  return theme === 'dark' ? '#ffffff' : themeTokens(theme).text;
+  return themeTokens(theme).lastPrice;
+}
+
+/** KLineChart's last price mark styles except the colors: a fine dashed line and a compact, semibold label. */
+const lastPriceLine = () => ({ show: true, style: 'dashed' as const, dashedValue: [3, 3], size: 1 });
+const LAST_PRICE_TEXT = {
+  family: CHART_FONT, size: 12, weight: '600', borderRadius: LABEL_RADIUS,
+  paddingLeft: 6, paddingRight: 6, paddingTop: 4, paddingBottom: 4,
+} as const;
+
+export interface LastPriceMarkStyles {
+  upColor: string; downColor: string; noChangeColor: string;
+  line: ReturnType<typeof lastPriceLine>;
+  text: typeof LAST_PRICE_TEXT & { color: string };
 }
 
 /**
  * KLineChart's last price mark (line + y-axis label): one neutral color whatever the bar direction, or the candle
  * up / down (/ no-change) colors. The label text contrasts with the label fill (dark on the white label, white on
- * the near-black one).
+ * the near-black one); in 'candle' mode KLineChart draws the text in one color whatever the fill, so it is white
+ * while its worst-case contrast over the three fills is about 3:1, else the better of white / dark.
  */
-export function lastPriceMark(theme: ThemeName, mode: LastPriceLineStyle, up: string, down: string): {
-  upColor: string; downColor: string; noChangeColor: string; text: { color: string };
-} {
+export function lastPriceMark(theme: ThemeName, mode: LastPriceLineStyle, up: string, down: string): LastPriceMarkStyles {
   if (mode === 'candle') {
     const muted = themeTokens(theme).muted;
-    return { upColor: up, downColor: down, noChangeColor: muted, text: { color: lastPriceTextColor(up, down, muted) } };
+    return { upColor: up, downColor: down, noChangeColor: muted, line: lastPriceLine(), text: { ...LAST_PRICE_TEXT, color: lastPriceTextColor(up, down, muted) } };
   }
   const c = neutralLastPriceColor(theme);
-  return { upColor: c, downColor: c, noChangeColor: c, text: { color: readableTextOn(c) } };
+  return { upColor: c, downColor: c, noChangeColor: c, line: lastPriceLine(), text: { ...LAST_PRICE_TEXT, color: readableTextOn(c) } };
 }
 
 export function lastPriceTextColor(up: string, down: string, noChange: string): string {
   return readableTextOnAll([up, down, noChange]);
 }
 
+/**
+ * Chart-wide styles of `theme` ("Graphite & Signal": the price is the only loud thing). Solid hairline grid (a dashed
+ * grid shimmers while panning), no tick marks, small muted axis type in the UI typeface, a thin dashed crosshair with
+ * compact borderless labels, hairline pane separators, opaque histogram bars in the exact candle colors.
+ */
 export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
   const t = themeTokens(theme);
+  const tickText = { color: t.muted, family: CHART_FONT, size: 11, weight: 'normal' };
   const axis = {
-    axisLine: { color: t.border },
-    tickLine: { color: t.border },
-    tickText: { color: t.muted },
+    axisLine: { show: true, color: t.border, size: 1 },
+    tickLine: { show: false },
+    tickText,
   };
-  const crossText = { color: readableTextOn(t.crossBg), backgroundColor: t.crossBg, borderColor: t.border };
+  const crossText = {
+    color: readableTextOn(t.crossBg), backgroundColor: t.crossBg, borderColor: t.crossBg, borderSize: 0, borderRadius: LABEL_RADIUS,
+    family: CHART_FONT, size: 11, weight: '500', paddingLeft: 6, paddingRight: 6, paddingTop: 4, paddingBottom: 4,
+  };
+  const crossLine = () => ({ show: true, style: 'dashed' as const, dashedValue: [3, 3], size: 1, color: t.crosshair });
+  const gridLine = { show: true, size: 1, style: 'solid', color: t.grid } as const;
+  const legend = { family: CHART_FONT, size: 12, color: t.muted, marginLeft: 8, marginTop: 4, marginRight: 4, marginBottom: 4 };
+  const priceExtreme = { color: t.muted, textFamily: CHART_FONT, textSize: 11 };
   return {
-    grid: {
-      horizontal: { color: t.grid },
-      vertical: { color: t.grid },
-    },
+    grid: { show: true, horizontal: gridLine, vertical: gridLine },
     candle: {
       bar: {
         upColor: t.up, downColor: t.down, noChangeColor: t.muted,
@@ -304,24 +361,28 @@ export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
         upWickColor: t.up, downWickColor: t.down, noChangeWickColor: t.muted,
       },
       priceMark: {
-        high: { color: t.muted },
-        low: { color: t.muted },
+        high: priceExtreme,
+        low: priceExtreme,
         last: lastPriceMark(theme, defaultAppearance(theme).lastPriceLine, t.up, t.down),
       },
-      tooltip: { title: { color: t.text, template: '{displayName} · {tf}' }, legend: { color: t.muted } },
+      tooltip: {
+        title: { color: t.text, family: CHART_FONT, size: 13, weight: '600', template: '{displayName} · {tf}', marginLeft: 8, marginTop: 6, marginBottom: 2 },
+        legend,
+      },
     },
     indicator: {
-      // Default histogram bars: filled, in the theme's up / down colors, as translucent as KLineChart's own defaults.
-      bars: [{ style: 'fill', ...defaultIndicatorBars(theme) }],
-      tooltip: { title: { color: t.text }, legend: { color: t.muted } },
+      // Default histogram bars: filled, opaque, in the exact candle up / down colors (rising MACD / AO bars get the
+      // soft tone, see solidBars.ts).
+      bars: [{ style: 'fill', borderSize: 0, ...defaultIndicatorBars(theme) }],
+      tooltip: { title: { color: t.text, family: CHART_FONT, size: 12, weight: '600' }, legend },
       lastValueMark: { show: false },
     },
     xAxis: axis,
     yAxis: axis,
-    separator: { color: t.border, activeBackgroundColor: hexToRgba(t.accent, 0.15) },
+    separator: { size: 1, color: t.border, fill: true, activeBackgroundColor: hexToRgba(t.accent, 0.15) },
     crosshair: {
-      horizontal: { line: { color: t.muted }, text: crossText },
-      vertical: { line: { color: t.muted }, text: crossText },
+      horizontal: { line: crossLine(), text: crossText },
+      vertical: { line: crossLine(), text: crossText },
     },
   };
 }

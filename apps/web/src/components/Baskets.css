@@ -6,7 +6,7 @@
 .baskets-page .down { color: var(--down-fg); }
 
 .baskets-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-button.danger:hover:not(:disabled) { color: var(--down-fg); border-color: var(--down); background: var(--down-soft); }
+button.danger:hover:not(:disabled) { color: var(--down-fg); border-color: var(--down); background: var(--down-tint); }
 
 .basket-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .basket-row {

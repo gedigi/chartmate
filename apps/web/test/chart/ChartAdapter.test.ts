@@ -89,6 +89,8 @@ vi.mock('klinecharts', () => ({
 
 const { ChartAdapter } = await import('../../src/chart/ChartAdapter');
 const { api } = await import('../../src/api/client');
+const { softTone } = await import('../../src/chart/color');
+const { THEME_TOKENS } = await import('../../src/chart/theme');
 
 const AAPL: SymbolInfo = { id: 'stock:AAPL', assetClass: 'stock', ticker: 'AAPL', name: 'Apple', pricePrecision: 2 };
 const BTC: SymbolInfo = { id: 'crypto:BTC', assetClass: 'crypto', ticker: 'BTC', name: 'Bitcoin', pricePrecision: 2 };
@@ -584,13 +586,17 @@ describe('ChartAdapter', () => {
       expect(s.candle.area).toMatchObject({ lineColor: '#2b66ff', lineSize: 2 });
     });
 
-    it('default indicator bars follow the theme up / down colors', () => {
+    it('default indicator bars follow the theme up / down colors, opaque (the exact candle colors)', () => {
       const a = make();
       expect(chart().setStyles).not.toHaveBeenCalled();
       a.setTheme('light');
-      expect(chart().setStyles.mock.calls.at(-1)![0].indicator.bars).toEqual([{ style: 'fill', upColor: 'rgba(0,168,112,0.7)', downColor: 'rgba(212,17,59,0.7)' }]);
+      expect(chart().setStyles.mock.calls.at(-1)![0].indicator.bars).toEqual([
+        { style: 'fill', borderSize: 0, upColor: '#00a870', downColor: '#d4113b', noChangeColor: '#5b6474' },
+      ]);
       a.setTheme('dark');
-      expect(chart().setStyles.mock.calls.at(-1)![0].indicator.bars).toEqual([{ style: 'fill', upColor: 'rgba(0,214,143,0.7)', downColor: 'rgba(255,59,92,0.7)' }]);
+      expect(chart().setStyles.mock.calls.at(-1)![0].indicator.bars).toEqual([
+        { style: 'fill', borderSize: 0, upColor: '#00d68f', downColor: '#ff3b5c', noChangeColor: '#8b93a3' },
+      ]);
     });
 
     it('the reported layout: last price label text is readable; light mode falls back to defaults', () => {
@@ -660,7 +666,7 @@ describe('ChartAdapter', () => {
   });
 
   describe('indicator line widths / styles / bar colors', () => {
-    it('histogram bars are always filled: a template bar drawn as an outline (MACD / AO rising) is filled in a softer tone', () => {
+    it('histogram bars are always filled: a template bar drawn as an outline (MACD / AO rising) is filled in the opaque soft tone of the active theme', () => {
       const a = make();
       const create = chart().createIndicator.getMockImplementation()!;
       chart().createIndicator.mockImplementationOnce((v, stack) => {
@@ -673,7 +679,14 @@ describe('ChartAdapter', () => {
       const o = chart().overrideIndicator.mock.calls.at(-1)![0] as { id: string; name: string; figures: Array<{ key: string; styles?: (p: unknown) => unknown }> };
       expect(o).toMatchObject({ id, name: 'MACD' });
       expect(o.figures.map((f) => f.key)).toEqual(['dif', 'macd']);
-      expect(o.figures[1]!.styles!({})).toEqual({ style: 'fill', color: 'rgba(0,255,0,0.45)', borderColor: 'rgba(0,255,0,0.45)' });
+      const darkSoft = softTone('#00ff00', THEME_TOKENS.dark.bg);
+      expect(darkSoft).toMatch(/^#[0-9a-f]{6}$/);
+      expect(o.figures[1]!.styles!({})).toEqual({ style: 'fill', color: darkSoft, borderColor: darkSoft });
+      // Resolved at draw time: after a theme toggle the same figure takes the light theme's soft tone.
+      a.setTheme('light');
+      const lightSoft = softTone('#00ff00', THEME_TOKENS.light.bg);
+      expect(o.figures[1]!.styles!({})).toEqual({ style: 'fill', color: lightSoft, borderColor: lightSoft });
+      a.setTheme('dark');
       // Without stroke bars (e.g. VOL, whose bars follow the chart's fill style) nothing is overridden.
       chart().overrideIndicator.mockClear();
       a.addIndicator({ name: 'VOL', pane: 'sub' });
@@ -731,7 +744,7 @@ describe('ChartAdapter', () => {
       a.setTheme('light');
       const calls = chart().overrideIndicator.mock.calls.map((c) => c[0] as { id: string; styles?: { bars?: unknown[] } });
       expect(calls.filter((c) => c.id === reset && c.styles?.bars)).toEqual([
-        expect.objectContaining({ styles: { bars: [expect.objectContaining({ style: 'fill', upColor: 'rgba(0,168,112,0.7)', downColor: 'rgba(212,17,59,0.7)' })] } }),
+        expect.objectContaining({ styles: { bars: [expect.objectContaining({ style: 'fill', upColor: '#00a870', downColor: '#d4113b' })] } }),
       ]);
       expect(calls.filter((c) => c.id === custom && c.styles?.bars)).toEqual([]); // the user's bar colors win
       expect(a.listIndicators().find((i) => i.id === reset)).not.toHaveProperty('barColors');
@@ -755,7 +768,7 @@ describe('ChartAdapter', () => {
       const o = chart().overrideIndicator.mock.calls.at(-1)![0] as { styles: { lines: unknown[]; bars: unknown[] } };
       expect(o.styles.lines).toEqual(['#2488f7', '#e56c19'].map((color) => expect.objectContaining({ color, size: 1, style: 'solid' })));
       // The theme's default bars (dark), not KLineChart's own green / red.
-      expect(o.styles.bars).toEqual([expect.objectContaining({ style: 'fill', upColor: 'rgba(0,214,143,0.7)', downColor: 'rgba(255,59,92,0.7)' })]);
+      expect(o.styles.bars).toEqual([expect.objectContaining({ style: 'fill', upColor: '#00d68f', downColor: '#ff3b5c' })]);
       expect(a.listIndicators()[0]).not.toHaveProperty('lineStyles');
       expect(a.listIndicators()[0]).not.toHaveProperty('barColors');
     });

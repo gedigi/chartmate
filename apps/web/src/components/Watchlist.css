@@ -1,6 +1,7 @@
 /* Watchlist */
 .watchlist { display: flex; flex-direction: column; padding: 10px 8px; gap: 8px; }
 .watchlist .panel-title { margin: 0; }
+.watchlist .symbol-search, .watchlist .symbol-search input { width: 100%; }
 .watchlist-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .wl-add-section { font-size: 12px; min-height: 24px; padding: 2px 8px; border-color: transparent; background: transparent; box-shadow: none; color: var(--text-muted); }
 .wl-add-section:hover:not(:disabled) { color: var(--text); border-color: transparent; }
@@ -12,8 +13,8 @@
 }
 .watchlist-row:hover, .wl-select:focus-visible { background: var(--bg-hover); outline: none; }
 .wl-select:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-ring); }
-.watchlist-row.current { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
-.watchlist-row.current:hover { background: var(--accent-soft); }
+.watchlist-row.current { background: var(--bg-selected); box-shadow: inset 2px 0 0 var(--accent); }
+.watchlist-row.current:hover { background: var(--bg-selected); }
 .watchlist-row.dragging { opacity: 0.4; }
 .watchlist-row.drag-over, .watchlist-section.drag-over { box-shadow: inset 0 2px 0 var(--accent); }
 .watchlist-row.drag-over-after, .watchlist-section.drag-over-after { box-shadow: inset 0 -2px 0 var(--accent); }
@@ -70,8 +71,8 @@
 .sparkline polyline.down { stroke: var(--down); }
 .wl-quote { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; min-width: 64px; }
 .wl-change { font-size: 11px; font-weight: 500; color: var(--text-muted); margin-top: 1px; padding: 0 4px; margin-right: -4px; border-radius: var(--radius-sm); }
-.wl-change.up { color: var(--up-fg); background: var(--up-soft); }
-.wl-change.down { color: var(--down-fg); background: var(--down-soft); }
+.wl-change.up { color: var(--up-fg); background: var(--up-tint); }
+.wl-change.down { color: var(--down-fg); background: var(--down-tint); }
 /* Pre/post-market line under the regular quote: "Pre 231.40 +0.82%" */
 /* The slot is on every row with a fixed height, so rows don't jump when the line appears or disappears. */
 .wl-ext-slot {
@@ -88,6 +89,6 @@
   min-height: 0; border: none; border-radius: var(--radius-sm); background: transparent; box-shadow: none; color: var(--text-muted); cursor: pointer; opacity: 0; line-height: 1;
 }
 .watchlist-row:hover .wl-remove, .watchlist-row:focus-within .wl-remove, .wl-remove:focus-visible { opacity: 1; }
-.wl-remove:hover:not(:disabled) { color: var(--down-fg); background: var(--down-soft); }
+.wl-remove:hover:not(:disabled) { color: var(--down-fg); background: var(--down-tint); }
 .watchlist-error { color: var(--error); font-size: 12px; }
 .watchlist-empty { color: var(--text-muted); font-size: 12px; }
