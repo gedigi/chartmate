@@ -6,3 +6,6 @@ test-results
 playwright-report
 .env
 .claude/
+apps/desktop/release
+apps/desktop/.bundle-meta
+.desktop-report.md

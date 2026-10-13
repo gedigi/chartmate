@@ -13,3 +13,6 @@ playwright-report
 *.md
 !README.md
 .task-*
+# Desktop (Electron) app: not part of the server image
+/apps/desktop
+/assets
