@@ -4,23 +4,23 @@ import {
   type OverlayMode, type OverlayStyle, type Styles,
 } from 'klinecharts';
 import {
-  isIntraday, isPositionTool, nyToUtc, resolvePositionDefaults, sanitizePositionSettings, tfMs,
+  isIntraday, isPositionTool, nyToUtc, resolvePositionDefaults, tfMs,
   type ChartType, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker, type PositionDefaults,
-  type PositionSettings, type ThemedAppearance, type SessionMode, type SymbolInfo, type Timeframe,
+  type ThemedAppearance, type SessionMode, type SymbolInfo, type Timeframe,
 } from '@chartmate/shared';
 import {
   klineLine, lineToOverlay, normalizeOverlayStyles, readLine, readText, sanitizeDrawingStyles, textToOverlay, toOverlayStyles, TEXT_TOOL,
   type TextStyle,
 } from './drawingStyles';
 import {
-  drawingConstraint, EXTEND_STYLE_KEY, extendOptions, flattenBase, LABEL_STYLE_KEY, labelOptions, POSITION_STYLE_KEY, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
+  drawingConstraint, EXTEND_STYLE_KEY, extendOptions, flattenBase, LABEL_STYLE_KEY, labelOptions, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
   type ExtendOptions, type LabelOptions,
 } from './drawingTemplates';
 import {
-  DEFAULT_WIDTH_BARS, defaultGeometry, endAfterBars, fromPositionPoints, nextBarTime, qtyDecimals, shiftByBars, sideOf,
+  DEFAULT_WIDTH_BARS, defaultGeometry, endAfterBars, fromPositionPoints, nextBarTime, shiftByBars, sideOf,
   toPositionPoints, validatePrices, type OutcomeBar, type PositionMetrics, type PositionOutcome, type PositionSide,
 } from './position';
-import { positionContext, positionSettingsOf, positionState, registerPositionOverlays } from './positionOverlay';
+import { positionContext, positionState, registerPositionOverlays } from './positionOverlay';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
 import { catalogEntry, defaultLineColor } from './indicators/catalog';
 import { PRICE_PRECISION_INDICATORS } from './indicators/extensions';
@@ -74,8 +74,8 @@ export type SelectedDrawing =
   | {
     id: string; kind: 'position'; side: PositionSide; locked: boolean;
     entry: number; target: number; stop: number; precision: number;
-    /** Effective risk settings (the position's own over the defaults), the derived numbers and the outcome so far. */
-    settings: PositionDefaults; metrics: PositionMetrics; outcome: PositionOutcome;
+    /** The derived numbers (R:R, % distances) and the outcome so far. */
+    metrics: PositionMetrics; outcome: PositionOutcome;
   };
 
 const INDICATOR_DASH = [4, 4];
@@ -248,7 +248,6 @@ export class ChartAdapter {
     this.pricePrecision = p.symbol.pricePrecision;
     drawingConstraint.precision = p.symbol.pricePrecision;
     positionContext.barMs = tfMs(p.tf);
-    positionContext.qtyDecimals = qtyDecimals(p.symbol.assetClass);
     positionContext.formatTime = barTimeFormat(p.tf, timezoneFor(p.symbol, p.tf));
     this.basketHasCrypto = p.symbol.assetClass === 'basket' && p.basketHasCrypto === true;
     // Same symbol, but daily-anchored drawings now display differently (daily ↔ intraday): re-place them.
@@ -336,11 +335,9 @@ export class ChartAdapter {
     this.chart.setStyles(this.styles());
   }
 
-  /** Global risk defaults of new long / short positions (missing → app defaults); positions without their own follow them. */
+  /** Global target / stop distances of new long / short positions (missing / invalid → app defaults); placed positions keep their prices. */
   setPositionDefaults(d: PositionDefaults | undefined): void {
     positionContext.defaults = resolvePositionDefaults(d);
-    this.chart.setStyles(this.styles()); // repaint
-    this.emitSelection();
   }
 
   setSessionShading(enabled: boolean): void {
@@ -692,18 +689,15 @@ export class ChartAdapter {
   }
 
   /**
-   * A position placed with one click: entry rounded to the symbol precision, target / stop ±2 %, end ≈ 20 bars
-   * later, and the current default risk settings stored as its own (later default changes do not alter it).
+   * A position placed with one click: entry rounded to the symbol precision, target / stop at the default distances
+   * (±2 % unless changed with "Use as default"), end ≈ 20 bars later.
    */
   private placePosition(overlay: Overlay): void {
     const side = sideOf(overlay.name);
     const p0 = overlay.points[0];
     if (!side || typeof p0?.timestamp !== 'number' || typeof p0.value !== 'number') return;
-    const g = defaultGeometry(side, p0.timestamp, p0.value, this.positionEnd(p0.timestamp), this.pricePrecision);
-    this.chart.overrideOverlay({
-      id: overlay.id, points: toPositionPoints(g),
-      styles: { [POSITION_STYLE_KEY]: { ...positionContext.defaults } } as DeepPartial<OverlayStyle>,
-    });
+    const g = defaultGeometry(side, p0.timestamp, p0.value, this.positionEnd(p0.timestamp), this.pricePrecision, positionContext.defaults);
+    this.chart.overrideOverlay({ id: overlay.id, points: toPositionPoints(g) });
   }
 
   /** Rounds the prices of a position moved as a whole with the mouse (KLineChart shifts them unrounded). */
@@ -735,19 +729,6 @@ export class ChartAdapter {
     this.emitChange();
     this.emitSelection();
     return null;
-  }
-
-  /** Changes the selected (unlocked) position's own risk settings (merged; invalid fields ignored); saved like any edit. */
-  setSelectedPositionSettings(patch: PositionSettings): void {
-    const sel = this.getSelectedDrawing();
-    if (!sel || sel.kind !== 'position' || sel.locked) return;
-    const o = this.userOverlays().find((x) => x.id === sel.id);
-    const own = sanitizePositionSettings((o?.styles as Record<string, unknown> | null | undefined)?.[POSITION_STYLE_KEY]);
-    const next = sanitizePositionSettings({ ...own, ...sanitizePositionSettings(patch) });
-    if (!next) return;
-    this.chart.overrideOverlay({ id: sel.id, styles: { [POSITION_STYLE_KEY]: next } as DeepPartial<OverlayStyle> });
-    this.emitChange();
-    this.emitSelection();
   }
 
   /** Moves an overlay's points to `next` (same times, new prices), keeping the stored daily points of a remapped anchor. */
@@ -886,14 +867,13 @@ export class ChartAdapter {
     if (side) {
       const g = fromPositionPoints(o.points);
       if (!g) return null;
-      const settings = positionSettingsOf(o.styles);
       const { metrics, outcome } = positionState({
-        id: o.id, side, g, settings, qtyDecimals: positionContext.qtyDecimals, bars: this.chart.getDataList() as OutcomeBar[],
+        id: o.id, side, g, bars: this.chart.getDataList() as OutcomeBar[],
         historyComplete: !this.hasOlderData(), barMs: positionContext.barMs,
       });
       return {
         id: o.id, kind: 'position', side, locked: o.lock, entry: g.entry, target: g.target, stop: g.stop, precision: this.pricePrecision,
-        settings, metrics, outcome,
+        metrics, outcome,
       };
     }
     const style = readLine(o.styles) ?? { ...d };

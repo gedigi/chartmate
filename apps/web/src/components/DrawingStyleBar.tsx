@@ -94,7 +94,7 @@ const FONT_SIZES = [10, 12, 14, 16, 18, 20, 22, 24];
  */
 export function DrawingStyleBar({ controls, onUsePositionDefaults }: {
   controls: DrawingStyleControls | null;
-  /** "Use as default" of a long / short position: its risk settings become the defaults of new positions. */
+  /** "Use as default" of a long / short position: its target / stop distances (%) become the defaults of new positions. */
   onUsePositionDefaults?: (d: PositionDefaults) => void;
 }): JSX.Element | null {
   const [sel, setSel] = useState<SelectedDrawing | null>(null);

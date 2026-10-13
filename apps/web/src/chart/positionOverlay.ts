@@ -1,15 +1,13 @@
-import { DEFAULT_POSITION_SETTINGS, mergePositionSettings, sanitizePositionSettings, type PositionDefaults } from '@chartmate/shared';
+import { DEFAULT_POSITION_DEFAULTS, type PositionDefaults } from '@chartmate/shared';
 import { registerOverlay, type OverlayFigure, type OverlayTemplate } from 'klinecharts';
 import { readableTextOn } from './contrast';
-import { drawingConstraint, POSITION_STYLE_KEY } from './drawingTemplates';
+import { drawingConstraint } from './drawingTemplates';
 import {
   centerLabel, DEFAULT_WIDTH_BARS, defaultGeometry, evaluateOutcome, fromPositionPoints, hasResult, outcomeLabel, positionMetrics, pressedMove,
   sideOf, stopLabel, targetLabel, toPositionPoints, type OutcomeBar, type PositionGeometry, type PositionMetrics, type PositionOutcome,
   type PositionSide,
 } from './position';
 import { hexToRgba, THEME_TOKENS } from './theme';
-
-export { POSITION_STYLE_KEY };
 
 /** Fill opacity of the profit / loss zones, and of the part already traversed by the price (outcome). */
 export const ZONE_ALPHA = 0.2;
@@ -21,12 +19,12 @@ export interface PositionColors { up: string; down: string; neutral: string }
 
 /**
  * Shared rendering / placement state of the position overlays (one chart per page), set by the ChartAdapter:
- * bar duration and quantity decimals of the symbol / timeframe, the global risk defaults, theme colors, bar-time
+ * bar duration of the timeframe, the global target / stop defaults of new positions, theme colors, bar-time
  * helpers over the loaded data (default end, next bar, shifting by bars), whether older data exists, and the price
  * distance of HANDLE_GAP_PX (updated on every render from the y axis).
  */
 export const positionContext: {
-  barMs: number; qtyDecimals: number; defaults: PositionDefaults; colors: PositionColors;
+  barMs: number; defaults: PositionDefaults; colors: PositionColors;
   endFor: (start: number) => number;
   minEnd: (start: number) => number;
   shiftEnd: (end: number, from: number, to: number) => number;
@@ -35,8 +33,7 @@ export const positionContext: {
   formatTime: (ts: number) => string;
 } = {
   barMs: 86_400_000,
-  qtyDecimals: 0,
-  defaults: { ...DEFAULT_POSITION_SETTINGS },
+  defaults: { ...DEFAULT_POSITION_DEFAULTS },
   colors: { up: THEME_TOKENS.dark.up, down: THEME_TOKENS.dark.down, neutral: THEME_TOKENS.dark.muted },
   endFor: (start) => start + DEFAULT_WIDTH_BARS * positionContext.barMs,
   minEnd: (start) => start + positionContext.barMs,
@@ -46,11 +43,6 @@ export const positionContext: {
   formatTime: (ts) => new Date(ts).toISOString().slice(0, 10),
 };
 
-/** Effective risk settings of a position: its own (from its overlay styles) over the global defaults. */
-export function positionSettingsOf(styles: unknown): PositionDefaults {
-  return mergePositionSettings(positionContext.defaults, sanitizePositionSettings((styles as Record<string, unknown> | null | undefined)?.[POSITION_STYLE_KEY]));
-}
-
 // ── memoized metrics / outcome ──
 
 export interface PositionState { metrics: PositionMetrics; outcome: PositionOutcome }
@@ -58,24 +50,24 @@ const stateCache = new Map<string, { key: string; state: PositionState }>();
 const MAX_CACHED = 500;
 
 /**
- * Metrics and outcome of a position, recomputed only when its geometry, settings, quantity decimals, the data
+ * Metrics and outcome of a position, recomputed only when its geometry, the data
  * (length, first bar, the last bar's values) or the history state change: the outcome scan runs once per change,
  * not on every repaint / mouse move.
  */
 export function positionState(p: {
-  id: string; side: PositionSide; g: PositionGeometry; settings: PositionDefaults; qtyDecimals: number;
+  id: string; side: PositionSide; g: PositionGeometry;
   bars: ReadonlyArray<OutcomeBar>; historyComplete: boolean; barMs: number;
 }): PositionState {
   const first = p.bars[0];
   const last = p.bars[p.bars.length - 1];
   const key = [
-    p.side, p.g.start, p.g.end, p.g.entry, p.g.target, p.g.stop, p.settings.accountSize, p.settings.riskMode, p.settings.riskValue,
-    p.qtyDecimals, p.bars.length, first?.timestamp, last?.timestamp, last?.open, last?.high, last?.low, last?.close, p.historyComplete, p.barMs,
+    p.side, p.g.start, p.g.end, p.g.entry, p.g.target, p.g.stop,
+    p.bars.length, first?.timestamp, last?.timestamp, last?.open, last?.high, last?.low, last?.close, p.historyComplete, p.barMs,
   ].join('|');
   const hit = stateCache.get(p.id);
   if (hit?.key === key) return hit.state;
-  const metrics = positionMetrics(p.side, p.g, p.settings, p.qtyDecimals);
-  const outcome = evaluateOutcome(p.bars, p.side, p.g, metrics.qty, { historyComplete: p.historyComplete });
+  const metrics = positionMetrics(p.side, p.g);
+  const outcome = evaluateOutcome(p.bars, p.side, p.g, { historyComplete: p.historyComplete });
   const state = { metrics, outcome };
   if (stateCache.size >= MAX_CACHED) stateCache.clear();
   stateCache.set(p.id, { key, state });
@@ -87,7 +79,7 @@ export function positionState(p: {
 type Coord = { x: number; y: number };
 
 export interface PositionFigureInput {
-  side: PositionSide; g: PositionGeometry; coords: ReadonlyArray<Coord>; settings: PositionDefaults; precision: number;
+  side: PositionSide; g: PositionGeometry; coords: ReadonlyArray<Coord>; precision: number;
   metrics: PositionMetrics; outcome: PositionOutcome; colors: PositionColors;
   /** Pixel x of a time / pixel y of a price. */
   xOf: (ts: number) => number; yOf: (v: number) => number;
@@ -129,7 +121,7 @@ export function positionFigures(p: PositionFigureInput): OverlayFigure[] {
     zone(left, w, e.y, t.y, hexToRgba(up, ZONE_ALPHA)),
     zone(left, w, e.y, s.y, hexToRgba(down, ZONE_ALPHA)),
   ];
-  const profit = hasResult(outcome) && (outcome.kind === 'target' || (outcome.kind !== 'stop' && outcome.pnl >= 0));
+  const profit = hasResult(outcome) && (outcome.kind === 'target' || (outcome.kind !== 'stop' && outcome.pnlPct >= 0));
   if (hasResult(outcome)) {
     const clampX = (x: number) => Math.min(right, Math.max(left, x));
     const x0 = clampX(p.xOf(outcome.fillTs));
@@ -169,13 +161,13 @@ export function positionFigures(p: PositionFigureInput): OverlayFigure[] {
   };
   const edge = (y: number): Placement => (y <= e.y ? { y: y - 2, baseline: 'bottom' } : { y: y + 2, baseline: 'top' });
   const stopEdge = edge(s.y);
-  figures.push(label(targetLabel(p.g, m, p.precision, p.settings.currency), edge(t.y), up));
-  figures.push(label(stopLabel(p.g, m, p.precision, p.settings.currency), stopEdge, down));
+  figures.push(label(targetLabel(p.g, m, p.precision), edge(t.y), up));
+  figures.push(label(stopLabel(p.g, m, p.precision), stopEdge, down));
   const centerText = centerLabel(p.side, m);
   const narrow = (text: string) => labelWidth(text, size) > visible;
   figures.push(label(centerText, { y: e.y, baseline: 'middle', outsideRight: narrow(centerText) }, neutral));
 
-  const text = outcomeLabel(outcome, p.settings.currency, p.formatTime);
+  const text = outcomeLabel(outcome, p.formatTime);
   const bg = !hasResult(outcome) ? neutral : profit ? up : down;
   const offset = size + 8;
   const below = s.y >= e.y; // the outcome label goes to the stop side (the target label is on the other one)
@@ -210,13 +202,12 @@ function template(name: 'longPosition' | 'shortPosition'): OverlayTemplate {
       }
       const font = p.chart.getStyles?.()?.overlay?.text;
       const xAxis = p.xAxis as { convertTimestampToPixel?: (ts: number) => number } | null;
-      const settings = positionSettingsOf(p.overlay.styles);
       const state = positionState({
-        id: p.overlay.id ?? name, side, g, settings, qtyDecimals: positionContext.qtyDecimals,
+        id: p.overlay.id ?? name, side, g,
         bars: (p.chart.getDataList?.() ?? []) as OutcomeBar[], historyComplete: positionContext.historyComplete(), barMs: positionContext.barMs,
       });
       return positionFigures({
-        side, g, coords: p.coordinates, settings, metrics: state.metrics, outcome: state.outcome,
+        side, g, coords: p.coordinates, metrics: state.metrics, outcome: state.outcome,
         precision: p.chart.getSymbol?.()?.pricePrecision ?? drawingConstraint.precision,
         colors: positionContext.colors,
         xOf: (ts) => xAxis?.convertTimestampToPixel?.(ts) ?? p.coordinates[0]!.x,
@@ -230,7 +221,7 @@ function template(name: 'longPosition' | 'shortPosition'): OverlayTemplate {
     performEventMoveForDrawing: ({ points, performPointIndex }: EventParams) => {
       const p0 = points[0];
       if (performPointIndex !== 0 || typeof p0?.timestamp !== 'number' || typeof p0.value !== 'number') return;
-      const g = defaultGeometry(side, p0.timestamp, p0.value, positionContext.endFor(p0.timestamp), drawingConstraint.precision);
+      const g = defaultGeometry(side, p0.timestamp, p0.value, positionContext.endFor(p0.timestamp), drawingConstraint.precision, positionContext.defaults);
       const [, t, s, end] = toPositionPoints(g);
       points[1] = t!;
       points[2] = s!;

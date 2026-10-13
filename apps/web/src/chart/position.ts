@@ -1,8 +1,10 @@
-import type { AssetClass, PositionDefaults } from '@chartmate/shared';
+import { DEFAULT_POSITION_DEFAULTS, type PositionDefaults } from '@chartmate/shared';
 import { roundPrice } from './drawingTemplates';
 
 /**
- * Long / short position drawings (pure logic: geometry, drag rules, risk / quantity, labels, outcome).
+ * Long / short position drawings (pure logic: geometry, drag rules, metrics, labels, outcome). Positions are not
+ * sized: they show prices, % distances and the reward / risk ratio, no quantity or money amounts (sizing needs an
+ * account, which comes with brokers; it would extend PositionMetrics / the labels here).
  *
  * Points schema (stored in DrawingState.points, in this order):
  *   [0] { start time, entry price }   entry handle (left end of the entry line)
@@ -17,8 +19,6 @@ export type PositionSide = 'long' | 'short';
 export interface PositionGeometry { start: number; end: number; entry: number; target: number; stop: number }
 type Pt = { timestamp?: number; value?: number; dataIndex?: number };
 
-export const DEFAULT_TARGET_PCT = 2;
-export const DEFAULT_STOP_PCT = 2;
 export const DEFAULT_WIDTH_BARS = 20;
 
 export function sideOf(name: string): PositionSide | null {
@@ -44,13 +44,15 @@ export function fromPositionPoints(points: ReadonlyArray<Pt | undefined>): Posit
 /** +1 for a long position (gains when the price rises), −1 for a short one. */
 const dir = (side: PositionSide) => (side === 'long' ? 1 : -1);
 
-/** A new position at `entry`: target and stop ±2 % (short inverted), rounded to the price precision. */
-export function defaultGeometry(side: PositionSide, start: number, entry: number, end: number, precision: number): PositionGeometry {
+/** A new position at `entry`: target and stop at the default distances (±2 %; short inverted), rounded to the price precision. */
+export function defaultGeometry(
+  side: PositionSide, start: number, entry: number, end: number, precision: number, d: PositionDefaults = DEFAULT_POSITION_DEFAULTS,
+): PositionGeometry {
   const e = roundPrice(entry, precision);
   return {
     start, end, entry: e,
-    target: priceFromPct(side, 'target', e, DEFAULT_TARGET_PCT, precision),
-    stop: priceFromPct(side, 'stop', e, DEFAULT_STOP_PCT, precision),
+    target: priceFromPct(side, 'target', e, d.targetPct, precision),
+    stop: priceFromPct(side, 'stop', e, d.stopPct, precision),
   };
 }
 
@@ -92,25 +94,9 @@ export function priceFromTicks(side: PositionSide, kind: 'target' | 'stop', entr
   return roundPrice(entry + above(side, kind) * ticks * tickSize(precision), precision);
 }
 
-// ── risk / quantity ──
-
-/** Quantity decimals: whole shares for stocks (and baskets), up to 6 decimals for crypto. */
-export function qtyDecimals(assetClass: AssetClass | null | undefined): number {
-  return assetClass === 'crypto' ? 6 : 0;
-}
-
-/** The money at risk: a percentage of the account or a fixed amount. */
-export function riskAmount(s: PositionDefaults): number {
-  return s.riskMode === 'percent' ? (s.accountSize * s.riskValue) / 100 : s.riskValue;
-}
+// ── metrics / labels ──
 
 export interface PositionMetrics {
-  /** risk / |entry − stop|, floored to the quantity decimals. */
-  qty: number;
-  /** qty × |entry − stop| (the money actually at risk at that quantity). */
-  riskAmount: number;
-  /** qty × |target − entry|. */
-  rewardAmount: number;
   /** |target − entry| / |entry − stop|. */
   rr: number;
   /** Target / stop distance in % of the entry (positive). */
@@ -118,62 +104,45 @@ export interface PositionMetrics {
   stopPct: number;
 }
 
-function floorTo(v: number, decimals: number): number {
-  const f = 10 ** decimals;
-  return roundPrice(Math.floor(v * f + 1e-9) / f, decimals);
-}
-
-export function positionMetrics(side: PositionSide, g: PositionGeometry, s: PositionDefaults, decimals: number): PositionMetrics {
+export function positionMetrics(side: PositionSide, g: PositionGeometry): PositionMetrics {
   const risk = Math.abs(g.entry - g.stop);
   const reward = Math.abs(g.target - g.entry);
-  const qty = risk > 0 ? floorTo(riskAmount(s) / risk, decimals) : 0;
   return {
-    qty,
-    riskAmount: qty * risk,
-    rewardAmount: qty * reward,
     rr: risk > 0 ? reward / risk : 0,
     targetPct: distancePct(side, g.entry, g.target),
     stopPct: distancePct(side, g.entry, g.stop),
   };
 }
 
-// ── labels ──
-
 const signOf = (v: number) => (v < 0 && Math.abs(v) >= 0.005 ? '-' : '+');
 
-/** Signed amount with two decimals; values that round to zero (also -0) show as "+0.00". */
-export function formatAmount(v: number, currency: string): string {
-  const abs = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `${signOf(v)}${abs} ${currency}`;
-}
-
+/** Signed percentage with two decimals; values that round to zero (also -0) show as "+0.00%". */
 export function formatPct(v: number): string {
   return `${signOf(v)}${Math.abs(v).toFixed(2)}%`;
 }
 
-export function formatQty(q: number): string {
-  return q.toLocaleString('en-US', { maximumFractionDigits: 6 });
+/** "Target: 102.00 (+2.00%)": the % is the position's gain at the target. */
+export function targetLabel(g: PositionGeometry, m: PositionMetrics, precision: number): string {
+  return `Target: ${g.target.toFixed(precision)} (${formatPct(m.targetPct)})`;
 }
 
-/** "Target: 102.00 (+2.00%) +100.00 USD": the % and amount are the position's gain at the target. */
-export function targetLabel(g: PositionGeometry, m: PositionMetrics, precision: number, currency: string): string {
-  return `Target: ${g.target.toFixed(precision)} (${formatPct(m.targetPct)}) ${formatAmount(m.rewardAmount, currency)}`;
+/** "Stop: 98.00 (-2.00%)": the % is the position's loss at the stop. */
+export function stopLabel(g: PositionGeometry, m: PositionMetrics, precision: number): string {
+  return `Stop: ${g.stop.toFixed(precision)} (${formatPct(-m.stopPct)})`;
 }
 
-/** "Stop: 98.00 (-2.00%) -100.00 USD": the % and amount are the position's loss at the stop. */
-export function stopLabel(g: PositionGeometry, m: PositionMetrics, precision: number, currency: string): string {
-  return `Stop: ${g.stop.toFixed(precision)} (${formatPct(-m.stopPct)}) ${formatAmount(-m.riskAmount, currency)}`;
-}
-
-export function centerLabel(side: PositionSide, m: Pick<PositionMetrics, 'qty' | 'rr'>): string {
-  return `${side === 'long' ? 'Long' : 'Short'} · Qty ${formatQty(m.qty)} · R:R ${m.rr.toFixed(2)}`;
+export function centerLabel(side: PositionSide, m: Pick<PositionMetrics, 'rr'>): string {
+  return `${side === 'long' ? 'Long' : 'Short'} · R:R ${m.rr.toFixed(2)}`;
 }
 
 // ── outcome ──
 
 export interface OutcomeBar { timestamp: number; open: number; high: number; low: number; close: number }
-/** A result with P&L: the fill bar's time, the bar of the hit (or of the last close used) and the exit price. */
-export type PositionResult = { kind: 'target' | 'stop' | 'open' | 'ended'; fillTs: number; ts: number; price: number; pnl: number; pnlPct: number };
+/**
+ * A result: the fill bar's time, the bar of the hit (or of the last close used), the exit price and the position's
+ * result in % of the entry (positive: a gain).
+ */
+export type PositionResult = { kind: 'target' | 'stop' | 'open' | 'ended'; fillTs: number; ts: number; price: number; pnlPct: number };
 export type PositionOutcome =
   /** The loaded bars start after the position's start and older bars may exist: the outcome cannot be known yet. */
   | { kind: 'needsData' }
@@ -183,9 +152,8 @@ export type PositionOutcome =
   | { kind: 'unfilled' }
   | PositionResult;
 
-function result(kind: PositionResult['kind'], side: PositionSide, g: PositionGeometry, qty: number, fillTs: number, ts: number, price: number): PositionResult {
-  const move = dir(side) * (price - g.entry);
-  return { kind, fillTs, ts, price, pnl: qty * move, pnlPct: (move / g.entry) * 100 };
+function result(kind: PositionResult['kind'], side: PositionSide, g: PositionGeometry, fillTs: number, ts: number, price: number): PositionResult {
+  return { kind, fillTs, ts, price, pnlPct: ((dir(side) * (price - g.entry)) / g.entry) * 100 };
 }
 
 /** First index whose timestamp is > ts. */
@@ -212,7 +180,7 @@ function upperBound(bars: ReadonlyArray<{ timestamp: number }>, ts: number): num
  *  - 'needsData' when the start lies before the first loaded bar and older bars may exist (`historyComplete` not true).
  */
 export function evaluateOutcome(
-  bars: ReadonlyArray<OutcomeBar>, side: PositionSide, g: PositionGeometry, qty: number, opts: { historyComplete?: boolean } = {},
+  bars: ReadonlyArray<OutcomeBar>, side: PositionSide, g: PositionGeometry, opts: { historyComplete?: boolean } = {},
 ): PositionOutcome {
   const first = bars[0];
   if (first && g.start < first.timestamp && opts.historyComplete !== true) return { kind: 'needsData' };
@@ -233,29 +201,30 @@ export function evaluateOutcome(
     if (b.timestamp > g.end) break;
     if (side === 'long' ? b.low <= g.stop : b.high >= g.stop) {
       const price = side === 'long' ? Math.min(g.stop, b.open) : Math.max(g.stop, b.open);
-      return result('stop', side, g, qty, fillTs, b.timestamp, price);
+      return result('stop', side, g, fillTs, b.timestamp, price);
     }
-    if (side === 'long' ? b.high >= g.target : b.low <= g.target) return result('target', side, g, qty, fillTs, b.timestamp, g.target);
+    if (side === 'long' ? b.high >= g.target : b.low <= g.target) return result('target', side, g, fillTs, b.timestamp, g.target);
     last = b;
   }
   const isLast = bars[bars.length - 1] === last;
-  return result(isLast ? 'open' : 'ended', side, g, qty, fillTs, last.timestamp, last.close);
+  return result(isLast ? 'open' : 'ended', side, g, fillTs, last.timestamp, last.close);
 }
 
-/** True for outcomes with a P&L (the position was filled). */
+/** True for outcomes with a result (the position was filled). */
 export const hasResult = (o: PositionOutcome): o is PositionResult =>
   o.kind === 'target' || o.kind === 'stop' || o.kind === 'open' || o.kind === 'ended';
 
-export function outcomeLabel(o: PositionOutcome, currency: string, formatTime: (ts: number) => string): string {
+/** "Target hit · +2.00% · 2026-10-03": the result in % of the entry and the bar of the hit. */
+export function outcomeLabel(o: PositionOutcome, formatTime: (ts: number) => string): string {
   if (o.kind === 'needsData') return 'Outcome needs earlier data';
   if (o.kind === 'waiting') return 'Waiting for entry';
   if (o.kind === 'unfilled') return 'Entry not reached';
-  const pnl = `${formatAmount(o.pnl, currency)} (${formatPct(o.pnlPct)})`;
+  const pct = formatPct(o.pnlPct);
   switch (o.kind) {
-    case 'target': return `Target hit · ${pnl} · ${formatTime(o.ts)}`;
-    case 'stop': return `Stop hit · ${pnl} · ${formatTime(o.ts)}`;
-    case 'open': return `Open · ${pnl}`;
-    case 'ended': return `Ended, no hit · ${pnl} · ${formatTime(o.ts)}`;
+    case 'target': return `Target hit · ${pct} · ${formatTime(o.ts)}`;
+    case 'stop': return `Stop hit · ${pct} · ${formatTime(o.ts)}`;
+    case 'open': return `Open · ${pct}`;
+    case 'ended': return `Ended, no hit · ${pct} · ${formatTime(o.ts)}`;
   }
 }
 

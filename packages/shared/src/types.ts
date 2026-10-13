@@ -65,7 +65,7 @@ export interface ThemedAppearance { dark?: ChartAppearance; light?: ChartAppeara
 export interface Layout {
   symbol: SymbolId; tf: Timeframe; session: SessionMode; chartType: ChartType; indicators: IndicatorState[];
   appearance?: ThemedAppearance;
-  /** Risk settings new long / short positions start with (missing → DEFAULT_POSITION_SETTINGS). */
+  /** Target / stop distances new long / short positions start with (missing → DEFAULT_POSITION_DEFAULTS). */
   positionDefaults?: PositionDefaults;
   /**
    * Revision of the default colors this layout's stored colors were last migrated to (missing → 0). The web app
@@ -78,65 +78,34 @@ export interface Layout {
 export const POSITION_TOOLS = ['longPosition', 'shortPosition'] as const;
 export type PositionTool = typeof POSITION_TOOLS[number];
 export const isPositionTool = (name: string): name is PositionTool => (POSITION_TOOLS as readonly string[]).includes(name);
-/** How a position's risk is given: a percentage of the account size or a fixed amount. */
-export type PositionRiskMode = 'percent' | 'amount';
-/** Risk settings of a long / short position (every field optional: unset → the defaults). */
-export interface PositionSettings { accountSize?: number; riskMode?: PositionRiskMode; riskValue?: number; currency?: string }
-export type PositionDefaults = Required<PositionSettings>;
-export const DEFAULT_POSITION_SETTINGS: Readonly<PositionDefaults> = { accountSize: 10000, riskMode: 'percent', riskValue: 1, currency: 'USD' };
-/** Longest account currency label. */
-export const MAX_CURRENCY_LENGTH = 8;
-/** Largest account size / risk amount (the server enforces the same limits). */
-export const MAX_POSITION_AMOUNT = 1e15;
-/** Largest risk in 'percent' mode. */
-export const MAX_RISK_PERCENT = 100;
+/**
+ * Defaults of new long / short positions: the target / stop distance from the entry in % of the entry.
+ * Positions are not sized (no account, risk or quantity) until brokers are connected; account-based sizing would
+ * add its own fields next to these.
+ */
+export interface PositionDefaults { targetPct: number; stopPct: number }
+export const DEFAULT_POSITION_DEFAULTS: Readonly<PositionDefaults> = { targetPct: 2, stopPct: 2 };
+/** Largest default target / stop distance in % (below 100, so a short's target and a long's stop stay above zero). */
+export const MAX_POSITION_PCT = 99;
 
-const positiveFinite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= MAX_POSITION_AMOUNT;
+const validPct = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= MAX_POSITION_PCT;
 
 /**
- * The valid position settings in `s`, or undefined: positive finite numbers up to MAX_POSITION_AMOUNT, a known risk
- * mode, a 1–8 character currency; a risk value over 100 is dropped when the mode in `s` is 'percent'.
+ * Stored position defaults with missing / invalid fields filled from DEFAULT_POSITION_DEFAULTS. Unknown fields
+ * (e.g. the account / risk / currency of layouts saved when positions were sized) are ignored.
  */
-export function sanitizePositionSettings(s: unknown): PositionSettings | undefined {
-  if (!s || typeof s !== 'object' || Array.isArray(s)) return undefined;
-  const { accountSize, riskMode, riskValue, currency } = s as Record<string, unknown>;
-  const out: PositionSettings = {};
-  if (positiveFinite(accountSize)) out.accountSize = accountSize;
-  if (riskMode === 'percent' || riskMode === 'amount') out.riskMode = riskMode;
-  if (positiveFinite(riskValue) && !(out.riskMode === 'percent' && riskValue > MAX_RISK_PERCENT)) out.riskValue = riskValue;
-  if (typeof currency === 'string') {
-    const c = currency.trim();
-    if (c.length > 0 && c.length <= MAX_CURRENCY_LENGTH) out.currency = c;
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
-}
-
-/** Settings over defaults, with a percentage risk capped at 100 (e.g. an own amount over percent defaults). */
-export function mergePositionSettings(base: PositionDefaults, own: PositionSettings | undefined): PositionDefaults {
-  const out = { ...base, ...sanitizePositionSettings(own) };
-  if (out.riskMode === 'percent' && out.riskValue > MAX_RISK_PERCENT) out.riskValue = MAX_RISK_PERCENT;
+export function resolvePositionDefaults(d: unknown): PositionDefaults {
+  const out = { ...DEFAULT_POSITION_DEFAULTS };
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return out;
+  const { targetPct, stopPct } = d as Record<string, unknown>;
+  if (validPct(targetPct)) out.targetPct = targetPct;
+  if (validPct(stopPct)) out.stopPct = stopPct;
   return out;
 }
 
-/** Stored position defaults with missing / invalid fields filled from DEFAULT_POSITION_SETTINGS. */
-export function resolvePositionDefaults(d: PositionSettings | undefined): PositionDefaults {
-  return mergePositionSettings({ ...DEFAULT_POSITION_SETTINGS }, d);
-}
-
-/** True when every field of `d` is within the limits the server accepts for layout position defaults. */
+/** True when both distances are within the limits the server accepts for layout position defaults. */
 export function isValidPositionDefaults(d: PositionDefaults): boolean {
-  const s = sanitizePositionSettings(d);
-  return s?.accountSize === d.accountSize && s.riskMode === d.riskMode && s.riskValue === d.riskValue && s.currency === d.currency;
-}
-
-/**
- * The risk value for `mode` that keeps the money at risk of `s` (percent ↔ amount): a percentage is capped at 100
- * and rounded to 4 decimals, an amount to 2 decimals.
- */
-export function convertRiskValue(s: PositionDefaults, mode: PositionRiskMode): number {
-  if (mode === s.riskMode) return s.riskValue;
-  if (mode === 'percent') return Math.min(MAX_RISK_PERCENT, Math.round((s.riskValue / s.accountSize) * 100 * 1e4) / 1e4);
-  return Math.round(s.accountSize * s.riskValue) / 100;
+  return validPct(d.targetPct) && validPct(d.stopPct);
 }
 
 const APPEARANCE_THEMES: readonly AppearanceTheme[] = ['dark', 'light'];
@@ -163,8 +132,6 @@ export function migrateAppearance(a: unknown): ThemedAppearance | undefined {
 export interface DrawingStyles {
   line?: DrawingLineStyle; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean };
   extend?: { left?: boolean; right?: boolean };
-  /** Long / short positions: their own risk settings (over the defaults). */
-  position?: PositionSettings;
 }
 /**
  * A saved drawing. Long / short positions ('longPosition' / 'shortPosition') have four points:

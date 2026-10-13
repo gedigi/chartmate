@@ -10,26 +10,25 @@ const P = await import('../../src/chart/positionOverlay');
 const { drawingConstraint } = await import('../../src/chart/drawingTemplates');
 const { evaluateOutcome, positionMetrics, toPositionPoints } = await import('../../src/chart/position');
 type PositionOutcome = import('../../src/chart/position').PositionOutcome;
-const { POSITION_STYLE_KEY, positionContext, positionFigures, positionSettingsOf, positionState, registerPositionOverlays } = P;
+const { positionContext, positionFigures, positionState, registerPositionOverlays } = P;
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2024, 0, 1);
 const g = { start: T0, end: T0 + 20 * DAY, entry: 100, target: 102, stop: 98 };
 const colors = { up: '#26a69a', down: '#ef5350', neutral: '#868b98' };
-const settings = { accountSize: 10000, riskMode: 'percent' as const, riskValue: 1, currency: 'USD' };
 const coords = [{ x: 10, y: 100 }, { x: 10, y: 80 }, { x: 10, y: 120 }, { x: 210, y: 100 }];
 type B = { timestamp: number; open: number; high: number; low: number; close: number };
 const bar = (i: number, open: number, high: number, low: number, close = (high + low) / 2): B => ({ timestamp: T0 + i * DAY, open, high, low, close });
 const fill = bar(0, 100, 100.5, 99.5); // touches the entry on the start bar
-const metrics = positionMetrics('long', g, settings, 0);
+const metrics = positionMetrics('long', g);
 const base = {
-  side: 'long' as const, g, coords, settings, precision: 2, metrics, outcome: { kind: 'waiting' } as PositionOutcome, colors,
+  side: 'long' as const, g, coords, precision: 2, metrics, outcome: { kind: 'waiting' } as PositionOutcome, colors,
   xOf: (ts: number) => 10 + ((ts - T0) / DAY) * 10, yOf: (v: number) => 100 - (v - 100) * 10,
   formatTime: (ts: number) => new Date(ts).toISOString().slice(0, 10), font: { family: 'Arial', size: 12 }, paneWidth: 800,
 };
 const withBars = (bars: B[], over: Partial<typeof base> = {}) => {
   const b = { ...base, ...over };
-  return positionFigures({ ...b, outcome: evaluateOutcome(bars, b.side, b.g, b.metrics.qty, { historyComplete: true }) }) as Fig[];
+  return positionFigures({ ...b, outcome: evaluateOutcome(bars, b.side, b.g, { historyComplete: true }) }) as Fig[];
 };
 type Fig = { type: string; attrs: any; styles?: any; ignoreEvent?: unknown };
 const texts = (f: Fig[]) => f.filter((x) => x.type === 'text').map((x) => x.attrs.text as string);
@@ -46,12 +45,16 @@ describe('positionFigures', () => {
 
   it('labels: target, stop, center (contrast-aware text, theme font) and the waiting state in a neutral style', () => {
     const f = positionFigures(base) as Fig[];
-    expect(texts(f)).toEqual(['Target: 102.00 (+2.00%) +100.00 USD', 'Stop: 98.00 (-2.00%) -100.00 USD', 'Long · Qty 50 · R:R 1.00', 'Waiting for entry']);
+    expect(texts(f)).toEqual(['Target: 102.00 (+2.00%)', 'Stop: 98.00 (-2.00%)', 'Long · R:R 1.00', 'Waiting for entry']);
     const target = label(f, 'Target');
     expect(target.ignoreEvent).toBe(true);
     expect(target.styles).toMatchObject({ backgroundColor: '#26a69a', color: '#ffffff', family: 'Arial', size: 12 });
-    // Centerd on the box (x 110) but kept fully inside the pane: half its width is 130 px.
-    expect(target.attrs).toMatchObject({ x: 130, y: 78, align: 'center', baseline: 'bottom' });
+    // Centered on the box (x 110).
+    expect(target.attrs).toMatchObject({ x: 110, y: 78, align: 'center', baseline: 'bottom' });
+    // Kept fully inside the pane: a box at the left edge moves its labels right by half their width.
+    const edge = positionFigures({ ...base, coords: coords.map((c) => ({ ...c, x: c.x - 10 })).map((c, i) => (i === 3 ? { ...c, x: 40 } : c)) }) as Fig[];
+    const half = (label(edge, 'Target').attrs.text.length * 12 * 0.6 + 8) / 2;
+    expect(label(edge, 'Target').attrs.x).toBeCloseTo(half);
     expect(label(f, 'Stop').attrs).toMatchObject({ y: 122, baseline: 'top' });
     expect(label(f, 'Waiting').styles).toMatchObject({ backgroundColor: '#868b98' });
     expect(f.filter((x) => x.type === 'rect')).toHaveLength(2); // no traversed shading
@@ -65,19 +68,19 @@ describe('positionFigures', () => {
     expect(f.filter((x) => x.type === 'rect')).toHaveLength(2);
   });
 
-  it('target hit: label with P&L and date, the profit zone shaded more strongly from the fill bar to the hit bar', () => {
+  it('target hit: label with the % result and date, the profit zone shaded more strongly from the fill bar to the hit bar', () => {
     const f = withBars([bar(1, 100, 100.5, 99.5), bar(3, 101, 101.5, 99.5), bar(5, 101, 103, 100.5)]);
-    expect(texts(f)).toContain('Target hit · +100.00 USD (+2.00%) · 2024-01-06');
+    expect(texts(f)).toContain('Target hit · +2.00% · 2024-01-06');
     const strong = f.filter((x) => x.type === 'rect')[2]!;
     expect(strong).toMatchObject({ attrs: { x: 20, y: 80, width: 40, height: 20 }, styles: { color: 'rgba(38,166,154,0.4)' } });
   });
 
   it('stop hit shades the loss zone; open shades from the entry to the last close', () => {
     const stop = withBars([fill, bar(2, 99, 100, 97)]);
-    expect(texts(stop)).toContain('Stop hit · -100.00 USD (-2.00%) · 2024-01-03');
+    expect(texts(stop)).toContain('Stop hit · -2.00% · 2024-01-03');
     expect(stop.filter((x) => x.type === 'rect')[2]).toMatchObject({ attrs: { x: 10, y: 100, width: 20, height: 20 }, styles: { color: 'rgba(239,83,80,0.4)' } });
     const open = withBars([fill, bar(4, 100, 101.5, 99.5, 101)]);
-    expect(texts(open)).toContain('Open · +50.00 USD (+1.00%)');
+    expect(texts(open)).toContain('Open · +1.00%');
     expect(open.filter((x) => x.type === 'rect')[2]).toMatchObject({ attrs: { x: 10, y: 90, width: 40, height: 10 } });
   });
 
@@ -102,7 +105,7 @@ describe('positionFigures', () => {
 
   it('without room beside the box, the center / outcome labels stay centered and fully on the pane', () => {
     const mid = [{ x: 140, y: 100 }, { x: 140, y: 80 }, { x: 140, y: 120 }, { x: 390, y: 100 }];
-    const f = positionFigures({ ...base, coords: mid, paneWidth: 530, outcome: { kind: 'stop', fillTs: T0, ts: T0 + 2 * DAY, price: 98, pnl: -100, pnlPct: -2 } }) as Fig[];
+    const f = positionFigures({ ...base, coords: mid, paneWidth: 530, outcome: { kind: 'stop', fillTs: T0, ts: T0 + 2 * DAY, price: 98, pnlPct: -2 } }) as Fig[];
     const o = label(f, 'Stop hit');
     const w = o.attrs.text.length * 12 * 0.6 + 8;
     expect(o.attrs.align).toBe('center');
@@ -141,9 +144,9 @@ describe('positionFigures', () => {
 });
 
 describe('memoized position state', () => {
-  it('reuses metrics / outcome while the points, settings and data are unchanged; recomputes when the last bar changes', () => {
+  it('reuses metrics / outcome while the points and data are unchanged; recomputes when the last bar changes', () => {
     const bars: B[] = [fill, bar(1, 100, 101, 99.5, 100.5)];
-    const input = { id: 'p1', side: 'long' as const, g, settings, qtyDecimals: 0, bars, historyComplete: true, barMs: DAY };
+    const input = { id: 'p1', side: 'long' as const, g, bars, historyComplete: true, barMs: DAY };
     const a = positionState(input);
     expect(a.outcome).toMatchObject({ kind: 'open', price: 100.5 });
     expect(positionState({ ...input, g: { ...g } })).toBe(a);
@@ -153,14 +156,6 @@ describe('memoized position state', () => {
     expect(b.outcome).toMatchObject({ kind: 'open', price: 101 });
     expect(positionState({ ...input, g: { ...g, target: 101.1 } }).outcome).toMatchObject({ kind: 'target' });
     expect(positionState({ ...input, historyComplete: false, bars: [bar(1, 100, 101, 99)], g: { ...g, start: T0 - DAY } }).outcome).toEqual({ kind: 'needsData' });
-  });
-});
-
-describe('position settings resolution', () => {
-  it('own settings (overlay styles) over the defaults', () => {
-    positionContext.defaults = { ...settings, currency: 'EUR' };
-    expect(positionSettingsOf(null)).toEqual({ ...settings, currency: 'EUR' });
-    expect(positionSettingsOf({ [POSITION_STYLE_KEY]: { riskValue: 2, bogus: 1 } })).toEqual({ ...settings, currency: 'EUR', riskValue: 2 });
   });
 });
 
@@ -185,6 +180,16 @@ describe('position overlay templates', () => {
     expect(points).toEqual([
       { timestamp: T0, value: 100.004 }, { timestamp: T0, value: 98 }, { timestamp: T0, value: 102 }, { timestamp: T0 + 20 * DAY, value: 100 },
     ]);
+  });
+
+  it('while placing, the target / stop follow the default distances ("Use as default")', () => {
+    drawingConstraint.precision = 2;
+    positionContext.endFor = (ts) => ts + 20 * DAY;
+    positionContext.defaults = { targetPct: 5, stopPct: 1 };
+    const points: any[] = [{ timestamp: T0, value: 100 }];
+    k.templates.get('longPosition')!.performEventMoveForDrawing({ points, performPointIndex: 0, currentStep: 1, mode: 'normal', performPoint: points[0] });
+    expect(points.slice(1, 3)).toEqual([{ timestamp: T0, value: 105 }, { timestamp: T0, value: 99 }]);
+    positionContext.defaults = { targetPct: 2, stopPct: 2 };
   });
 
   it('point drags follow the position drag rules', () => {

@@ -1,15 +1,10 @@
-import {
-  convertRiskValue, isValidPositionDefaults, MAX_CURRENCY_LENGTH, MAX_POSITION_AMOUNT, MAX_RISK_PERCENT,
-  type PositionDefaults, type PositionRiskMode, type PositionSettings,
-} from '@chartmate/shared';
+import { isValidPositionDefaults, type PositionDefaults } from '@chartmate/shared';
 import { useEffect, useId, useState, type JSX, type KeyboardEvent } from 'react';
 import type { ChartAdapter, SelectedDrawing } from '../chart/ChartAdapter';
-import {
-  distanceTicks, formatAmount, formatQty, outcomeLabel, priceFromPct, priceFromTicks, validatePrices,
-} from '../chart/position';
+import { distanceTicks, outcomeLabel, priceFromPct, priceFromTicks, validatePrices } from '../chart/position';
 import { positionContext } from '../chart/positionOverlay';
 
-export type PositionControls = Pick<ChartAdapter, 'setSelectedPositionPrices' | 'setSelectedPositionSettings'>;
+export type PositionControls = Pick<ChartAdapter, 'setSelectedPositionPrices'>;
 export type SelectedPosition = Extract<SelectedDrawing, { kind: 'position' }>;
 
 type Parsed<T> = { value: T } | { error: string };
@@ -20,13 +15,6 @@ function parsePositive(text: string, what: string): Parsed<number> {
   const v = Number(t);
   if (t === '' || !Number.isFinite(v) || v <= 0) return { error: `${what} must be a positive number` };
   return { value: v };
-}
-
-/** A money amount: positive and at most MAX_POSITION_AMOUNT (the server's limit). */
-function parseAmount(text: string, what: string): Parsed<number> {
-  const r = parsePositive(text, what);
-  if ('value' in r && r.value > MAX_POSITION_AMOUNT) return { error: `${what} is too large` };
-  return r;
 }
 
 /**
@@ -76,19 +64,18 @@ function EditField<T>({ label, shown, parse, apply, disabled, className, inputMo
   );
 }
 
-const RISK_MODES: ReadonlyArray<{ value: PositionRiskMode; label: string }> = [
-  { value: 'percent', label: '% of account' }, { value: 'amount', label: 'Amount' },
-];
+/** A distance in % rounded for storing as a default (4 decimals). */
+const roundPct = (v: number) => Math.round(v * 1e4) / 1e4;
 
 /**
  * Settings of the selected long / short position: precise Entry / Target / Stop (symbol precision), target / stop
- * distances as % and ticks, the risk settings (account size, risk mode and value, currency), the derived
- * quantity / amounts / R:R and the outcome. "Use as default" stores the risk settings as the global defaults.
+ * distances as % and ticks, the R:R and the outcome. No position size (no account yet). "Use as default" stores the
+ * target / stop distances (%) as the global defaults of new positions.
  */
 export function PositionStyleBar({ controls, sel, onUseAsDefault }: {
   controls: PositionControls; sel: SelectedPosition; onUseAsDefault?: (d: PositionDefaults) => void;
 }): JSX.Element {
-  const { side, precision, locked, settings, metrics: m } = sel;
+  const { side, precision, locked, metrics: m } = sel;
   const fixed = (v: number) => v.toFixed(precision);
   const prices = { entry: sel.entry, target: sel.target, stop: sel.stop };
 
@@ -123,9 +110,9 @@ export function PositionStyleBar({ controls, sel, onUseAsDefault }: {
       </>
     );
   };
-  const setSettings = (patch: PositionSettings) => { controls.setSelectedPositionSettings(patch); };
-  const outcome = outcomeLabel(sel.outcome, settings.currency, positionContext.formatTime);
-  const validSettings = isValidPositionDefaults(settings);
+  const outcome = outcomeLabel(sel.outcome, positionContext.formatTime);
+  const defaults: PositionDefaults = { targetPct: roundPct(m.targetPct), stopPct: roundPct(m.stopPct) };
+  const validDefaults = isValidPositionDefaults(defaults);
 
   return (
     <div className="drawing-style-bar position-bar" role="toolbar" aria-label="Position settings" aria-disabled={locked || undefined}>
@@ -138,44 +125,12 @@ export function PositionStyleBar({ controls, sel, onUseAsDefault }: {
         {distance('stop')}
       </div>
       <div className="position-row">
-        <EditField label="Account size" caption="Account" shown={String(settings.accountSize)} disabled={locked}
-          parse={(t) => parseAmount(t, 'Account size')} apply={(v) => setSettings({ accountSize: v })} />
-        <select aria-label="Risk mode" title="Risk mode" value={settings.riskMode} disabled={locked}
-          onChange={(e) => {
-            // The value is converted so the money at risk stays the same (a percentage is capped at 100).
-            const riskMode: PositionRiskMode = e.target.value === 'amount' ? 'amount' : 'percent';
-            setSettings({ riskMode, riskValue: convertRiskValue(settings, riskMode) });
-          }}>
-          {RISK_MODES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-        </select>
-        <EditField label="Risk" caption="Risk" title={settings.riskMode === 'percent' ? 'Risk (% of account)' : 'Risk (amount)'} className="position-narrow"
-          shown={String(settings.riskValue)} disabled={locked}
-          parse={(t) => {
-            const r = parseAmount(t, 'Risk');
-            if ('value' in r && settings.riskMode === 'percent' && r.value > MAX_RISK_PERCENT) return { error: 'Risk must be at most 100 %' };
-            return r;
-          }}
-          apply={(v) => setSettings({ riskValue: v })} />
-        <EditField label="Currency" caption="Currency" className="position-narrow" shown={settings.currency} disabled={locked} inputMode="text"
-          parse={(t) => {
-            const c = t.trim();
-            if (c.length === 0) return { error: 'Enter a currency label' };
-            if (c.length > MAX_CURRENCY_LENGTH) return { error: `At most ${MAX_CURRENCY_LENGTH} characters` };
-            return { value: c };
-          }}
-          apply={(v) => setSettings({ currency: v })} />
-        <span className="position-summary" data-testid="position-summary">
-          Qty {formatQty(m.qty)}{m.qty === 0 ? ' (Risk is below 1 unit)' : ''} · Risk {formatAmount(m.riskAmount, settings.currency).slice(1)} · Reward {formatAmount(m.rewardAmount, settings.currency).slice(1)} · R:R {m.rr.toFixed(2)}
-        </span>
-        <button type="button" className="position-default" disabled={!validSettings} onClick={() => { if (validSettings) onUseAsDefault?.({ ...settings }); }}
-          title={validSettings ? 'Use these risk settings for new positions' : 'Fix the risk settings first'}>Use as default</button>
+        <span className="position-summary" data-testid="position-summary">R:R {m.rr.toFixed(2)}</span>
+        <button type="button" className="position-default" disabled={!validDefaults} onClick={() => { if (validDefaults) onUseAsDefault?.(defaults); }}
+          title={validDefaults ? 'Use these target / stop distances (%) for new positions' : 'Distances must be at most 99 % to be used as defaults'}>Use as default</button>
+        {outcome && <span className="position-outcome" data-testid="position-outcome">{outcome}</span>}
+        {locked && <span className="drawing-style-locked">Locked</span>}
       </div>
-      {(outcome || locked) && (
-        <div className="position-row">
-          {outcome && <span className="position-outcome" data-testid="position-outcome">{outcome}</span>}
-          {locked && <span className="drawing-style-locked">Locked</span>}
-        </div>
-      )}
     </div>
   );
 }

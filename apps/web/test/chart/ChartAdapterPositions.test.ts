@@ -102,14 +102,13 @@ beforeEach(() => {
 const make = () => new ChartAdapter(el, { theme: 'dark' });
 const chart = () => k.state.chart;
 
-const { POSITION_STYLE_KEY, positionContext } = await import('../../src/chart/positionOverlay');
+const { positionContext } = await import('../../src/chart/positionOverlay');
 
 describe('ChartAdapter long / short positions', () => {
   const DAY = 86_400_000;
   const D1 = Date.UTC(2024, 2, 4); // Mon
   const OPEN1 = Date.UTC(2024, 2, 4, 14, 30); // 09:30 New York
   const userOverlays = () => chart().overlays.filter((o) => o.groupId !== 'markers');
-  const defaults = { accountSize: 20000, riskMode: 'amount' as const, riskValue: 100, currency: 'EUR' };
   const bars = Array.from({ length: 5 }, (_, i) => ({ ts: D1 + i * DAY, open: 100, high: 101, low: 99, close: 100, volume: 1 }));
 
   async function loadAt(symbol: SymbolInfo, tf: '1D' | '1h') {
@@ -132,9 +131,8 @@ describe('ChartAdapter long / short positions', () => {
   };
   type Pressable = FakeOverlay & { onPressedMoveStart?: (e: unknown) => void };
 
-  it('placing a long position: one click at the entry (rounded), ±2 % target / stop, ≈ 20 bars wide, default risk settings snapshotted', async () => {
+  it('placing a long position: one click at the entry (rounded), ±2 % target / stop, ≈ 20 bars wide, no styles', async () => {
     const a = await loadAt(BTC, '1D');
-    a.setPositionDefaults(defaults);
     const onEnd = vi.fn();
     a.startDrawing('longPosition', { onEnd });
     const o = userOverlays().at(-1)!;
@@ -145,7 +143,7 @@ describe('ChartAdapter long / short positions', () => {
     expect(onEnd).toHaveBeenCalled();
     // 3 bars of data after the entry bar, then extrapolated by the timeframe: entry + 20 days.
     expect(o.points).toEqual(position({ start: D1 + DAY, end: D1 + 21 * DAY }));
-    expect(a.serializeDrawings()).toEqual([{ name: 'longPosition', points: position({ start: D1 + DAY, end: D1 + 21 * DAY }), lock: false, styles: { position: defaults } }]);
+    expect(a.serializeDrawings()).toEqual([{ name: 'longPosition', points: position({ start: D1 + DAY, end: D1 + 21 * DAY }), lock: false }]);
   });
 
   it('short position: target below, stop above', async () => {
@@ -155,18 +153,41 @@ describe('ChartAdapter long / short positions', () => {
     o.points = [{ timestamp: D1, value: 50 }];
     o.onDrawEnd?.({ overlay: o });
     expect(o.points.map((p) => p.value)).toEqual([50, 49, 51, 50]);
-    expect(a.serializeDrawings()[0]!.styles).toEqual({ position: { accountSize: 10000, riskMode: 'percent', riskValue: 1, currency: 'USD' } });
+    expect(a.serializeDrawings()[0]).not.toHaveProperty('styles');
   });
 
-  it('serialize / restore round-trip (own settings, lock, anchorTf)', async () => {
+  it('a new position uses the default target / stop distances ("Use as default"); placed positions keep their prices', async () => {
+    const a = await loadAt(BTC, '1D');
+    a.restoreDrawings([{ name: 'longPosition', points: position(), lock: false }]);
+    a.setPositionDefaults({ targetPct: 5, stopPct: 1 });
+    a.startDrawing('longPosition');
+    const o = userOverlays().at(-1)!;
+    o.points = [{ timestamp: D1, value: 100 }];
+    o.onDrawEnd?.({ overlay: o });
+    expect(o.points.map((p) => p.value)).toEqual([100, 105, 99, 100]);
+    expect(userOverlays()[0]!.points).toEqual(position());
+    // Invalid / legacy (sized) defaults fall back to ±2 %.
+    a.setPositionDefaults({ accountSize: 20000, riskMode: 'amount', riskValue: 100, currency: 'EUR' } as never);
+    expect(positionContext.defaults).toEqual({ targetPct: 2, stopPct: 2 });
+  });
+
+  it('serialize / restore round-trip (lock, anchorTf)', async () => {
     const a = await loadAt(AAPL, '1D');
     const saved = [
-      { name: 'longPosition', points: position(), lock: false, anchorTf: '1D' as const, styles: { position: { riskValue: 2, currency: 'CHF' } } },
+      { name: 'longPosition', points: position(), lock: false, anchorTf: '1D' as const },
       { name: 'shortPosition', points: position({ target: 95, stop: 101 }), lock: true },
     ];
     a.restoreDrawings(saved, AAPL.id);
-    expect(userOverlays()[0]!.styles).toEqual({ [POSITION_STYLE_KEY]: { riskValue: 2, currency: 'CHF' } });
     expect(a.serializeDrawings()).toEqual(saved);
+  });
+
+  it('positions saved when they were sized load fine; their sizing settings are dropped on the next save', async () => {
+    const a = await loadAt(AAPL, '1D');
+    const legacy = { name: 'longPosition', points: position(), lock: false, styles: { position: { accountSize: 5000, riskValue: 2, currency: 'CHF' } } };
+    a.restoreDrawings([legacy as never], AAPL.id);
+    select(userOverlays()[0]!);
+    expect(a.getSelectedDrawing()).toMatchObject({ kind: 'position', metrics: { rr: 1 } });
+    expect(a.serializeDrawings()).toEqual([{ name: 'longPosition', points: position(), lock: false }]);
   });
 
   it('a daily-anchored position is shown at 09:30 New York on intraday charts and saved unchanged', async () => {
@@ -181,17 +202,15 @@ describe('ChartAdapter long / short positions', () => {
     expect(a.serializeDrawings()).toEqual([{ ...saved, points: position({ end: D1 + 2 * DAY, target: 103.5 }) }]);
   });
 
-  it('getSelectedDrawing: position kind with prices, precision, settings, metrics and outcome', async () => {
+  it('getSelectedDrawing: position kind with prices, precision, metrics and outcome', async () => {
     const a = await loadAt(AAPL, '1D');
-    a.setPositionDefaults(defaults);
     a.restoreDrawings([{ name: 'longPosition', points: position({ target: 100.5 }), lock: false }]);
     select(userOverlays()[0]!);
     expect(a.getSelectedDrawing()).toEqual({
       id: userOverlays()[0]!.id, kind: 'position', side: 'long', locked: false, entry: 100, target: 100.5, stop: 98, precision: 2,
-      settings: defaults, metrics: { qty: 50, riskAmount: 100, rewardAmount: 25, rr: 0.25, targetPct: 0.5, stopPct: 2 },
-      // Bar 2 (high 101) reaches the target.
+      metrics: { rr: 0.25, targetPct: 0.5, stopPct: 2 },
       // Filled on the start bar (it touches 100); bar 2 (high 101) then reaches the target.
-      outcome: { kind: 'target', fillTs: D1, ts: D1 + DAY, price: 100.5, pnl: 25, pnlPct: 0.5 },
+      outcome: { kind: 'target', fillTs: D1, ts: D1 + DAY, price: 100.5, pnlPct: 0.5 },
     });
   });
 
@@ -210,18 +229,12 @@ describe('ChartAdapter long / short positions', () => {
     expect(changed).toHaveBeenCalledTimes(1);
   });
 
-  it('setSelectedPositionSettings stores the position\'s own risk settings; locked positions are read-only', async () => {
+  it('locked positions are read-only', async () => {
     const a = await loadAt(AAPL, '1D');
-    a.restoreDrawings([{ name: 'longPosition', points: position(), lock: false }, { name: 'shortPosition', points: position({ target: 98, stop: 102 }), lock: true }]);
-    const [free, locked] = userOverlays();
-    select(free!);
-    a.setSelectedPositionSettings({ riskMode: 'amount', riskValue: 300 });
-    expect(a.getSelectedDrawing()).toMatchObject({ settings: { accountSize: 10000, riskMode: 'amount', riskValue: 300, currency: 'USD' }, metrics: { qty: 150 } });
-    expect(a.serializeDrawings()[0]!.styles).toEqual({ position: { riskMode: 'amount', riskValue: 300 } });
-    select(locked!);
-    expect(a.setSelectedPositionPrices({ target: 97 })).toMatch(/locked/i);
+    a.restoreDrawings([{ name: 'shortPosition', points: position({ target: 98, stop: 102 }), lock: true }]);
+    select(userOverlays()[0]!);
     chart().overrideOverlay.mockClear();
-    a.setSelectedPositionSettings({ riskValue: 5 });
+    expect(a.setSelectedPositionPrices({ target: 97 })).toMatch(/locked/i);
     expect(chart().overrideOverlay).not.toHaveBeenCalled();
   });
 
@@ -259,17 +272,15 @@ describe('ChartAdapter long / short positions', () => {
     expect(a.serializeDrawings()).toEqual([saved]);
   });
 
-  it('sets the overlay context per load / theme: bar duration, quantity decimals, colors, defaults', async () => {
+  it('sets the overlay context per load / theme: bar duration, colors, defaults', async () => {
     const a = await loadAt(BTC, '1h');
     expect(positionContext.barMs).toBe(3_600_000);
-    expect(positionContext.qtyDecimals).toBe(6);
     a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 15000 }, events());
     expect(positionContext.barMs).toBe(DAY);
-    expect(positionContext.qtyDecimals).toBe(0);
     a.setTheme('light');
     expect(positionContext.colors.up).toBe('#00a870');
     a.setPositionDefaults(undefined);
-    expect(positionContext.defaults).toEqual({ accountSize: 10000, riskMode: 'percent', riskValue: 1, currency: 'USD' });
+    expect(positionContext.defaults).toEqual({ targetPct: 2, stopPct: 2 });
   });
 
   it('a position starting before the loaded bars: "needs earlier data" while older pages exist, which are requested', async () => {
