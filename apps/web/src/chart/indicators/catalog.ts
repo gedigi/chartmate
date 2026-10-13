@@ -12,6 +12,9 @@ const numbered = (prefix: string, n: number) => Array.from({ length: n }, (_, i)
  * Default line colors: line i uses palette slot i (INDICATOR_PALETTE), except BOLL (Upper/Middle/Lower = slots
  * 2/1/3, so the middle band matches MA's first line) and VWAP (slot 3, see custom/vwap.ts). Max 4 lines today.
  * Note: KLineChart's `MA` is the simple moving average; its `SMA` is a different, weighted average.
+ * `levels`: conventional reference lines of oscillators (TradingView-style): zero lines of MACD / AO / ROC / MTM /
+ * TRIX, overbought / oversold bands of RSI (70 / 30), KDJ (80 / 20), CCI (+-100) and WR (-20 / -80; KLineChart's WR
+ * runs from -100 to 0), and DMI's ADX trend threshold 25. VOL, OBV (cumulative), SMA and ATR have none.
  */
 const BUILTIN: CatalogEntry[] = [
   // overlays (candle pane)
@@ -23,17 +26,17 @@ const BUILTIN: CatalogEntry[] = [
   { name: 'BBI', label: 'Bull and Bear Index', pane: 'main', defaultParams: [3, 6, 12, 24], paramLabels: periods('MA', 4), lines: ['BBI'] },
   // oscillators (own pane)
   { name: 'VOL', label: 'Volume', pane: 'sub', defaultParams: [5, 10, 20], paramLabels: periods('MA', 3), lines: numbered('MA', 3), bars: true },
-  { name: 'MACD', label: 'MACD', pane: 'sub', defaultParams: [12, 26, 9], paramLabels: ['Fast period', 'Slow period', 'Signal period'], lines: ['DIF', 'DEA'], bars: true },
-  { name: 'RSI', label: 'Relative Strength Index', pane: 'sub', defaultParams: [6, 12, 24], paramLabels: periods('RSI', 3), lines: numbered('RSI', 3) },
-  { name: 'KDJ', label: 'Stochastic (KDJ)', pane: 'sub', defaultParams: [9, 3, 3], paramLabels: ['Period', 'K smoothing', 'D smoothing'], lines: ['K', 'D', 'J'] },
-  { name: 'CCI', label: 'Commodity Channel Index', pane: 'sub', defaultParams: [13], paramLabels: ['Period'], lines: ['CCI'] },
+  { name: 'MACD', label: 'MACD', pane: 'sub', defaultParams: [12, 26, 9], paramLabels: ['Fast period', 'Slow period', 'Signal period'], lines: ['DIF', 'DEA'], bars: true, levels: [0] },
+  { name: 'RSI', label: 'Relative Strength Index', pane: 'sub', defaultParams: [6, 12, 24], paramLabels: periods('RSI', 3), lines: numbered('RSI', 3), levels: [70, 30] },
+  { name: 'KDJ', label: 'Stochastic (KDJ)', pane: 'sub', defaultParams: [9, 3, 3], paramLabels: ['Period', 'K smoothing', 'D smoothing'], lines: ['K', 'D', 'J'], levels: [80, 20] },
+  { name: 'CCI', label: 'Commodity Channel Index', pane: 'sub', defaultParams: [13], paramLabels: ['Period'], lines: ['CCI'], levels: [100, -100] },
   { name: 'OBV', label: 'On-Balance Volume', pane: 'sub', defaultParams: [30], paramLabels: ['MA period'], lines: ['OBV', 'MAOBV'] },
-  { name: 'WR', label: 'Williams %R', pane: 'sub', defaultParams: [6, 10, 14], paramLabels: periods('WR', 3), lines: numbered('WR', 3) },
-  { name: 'DMI', label: 'Directional Movement Index', pane: 'sub', defaultParams: [14, 6], paramLabels: ['DI period', 'ADX period'], lines: ['PDI', 'MDI', 'ADX', 'ADXR'] },
-  { name: 'ROC', label: 'Rate of Change', pane: 'sub', defaultParams: [12, 6], paramLabels: ['Period', 'MA period'], lines: ['ROC', 'MAROC'] },
-  { name: 'MTM', label: 'Momentum', pane: 'sub', defaultParams: [12, 6], paramLabels: ['Period', 'MA period'], lines: ['MTM', 'MAMTM'] },
-  { name: 'TRIX', label: 'TRIX', pane: 'sub', defaultParams: [12, 9], paramLabels: ['Period', 'MA period'], lines: ['TRIX', 'MATRIX'] },
-  { name: 'AO', label: 'Awesome Oscillator', pane: 'sub', defaultParams: [5, 34], paramLabels: ['Short period', 'Long period'], lines: [], bars: true },
+  { name: 'WR', label: 'Williams %R', pane: 'sub', defaultParams: [6, 10, 14], paramLabels: periods('WR', 3), lines: numbered('WR', 3), levels: [-20, -80] },
+  { name: 'DMI', label: 'Directional Movement Index', pane: 'sub', defaultParams: [14, 6], paramLabels: ['DI period', 'ADX period'], lines: ['PDI', 'MDI', 'ADX', 'ADXR'], levels: [25] },
+  { name: 'ROC', label: 'Rate of Change', pane: 'sub', defaultParams: [12, 6], paramLabels: ['Period', 'MA period'], lines: ['ROC', 'MAROC'], levels: [0] },
+  { name: 'MTM', label: 'Momentum', pane: 'sub', defaultParams: [12, 6], paramLabels: ['Period', 'MA period'], lines: ['MTM', 'MAMTM'], levels: [0] },
+  { name: 'TRIX', label: 'TRIX', pane: 'sub', defaultParams: [12, 9], paramLabels: ['Period', 'MA period'], lines: ['TRIX', 'MATRIX'], levels: [0] },
+  { name: 'AO', label: 'Awesome Oscillator', pane: 'sub', defaultParams: [5, 34], paramLabels: ['Short period', 'Long period'], lines: [], bars: true, levels: [0] },
   { name: 'SMA', label: 'SMA (weighted, KLine)', pane: 'sub', defaultParams: [12, 2], paramLabels: ['Period', 'Weight'], lines: ['SMA'] },
 ];
 
@@ -80,6 +83,16 @@ export function migrateCalcParams(name: string, stored: readonly number[]): numb
   const entry = catalogEntry(name);
   if (!entry) return [...stored];
   return entry.defaultParams.map((d, i) => stored[i] ?? d);
+}
+
+/**
+ * Reference levels drawn for indicator state `s`: none when hidden (`showLevels: false`) or the indicator has no
+ * catalog levels; else the stored levels, or the catalog defaults when none are stored (older layouts).
+ */
+export function effectiveLevels(s: { name: string; levels?: readonly number[]; showLevels?: boolean }): number[] {
+  const defaults = catalogEntry(s.name)?.levels;
+  if (!defaults || s.showLevels === false) return [];
+  return [...(s.levels ?? defaults)];
 }
 
 /** Short chip label: `RSI(6, 12, 24)`, or just the name when there are no params. */

@@ -166,6 +166,11 @@ export function defaultIndicatorBars(theme: ThemeName): { upColor: string; downC
   return { upColor: hexToRgba(up, 0.7), downColor: hexToRgba(down, 0.7) };
 }
 
+/** Oscillator reference levels (RSI 70 / 30, MACD 0, …): the theme's muted text color, translucent. */
+export function indicatorLevelColor(theme: ThemeName): string {
+  return hexToRgba(themeTokens(theme).muted, 0.55);
+}
+
 export function defaultAppearance(theme: ThemeName): ResolvedAppearance {
   const { accent, up, down } = themeTokens(theme);
   return { upColor: up, downColor: down, candleBody: 'solid', lineColor: accent, lineWidth: 2, drawing: { color: accent, size: 1, style: 'solid' } };
