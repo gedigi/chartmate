@@ -67,6 +67,8 @@ function styleOverrides(s: IndicatorState): Partial<IndicatorSpec> {
   if (s.lineWidths) o.lineWidths = s.lineWidths;
   if (s.lineStyles) o.lineStyles = s.lineStyles;
   if (s.barColors) o.barColors = s.barColors;
+  if (s.levels) o.levels = s.levels;
+  if (s.showLevels === false) o.showLevels = false;
   return o;
 }
 

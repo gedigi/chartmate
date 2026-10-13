@@ -1,5 +1,5 @@
 import {
-  HEX_COLOR_RE, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_POSITION_PCT, MAX_SECTION_TITLE,
+  HEX_COLOR_RE, MAX_INDICATOR_LEVEL, MAX_INDICATOR_LEVELS, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_POSITION_PCT, MAX_SECTION_TITLE,
   MAX_TEXT_SIZE, MAX_WATCHLIST_SECTIONS, MAX_WATCHLIST_SYMBOLS, MIN_LINE_WIDTH, MIN_TEXT_SIZE, migrateAppearance, TIMEFRAMES,
   mergeLegacyWatchlist, watchlistProblem,
   type DrawingState, type Layout, type Timeframe, type WatchlistEntry,
@@ -71,6 +71,8 @@ const IndicatorSchema = z.object({
   lineWidths: z.array(LineWidth).max(10).optional(),
   lineStyles: z.array(LineStyle).max(10).optional(),
   barColors: z.object({ up: Hex, down: Hex }).optional(),
+  levels: z.array(z.number().finite().min(-MAX_INDICATOR_LEVEL).max(MAX_INDICATOR_LEVEL)).max(MAX_INDICATOR_LEVELS).optional(),
+  showLevels: z.boolean().optional(),
 });
 const LayoutSchema = z.object({
   symbol: SymbolIdSchema,

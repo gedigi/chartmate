@@ -1,6 +1,6 @@
 import {
   dispose, init,
-  type Chart, type DeepPartial, type IndicatorCreate, type IndicatorStyle, type KLineData, type Overlay, type OverlayCreate,
+  type Chart, type DeepPartial, type IndicatorCreate, type IndicatorDrawCallback, type IndicatorStyle, type KLineData, type Overlay, type OverlayCreate,
   type OverlayMode, type OverlayStyle, type Styles,
 } from 'klinecharts';
 import {
@@ -22,8 +22,9 @@ import {
 } from './position';
 import { positionContext, positionState, registerPositionOverlays } from './positionOverlay';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
-import { catalogEntry, defaultLineColor } from './indicators/catalog';
-import { PRICE_PRECISION_INDICATORS } from './indicators/extensions';
+import { catalogEntry, defaultLineColor, effectiveLevels } from './indicators/catalog';
+import { CUSTOM_INDICATORS, PRICE_PRECISION_INDICATORS } from './indicators/extensions';
+import { levelsDraw, levelsRange } from './indicators/levels';
 import { registerCustomIndicators } from './indicators/register';
 import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
@@ -31,7 +32,7 @@ import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
 import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS } from './sessionShade';
 import { solidBarFigures } from './solidBars';
 import {
-  candleStyles, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, overlayStyles, refreshThemeTokens, resolveAppearance, themeTokens,
+  candleStyles, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeTokens,
   type ThemeName,
 } from './theme';
 
@@ -39,13 +40,14 @@ export type DrawingTool =
   | 'segment' | 'rayLine' | 'straightLine' | 'horizontalStraightLine' | 'verticalStraightLine'
   | 'priceLine' | 'parallelChannel' | 'fibonacciLine' | 'simpleAnnotation' | 'longPosition' | 'shortPosition';
 
-export interface IndicatorSpec extends Pick<IndicatorState, 'lineColors' | 'lineWidths' | 'lineStyles' | 'barColors'> {
+export interface IndicatorSpec extends Pick<IndicatorState, 'lineColors' | 'lineWidths' | 'lineStyles' | 'barColors' | 'levels' | 'showLevels'> {
   name: string; pane: 'main' | 'sub'; calcParams?: number[]; visible?: boolean;
 }
 
 /** Style overrides of an indicator (the IndicatorSpec fields the settings dialog edits). */
-type IndicatorOverrides = Pick<IndicatorSpec, 'lineColors' | 'lineWidths' | 'lineStyles' | 'barColors'>;
-const OVERRIDE_KEYS = ['lineColors', 'lineWidths', 'lineStyles', 'barColors'] as const;
+type IndicatorOverrides = Pick<IndicatorSpec, 'lineColors' | 'lineWidths' | 'lineStyles' | 'barColors' | 'levels' | 'showLevels'>;
+const OVERRIDE_KEYS = ['lineColors', 'lineWidths', 'lineStyles', 'barColors', 'levels', 'showLevels'] as const;
+const hasOverrides = (o: IndicatorOverrides) => OVERRIDE_KEYS.some((k) => o[k] !== undefined);
 
 /**
  * Drawings that lie at a single price (every point has the same value): the style bar edits that price.
@@ -172,6 +174,8 @@ export class ChartAdapter {
    * merges indicator styles, so an override cannot be unset), so a theme toggle must rewrite them.
    */
   private readonly themedBars = new Set<string>();
+  /** Reference levels currently drawn per indicator id (indicators whose catalog entry defines levels). */
+  private readonly drawnLevels = new Map<string, string>();
   private appearance: ThemedAppearance | undefined;
   private readonly changeListeners = new Set<() => void>();
   private silent = 0;
@@ -452,7 +456,21 @@ export class ChartAdapter {
     if (spec.lineWidths) o.lineWidths = spec.lineWidths;
     if (spec.lineStyles) o.lineStyles = spec.lineStyles;
     if (spec.barColors) o.barColors = spec.barColors;
+    if (spec.levels) o.levels = spec.levels;
+    if (spec.showLevels === false) o.showLevels = false;
     return o;
+  }
+
+  /**
+   * Reference levels (dashed lines such as RSI 70 / 30) as indicator fields: a `draw` callback that strokes them
+   * behind the figures (composed with a custom template's own `draw`) and y-range bounds that keep them in view.
+   * Null for indicators without catalog levels (their template's draw / range stay untouched).
+   */
+  private levelFields(name: string, spec: Partial<IndicatorSpec>): Pick<IndicatorCreate, 'draw' | 'minValue' | 'maxValue'> | null {
+    if (!catalogEntry(name)?.levels) return null;
+    const levels = effectiveLevels({ name, levels: spec.levels, showLevels: spec.showLevels });
+    const inner = CUSTOM_INDICATORS.find((c) => c.template.name === name)?.template.draw as IndicatorDrawCallback<unknown, unknown, unknown> | null | undefined;
+    return { draw: levelsDraw(levels, () => indicatorLevelColor(this.theme), inner), ...levelsRange(levels) };
   }
 
   addIndicator(spec: IndicatorSpec): string {
@@ -468,12 +486,15 @@ export class ChartAdapter {
     if (styles) create.styles = styles;
     create.extendData = this.indicatorExt;
     if (PRICE_PRECISION_INDICATORS.has(spec.name)) create.precision = this.indicatorExt.pricePrecision ?? 4;
+    const levels = this.levelFields(spec.name, spec);
+    if (levels) Object.assign(create, levels);
     const id = this.chart.createIndicator(create, main);
     if (!id) throw new Error(`Cannot create indicator ${spec.name}`);
+    if (levels) this.drawnLevels.set(id, JSON.stringify(effectiveLevels(spec)));
     // Histogram bars are always filled (MACD / AO outline rising bars by default).
     const figures = solidBarFigures(this.chart.getIndicators().find((i) => i.id === id)?.figures);
     if (figures) this.chart.overrideIndicator({ id, name: spec.name, figures });
-    if (OVERRIDE_KEYS.some((k) => overrides[k])) this.overrides.set(id, overrides);
+    if (hasOverrides(overrides)) this.overrides.set(id, overrides);
     return id;
   }
 
@@ -487,10 +508,16 @@ export class ChartAdapter {
     const next = ChartAdapter.overridesOf(spec);
     const styles = this.indicatorStyles(existing.name, next, this.overrides.get(id));
     if (styles) override.styles = styles;
+    // Levels are rewritten only when the drawn set changes (a new draw callback makes KLineChart redraw).
+    const levelsKey = JSON.stringify(effectiveLevels({ name: existing.name, ...next }));
+    if (this.drawnLevels.has(id) && this.drawnLevels.get(id) !== levelsKey) {
+      Object.assign(override, this.levelFields(existing.name, next));
+      this.drawnLevels.set(id, levelsKey);
+    }
     this.chart.overrideIndicator(override);
     if (next.barColors) this.themedBars.delete(id);
     else if (this.overrides.get(id)?.barColors) this.themedBars.add(id); // defaults written back explicitly
-    if (OVERRIDE_KEYS.some((k) => next[k])) this.overrides.set(id, next);
+    if (hasOverrides(next)) this.overrides.set(id, next);
     else this.overrides.delete(id);
   }
 
@@ -511,6 +538,7 @@ export class ChartAdapter {
     this.chart.removeIndicator({ id });
     this.overrides.delete(id);
     this.themedBars.delete(id);
+    this.drawnLevels.delete(id);
   }
 
   listIndicators(): Array<{ id: string } & IndicatorSpec> {

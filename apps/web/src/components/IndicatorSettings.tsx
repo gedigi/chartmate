@@ -3,6 +3,7 @@ import { useId, useState, type FormEvent, type JSX } from 'react';
 import { catalogEntry, defaultLineColor, migrateCalcParams, validateParam } from '../chart/indicators/catalog';
 import { defaultBarColors, type ThemeName } from '../chart/theme';
 import { LINE_STYLES, parseLineStyle } from '../chart/drawingStyles';
+import { formatLevels, parseLevels } from '../chart/indicators/levels';
 import { Modal } from './Modal';
 import './Indicators.css';
 
@@ -21,6 +22,8 @@ const WIDTHS = Array.from({ length: MAX_LINE_WIDTH - MIN_LINE_WIDTH + 1 }, (_, i
  * must be > 0) and line colors. Colors are only saved while they differ from the defaults, so untouched
  * (or reset) indicators keep following the active theme's indicator palette. The same applies to line widths
  * (1–4) / styles (solid, dashed, dotted) and, for histogram indicators, the up/down bar colors.
+ * Oscillators with catalog reference levels (RSI 70 / 30, MACD 0, …) get a Levels section: a show toggle and the
+ * level values, saved only while they differ from the defaults (hidden → `showLevels: false`).
  */
 export function IndicatorSettings({ state, onSave, onClose, theme = 'dark' }: IndicatorSettingsProps): JSX.Element {
   const DEFAULT_BAR_COLORS = defaultBarColors(theme);
@@ -41,10 +44,16 @@ export function IndicatorSettings({ state, onSave, onClose, theme = 'dark' }: In
   const [styles, setStyles] = useState<LineStyleKind[]>(() => lines.map((_, i) => state.lineStyles?.[i] ?? 'solid'));
   const hasBars = entry?.bars === true;
   const [bars, setBars] = useState(() => ({ ...DEFAULT_BAR_COLORS, ...state.barColors }));
+  const defaultLevels = entry?.levels;
+  const [showLevels, setShowLevels] = useState(state.showLevels !== false);
+  const [levelsText, setLevelsText] = useState(() => formatLevels(state.levels ?? defaultLevels ?? []));
   const idBase = useId();
 
   const errors = values.map((v, i) => validateParam(state.name, i, v));
-  const valid = errors.every((e) => e === null);
+  const parsedLevels = parseLevels(levelsText);
+  // Hidden levels never block saving: invalid text then keeps the stored values.
+  const levelsError = defaultLevels && showLevels && 'error' in parsedLevels ? parsedLevels.error : null;
+  const valid = errors.every((e) => e === null) && levelsError === null;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -56,6 +65,11 @@ export function IndicatorSettings({ state, onSave, onClose, theme = 'dark' }: In
     if (lines.length > 0 && widths.some((w) => w !== 1)) next.lineWidths = widths;
     if (lines.length > 0 && styles.some((s) => s !== 'solid')) next.lineStyles = styles;
     if (hasBars && (bars.up !== DEFAULT_BAR_COLORS.up || bars.down !== DEFAULT_BAR_COLORS.down)) next.barColors = { ...bars };
+    if (defaultLevels) {
+      const levels = 'levels' in parsedLevels ? parsedLevels.levels : state.levels;
+      if (levels && (levels.length !== defaultLevels.length || levels.some((v, i) => v !== defaultLevels[i]))) next.levels = levels;
+      if (!showLevels) next.showLevels = false;
+    }
     onSave(next);
     onClose();
   };
@@ -66,6 +80,8 @@ export function IndicatorSettings({ state, onSave, onClose, theme = 'dark' }: In
     setWidths(lines.map(() => 1));
     setStyles(lines.map(() => 'solid'));
     setBars({ ...DEFAULT_BAR_COLORS });
+    setShowLevels(true);
+    setLevelsText(formatLevels(defaultLevels ?? []));
   };
 
   return (
@@ -136,6 +152,29 @@ export function IndicatorSettings({ state, onSave, onClose, theme = 'dark' }: In
                 </div>
               );
             })}
+          </fieldset>
+        )}
+        {defaultLevels && (
+          <fieldset className="settings-colors">
+            <legend>Levels</legend>
+            <label className="settings-check">
+              <input type="checkbox" checked={showLevels} onChange={(e) => setShowLevels(e.target.checked)} />
+              Show reference lines
+            </label>
+            <div className="settings-row">
+              <label htmlFor={`${idBase}-levels`}>Values</label>
+              <input
+                id={`${idBase}-levels`}
+                type="text"
+                value={levelsText}
+                disabled={!showLevels}
+                placeholder="None"
+                aria-invalid={levelsError ? 'true' : undefined}
+                aria-describedby={levelsError ? `${idBase}-levels-err` : undefined}
+                onChange={(e) => setLevelsText(e.target.value)}
+              />
+              {levelsError && <span id={`${idBase}-levels-err`} className="form-error settings-error">{levelsError}</span>}
+            </div>
           </fieldset>
         )}
         <div className="settings-actions">

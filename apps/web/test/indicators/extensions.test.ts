@@ -14,6 +14,7 @@ describe('customIndicatorProblem', () => {
     expect(customIndicatorProblem({ ...valid(), usePricePrecision: true })).toBeNull();
     expect(customIndicatorProblem({ ...valid(), catalog: { ...valid().catalog, paramMin: [0], paramMax: [50] } })).toBeNull();
     expect(customIndicatorProblem({ ...valid(), catalog: { ...valid().catalog, lineSlots: [3] } })).toBeNull();
+    expect(customIndicatorProblem({ ...valid(), catalog: { ...valid().catalog, levels: [80, 50, 20] } })).toBeNull();
   });
 
   it.each([
@@ -36,6 +37,10 @@ describe('customIndicatorProblem', () => {
     ['fractional lineSlot', { ...valid(), catalog: { ...valid().catalog, lineSlots: [1.5] } }, /catalog\.lineSlots/],
     ['string lineSlot', { ...valid(), catalog: { ...valid().catalog, lineSlots: ['1'] } }, /catalog\.lineSlots/],
     ['paramMax not numbers', { ...valid(), catalog: { ...valid().catalog, paramMax: 5 } }, /catalog\.paramMax/],
+    ['levels not numbers', { ...valid(), catalog: { ...valid().catalog, levels: ['70'] } }, /catalog\.levels/],
+    ['non-finite level', { ...valid(), catalog: { ...valid().catalog, levels: [Infinity] } }, /catalog\.levels/],
+    ['too many levels', { ...valid(), catalog: { ...valid().catalog, levels: [1, 2, 3, 4, 5, 6] } }, /catalog\.levels/],
+    ['levels on a main-pane indicator', { ...valid(), catalog: { ...valid().catalog, pane: 'main', levels: [0] } }, /sub-pane/],
   ])('rejects %s', (_label, mod, msg) => {
     expect(customIndicatorProblem(mod)).toMatch(msg);
   });

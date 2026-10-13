@@ -25,6 +25,11 @@ export interface CatalogEntry {
   paramMin?: number[];
   /** Per-param maximum of an integer param (index-aligned; missing entries default to 1000). */
   paramMax?: number[];
+  /**
+   * Default reference levels of an oscillator (thin dashed horizontal lines such as RSI 70 / 30 or MACD 0); the
+   * settings dialog lets the user hide or edit them. Omit for overlays and indicators without conventional levels.
+   */
+  levels?: number[];
   /** Optional longer explanation (picker / chip tooltip). */
   description?: string;
 }

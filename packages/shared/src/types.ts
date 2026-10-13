@@ -31,7 +31,18 @@ export interface IndicatorState {
   lineStyles?: LineStyleKind[];
   /** Histogram (bar figure) colors; default KLineChart's green/red. */
   barColors?: { up: string; down: string };
+  /**
+   * Reference levels (dashed horizontal lines, e.g. RSI 70 / 30) of an oscillator; missing → the catalog
+   * defaults. At most MAX_INDICATOR_LEVELS finite numbers.
+   */
+  levels?: number[];
+  /** False hides the reference levels; missing → shown. */
+  showLevels?: boolean;
 }
+/** Most reference levels an indicator may hold (enforced by the server's layout schema and the settings dialog). */
+export const MAX_INDICATOR_LEVELS = 5;
+/** Largest magnitude of a reference level. */
+export const MAX_INDICATOR_LEVEL = 1e12;
 export type ChartType = 'candle'|'ohlc'|'line'|'area';
 /** Most indicators a layout may hold (enforced by the server's layout schema and the indicator picker). */
 export const MAX_INDICATORS = 30;

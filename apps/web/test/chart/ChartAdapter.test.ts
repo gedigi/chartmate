@@ -1462,3 +1462,89 @@ describe('ChartAdapter Shift constraint and price labels', () => {
     expect(chart().overrideOverlay).not.toHaveBeenCalled();
   });
 });
+
+describe('indicator reference levels', () => {
+  type Levels = { draw?: (p: unknown) => boolean; minValue?: number | null; maxValue?: number | null; figures?: unknown };
+  const createArg = () => chart().createIndicator.mock.calls.at(-1)![0] as Levels;
+  const lastOverride = () => chart().overrideIndicator.mock.calls.at(-1)![0] as Levels & { id: string };
+  const fakeDraw = (draw: (p: unknown) => boolean) => {
+    const ctx = {
+      save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(), setLineDash: vi.fn(),
+      lineWidth: 0, strokeStyle: '',
+    };
+    const result = draw({ ctx, bounding: { width: 100, height: 100 }, yAxis: { convertToPixel: (v: number) => 100 - v } });
+    return { result, ctx, ys: ctx.moveTo.mock.calls.map((c) => c[1] as number) };
+  };
+
+  it('oscillators get a draw callback with their default levels and a y-range that keeps them visible', () => {
+    const a = make();
+    a.addIndicator({ name: 'RSI', pane: 'sub' });
+    const c = createArg();
+    expect(c).toMatchObject({ minValue: 30, maxValue: 70 });
+    const { result, ys, ctx } = fakeDraw(c.draw!);
+    expect(result).toBe(false); // default figures still drawn (on top)
+    expect(ys).toEqual([30.5, 70.5]);
+    expect(ctx.strokeStyle).toMatch(/^rgba\(/);
+    a.addIndicator({ name: 'MACD', pane: 'sub' });
+    expect(createArg()).toMatchObject({ minValue: 0, maxValue: 0 });
+  });
+
+  it('overlays and indicators without catalog levels get no draw / range fields', () => {
+    const a = make();
+    a.addIndicator({ name: 'MA', pane: 'main' });
+    expect(createArg()).not.toHaveProperty('draw');
+    a.addIndicator({ name: 'VOL', pane: 'sub' });
+    expect(createArg()).not.toHaveProperty('draw');
+    expect(createArg()).not.toHaveProperty('minValue');
+  });
+
+  it('stored levels and showLevels: false are honored on create and listed back', () => {
+    const a = make();
+    const id = a.addIndicator({ name: 'KDJ', pane: 'sub', levels: [90, 50, 10] });
+    expect(createArg()).toMatchObject({ minValue: 10, maxValue: 90 });
+    expect(fakeDraw(createArg().draw!).ys).toEqual([10.5, 50.5, 90.5]);
+    const hidden = a.addIndicator({ name: 'CCI', pane: 'sub', showLevels: false });
+    expect(createArg()).toMatchObject({ minValue: null, maxValue: null });
+    expect(fakeDraw(createArg().draw!).ctx.stroke).not.toHaveBeenCalled();
+    expect(a.listIndicators().find((i) => i.id === id)).toMatchObject({ levels: [90, 50, 10] });
+    expect(a.listIndicators().find((i) => i.id === hidden)).toMatchObject({ showLevels: false });
+  });
+
+  it('updateIndicator rewrites the levels only when they change; removing the override restores the defaults', () => {
+    const a = make();
+    const id = a.addIndicator({ name: 'RSI', pane: 'sub' });
+    a.updateIndicator(id, { calcParams: [14, 12, 24] });
+    expect(lastOverride()).not.toHaveProperty('draw'); // same levels: untouched
+    a.updateIndicator(id, { calcParams: [14, 12, 24], showLevels: false });
+    expect(lastOverride()).toMatchObject({ id, minValue: null, maxValue: null });
+    expect(fakeDraw(lastOverride().draw!).ctx.stroke).not.toHaveBeenCalled();
+    a.updateIndicator(id, { levels: [80, 20] });
+    expect(lastOverride()).toMatchObject({ minValue: 20, maxValue: 80 });
+    a.updateIndicator(id, {});
+    expect(lastOverride()).toMatchObject({ minValue: 30, maxValue: 70 });
+    expect(fakeDraw(lastOverride().draw!).ys).toEqual([30.5, 70.5]);
+    expect(a.listIndicators()[0]).not.toHaveProperty('levels');
+  });
+
+  it('the levels follow the theme (color read at draw time) and survive style overrides and the solid-bars figures', () => {
+    const a = make();
+    const create = chart().createIndicator.getMockImplementation()!;
+    chart().createIndicator.mockImplementationOnce((v, stack) => {
+      const id = create(v, stack);
+      const figures = [{ key: 'ao', type: 'bar', styles: () => ({ style: 'stroke', color: '#00ff00' }) }];
+      Object.assign(chart().indicators.find((i) => i.id === id)!, { figures });
+      return id;
+    });
+    const id = a.addIndicator({ name: 'AO', pane: 'sub' });
+    const draw = createArg().draw!;
+    expect(lastOverride()).toMatchObject({ id, figures: expect.any(Array) });
+    expect(lastOverride()).not.toHaveProperty('draw'); // solid bars do not touch the levels
+    const dark = fakeDraw(draw).ctx.strokeStyle;
+    chart().overrideIndicator.mockClear();
+    a.setTheme('light');
+    for (const [o] of chart().overrideIndicator.mock.calls) expect(o).not.toHaveProperty('draw');
+    expect(fakeDraw(draw).ctx.strokeStyle).not.toBe(dark);
+    a.updateIndicator(id, { barColors: { up: '#00ff00', down: '#ff0000' } });
+    expect(lastOverride()).not.toHaveProperty('draw');
+  });
+});

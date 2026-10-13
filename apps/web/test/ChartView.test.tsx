@@ -366,6 +366,19 @@ describe('ChartView', () => {
     expect(adapter().updateIndicator).toHaveBeenLastCalledWith('ind_1', expect.objectContaining({ lineWidths: [4], lineStyles: ['dashed'] }));
   });
 
+  it('passes indicator reference levels to the adapter; removing them falls back to the defaults', async () => {
+    const rsi = { name: 'RSI', pane: 'sub' as const, calcParams: [14], visible: true, levels: [80, 50, 20] };
+    const { rerenderWith } = renderView({ ...LAYOUT, indicators: [rsi] });
+    await flush();
+    expect(adapter().addIndicator).toHaveBeenCalledWith(expect.objectContaining({ name: 'RSI', levels: [80, 50, 20] }));
+    rerenderWith({ ...LAYOUT, indicators: [{ ...rsi, showLevels: false }] });
+    expect(adapter().updateIndicator).toHaveBeenLastCalledWith('ind_1', expect.objectContaining({ levels: [80, 50, 20], showLevels: false }));
+    rerenderWith({ ...LAYOUT, indicators: [{ name: 'RSI', pane: 'sub', calcParams: [14], visible: true }] });
+    const last = adapter().updateIndicator.mock.calls.at(-1)![1] as Record<string, unknown>;
+    expect(last).not.toHaveProperty('levels');
+    expect(last).not.toHaveProperty('showLevels');
+  });
+
   it('shows notices even when the response has no bars (basket empty state)', async () => {
     renderView();
     await flush();

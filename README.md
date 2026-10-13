@@ -161,6 +161,13 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   marker labels keep their muted color on the chart background under the same rule.
 - **Indicator settings** also set each line's width (1–4 px) and solid/dashed/dotted style, and the up/down bar
   colors of histogram indicators (VOL, MACD, AO); unchanged bar colors follow the theme.
+- **Oscillator reference levels**: oscillator panes draw thin dashed lines in the theme's muted color behind
+  the indicator lines, TradingView-style: MACD, AO, ROC, MTM and TRIX at 0; RSI at 70 / 30; KDJ at 80 / 20;
+  CCI at ±100; WR at -20 / -80 (KLineChart's WR runs from -100 to 0); DMI at 25 (ADX trend threshold). Like a
+  TradingView `hline`, the levels are part of the pane's auto-range, so RSI always shows its 30–70 band and
+  MACD its zero line even when the values stay on one side. The settings dialog's **Levels** section hides
+  them or edits the values (up to 5, separated by commas; empty = none); Reset restores the defaults. They
+  are saved with the layout only when changed (older layouts use the defaults).
 - **Drawing styles**: selecting a drawing shows a small style bar at the top of the chart (color, width,
   solid/dashed/dotted; text annotations: color and font size). Styles are saved with the drawing; drawings
   without their own style follow the default drawing style. Legacy drawings with non-hex colors (or other
@@ -364,6 +371,9 @@ examples. Restart `pnpm dev` (or rebuild) after adding a file.
 
 `catalog.paramMin` / `catalog.paramMax` (optional, one entry per param) set the accepted range of integer
 params in the settings dialog (default 1…1000).
+
+`catalog.levels` (optional, up to 5 numbers) gives a sub-pane indicator default reference levels (dashed
+lines, editable in the settings dialog). A template's own `draw` callback still runs after the levels.
 
 `custom/wyckoff.ts` (with its calculation in `wyckoffCalc.ts`) is a port of the TradingView script
 'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colors in a `draw`

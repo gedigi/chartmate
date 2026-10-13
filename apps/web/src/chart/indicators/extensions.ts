@@ -1,3 +1,4 @@
+import { MAX_INDICATOR_LEVELS } from '@chartmate/shared';
 import type { CustomIndicator } from './types';
 
 const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
@@ -34,6 +35,12 @@ export function customIndicatorProblem(v: unknown): string | null {
       return `catalog.${key} must be an array of finite numbers`;
     }
   }
+  if (c.levels !== undefined && !(
+    Array.isArray(c.levels) && c.levels.length <= MAX_INDICATOR_LEVELS && c.levels.every((x) => typeof x === 'number' && Number.isFinite(x))
+  )) {
+    return `catalog.levels must be an array of at most ${MAX_INDICATOR_LEVELS} finite numbers`;
+  }
+  if (c.levels !== undefined && c.pane !== 'sub') return 'catalog.levels is only supported on sub-pane indicators';
   if (c.description !== undefined && typeof c.description !== 'string') return 'catalog.description must be a string';
   if (usePricePrecision !== undefined && typeof usePricePrecision !== 'boolean') return 'usePricePrecision must be a boolean';
   return null;

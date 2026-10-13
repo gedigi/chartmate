@@ -68,6 +68,21 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
     }
   });
 
+  it('indicator reference levels: optional, up to 5 finite numbers, plus a show flag', async () => {
+    const rsi = { name: 'RSI', pane: 'sub', calcParams: [14], visible: true } as const;
+    // Old layouts without levels stay valid and round-trip unchanged (the web app applies the catalog defaults).
+    expect((await putLayout({ ...layout, indicators: [rsi] })).statusCode).toBe(200);
+    expect((await t.app.inject({ method: 'GET', url: '/api/layouts/default' })).json().indicators[0]).toEqual(rsi);
+    for (const ok of [{ levels: [80, 50, 20] }, { levels: [] }, { levels: [-0.5, 1e6, 0, 1, 2] }, { showLevels: false }, { levels: [70, 30], showLevels: true }]) {
+      const ind = { ...rsi, ...ok };
+      expect((await putLayout({ ...layout, indicators: [ind] })).statusCode, JSON.stringify(ok)).toBe(200);
+      expect((await t.app.inject({ method: 'GET', url: '/api/layouts/default' })).json().indicators[0]).toEqual(ind);
+    }
+    for (const bad of [{ levels: [1, 2, 3, 4, 5, 6] }, { levels: ['70'] }, { levels: [null] }, { levels: 70 }, { levels: [1e13] }, { showLevels: 'no' }]) {
+      expect((await putLayout({ ...layout, indicators: [{ ...rsi, ...bad }] })).statusCode, JSON.stringify(bad)).toBe(400);
+    }
+  });
+
   it('drawing styles: normalized shape accepted, missing styles ok, unknown keys stripped, invalid styles dropped', async () => {
     const drawings: DrawingState[] = [
       { name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false, styles: { line: { color: '#ff0000', size: 3, style: 'dashed' } } },
