@@ -1,9 +1,7 @@
 import type { App, CustomScheme, Session, WebContents, WebPreferences } from 'electron';
 
 export const APP_SCHEME = 'app';
-// Kept from before the rename to Chartmate on purpose: the origin (app://altv) keys the renderer's localStorage,
-// so changing it would silently drop every saved browser-side setting of existing installs.
-export const APP_HOST = 'altv';
+export const APP_HOST = 'chartmate';
 export const APP_ORIGIN = `${APP_SCHEME}://${APP_HOST}`;
 export const APP_ENTRY_URL = `${APP_ORIGIN}/`;
 
@@ -52,7 +50,7 @@ export function secureWebPreferences(opts: { isPackaged: boolean }): WebPreferen
   };
 }
 
-/** True only for URLs on the app's own origin (app://altv). */
+/** True only for URLs on the app's own origin (app://chartmate). */
 export function isAppUrl(url: string): boolean {
   try {
     const u = new URL(url);
@@ -63,7 +61,7 @@ export function isAppUrl(url: string): boolean {
 }
 
 /**
- * Renderer request filter: only app://altv requests may leave the renderer (plus devtools:// for the DevTools UI in
+ * Renderer request filter: only app://chartmate requests may leave the renderer (plus devtools:// for the DevTools UI in
  * development). Everything else (http, https, ws, file, ftp, other app hosts …) is canceled.
  */
 export function isRendererRequestAllowed(url: string, opts: { dev: boolean }): boolean {

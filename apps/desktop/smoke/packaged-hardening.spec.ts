@@ -66,13 +66,13 @@ async function stop(child: ChildProcess): Promise<void> {
   await new Promise((r) => setTimeout(r, 500)); // let helpers exit and the single-instance lock go away
 }
 
-test('uses the per-user data directory even when CHARTMATE_USER_DATA_DIR (or the legacy ALTV_USER_DATA_DIR) is set', async () => {
+test('uses the per-user data directory even when CHARTMATE_USER_DATA_DIR is set', async () => {
   const elsewhere = mkdtempSync(join(tmpdir(), 'chartmate-ignored-'));
-  const { child } = start({ CHARTMATE_USER_DATA_DIR: elsewhere, ALTV_USER_DATA_DIR: elsewhere });
+  const { child } = start({ CHARTMATE_USER_DATA_DIR: elsewhere });
   try {
     expect(await waitFor(shown, 30_000)).toBe(true);
-    expect(existsSync(join(userData, 'altv.db'))).toBe(true);
-    expect(existsSync(join(elsewhere, 'altv.db'))).toBe(false);
+    expect(existsSync(join(userData, 'chartmate.db'))).toBe(true);
+    expect(existsSync(join(elsewhere, 'chartmate.db'))).toBe(false);
   } finally {
     await stop(child);
   }

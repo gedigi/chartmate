@@ -61,8 +61,8 @@ test.afterAll(async () => {
   }
 });
 
-test('loads the UI from app://altv with the product title', async () => {
-  expect(page.url()).toBe('app://altv/');
+test('loads the UI from app://chartmate with the product title', async () => {
+  expect(page.url()).toBe('app://chartmate/');
   if (app) {
     const title = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.getTitle());
     expect(title).toBe('Chartmate');
@@ -106,7 +106,7 @@ test('writes work (PUT with keepalive over app://) and land in the SQLite file i
     return res.status;
   });
   expect(r).toBeLessThan(300);
-  const db = join(userData, 'altv.db');
+  const db = join(userData, 'chartmate.db');
   expect(statSync(db).isFile()).toBe(true);
   if (process.platform !== 'win32') {
     expect(statSync(userData).mode & 0o777).toBe(0o700);
@@ -145,14 +145,14 @@ test('no Node in the renderer; renderer cannot reach the network', async () => {
 test('navigation away from app:// is blocked', async () => {
   await page.evaluate(() => { window.location.href = 'https://example.com/'; });
   await page.waitForTimeout(1000);
-  expect(page.url()).toBe('app://altv/');
+  expect(page.url()).toBe('app://chartmate/');
   await page.evaluate(() => { window.location.href = 'file:///etc/passwd'; });
   await page.waitForTimeout(500);
-  expect(page.url()).toBe('app://altv/');
+  expect(page.url()).toBe('app://chartmate/');
 });
 
 test('window.open is denied', async () => {
-  const opened = await page.evaluate(() => window.open('https://example.com/') === null && window.open('app://altv/') === null);
+  const opened = await page.evaluate(() => window.open('https://example.com/') === null && window.open('app://chartmate/') === null);
   expect(opened).toBe(true);
   await page.waitForTimeout(500);
   expect(pageCount()).toBe(1);

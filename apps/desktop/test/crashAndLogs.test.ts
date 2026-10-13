@@ -26,9 +26,9 @@ describe('renderer crash policy', () => {
 
 describe('log hygiene', () => {
   it('scrubs absolute paths (POSIX, macOS, Windows) from log lines', () => {
-    expect(scrub('failed at /Users/alice/Library/Application Support/Chartmate/altv.db')).not.toContain('alice');
+    expect(scrub('failed at /Users/alice/Library/Application Support/Chartmate/chartmate.db')).not.toContain('alice');
     expect(scrub('open /home/bob/x.db')).toBe('open <path>');
-    expect(scrub('at C:\\Users\\carol\\AppData\\Roaming\\Chartmate\\altv.db')).not.toContain('carol');
+    expect(scrub('at C:\\Users\\carol\\AppData\\Roaming\\Chartmate\\chartmate.db')).not.toContain('carol');
     expect(scrub('GET /api/bars?symbol=x')).toBe('GET /api/bars?symbol=x'); // URL paths stay
   });
 

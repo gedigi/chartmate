@@ -4,7 +4,7 @@
  * - No 'unsafe-inline' anywhere: the web bundle has no inline scripts (the theme bootstrap lives in
  *   /theme-init.js) and no inline <style>/style="" markup. React `style` props and KLineChart write styles
  *   through the CSSOM (element.style.x = …), which CSP does not govern, so style-src 'self' suffices.
- * - 'self' is the app://altv origin; nothing else (no http/https/ws, no blob:, no eval).
+ * - 'self' is the app://chartmate origin; nothing else (no http/https/ws, no blob:, no eval).
  * - img-src allows data: for small inline images only.
  * - Trusted Types are required for every DOM-XSS sink, with no policy allowed (the smoke test asserts zero
  *   violations while the chart, the baskets view and dialogs render).

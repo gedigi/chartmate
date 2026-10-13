@@ -29,16 +29,16 @@ describe('ensurePrivateDir', () => {
 
 describe('restrictFiles', () => {
   it.runIf(posix)('chmods existing files to 0600 and ignores missing ones', () => {
-    const f = join(base, 'altv.db');
+    const f = join(base, 'chartmate.db');
     writeFileSync(f, 'x', { mode: 0o644 });
-    restrictFiles([f, join(base, 'altv.db-wal')]);
+    restrictFiles([f, join(base, 'chartmate.db-wal')]);
     expect(mode(f)).toBe(0o600);
-    expect(existsSync(join(base, 'altv.db-wal'))).toBe(false);
+    expect(existsSync(join(base, 'chartmate.db-wal'))).toBe(false);
   });
 });
 
 describe('migrateLegacyUserData', () => {
-  const files = ['altv.db', 'altv.db-wal', 'altv.db-shm', 'window-state.json'];
+  const files = ['chartmate.db', 'chartmate.db-wal', 'chartmate.db-shm', 'window-state.json'];
 
   it('moves the database (and its WAL/SHM) from the first legacy dir that has one', () => {
     const old1 = join(base, 'Old Empty');
@@ -46,15 +46,15 @@ describe('migrateLegacyUserData', () => {
     const target = join(base, 'New Name');
     mkdirSync(old1);
     mkdirSync(old2);
-    writeFileSync(join(old2, 'altv.db'), 'db');
-    writeFileSync(join(old2, 'altv.db-wal'), 'wal');
+    writeFileSync(join(old2, 'chartmate.db'), 'db');
+    writeFileSync(join(old2, 'chartmate.db-wal'), 'wal');
     writeFileSync(join(old2, 'window-state.json'), '{}');
-    const from = migrateLegacyUserData({ target, legacyDirs: [old1, old2], files, marker: 'altv.db' });
+    const from = migrateLegacyUserData({ target, legacyDirs: [old1, old2], files, marker: 'chartmate.db' });
     expect(from).toBe(old2);
-    expect(readFileSync(join(target, 'altv.db'), 'utf8')).toBe('db');
-    expect(readFileSync(join(target, 'altv.db-wal'), 'utf8')).toBe('wal');
+    expect(readFileSync(join(target, 'chartmate.db'), 'utf8')).toBe('db');
+    expect(readFileSync(join(target, 'chartmate.db-wal'), 'utf8')).toBe('wal');
     expect(existsSync(join(target, 'window-state.json'))).toBe(true);
-    expect(existsSync(join(old2, 'altv.db'))).toBe(false);
+    expect(existsSync(join(old2, 'chartmate.db'))).toBe(false);
   });
 
   it('never overwrites an existing database in the target', () => {
@@ -62,26 +62,26 @@ describe('migrateLegacyUserData', () => {
     const target = join(base, 'New');
     mkdirSync(old);
     mkdirSync(target);
-    writeFileSync(join(old, 'altv.db'), 'old');
-    writeFileSync(join(target, 'altv.db'), 'current');
-    expect(migrateLegacyUserData({ target, legacyDirs: [old], files, marker: 'altv.db' })).toBeNull();
-    expect(readFileSync(join(target, 'altv.db'), 'utf8')).toBe('current');
-    expect(readFileSync(join(old, 'altv.db'), 'utf8')).toBe('old');
+    writeFileSync(join(old, 'chartmate.db'), 'old');
+    writeFileSync(join(target, 'chartmate.db'), 'current');
+    expect(migrateLegacyUserData({ target, legacyDirs: [old], files, marker: 'chartmate.db' })).toBeNull();
+    expect(readFileSync(join(target, 'chartmate.db'), 'utf8')).toBe('current');
+    expect(readFileSync(join(old, 'chartmate.db'), 'utf8')).toBe('old');
   });
 
   it('is a no-op without legacy data, and ignores the target listed as its own legacy dir', () => {
     const target = join(base, 'Same');
     mkdirSync(target);
-    expect(migrateLegacyUserData({ target, legacyDirs: [target, join(base, 'missing')], files, marker: 'altv.db' })).toBeNull();
+    expect(migrateLegacyUserData({ target, legacyDirs: [target, join(base, 'missing')], files, marker: 'chartmate.db' })).toBeNull();
   });
 
   it.runIf(posix)('creates the target owner-only and leaves migrated files 0600', () => {
     const old = join(base, 'Old');
     mkdirSync(old);
-    writeFileSync(join(old, 'altv.db'), 'db', { mode: 0o644 });
+    writeFileSync(join(old, 'chartmate.db'), 'db', { mode: 0o644 });
     const target = join(base, 'New');
-    migrateLegacyUserData({ target, legacyDirs: [old], files, marker: 'altv.db' });
+    migrateLegacyUserData({ target, legacyDirs: [old], files, marker: 'chartmate.db' });
     expect(mode(target)).toBe(0o700);
-    expect(mode(join(target, 'altv.db'))).toBe(0o600);
+    expect(mode(join(target, 'chartmate.db'))).toBe(0o600);
   });
 });

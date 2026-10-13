@@ -26,7 +26,7 @@ export interface ProtocolOptions {
   inject: InjectFn;
   /** Absolute path of the built web UI (apps/web/dist). */
   webRoot: string;
-  /** The only accepted host, e.g. `altv` for app://altv/…. */
+  /** The only accepted host, e.g. `chartmate` for app://chartmate/…. */
   host: string;
   /** Called with internal failures (never sent to the renderer). */
   onError?: (err: unknown, url: string) => void;

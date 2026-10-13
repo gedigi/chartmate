@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { API_BODY_LIMIT, createAppProtocolHandler, type InjectFn, type InjectRequest } from '../src/lib/protocol.js';
 import { CONTENT_SECURITY_POLICY } from '../src/lib/securityHeaders.js';
 
-const ORIGIN = 'app://altv';
+const ORIGIN = 'app://chartmate';
 
 let root: string;
 let webRoot: string;
@@ -44,7 +44,7 @@ function fakeInject(): { inject: InjectFn; calls: InjectRequest[] } {
 }
 
 function handler(inject = fakeInject().inject) {
-  return createAppProtocolHandler({ inject, webRoot, host: 'altv' });
+  return createAppProtocolHandler({ inject, webRoot, host: 'chartmate' });
 }
 
 const get = (h: ReturnType<typeof handler>, path: string, init?: RequestInit) => h(new Request(`${ORIGIN}${path}`, init));
@@ -150,8 +150,8 @@ describe('app:// protocol handler — path traversal', () => {
     expect(body).not.toContain('root:');
   });
 
-  it('app://altv/../../etc/passwd as given to the handler → 404', async () => {
-    const res = await handler()(new Request('app://altv/../../etc/passwd'));
+  it('app://chartmate/../../etc/passwd as given to the handler → 404', async () => {
+    const res = await handler()(new Request('app://chartmate/../../etc/passwd'));
     expect(res.status).toBe(404);
   });
 });

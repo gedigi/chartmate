@@ -55,17 +55,17 @@ describe('app:// scheme privileges', () => {
 });
 
 describe('URL rules', () => {
-  it('isAppUrl accepts only app://altv', () => {
+  it('isAppUrl accepts only app://chartmate', () => {
     expect(isAppUrl(`${APP_ORIGIN}/`)).toBe(true);
     expect(isAppUrl(`${APP_ORIGIN}/assets/x.js?y#z`)).toBe(true);
-    for (const u of ['app://evil/', 'https://altv/', 'https://example.com', 'file:///etc/passwd', 'javascript:alert(1)', 'about:blank', 'data:text/html,x', '']) {
+    for (const u of ['app://evil/', 'https://chartmate/', 'https://example.com', 'file:///etc/passwd', 'javascript:alert(1)', 'about:blank', 'data:text/html,x', '']) {
       expect(isAppUrl(u), u).toBe(false);
     }
   });
 
-  it('renderer requests: app://altv only; devtools: only in development', () => {
-    expect(isRendererRequestAllowed('app://altv/api/health', { dev: false })).toBe(true);
-    for (const u of ['https://example.com/', 'http://127.0.0.1:8787/api', 'ws://x/', 'file:///etc/passwd', 'app://other/', 'devtools://devtools/bundled/x.html', 'chrome-extension://x/y', 'blob:app://altv/1']) {
+  it('renderer requests: app://chartmate only; devtools: only in development', () => {
+    expect(isRendererRequestAllowed('app://chartmate/api/health', { dev: false })).toBe(true);
+    for (const u of ['https://example.com/', 'http://127.0.0.1:8787/api', 'ws://x/', 'file:///etc/passwd', 'app://other/', 'devtools://devtools/bundled/x.html', 'chrome-extension://x/y', 'blob:app://chartmate/1']) {
       expect(isRendererRequestAllowed(u, { dev: false }), u).toBe(false);
     }
     expect(isRendererRequestAllowed('devtools://devtools/bundled/x.html', { dev: true })).toBe(true);
@@ -89,14 +89,14 @@ describe('hardenWebContents', () => {
     return { c, onBlocked };
   };
 
-  it('blocks navigation and redirects away from app://altv, allows same-origin', () => {
+  it('blocks navigation and redirects away from app://chartmate, allows same-origin', () => {
     const { c, onBlocked } = setup();
     for (const name of ['will-navigate', 'will-redirect']) {
       const bad = ev();
       c.emit(name, bad, 'https://example.com/');
       expect(bad.preventDefault, name).toHaveBeenCalled();
       const ok = ev();
-      c.emit(name, ok, 'app://altv/#/baskets');
+      c.emit(name, ok, 'app://chartmate/#/baskets');
       expect(ok.preventDefault, name).not.toHaveBeenCalled();
     }
     expect(onBlocked).toHaveBeenCalledWith('navigation', 'https://example.com');
@@ -112,7 +112,7 @@ describe('hardenWebContents', () => {
   it('denies every window.open, including same-origin', () => {
     const { c } = setup();
     expect(c.openHandler!({ url: 'https://example.com' })).toEqual({ action: 'deny' });
-    expect(c.openHandler!({ url: 'app://altv/' })).toEqual({ action: 'deny' });
+    expect(c.openHandler!({ url: 'app://chartmate/' })).toEqual({ action: 'deny' });
   });
 
   it('prevents webview attachment', () => {
@@ -158,7 +158,7 @@ describe('hardenSession', () => {
       const cb = vi.fn();
       s.permissionRequest!(null, p, cb);
       expect(cb, p).toHaveBeenCalledWith(false);
-      expect(s.permissionCheck!(null, p, 'app://altv', {}), p).toBe(false);
+      expect(s.permissionCheck!(null, p, 'app://chartmate', {}), p).toBe(false);
     }
     expect(s.devicePermission!({ deviceType: 'usb' })).toBe(false);
     const dm = vi.fn();
@@ -175,7 +175,7 @@ describe('hardenSession', () => {
     expect(selCb).toHaveBeenCalledWith(null);
   });
 
-  it('cancels every renderer request that is not app://altv', () => {
+  it('cancels every renderer request that is not app://chartmate', () => {
     const s = fakeSession();
     hardenSession(s as unknown as Session, { isPackaged: true });
     const decide = (url: string) => {
@@ -183,7 +183,7 @@ describe('hardenSession', () => {
       s.beforeRequest!({ url }, (x) => { r = x; });
       return r!.cancel;
     };
-    expect(decide('app://altv/api/health')).toBe(false);
+    expect(decide('app://chartmate/api/health')).toBe(false);
     expect(decide('https://example.com/')).toBe(true);
     expect(decide('https://query1.finance.yahoo.com/')).toBe(true);
     expect(decide('devtools://devtools/x')).toBe(true);
