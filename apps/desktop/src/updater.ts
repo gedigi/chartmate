@@ -1,12 +1,17 @@
-// Auto-update (electron-updater, GitHub provider). Bundled separately (dist/updater.cjs) and loaded only when
-// shouldEnableAutoUpdate() allows it. Signature verification stays at electron-updater's defaults.
-import { session } from 'electron';
+// Auto-update (electron-updater, GitHub provider). Bundled separately (dist/updater.cjs) and only for builds signed
+// for the target platform; loaded only when shouldEnableAutoUpdate() allows it. Signature checks stay at
+// electron-updater's defaults: on Windows the installer's Authenticode publisher must match app-update.yml's
+// publisherName (required by updatePolicy); on macOS Squirrel.Mac checks the new app's code signature against the
+// running app's designated requirement.
+import { app, session } from 'electron';
 import { autoUpdater } from 'electron-updater';
+import type { ListenGuard } from './lib/listenGuard.js';
 import type { RotatingLog } from './lib/logger.js';
 import { UPDATE_HOSTS } from './lib/updatePolicy.js';
 
-export function startAutoUpdate(log: RotatingLog): void {
-  // electron-updater uses its own session partition: restrict it to HTTPS GitHub hosts.
+export function startAutoUpdate(log: RotatingLog, listenGuard: ListenGuard): void {
+  // electron-updater uses its own session partition: restrict it to HTTPS GitHub hosts. (session-created already
+  // applied the permission lockdown; this replaces the app-only request filter for this partition.)
   const s = session.fromPartition('electron-updater', { cache: false });
   s.webRequest.onBeforeRequest((details, callback) => {
     let ok = false;
@@ -17,10 +22,33 @@ export function startAutoUpdate(log: RotatingLog): void {
     if (!ok) log.warn('blocked updater request');
     callback({ cancel: !ok });
   });
-  autoUpdater.logger = { info: (m: unknown) => log.info(`updater: ${String(m)}`), warn: (m: unknown) => log.warn(`updater: ${String(m)}`), error: (m: unknown) => log.error(`updater: ${String(m)}`), debug: () => {} };
+
+  // macOS: electron-updater serves the downloaded zip to Squirrel.Mac from a one-off 127.0.0.1 server. Arm the
+  // listener guard for exactly that, from the moment a download starts; disarm on failure or when nothing is due.
+  let disarm: (() => void) | null = null;
+  const arm = () => {
+    if (process.platform !== 'darwin') return;
+    disarm?.();
+    disarm = listenGuard.armForUpdateInstall();
+  };
+  const stop = () => {
+    disarm?.();
+    disarm = null;
+  };
+  autoUpdater.on('update-available', arm);
+  autoUpdater.on('update-not-available', stop);
+  autoUpdater.on('error', stop);
+
+  autoUpdater.logger = {
+    info: (m: unknown) => log.info(`updater: ${String(m)}`),
+    warn: (m: unknown) => log.warn(`updater: ${String(m)}`),
+    error: (m: unknown) => log.error(`updater: ${String(m)}`),
+    debug: () => {},
+  };
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.allowPrerelease = false;
+  // 0.x releases are published as GitHub pre-releases; from 1.0 on only full releases are considered.
+  autoUpdater.allowPrerelease = app.getVersion().startsWith('0.');
   autoUpdater.allowDowngrade = false;
   autoUpdater.checkForUpdatesAndNotify().catch((err: unknown) => log.error('update check failed', err));
 }

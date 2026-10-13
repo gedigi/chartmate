@@ -59,8 +59,20 @@ describe('electron-builder config', () => {
     });
   });
 
-  it('publishes a draft GitHub release only when asked', () => {
-    expect(buildConfig({ ALTV_PUBLISH: 'github' }).publish).toEqual([{ provider: 'github', releaseType: 'draft' }]);
+  it('GitHub publish settings come from GITHUB_REPOSITORY (never hardcoded) and only when asked', () => {
+    expect(buildConfig({ ALTV_PUBLISH: 'github', GITHUB_REPOSITORY: 'someone/somerepo' }).publish)
+      .toEqual([{ provider: 'github', owner: 'someone', repo: 'somerepo', releaseType: 'release' }]);
+    expect(() => buildConfig({ ALTV_PUBLISH: 'github' })).toThrow(/GITHUB_REPOSITORY/);
+  });
+
+  it('Windows ships an NSIS installer and a portable zip for x64 and arm64', () => {
+    expect(cfg.win.target).toEqual([{ target: 'nsis', arch: ['x64', 'arm64'] }, { target: 'zip', arch: ['x64', 'arm64'] }]);
+  });
+
+  it('no repository URL is hardcoded in the build configuration', () => {
+    for (const f of ['../build/builder-config.cjs', '../electron-builder.config.cjs', '../package.json', '../product.json']) {
+      expect(readFileSync(new URL(f, import.meta.url), 'utf8'), f).not.toMatch(/github\.com\//);
+    }
   });
 
   it('macOS: hardened runtime with minimal entitlements (JIT only)', () => {

@@ -1,16 +1,25 @@
 // electron-builder configuration factory (used by ../electron-builder.config.cjs and the tests). Product identity comes from product.json (the single place to rename the app).
-// Signing / notarization / publishing are driven purely by environment variables (CI secrets); without them the
-// build is unsigned and never published.
+// Signing / notarization are driven purely by environment variables (CI secrets, see build/signing.cjs); without
+// them the build is unsigned. electron-builder never uploads anything (the CI publish job does).
 const product = require('../product.json');
+const { signingFor } = require('./signing.cjs');
+
+/**
+ * GitHub publish settings (only for app-update.yml; artifacts are uploaded by the CI publish job, electron-builder
+ * always runs with --publish never). The repository comes from GITHUB_REPOSITORY (owner/name), never hardcoded.
+ */
+function githubPublish(env) {
+  if (env.ALTV_PUBLISH !== 'github') return null;
+  const [owner, repo] = String(env.GITHUB_REPOSITORY ?? '').split('/');
+  if (!owner || !repo) throw new Error('ALTV_PUBLISH=github needs GITHUB_REPOSITORY=owner/name');
+  return [{ provider: 'github', owner, repo, releaseType: 'release' }];
+}
 
 /** @param {NodeJS.ProcessEnv} env */
 function buildConfig(env = process.env) {
-  const has = (...keys) => keys.every((k) => typeof env[k] === 'string' && env[k].trim() !== '');
-  const macSigning = has('CSC_LINK') || has('CSC_NAME');
-  const notarize = macSigning && has('APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID');
-  const azureSigning = has('AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET', 'AZURE_TRUSTED_SIGNING_ENDPOINT',
-    'AZURE_TRUSTED_SIGNING_ACCOUNT', 'AZURE_TRUSTED_SIGNING_PROFILE', 'AZURE_PUBLISHER_NAME');
-  const publish = env.ALTV_PUBLISH === 'github' ? [{ provider: 'github', releaseType: 'draft' }] : null;
+  const mac = signingFor(env, 'darwin');
+  const win = signingFor(env, 'win32');
+  const publish = githubPublish(env);
 
   return {
     appId: product.appId,
@@ -46,16 +55,17 @@ function buildConfig(env = process.env) {
       entitlements: 'build/entitlements.mac.plist',
       entitlementsInherit: 'build/entitlements.mac.inherit.plist',
       // null = do not sign (and do not pick up a random identity from the keychain) when no CSC_* secret is set.
-      identity: macSigning ? undefined : null,
-      notarize,
+      identity: mac.signed ? undefined : null,
+      notarize: mac.notarize,
       minimumSystemVersion: '12.0',
     },
     dmg: { writeUpdateInfo: false },
     win: {
       executableName: product.executableName,
       icon: '../../assets/brand/chartmate.ico',
-      target: [{ target: 'nsis', arch: ['x64', 'arm64'] }],
-      ...(azureSigning ? {
+      // NSIS installer + a portable zip, both architectures.
+      target: [{ target: 'nsis', arch: ['x64', 'arm64'] }, { target: 'zip', arch: ['x64', 'arm64'] }],
+      ...(win.azure ? {
         azureSignOptions: {
           publisherName: env.AZURE_PUBLISHER_NAME,
           endpoint: env.AZURE_TRUSTED_SIGNING_ENDPOINT,

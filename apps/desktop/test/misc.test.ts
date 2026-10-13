@@ -74,13 +74,23 @@ describe('rotating log', () => {
 });
 
 describe('shouldEnableAutoUpdate', () => {
-  const base = { isPackaged: true, productAutoUpdate: true, hasUpdateConfig: true, isSigned: true, env: {} };
+  const yml = 'owner: o\nrepo: r\nprovider: github\nupdaterCacheDirName: chartmate-updater\n';
+  const winYml = `${yml}publisherName:\n  - CN=Chartmate\n`;
+  const base = { isPackaged: true, productAutoUpdate: true, isSigned: true, platform: 'darwin' as NodeJS.Platform, updateConfig: yml, env: {} };
   it('requires every gate', () => {
     expect(shouldEnableAutoUpdate(base)).toBe(true);
     expect(shouldEnableAutoUpdate({ ...base, isPackaged: false })).toBe(false);
     expect(shouldEnableAutoUpdate({ ...base, productAutoUpdate: false })).toBe(false);
-    expect(shouldEnableAutoUpdate({ ...base, hasUpdateConfig: false })).toBe(false);
+    expect(shouldEnableAutoUpdate({ ...base, updateConfig: null })).toBe(false);
     expect(shouldEnableAutoUpdate({ ...base, isSigned: false })).toBe(false);
     expect(shouldEnableAutoUpdate({ ...base, env: { ALTV_DISABLE_UPDATES: '1' } })).toBe(false);
+    expect(shouldEnableAutoUpdate({ ...base, platform: 'linux' })).toBe(false);
+  });
+  it('Windows: refuses to update unless app-update.yml pins publisherName', () => {
+    expect(shouldEnableAutoUpdate({ ...base, platform: 'win32' })).toBe(false);
+    expect(shouldEnableAutoUpdate({ ...base, platform: 'win32', updateConfig: winYml })).toBe(true);
+    expect(shouldEnableAutoUpdate({ ...base, platform: 'win32', updateConfig: `${yml}publisherName: CN=Chartmate\n` })).toBe(true);
+    expect(shouldEnableAutoUpdate({ ...base, platform: 'win32', updateConfig: `${yml}publisherName: []\n` })).toBe(false);
+    expect(shouldEnableAutoUpdate({ ...base, platform: 'win32', updateConfig: `${yml}publisherName:\n` })).toBe(false);
   });
 });
