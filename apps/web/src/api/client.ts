@@ -1,5 +1,7 @@
-import type {
-  BarsResponse, Basket, BasketVersion, DrawingState, LatestResponse, Layout, Quote, SessionMode, SymbolId, SymbolInfo, Timeframe,
+import {
+  normalizeWatchlist,
+  type BarsResponse, type Basket, type BasketVersion, type DrawingState, type LatestResponse, type Layout, type Quote,
+  type SessionMode, type SymbolId, type SymbolInfo, type Timeframe, type WatchlistEntry,
 } from '@altv/shared';
 
 /** Any failed API call. `status` 0 means the request never got a response (network error). */
@@ -135,8 +137,9 @@ export const api = {
     remove: async (id: string): Promise<void> => { await request<void>('DELETE', `/baskets/${enc(id)}`); },
   },
   watchlist: {
-    get: () => get<SymbolId[]>('/watchlist'),
-    put: async (ids: SymbolId[]): Promise<void> => { await request<unknown>('PUT', '/watchlist', ids); },
+    /** Entries in order; a server still returning the legacy symbol id array is read as symbol entries. */
+    get: async (): Promise<WatchlistEntry[]> => normalizeWatchlist(await get<unknown>('/watchlist')),
+    put: async (entries: readonly WatchlistEntry[]): Promise<void> => { await request<unknown>('PUT', '/watchlist', entries); },
   },
   layouts: {
     get: (key: string) => nullOn404(get<Layout>(`/layouts/${enc(key)}`)),

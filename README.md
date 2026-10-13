@@ -185,6 +185,35 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
 - **Parallel channels** show a dashed midline halfway between the two lines, in the channel's colour and width
   (longer dashes when the channel itself is dashed or dotted); it is not a stored point.
 
+## Watchlist and sections
+
+The right sidebar lists symbols with live quotes (every 15 s) and a sparkline. Click a row (or Enter) to open
+its chart; Delete removes the focused row; drag rows or press **Alt+↑/↓** to reorder.
+
+**Sections** group symbols under a header, TradingView-style. The watchlist is one ordered list of symbols and
+section headers: the symbols below a header belong to it until the next header; symbols above the first header
+form an untitled top group.
+
+- **+ Section** (top of the watchlist) adds a section at the end, named "New section" and ready to rename.
+  Up to 50 sections and 200 symbols.
+- **Rename**: double-click the title (or F2 on the header, or the **…** menu → Rename). Enter saves, Escape
+  cancels, an empty title keeps the old one; at most 40 characters.
+- **Collapse / expand**: click the header. A collapsed header shows how many symbols it hides; the state is saved.
+- **… menu**: Rename, Add section above, Delete section (only the header goes: its symbols move to the previous
+  section).
+- **Adding a symbol** puts it at the end of the *active* section — the last header or symbol you clicked or
+  focused inside a section — or at the end of the list when none is active (e.g. after clicking a symbol of the
+  top group). A symbol is listed once; adding it again does nothing.
+- **Moving**: drag any row, or Alt+↑/↓ on the focused row. Moving a header moves only that header row, so the
+  symbols below it change section. Dropping a symbol onto a collapsed header appends it to that section; moving
+  a row with the keyboard into a collapsed section, or moving a collapsed header, expands it so the row stays in
+  view.
+
+The API is `GET /api/watchlist` → `WatchlistEntry[]` (`{ type: 'symbol', id }` or
+`{ type: 'section', id: <uuid>, title, collapsed }`) and `PUT /api/watchlist` with the same array; `PUT` still
+accepts the older plain symbol id array. Migration 003 copies an existing watchlist into the new storage (the old
+table is kept in sync with the symbols, so rolling back to an older version keeps them).
+
 ## Baskets
 
 A basket is a weighted set of stocks/crypto charted as one synthetic instrument.

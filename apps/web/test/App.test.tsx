@@ -131,7 +131,7 @@ describe('App', () => {
 
   it('recovers from a failed symbol info load via the Retry button, by re-selecting the symbol, or automatically', async () => {
     vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
-    vi.spyOn(api.watchlist, 'get').mockResolvedValue(['crypto:BTC']);
+    vi.spyOn(api.watchlist, 'get').mockResolvedValue([{ type: 'symbol', id: 'crypto:BTC' }]);
     vi.spyOn(api.watchlist, 'put').mockResolvedValue(undefined);
     const ok = vi.mocked(api.symbol).getMockImplementation()!;
     vi.mocked(api.symbol).mockRejectedValue(new ApiError(0, 'network_error', 'offline'));
@@ -167,7 +167,7 @@ describe('App', () => {
 
   it('a watchlist click before the default layout loads is applied after it loads (not overwritten)', async () => {
     vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
-    vi.spyOn(api.watchlist, 'get').mockResolvedValue(['stock:MSFT']);
+    vi.spyOn(api.watchlist, 'get').mockResolvedValue([{ type: 'symbol', id: 'stock:MSFT' }]);
     vi.spyOn(api.watchlist, 'put').mockResolvedValue(undefined);
     let resolveDefault!: (l: Layout | null) => void;
     vi.mocked(api.layouts.get).mockImplementation((key) =>

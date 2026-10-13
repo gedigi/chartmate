@@ -136,6 +136,13 @@ describe('api client', () => {
     expect(f.mock.calls.at(-1)![1]?.keepalive).toBe(true);
   });
 
+  it('watchlist.get accepts the legacy symbol id array and the entry array', async () => {
+    const section = { type: 'section', id: '0b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f60', title: 'Tech', collapsed: true };
+    mockFetch(jsonResponse(200, ['stock:AAPL', 'crypto:BTC']), jsonResponse(200, [section, { type: 'symbol', id: 'stock:AAPL' }]));
+    expect(await api.watchlist.get()).toEqual([{ type: 'symbol', id: 'stock:AAPL' }, { type: 'symbol', id: 'crypto:BTC' }]);
+    expect(await api.watchlist.get()).toEqual([section, { type: 'symbol', id: 'stock:AAPL' }]);
+  });
+
   it('does not set keepalive on GET requests', async () => {
     const f = mockFetch(jsonResponse(200, []));
     await api.watchlist.get();

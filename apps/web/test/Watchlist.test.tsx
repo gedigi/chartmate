@@ -1,4 +1,4 @@
-import type { SymbolId, SymbolInfo } from '@altv/shared';
+import type { SymbolId, SymbolInfo, WatchlistEntry } from '@altv/shared';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -17,8 +17,11 @@ const INFO: Record<string, SymbolInfo> = {
 let put: ReturnType<typeof vi.spyOn>;
 let quotes: ReturnType<typeof vi.spyOn>;
 
-function setup(list: SymbolId[]) {
-  vi.spyOn(api.watchlist, 'get').mockResolvedValue(list);
+const sym = (id: SymbolId): WatchlistEntry => ({ type: 'symbol', id });
+const syms = (ids: SymbolId[]): WatchlistEntry[] => ids.map(sym);
+
+function setup(list: Array<SymbolId | WatchlistEntry>) {
+  vi.spyOn(api.watchlist, 'get').mockResolvedValue(list.map((e) => (typeof e === 'string' ? sym(e) : e)));
   put = vi.spyOn(api.watchlist, 'put').mockResolvedValue(undefined);
   quotes = vi.spyOn(api, 'quotes').mockResolvedValue([
     { id: 'stock:AAPL', price: 1234.5, changePct: 1.234, ts: 1 },
@@ -76,7 +79,7 @@ describe('Watchlist', () => {
     await user.type(box, 'm');
     await user.click(await screen.findByRole('option', { name: /Microsoft/ }));
     expect(rows()).toHaveLength(2);
-    await waitFor(() => expect(put).toHaveBeenCalledWith(['stock:AAPL', 'stock:MSFT']), { timeout: 2000 });
+    await waitFor(() => expect(put).toHaveBeenCalledWith(syms(['stock:AAPL', 'stock:MSFT'])), { timeout: 2000 });
     expect(put).toHaveBeenCalledTimes(1);
   });
 
@@ -86,7 +89,7 @@ describe('Watchlist', () => {
     await screen.findByText('BTC');
     await userEvent.click(screen.getByRole('button', { name: 'Remove BTC' }));
     expect(rows()).toHaveLength(1);
-    await waitFor(() => expect(put).toHaveBeenCalledWith(['stock:AAPL']), { timeout: 2000 });
+    await waitFor(() => expect(put).toHaveBeenCalledWith(syms(['stock:AAPL'])), { timeout: 2000 });
   });
 
   it('Alt+Arrow reorders and keeps focus', async () => {
@@ -119,7 +122,7 @@ describe('Watchlist', () => {
     render(<Watchlist currentSymbol="stock:SPY" onSelect={() => {}} />);
     await screen.findByText('SPY');
     expect(order()).toEqual(['stock:SPY', 'stock:AAPL', 'crypto:BTC', 'crypto:ETH']);
-    await waitFor(() => expect(put).toHaveBeenCalledWith(['stock:SPY', 'stock:AAPL', 'crypto:BTC', 'crypto:ETH']));
+    await waitFor(() => expect(put).toHaveBeenCalledWith(syms(['stock:SPY', 'stock:AAPL', 'crypto:BTC', 'crypto:ETH'])));
     await waitFor(() => expect(localStorage.getItem('altv.watchlist.initialized')).toBe('1'));
   });
 
@@ -323,5 +326,244 @@ describe('Watchlist', () => {
     expect(rows()[1]).toHaveFocus();
     fireEvent.keyDown(rows()[1]!, { key: 'Delete' });
     expect(rows()[0]).toHaveFocus();
+  });
+});
+
+const SEC_X = '0b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f60';
+const SEC_Y = '1b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f61';
+const section = (id: string, title: string, collapsed = false): WatchlistEntry => ({ type: 'section', id, title, collapsed });
+/** Visible rows in order: symbol ids, and section headers as `#Title`. */
+const visible = () => Array.from(document.querySelectorAll<HTMLElement>('[data-symbol], [data-section]'))
+  .map((el) => el.dataset['symbol'] ?? `#${el.closest('li')!.querySelector('.wl-section-title')!.textContent}`);
+const header = (title: string) => screen.getByRole('button', { name: new RegExp(`^${title}`) });
+const lastPut = () => put.mock.calls.at(-1)![0] as WatchlistEntry[];
+const dt = () => ({ setData: vi.fn(), getData: vi.fn(), effectAllowed: '', dropEffect: '' });
+function drag(from: HTMLElement, to: HTMLElement) {
+  const d = dt();
+  fireEvent.dragStart(from, { dataTransfer: d });
+  fireEvent.dragOver(to, { dataTransfer: d });
+  fireEvent.drop(to, { dataTransfer: d });
+  fireEvent.dragEnd(from, { dataTransfer: d });
+}
+
+describe('Watchlist sections', () => {
+  const LIST = (): WatchlistEntry[] => [
+    sym('stock:SPY'), section(SEC_X, 'Tech'), sym('stock:AAPL'), sym('stock:MSFT'), section(SEC_Y, 'Crypto'), sym('crypto:BTC'),
+  ];
+
+  it('renders section headers as headings with a toggle; quotes and sparklines exclude headers', async () => {
+    setup(LIST());
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('BTC');
+    expect(visible()).toEqual(['stock:SPY', '#Tech', 'stock:AAPL', 'stock:MSFT', '#Crypto', 'crypto:BTC']);
+    const headings = screen.getAllByRole('heading', { level: 3 });
+    expect(headings.map((x) => x.textContent)).toEqual([expect.stringContaining('Tech'), expect.stringContaining('Crypto')]);
+    expect(within(headings[0]!).getByRole('button')).toHaveAttribute('aria-expanded', 'true');
+    await waitFor(() => expect(quotes).toHaveBeenCalled());
+    const requested = (quotes.mock.calls[0]![0] as string[]).slice().sort();
+    expect(requested).toEqual(['crypto:BTC', 'stock:AAPL', 'stock:MSFT', 'stock:SPY']);
+    expect((vi.mocked(api.sparklines).mock.calls[0]![0]).slice().sort()).toEqual(requested);
+    expect(vi.mocked(api.symbol).mock.calls.map((c) => c[0]).sort()).toEqual(requested);
+  });
+
+  it('"+ Section" adds a section at the end in rename mode; Enter saves the title', async () => {
+    setup(['stock:AAPL']);
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('AAPL');
+    await userEvent.click(screen.getByRole('button', { name: 'Add section' }));
+    const input = screen.getByRole('textbox', { name: 'Section title' });
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue('New section');
+    expect(input).toHaveAttribute('maxlength', '40');
+    await userEvent.clear(input);
+    await userEvent.type(input, '  Energy {Enter}');
+    expect(screen.queryByRole('textbox', { name: 'Section title' })).not.toBeInTheDocument();
+    expect(visible()).toEqual(['stock:AAPL', '#Energy']);
+    expect(header('Energy')).toHaveFocus();
+    await waitFor(() => expect(put).toHaveBeenCalled(), { timeout: 2000 });
+    const saved = lastPut();
+    expect(saved[0]).toEqual(sym('stock:AAPL'));
+    expect(saved[1]).toMatchObject({ type: 'section', title: 'Energy', collapsed: false });
+    expect((saved[1] as { id: string }).id).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('double-click renames inline: Escape cancels, empty reverts, Enter saves', async () => {
+    setup(LIST());
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('BTC');
+    const title = () => screen.getAllByText('Tech').find((el) => el.classList.contains('wl-section-title'))!;
+    await userEvent.dblClick(title());
+    let input = screen.getByRole('textbox', { name: 'Section title' });
+    expect(input).toHaveValue('Tech');
+    await userEvent.type(input, 'nology{Escape}');
+    expect(visible()).toContain('#Tech');
+    await userEvent.dblClick(title());
+    input = screen.getByRole('textbox', { name: 'Section title' });
+    await userEvent.clear(input);
+    await userEvent.type(input, '   {Enter}');
+    expect(visible()).toContain('#Tech');
+    await userEvent.dblClick(title());
+    input = screen.getByRole('textbox', { name: 'Section title' });
+    await userEvent.clear(input);
+    await userEvent.type(input, 'Semis{Enter}');
+    expect(visible()).toEqual(['stock:SPY', '#Semis', 'stock:AAPL', 'stock:MSFT', '#Crypto', 'crypto:BTC']);
+    // Double-clicking the title does not leave the section toggled.
+    expect(header('Semis')).toHaveAttribute('aria-expanded', 'true');
+    await waitFor(() => expect(put).toHaveBeenCalled(), { timeout: 2000 });
+    expect(lastPut()[1]).toEqual(section(SEC_X, 'Semis'));
+  });
+
+  it('actions menu: Rename, Add section above, Delete section (symbols move to the previous section)', async () => {
+    setup(LIST());
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('BTC');
+    await userEvent.click(screen.getByRole('button', { name: 'Section actions: Crypto' }));
+    const menu = screen.getByRole('menu');
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['Rename', 'Add section above', 'Delete section']);
+    expect(within(menu).getByRole('menuitem', { name: /Delete section/ })).toHaveAccessibleDescription(/previous section/);
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Add section above' }));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox', { name: 'Section title' }), '{Enter}');
+    expect(visible()).toEqual(['stock:SPY', '#Tech', 'stock:AAPL', 'stock:MSFT', '#New section', '#Crypto', 'crypto:BTC']);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Section actions: Tech' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /Delete section/ }));
+    expect(visible()).toEqual(['stock:SPY', 'stock:AAPL', 'stock:MSFT', '#New section', '#Crypto', 'crypto:BTC']);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Section actions: Crypto' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+    const input = screen.getByRole('textbox', { name: 'Section title' });
+    await userEvent.clear(input);
+    await userEvent.type(input, 'Coins{Enter}');
+    expect(visible()).toContain('#Coins');
+    await waitFor(() => expect(lastPut().filter((e) => e.type === 'section').map((e) => (e as { title: string }).title))
+      .toEqual(['New section', 'Coins']), { timeout: 2000 });
+    expect(lastPut().filter((e) => e.type === 'symbol')).toHaveLength(4);
+  });
+
+  it('Escape closes the actions menu', async () => {
+    setup(LIST());
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('BTC');
+    await userEvent.click(screen.getByRole('button', { name: 'Section actions: Tech' }));
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('collapse hides the section symbols, shows their count and persists', async () => {
+    setup(LIST());
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('BTC');
+    await userEvent.click(header('Tech'));
+    expect(header('Tech')).toHaveAttribute('aria-expanded', 'false');
+    expect(header('Tech')).toHaveTextContent('2');
+    expect(visible()).toEqual(['stock:SPY', '#Tech', '#Crypto', 'crypto:BTC']);
+    await waitFor(() => expect(put).toHaveBeenCalled(), { timeout: 2000 });
+    expect(lastPut()[1]).toEqual(section(SEC_X, 'Tech', true));
+    await userEvent.click(header('Tech'));
+    expect(visible()).toHaveLength(6);
+  });
+
+  it('a collapsed section loads collapsed; its symbols are still quoted', async () => {
+    setup([section(SEC_X, 'Tech', true), sym('stock:AAPL'), sym('stock:MSFT')]);
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await waitFor(() => expect(visible()).toEqual(['#Tech']));
+    await waitFor(() => expect(quotes).toHaveBeenCalledWith(expect.arrayContaining(['stock:AAPL', 'stock:MSFT'])));
+  });
+
+  it('adds a symbol to the end of the active section (last clicked header or symbol), else to the end', async () => {
+    setup(LIST());
+    vi.mocked(api.search).mockResolvedValue([INFO['crypto:ETH']!, INFO['basket:1']!]);
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('BTC');
+    const box = screen.getByRole('combobox');
+    // No active section yet → end of the list.
+    await userEvent.type(box, 'e');
+    await userEvent.click(await screen.findByRole('option', { name: /Ethereum/ }));
+    expect(visible().at(-1)).toBe('crypto:ETH');
+    // Clicking a symbol in "Tech" makes Tech active.
+    await userEvent.click(screen.getByText('AAPL'));
+    await userEvent.type(box, 'b');
+    await userEvent.click(await screen.findByRole('option', { name: /My Basket/ }));
+    expect(visible()).toEqual(['stock:SPY', '#Tech', 'stock:AAPL', 'stock:MSFT', 'basket:1', '#Crypto', 'crypto:BTC', 'crypto:ETH']);
+  });
+
+  it('a clicked header becomes the active section; a top-group symbol clears it', async () => {
+    setup(LIST());
+    vi.mocked(api.search).mockResolvedValue([INFO['crypto:ETH']!, INFO['basket:1']!]);
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('BTC');
+    await userEvent.click(header('Tech'));
+    await userEvent.click(header('Tech')); // collapse + expand again: Tech is active
+    const box = screen.getByRole('combobox');
+    await userEvent.type(box, 'e');
+    await userEvent.click(await screen.findByRole('option', { name: /Ethereum/ }));
+    expect(visible()).toEqual(['stock:SPY', '#Tech', 'stock:AAPL', 'stock:MSFT', 'crypto:ETH', '#Crypto', 'crypto:BTC']);
+    await userEvent.click(screen.getByText('SPY'));
+    await userEvent.type(box, 'b');
+    await userEvent.click(await screen.findByRole('option', { name: /My Basket/ }));
+    expect(visible().at(-1)).toBe('basket:1');
+  });
+
+  it('Alt+Arrow moves symbols across sections and header rows, keeping focus', async () => {
+    setup(LIST());
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('BTC');
+    const aapl = () => document.querySelector<HTMLElement>('[data-symbol="stock:AAPL"]')!;
+    aapl().focus();
+    fireEvent.keyDown(aapl(), { key: 'ArrowUp', altKey: true });
+    expect(visible()).toEqual(['stock:SPY', 'stock:AAPL', '#Tech', 'stock:MSFT', '#Crypto', 'crypto:BTC']);
+    expect(aapl()).toHaveFocus();
+    const crypto = header('Crypto');
+    crypto.focus();
+    fireEvent.keyDown(crypto, { key: 'ArrowUp', altKey: true });
+    expect(visible()).toEqual(['stock:SPY', 'stock:AAPL', '#Tech', '#Crypto', 'stock:MSFT', 'crypto:BTC']);
+    expect(header('Crypto')).toHaveFocus();
+    fireEvent.keyDown(header('Crypto'), { key: 'ArrowDown', altKey: true });
+    expect(visible()).toEqual(['stock:SPY', 'stock:AAPL', '#Tech', 'stock:MSFT', '#Crypto', 'crypto:BTC']);
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    expect(lastPut()).toEqual([sym('stock:SPY'), sym('stock:AAPL'), section(SEC_X, 'Tech'), sym('stock:MSFT'), section(SEC_Y, 'Crypto'), sym('crypto:BTC')]);
+  });
+
+  it('Alt+Arrow into a collapsed section expands it so the moved row stays visible and focused', async () => {
+    setup([sym('stock:SPY'), section(SEC_X, 'Tech', true), sym('stock:AAPL')]);
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('SPY');
+    const spy = () => document.querySelector<HTMLElement>('[data-symbol="stock:SPY"]')!;
+    spy().focus();
+    fireEvent.keyDown(spy(), { key: 'ArrowDown', altKey: true });
+    expect(visible()).toEqual(['#Tech', 'stock:SPY', 'stock:AAPL']);
+    expect(spy()).toHaveFocus();
+  });
+
+  it('drag and drop moves symbols and headers across sections', async () => {
+    setup(LIST());
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('BTC');
+    const row = (id: string) => document.querySelector<HTMLElement>(`[data-symbol="${id}"]`)!;
+    drag(row('crypto:BTC'), row('stock:AAPL'));
+    expect(visible()).toEqual(['stock:SPY', '#Tech', 'crypto:BTC', 'stock:AAPL', 'stock:MSFT', '#Crypto']);
+    drag(header('Crypto'), row('stock:AAPL'));
+    expect(visible()).toEqual(['stock:SPY', '#Tech', 'crypto:BTC', '#Crypto', 'stock:AAPL', 'stock:MSFT']);
+    await waitFor(() => expect(put).toHaveBeenCalled(), { timeout: 2000 });
+    expect(lastPut().map((e) => e.id)).toEqual(['stock:SPY', SEC_X, 'crypto:BTC', SEC_Y, 'stock:AAPL', 'stock:MSFT']);
+  });
+
+  it('dropping a symbol onto a collapsed header appends it into that section', async () => {
+    setup([sym('stock:SPY'), section(SEC_X, 'Tech', true), sym('stock:AAPL'), section(SEC_Y, 'Crypto'), sym('crypto:BTC')]);
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('BTC');
+    drag(document.querySelector<HTMLElement>('[data-symbol="crypto:BTC"]')!, header('Tech'));
+    expect(visible()).toEqual(['stock:SPY', '#Tech', '#Crypto']);
+    expect(header('Tech')).toHaveTextContent('2');
+    await waitFor(() => expect(put).toHaveBeenCalled(), { timeout: 2000 });
+    expect(lastPut().map((e) => e.id)).toEqual(['stock:SPY', SEC_X, 'stock:AAPL', 'crypto:BTC', SEC_Y]);
+  });
+
+  it('"+ Section" is disabled at the 50-section limit', async () => {
+    setup(Array.from({ length: 50 }, (_, i) => section(`${String(i).padStart(8, '0')}-3f1a-4c1e-9a7b-2a1d3c4e5f60`, `S${i}`)));
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('S49');
+    expect(screen.getByRole('button', { name: 'Add section' })).toBeDisabled();
   });
 });
