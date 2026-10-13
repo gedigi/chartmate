@@ -1,5 +1,6 @@
 import type { LineStyleKind } from '@chartmate/shared';
 import { getOverlayClass, registerOverlay, type OverlayFigure, type OverlayTemplate } from 'klinecharts';
+import { THEME_TOKENS } from './theme';
 
 /**
  * Wrapped KLineChart 10.0.3 built-in drawing templates (re-registered under the same names, once, before any
@@ -119,13 +120,13 @@ export function channelGeometry(
 /** Opacity of a channel's fill (its line color). */
 export const CHANNEL_FILL_ALPHA = 0.08;
 
-/** `color` ('#rrggbb' / '#rgb', else the default accent) at `alpha`, as an rgba() string. */
+/** `color` ('#rrggbb' / '#rgb', else the default dark accent) at `alpha`, as an rgba() string. */
 export function translucent(color: unknown, alpha: number): string {
   let hex = typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color.slice(1) : null;
   if (!hex && typeof color === 'string' && /^#[0-9a-fA-F]{3}$/.test(color)) hex = [...color.slice(1)].map((c) => c + c).join('');
   if (!hex) {
     const m = typeof color === 'string' ? /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(color) : null;
-    return m ? `rgba(${m[1]}, ${m[2]}, ${m[3]}, ${alpha})` : `rgba(43, 102, 255, ${alpha})`;
+    return m ? `rgba(${m[1]}, ${m[2]}, ${m[3]}, ${alpha})` : `rgba(124, 196, 255, ${alpha})`;
   }
   const n = parseInt(hex, 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
@@ -299,7 +300,7 @@ function withLabels(t: Template): Template {
       const text = priceText(p);
       if (!opts.onAxis || !c || text === null) return [];
       const fromZero = (p.yAxis as { isFromZero?: () => boolean } | null)?.isFromZero?.() ?? false;
-      const color = String(lineStyles(p).color ?? '#2b66ff');
+      const color = String(lineStyles(p).color ?? THEME_TOKENS.dark.accent);
       return [{
         type: 'text',
         ignoreEvent: true,

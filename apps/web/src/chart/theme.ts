@@ -68,6 +68,8 @@ export const LEGACY_DEFAULTS = {
  * the lines follow the current palette.
  */
 export const LEGACY_INDICATOR_PALETTES: readonly (readonly string[])[] = [
+  ['#3987e5', '#d95926', '#1a9fb2', '#9085e9', '#c98500', '#d55181'],
+  ['#2a78d6', '#eb6834', '#0097a7', '#4a3aa7', '#eda100', '#e87ba4'],
   ['#2488f7', '#e56c19', '#00b3c2', '#8d7cf8', '#e49916', '#f631aa'],
   ['#1272da', '#eb6111', '#0095a0', '#541cdc', '#eda100', '#e12ca0'],
 ];
