@@ -163,7 +163,7 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   ratio below 1.5) gets an inline "Low contrast on the … background" warning. Layouts saved before
   appearance was per theme (one flat appearance) still load: their settings become the dark theme's.
 - **Default market colors**: one up and one down color per theme (the `--up` / `--down` CSS tokens; dark
-  `#34e0b8` / `#ff4d73`, light `#12b996` / `#d92855`), used by candles, volume, MACD and AO bars, positions,
+  `#3ccfd0` / `#d91e5b`, light `#0b9da0` / `#b3124d`), used by candles, volume, MACD and AO bars, positions,
   the watchlist, baskets and sparklines. Volume / MACD / AO bars without their own colors follow the active
   theme's candle colors, custom ones included. Rising MACD / AO bars use an opaque soft tone of the same hue.
   Stored colors equal to the defaults of earlier versions are reset once, so they follow the current

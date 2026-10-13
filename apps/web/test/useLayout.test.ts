@@ -140,6 +140,30 @@ describe('useLayout (one global indicator set in the default layout)', () => {
       .toEqual([vol({ up: '#abcdef', down: THEME_TOKENS.light.down })]);
   });
 
+  it('rev 3 ("Luminous" teal / rose) defaults are old defaults too: a rev 3 layout moves to aqua / ruby once; picks survive', () => {
+    expect(COLOR_DEFAULTS_REV).toBe(4);
+    const rev3 = (appearance: Layout['appearance'], indicators = [ma]) => ({ ...saved, colorDefaultsRev: 3, indicators, appearance });
+    const migrated = migrateColorDefaults(rev3({
+      dark: { upColor: '#34E0B8', downColor: '#ff4d73', lineWidth: 3 },
+      light: { upColor: '#12b996', downColor: '#d92855' },
+    }));
+    expect(migrated).toEqual({ ...saved, appearance: { dark: { lineWidth: 3 } } });
+    expect(migrated.colorDefaultsRev).toBe(COLOR_DEFAULTS_REV);
+    // A user pick of another color is kept.
+    expect(migrateColorDefaults(rev3({ dark: { upColor: '#3366ff', downColor: '#ff4d73' } })))
+      .toEqual({ ...saved, appearance: { dark: { upColor: '#3366ff' } } });
+    // Bar colors: a rev 3 default pair follows the candles again; one rev 3 side next to a user color becomes today's.
+    const vol = (barColors: { up: string; down: string }) => ({ ...ma, name: 'VOL', barColors });
+    expect(migrateColorDefaults(rev3(undefined, [vol({ up: '#34e0b8', down: '#ff4d73' })])).indicators).toEqual([{ ...ma, name: 'VOL' }]);
+    expect(migrateColorDefaults(rev3(undefined, [vol({ up: '#12b996', down: '#abcdef' })])).indicators)
+      .toEqual([vol({ up: THEME_TOKENS.light.up, down: '#abcdef' })]);
+    expect(migrateColorDefaults(rev3(undefined, [vol({ up: '#abcdef', down: '#ff4d73' })])).indicators)
+      .toEqual([vol({ up: '#abcdef', down: THEME_TOKENS.dark.down })]);
+    // Already on the current revision: an old default the user picks later is never touched again.
+    const current = { ...saved, appearance: { dark: { upColor: '#34e0b8' } } };
+    expect(migrateColorDefaults(current)).toBe(current);
+  });
+
   it('indicator line colors: old defaults move per line to today\'s palette, user picks stay', () => {
     const ind = (name: string, lineColors?: string[]) => ({ name, pane: 'main' as const, calcParams: [20, 2], visible: true, ...(lineColors ? { lineColors } : {}) });
     const migrate = (name: string, lineColors: string[]) => withoutLegacyDefaults({ ...saved, indicators: [ind(name, lineColors)] }).indicators[0];

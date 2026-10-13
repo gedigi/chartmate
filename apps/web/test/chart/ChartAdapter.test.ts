@@ -604,7 +604,7 @@ describe('ChartAdapter', () => {
       expect(s.grid).toBeDefined(); // theme styles are kept
       a.setTheme('light'); // the light theme's own settings apply live
       s = chart().setStyles.mock.calls.at(-1)![0];
-      expect(s.candle).toMatchObject({ type: 'candle_stroke', bar: { upColor: '#010203', downColor: '#d92855' } }); // light default down
+      expect(s.candle).toMatchObject({ type: 'candle_stroke', bar: { upColor: '#010203', downColor: '#b3124d' } }); // light default down
       a.setTheme('dark');
       s = chart().setStyles.mock.calls.at(-1)![0];
       expect(s.candle).toMatchObject({ bar: { upColor: '#00ff00' } });
@@ -622,11 +622,11 @@ describe('ChartAdapter', () => {
       expect(chart().setStyles).not.toHaveBeenCalled();
       a.setTheme('light');
       expect(chart().setStyles.mock.calls.at(-1)![0].indicator.bars).toEqual([
-        { style: 'fill', borderSize: 0, upColor: '#12b996', downColor: '#d92855', noChangeColor: '#545c6f' },
+        { style: 'fill', borderSize: 0, upColor: '#0b9da0', downColor: '#b3124d', noChangeColor: '#545c6f' },
       ]);
       a.setTheme('dark');
       expect(chart().setStyles.mock.calls.at(-1)![0].indicator.bars).toEqual([
-        { style: 'fill', borderSize: 0, upColor: '#34e0b8', downColor: '#ff4d73', noChangeColor: '#8f97ab' },
+        { style: 'fill', borderSize: 0, upColor: '#3ccfd0', downColor: '#d91e5b', noChangeColor: '#8f97ab' },
       ]);
     });
 
@@ -666,10 +666,11 @@ describe('ChartAdapter', () => {
       a.setTheme('light');
       s = chart().setStyles.mock.calls.at(-1)![0];
       expect(s.candle.priceMark.last).toMatchObject({ upColor: '#131726', downColor: '#131726', text: { color: '#ffffff' } });
-      expect(s.candle.bar).toMatchObject({ upColor: '#12b996', downColor: '#d92855' });
+      expect(s.candle.bar).toMatchObject({ upColor: '#0b9da0', downColor: '#b3124d' });
       a.setAppearance({ light: { lastPriceLine: 'candle' } });
       s = chart().setStyles.mock.calls.at(-1)![0];
-      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#12b996', downColor: '#d92855', text: { color: '#131722' } });
+      // White reads on the deep aqua / ruby fills and the muted gray (chosen by contrast over all three).
+      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#0b9da0', downColor: '#b3124d', noChangeColor: '#545c6f', text: { color: '#ffffff' } });
       expect(s.overlay.line).toMatchObject({ color: THEME_TOKENS.light.accent });
     });
   });
@@ -801,7 +802,7 @@ describe('ChartAdapter', () => {
       a.setTheme('light');
       const calls = chart().overrideIndicator.mock.calls.map((c) => c[0] as { id: string; styles?: { bars?: unknown[] } });
       expect(calls.filter((c) => c.id === reset && c.styles?.bars)).toEqual([
-        expect.objectContaining({ styles: { bars: [expect.objectContaining({ style: 'fill', upColor: '#12b996', downColor: '#d92855' })] } }),
+        expect.objectContaining({ styles: { bars: [expect.objectContaining({ style: 'fill', upColor: '#0b9da0', downColor: '#b3124d' })] } }),
       ]);
       expect(calls.filter((c) => c.id === custom && c.styles?.bars)).toEqual([]); // the user's bar colors win
       expect(a.listIndicators().find((i) => i.id === reset)).not.toHaveProperty('barColors');
@@ -825,7 +826,7 @@ describe('ChartAdapter', () => {
       const o = chart().overrideIndicator.mock.calls.at(-1)![0] as { styles: { lines: unknown[]; bars: unknown[] } };
       expect(o.styles.lines).toEqual(['#f2b861', '#a99bff'].map((color) => expect.objectContaining({ color, size: 1, style: 'solid' })));
       // The theme's default bars (dark), not KLineChart's own green / red.
-      expect(o.styles.bars).toEqual([expect.objectContaining({ style: 'fill', upColor: '#34e0b8', downColor: '#ff4d73' })]);
+      expect(o.styles.bars).toEqual([expect.objectContaining({ style: 'fill', upColor: '#3ccfd0', downColor: '#d91e5b' })]);
       expect(a.listIndicators()[0]).not.toHaveProperty('lineStyles');
       expect(a.listIndicators()[0]).not.toHaveProperty('barColors');
     });

@@ -17,21 +17,21 @@ describe('resolveAppearance', () => {
         drawing: { color: THEME_TOKENS[theme].accent, size: 1, style: 'solid' }, lastPriceLine: 'neutral',
       });
     }
-    expect(resolveAppearance('dark', { dark: { upColor: '#00ff00', lineWidth: 4 } })).toMatchObject({ upColor: '#00ff00', downColor: '#ff4d73', lineWidth: 4 });
+    expect(resolveAppearance('dark', { dark: { upColor: '#00ff00', lineWidth: 4 } })).toMatchObject({ upColor: '#00ff00', downColor: '#d91e5b', lineWidth: 4 });
   });
 
   it('picks the active theme\'s settings; the other theme keeps its defaults', () => {
     const a = { dark: { upColor: '#ffffff' }, light: { downColor: '#000000' } };
-    expect(resolveAppearance('dark', a)).toMatchObject({ upColor: '#ffffff', downColor: '#ff4d73' });
-    expect(resolveAppearance('light', a)).toMatchObject({ upColor: '#12b996', downColor: '#000000' });
+    expect(resolveAppearance('dark', a)).toMatchObject({ upColor: '#ffffff', downColor: '#d91e5b' });
+    expect(resolveAppearance('light', a)).toMatchObject({ upColor: '#0b9da0', downColor: '#000000' });
     expect(resolveAppearance('light', { dark: { upColor: '#ffffff' } })).toEqual(resolveAppearance('light', undefined));
   });
 });
 
 describe('per-theme default candle colors (match the --up / --down CSS tokens)', () => {
-  it('dark #34e0b8 / #ff4d73, light #12b996 / #d92855', () => {
-    expect(THEME_TOKENS.dark).toMatchObject({ up: '#34e0b8', down: '#ff4d73' });
-    expect(THEME_TOKENS.light).toMatchObject({ up: '#12b996', down: '#d92855' });
+  it('dark #3ccfd0 / #d91e5b, light #0b9da0 / #b3124d (aqua / ruby)', () => {
+    expect(THEME_TOKENS.dark).toMatchObject({ up: '#3ccfd0', down: '#d91e5b' });
+    expect(THEME_TOKENS.light).toMatchObject({ up: '#0b9da0', down: '#b3124d' });
     expect(THEME_CSS_VARS).toMatchObject({ up: '--up', down: '--down' });
     for (const theme of ['dark', 'light'] as const) {
       const { up, down } = THEME_TOKENS[theme];
@@ -46,8 +46,8 @@ describe('per-theme default candle colors (match the --up / --down CSS tokens)',
 
 describe('indicator histogram bar defaults follow the theme up / down colors', () => {
   it('defaultBarColors(theme) and the chart-level indicator bar styles', () => {
-    expect(defaultBarColors('dark')).toEqual({ up: '#34e0b8', down: '#ff4d73' });
-    expect(defaultBarColors('light')).toEqual({ up: '#12b996', down: '#d92855' });
+    expect(defaultBarColors('dark')).toEqual({ up: '#3ccfd0', down: '#d91e5b' });
+    expect(defaultBarColors('light')).toEqual({ up: '#0b9da0', down: '#b3124d' });
     for (const theme of ['dark', 'light'] as const) {
       const { up, down } = defaultBarColors(theme);
       // Opaque: exactly the candle colors (an rgba() of them reads pink on white / brown on dark).
@@ -195,13 +195,15 @@ describe('readable label text', () => {
     }
   });
 
-  it('the default last price label text reads on every label color (dark on the vivid teal / rose and a neutral gray for no change)', () => {
+  it('the default last price label text reads on every label color (dark on the bright aqua, white on the deep light-theme aqua / ruby)', () => {
+    expect(lastText('dark', { dark: {} })).toBe(DARK_TEXT);
+    expect(lastText('light', { light: {} })).toBe(LIGHT_TEXT);
     for (const theme of ['dark', 'light'] as const) {
-      expect(lastText(theme, { [theme]: {} })).toBe(DARK_TEXT);
+      const text = lastText(theme, { [theme]: {} })!;
       const { up, down, crosshair, muted } = THEME_TOKENS[theme];
       const noChange = candleStyles('candle', theme, { [theme]: { lastPriceLine: 'candle' } }).priceMark?.last?.noChangeColor;
       expect([muted, crosshair]).toContain(noChange);
-      for (const bg of [up, down, noChange!]) expect(contrastRatio(DARK_TEXT, bg)).toBeGreaterThanOrEqual(3);
+      for (const bg of [up, down, noChange!]) expect(contrastRatio(text, bg), `${theme} ${text} on ${bg}`).toBeGreaterThanOrEqual(3);
     }
   });
 

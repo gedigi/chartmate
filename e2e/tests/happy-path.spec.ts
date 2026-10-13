@@ -214,7 +214,7 @@ test('chart appearance persists; a basket starting today shows simulated history
   await page.getByRole('button', { name: 'Switch to light theme' }).click();
   await page.getByRole('button', { name: 'Chart appearance' }).click();
   await expect(dialog.getByText('Light theme')).toBeVisible();
-  await expect(dialog.getByLabel('Up color')).toHaveValue('#12b996');
+  await expect(dialog.getByLabel('Up color')).toHaveValue('#0b9da0');
   await dialog.getByRole('button', { name: 'Done' }).click();
   await page.getByRole('button', { name: 'Switch to dark theme' }).click();
 

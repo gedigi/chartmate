@@ -14,12 +14,12 @@ export type ThemeName = 'dark' | 'light';
 export const THEME_TOKENS = {
   dark: {
     bg: '#0c0f18', panel: '#07090f', elevated: '#141826', border: '#1c202c', grid: '#121620', text: '#e9ecf4', muted: '#8f97ab', accent: '#7cc4ff',
-    up: '#34e0b8', down: '#ff4d73', upSoft: '#00876d', downSoft: '#ac053e', upFg: '#34e0b8', downFg: '#ff7a8e',
+    up: '#3ccfd0', down: '#d91e5b', upSoft: '#007e7f', downSoft: '#8e0036', upFg: '#3ccfd0', downFg: '#f84473',
     crossBg: '#e9ecf4', crosshair: '#5b6171', level: '#474e60', lastPrice: '#e9ecf4',
   },
   light: {
     bg: '#fafbfd', panel: '#e7eaf1', elevated: '#ffffff', border: '#e1e4eb', grid: '#eef0f4', text: '#131726', muted: '#545c6f', accent: '#1f6fc8',
-    up: '#12b996', down: '#d92855', upSoft: '#67dbbb', downSoft: '#ff7d8e', upFg: '#006b56', downFg: '#b4003f',
+    up: '#0b9da0', down: '#b3124d', upSoft: '#65c8ca', downSoft: '#f06988', upFg: '#006c6e', downFg: '#b3124d',
     crossBg: '#131726', crosshair: '#a6abb8', level: '#b9bdc9', lastPrice: '#131726',
   },
 } as const;
@@ -28,9 +28,9 @@ export const THEME_TOKENS = {
  * "Luminous, flat": a cool ink ground (dark) / mist ground (light) with the chart on its own surface, chrome on flat
  * solid panels (no glass, glow or shadow), one sky accent for drawings and focus.
  *
- * Up / down (candles, volume / MACD / AO bars, position zones, watchlist and basket changes): Lumen teal and Ember
- * rose, vivid. Besides the hue they differ in LIGHTNESS so they stay apart for red-green color-blind readers: the up
- * color is the light one in both themes (OKLCH L dark 0.81 vs 0.68, light 0.70 vs 0.58). Small TEXT uses the --up-fg
+ * Up / down (candles, volume / MACD / AO bars, position zones, watchlist and basket changes): aqua and ruby,
+ * vivid. Besides the hue they differ in LIGHTNESS so they stay apart for red-green color-blind readers: the up color is
+ * the light one in both themes (OKLCH L dark 0.78 vs 0.58, light 0.63 vs 0.50). Small TEXT uses the --up-fg
  * / --down-fg CSS tokens instead (≥ 4.5:1 on every surface they are drawn on, including a tinted pill), hue-locked to
  * the strong color.
  *
@@ -49,17 +49,17 @@ export const THEME_TOKENS = {
  * default read as "unset" ONCE (see useLayout's migrateColorDefaults), then carry this revision so a color the
  * user picks later — even an old default — is never touched again.
  */
-export const COLOR_DEFAULTS_REV = 3;
+export const COLOR_DEFAULTS_REV = 4;
 
 /**
  * Default colors of earlier revisions (rev 0: the original release; rev 1: an unreleased intermediate set; rev 2: the
- * "Graphite & Signal" set). A stored appearance / bar color exactly equal to one of them was (almost certainly) never
- * picked by the user — the dialogs write the shown defaults along with the edited field — so the one-time migration
- * unsets it.
+ * "Graphite & Signal" set; rev 3: the "Luminous" teal / rose; the accent did not change in rev 3). A stored appearance
+ * / bar color exactly equal to one of them was (almost certainly) never picked by the user — the dialogs write the shown
+ * defaults along with the edited field — so the one-time migration unsets it.
  */
 export const LEGACY_DEFAULTS = {
-  dark: { up: ['#26a69a', '#34d399', '#00d68f'], down: ['#ef5350', '#f23c50', '#ff3b5c'], accent: ['#2962ff', '#3d6af5', '#2b66ff'] },
-  light: { up: ['#089981', '#10a37a', '#00a870'], down: ['#f23645', '#c41d3d', '#d4113b'], accent: ['#2962ff', '#3d6af5', '#2b66ff'] },
+  dark: { up: ['#26a69a', '#34d399', '#00d68f', '#34e0b8'], down: ['#ef5350', '#f23c50', '#ff3b5c', '#ff4d73'], accent: ['#2962ff', '#3d6af5', '#2b66ff'] },
+  light: { up: ['#089981', '#10a37a', '#00a870', '#12b996'], down: ['#f23645', '#c41d3d', '#d4113b', '#d92855'], accent: ['#2962ff', '#3d6af5', '#2b66ff'] },
 } as const satisfies Record<ThemeName, Record<'up' | 'down' | 'accent', readonly string[]>>;
 
 /**

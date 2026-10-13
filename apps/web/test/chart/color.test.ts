@@ -77,7 +77,7 @@ describe('tintFill', () => {
   });
 
   it('on an off-white background (little headroom above it) the tint still keeps the hue: the darkening channels set the opacity', () => {
-    for (const strong of ['#d92855', '#12b996']) {
+    for (const strong of ['#b3124d', '#0b9da0']) {
       const fill = tintFill(strong, '#fafbfd', 0.8, 0.2);
       expect(parseColor(fill)!.alpha).toBeLessThan(0.6);
       const on = `#${composite(fill, '#fafbfd').map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
@@ -85,9 +85,9 @@ describe('tintFill', () => {
     }
   });
 
-  it('falls back to the color at the fallback alpha when no such fill exists (the dark theme\'s emerald)', () => {
+  it('falls back to the color at the fallback alpha when no such fill exists (the dark theme\'s aqua)', () => {
     const { bg, up } = THEME_TOKENS.dark;
-    expect(tintFill(up, bg, 0.8, 0.2)).toBe('rgba(52,224,184,0.2)');
+    expect(tintFill(up, bg, 0.8, 0.2)).toBe('rgba(60,207,208,0.2)');
     expect(tintFill('red', bg, 0.8, 0.2)).toBe('red');
   });
 });

@@ -278,7 +278,7 @@ describe('ChartAdapter long / short positions', () => {
     a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 15000 }, events());
     expect(positionContext.barMs).toBe(DAY);
     a.setTheme('light');
-    expect(positionContext.colors.up).toBe('#12b996');
+    expect(positionContext.colors.up).toBe('#0b9da0');
     a.setPositionDefaults(undefined);
     expect(positionContext.defaults).toEqual({ targetPct: 2, stopPct: 2 });
   });
