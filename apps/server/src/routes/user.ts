@@ -90,6 +90,8 @@ const DrawingSchema = z.object({
   name: z.string().max(40),
   points: z.array(z.object({ timestamp: z.number(), value: z.number() })).max(10),
   lock: z.boolean(),
+  // The drawing's own lock (optional: older drawings have none). Tolerant: an invalid flag is dropped on its own.
+  locked: z.boolean().optional().catch(undefined),
   text: z.string().max(500).optional(), anchorTf: z.enum(['1D', '1W', '1M']).optional(),
   // Tolerant: invalid / legacy styles are dropped (the drawing itself is still saved).
   styles: DrawingStylesSchema.optional().catch(undefined),

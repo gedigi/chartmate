@@ -148,8 +148,14 @@ export interface DrawingStyles {
  * A saved drawing. Long / short positions ('longPosition' / 'shortPosition') have four points:
  * [0] entry { start time, entry price }, [1] { start time, target price }, [2] { start time, stop price },
  * [3] { end time, entry price } (points 1–2 repeat the start time and point 3 the entry price).
+ * `lock` is the effective lock when saved ("Lock all drawings" or the drawing's own lock); `locked` is the drawing's
+ * own lock, which outlives "Lock all" being turned off (missing in drawings saved before it existed: see the web
+ * ChartAdapter's restore for how they are read).
  */
-export interface DrawingState { name: string; points: { timestamp: number; value: number }[]; lock: boolean; text?: string; styles?: DrawingStyles; anchorTf?: '1D'|'1W'|'1M' }
+export interface DrawingState {
+  name: string; points: { timestamp: number; value: number }[]; lock: boolean; locked?: boolean;
+  text?: string; styles?: DrawingStyles; anchorTf?: '1D'|'1W'|'1M';
+}
 export interface WatchlistItem { id: SymbolId; position: number }
 
 const ASSET_CLASSES: readonly AssetClass[] = ['stock', 'crypto', 'basket'];
