@@ -1,7 +1,7 @@
 // Checks on the UNMODIFIED packaged artifact (SMOKE_HARDENED_APP=<Chartmate.app | chartmate.exe>): it starts, opens
 // no listening socket, and refuses or ignores the classic code-injection switches and variables.
 //
-// Packaged builds ignore ALTV_USER_DATA_DIR, so these tests run against the real per-user data directories (current
+// Packaged builds ignore CHARTMATE_USER_DATA_DIR, so these tests run against the real per-user data directories (current
 // and previous product names). They are moved aside first and put back afterwards; nothing is deleted (the run's
 // own directory is renamed to *.smoke-trash-<timestamp>). Runs only in CI or with SMOKE_ALLOW_REAL_USERDATA=1, and
 // the app must not be running.
@@ -36,7 +36,7 @@ const fullLog = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8') : '')
 function start(env: Record<string, string>, args: string[] = [], bin = exe()) {
   logStart = fullLog().length; // only lines written by this launch count
 
-  const base = { ...process.env, ALTV_PROVIDERS: 'fixture' } as Record<string, string>;
+  const base = { ...process.env, CHARTMATE_PROVIDERS: 'fixture' } as Record<string, string>;
   for (const k of FORBIDDEN_ENV) delete base[k];
   const child = spawn(bin, args, { env: { ...base, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';
@@ -66,9 +66,9 @@ async function stop(child: ChildProcess): Promise<void> {
   await new Promise((r) => setTimeout(r, 500)); // let helpers exit and the single-instance lock go away
 }
 
-test('uses the per-user data directory even when ALTV_USER_DATA_DIR is set', async () => {
+test('uses the per-user data directory even when CHARTMATE_USER_DATA_DIR (or the legacy ALTV_USER_DATA_DIR) is set', async () => {
   const elsewhere = mkdtempSync(join(tmpdir(), 'chartmate-ignored-'));
-  const { child } = start({ ALTV_USER_DATA_DIR: elsewhere });
+  const { child } = start({ CHARTMATE_USER_DATA_DIR: elsewhere, ALTV_USER_DATA_DIR: elsewhere });
   try {
     expect(await waitFor(shown, 30_000)).toBe(true);
     expect(existsSync(join(userData, 'altv.db'))).toBe(true);

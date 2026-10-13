@@ -47,7 +47,7 @@ function makeBar(sym: FixtureSymbol, ts: number, step: number): Bar {
 
 export interface FixtureOptions { assetClass: 'stock' | 'crypto'; now?: () => number }
 
-/** Deterministic synthetic market data for e2e/dev (`ALTV_PROVIDERS=fixture`). */
+/** Deterministic synthetic market data for e2e/dev (`CHARTMATE_PROVIDERS=fixture`). */
 export class FixtureProvider implements MarketDataProvider {
   readonly id = 'fixture' as const;
   readonly assetClass: 'stock' | 'crypto';

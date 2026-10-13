@@ -121,7 +121,7 @@ const product = JSON.parse(readFileSync(new URL('../product.json', import.meta.u
   productName: string; previousProductNames: string[];
 };
 
-/** The per-user data directory a packaged build always uses (packaged builds ignore ALTV_USER_DATA_DIR). */
+/** The per-user data directory a packaged build always uses (packaged builds ignore CHARTMATE_USER_DATA_DIR). */
 export function defaultUserDataDir(productName = product.productName): string {
   if (process.platform === 'darwin') return join(homedir(), 'Library', 'Application Support', productName);
   if (process.platform === 'win32') return join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), productName);

@@ -39,7 +39,7 @@ async function main(): Promise<void> {
   await app.listen({ host: config.host, port: config.port });
   const shownHost = config.host.includes(':') ? `[${config.host}]` : config.host;
   app.log.info(
-    `altv listening on http://${shownHost}:${config.port} (${dialect}, providers=${config.providers}, ` +
+    `Chartmate listening on http://${shownHost}:${config.port} (${dialect}, providers=${config.providers}, ` +
     `auth ${config.password !== null ? 'enabled' : 'disabled'}, web ${config.webDist ?? 'not served'})`,
   );
 }

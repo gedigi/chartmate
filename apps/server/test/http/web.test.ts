@@ -57,7 +57,7 @@ describe('SPA index.html serving', () => {
   });
 
   it('reads index.html once at startup, not per request; re-reads when its mtime changes', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'altv-web-'));
+    dir = mkdtempSync(join(tmpdir(), 'chartmate-web-'));
     const index = join(dir, 'index.html');
     writeFileSync(index, '<!doctype html><title>v1</title>');
     t = await makeApp({ webDist: dir });
@@ -76,7 +76,7 @@ describe('SPA index.html serving', () => {
   });
 
   it('missing index.html: SPA routes get a JSON 404 web_not_built (no crash)', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'altv-web-'));
+    dir = mkdtempSync(join(tmpdir(), 'chartmate-web-'));
     writeFileSync(join(dir, 'app.js'), 'x');
     t = await makeApp({ webDist: dir });
     const r = await t.app.inject({ method: 'GET', url: '/baskets/abc' });
@@ -105,8 +105,8 @@ describe('SPA index.html serving', () => {
   };
 
   it('/api;x/... and /\\api/... are JSON 404s (401 with auth), never index.html', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'altv-web-'));
-    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>altv</title>');
+    dir = mkdtempSync(join(tmpdir(), 'chartmate-web-'));
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>Chartmate</title>');
     for (const password of [null, 'hunter2']) {
       t = await makeApp({ webDist: dir, password });
       for (const path of ['/api;x/watchlist', '/\\api/watchlist', '/%5Capi/watchlist', '/api;/x']) {
@@ -115,7 +115,7 @@ describe('SPA index.html serving', () => {
         expect(r.type, path).toMatch(/application\/json/);
         expect(r.body, path).not.toContain('<title>');
       }
-      expect((await rawGet(t.app, '/baskets/x')).body).toContain('<title>altv</title>');
+      expect((await rawGet(t.app, '/baskets/x')).body).toContain('<title>Chartmate</title>');
       await t.close();
       t = undefined;
     }

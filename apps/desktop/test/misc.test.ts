@@ -15,12 +15,12 @@ const flatRoles = (items: unknown[]): string[] => items.flatMap((i) => {
 describe('menuTemplate', () => {
   it('packaged builds have no DevTools entry', () => {
     for (const isMac of [true, false]) {
-      expect(flatRoles(menuTemplate({ isMac, isPackaged: true, appName: 'altv' }))).not.toContain('toggleDevTools');
+      expect(flatRoles(menuTemplate({ isMac, isPackaged: true, appName: 'Chartmate' }))).not.toContain('toggleDevTools');
     }
-    expect(flatRoles(menuTemplate({ isMac: true, isPackaged: false, appName: 'altv' }))).toContain('toggleDevTools');
+    expect(flatRoles(menuTemplate({ isMac: true, isPackaged: false, appName: 'Chartmate' }))).toContain('toggleDevTools');
   });
   it('macOS has the standard app menu and Edit menu', () => {
-    const roles = flatRoles(menuTemplate({ isMac: true, isPackaged: true, appName: 'altv' }));
+    const roles = flatRoles(menuTemplate({ isMac: true, isPackaged: true, appName: 'Chartmate' }));
     expect(roles).toEqual(expect.arrayContaining(['about', 'hide', 'quit', 'editMenu', 'windowMenu']));
   });
 });
@@ -53,7 +53,7 @@ describe('window state', () => {
     expect(visibleBounds({ x: 100, y: -500, width: 1000, height: 700 }, screen)).toBeNull();
   });
   it('round-trips through a file and tolerates garbage', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'altv-ws-'));
+    const dir = mkdtempSync(join(tmpdir(), 'chartmate-ws-'));
     const f = join(dir, 'window-state.json');
     expect(loadWindowState(f).theme).toBe('dark');
     saveWindowState(f, { bounds: { x: 1, y: 2, width: 900, height: 600 }, maximized: false, theme: 'light' });
@@ -66,7 +66,7 @@ describe('window state', () => {
 
 describe('rotating log', () => {
   it('rotates by size and keeps a bounded number of files', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'altv-log-'));
+    const dir = mkdtempSync(join(tmpdir(), 'chartmate-log-'));
     const log = createRotatingLog({ dir, maxBytes: 200, keep: 2 });
     for (let i = 0; i < 50; i++) log.info(`line ${i} ${'x'.repeat(20)}`);
     const files = readdirSync(dir).sort();
@@ -95,7 +95,9 @@ describe('shouldEnableAutoUpdate', () => {
     expect(shouldEnableAutoUpdate({ ...base, productAutoUpdate: false })).toBe(false);
     expect(shouldEnableAutoUpdate({ ...base, updateConfig: null })).toBe(false);
     expect(shouldEnableAutoUpdate({ ...base, isSigned: false })).toBe(false);
-    expect(shouldEnableAutoUpdate({ ...base, env: { ALTV_DISABLE_UPDATES: '1' } })).toBe(false);
+    expect(shouldEnableAutoUpdate({ ...base, env: { CHARTMATE_DISABLE_UPDATES: '1' } })).toBe(false);
+    expect(shouldEnableAutoUpdate({ ...base, env: { ALTV_DISABLE_UPDATES: '1' } })).toBe(false); // legacy name
+    expect(shouldEnableAutoUpdate({ ...base, env: { CHARTMATE_DISABLE_UPDATES: '0', ALTV_DISABLE_UPDATES: '1' } })).toBe(true);
     expect(shouldEnableAutoUpdate({ ...base, platform: 'linux' })).toBe(false);
   });
   it('Windows: refuses to update unless app-update.yml pins publisherName', () => {

@@ -12,7 +12,9 @@ declare module 'fastify' {
   }
 }
 
-export const SESSION_COOKIE = 'altv_session';
+export const SESSION_COOKIE = 'chartmate_session';
+/** Cookie name used before the rename to Chartmate; still accepted so existing sessions survive the upgrade. */
+export const LEGACY_SESSION_COOKIE = 'altv_session';
 const DAY = 86_400_000;
 export const SESSION_MAX_AGE_MS = 30 * DAY;
 const CLOCK_SKEW_MS = 5 * 60_000;
@@ -29,7 +31,11 @@ export function passwordMatches(given: string, expected: string): boolean {
 /** Valid signed `v1.<issuedAtMs>` cookie, issued within the last 30 days. Always true without a password. */
 export function isAuthenticated(request: FastifyRequest, opts: AuthOptions): boolean {
   if (opts.password === null) return true;
-  const raw = request.cookies[SESSION_COOKIE];
+  return isValidSession(request, request.cookies[SESSION_COOKIE], opts)
+    || isValidSession(request, request.cookies[LEGACY_SESSION_COOKIE], opts);
+}
+
+function isValidSession(request: FastifyRequest, raw: string | undefined, opts: AuthOptions): boolean {
   if (!raw) return false;
   const r = request.unsignCookie(raw);
   if (!r.valid || r.value === null) return false;
@@ -45,10 +51,16 @@ export function setSessionCookie(request: FastifyRequest, reply: FastifyReply, n
     signed: true, httpOnly: true, sameSite: 'lax', path: '/', secure: request.protocol === 'https',
     maxAge: SESSION_MAX_AGE_MS / 1000,
   });
+  if (request.cookies[LEGACY_SESSION_COOKIE] !== undefined) clearCookie(request, reply, LEGACY_SESSION_COOKIE);
+}
+
+function clearCookie(request: FastifyRequest, reply: FastifyReply, name: string): void {
+  reply.clearCookie(name, { httpOnly: true, sameSite: 'lax', path: '/', secure: request.protocol === 'https' });
 }
 
 export function clearSessionCookie(request: FastifyRequest, reply: FastifyReply): void {
-  reply.clearCookie(SESSION_COOKIE, { httpOnly: true, sameSite: 'lax', path: '/', secure: request.protocol === 'https' });
+  clearCookie(request, reply, SESSION_COOKIE);
+  if (request.cookies[LEGACY_SESSION_COOKIE] !== undefined) clearCookie(request, reply, LEGACY_SESSION_COOKIE);
 }
 
 /**

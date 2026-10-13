@@ -19,7 +19,7 @@ function save(rel: string, data: unknown): void {
 }
 
 async function getJson(url: string): Promise<unknown> {
-  const res = await fetch(url, { headers: { 'User-Agent': 'altv' } });
+  const res = await fetch(url, { headers: { 'User-Agent': 'Chartmate' } });
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
   return res.json();
 }

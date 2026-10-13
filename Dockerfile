@@ -15,10 +15,13 @@ RUN pnpm build
 RUN pnpm deploy --filter @chartmate/server --prod /out
 
 FROM node:22-bookworm-slim AS runtime
+LABEL org.opencontainers.image.title="Chartmate" \
+      org.opencontainers.image.description="Self-hosted charting app (server + web UI)"
+# chartmate.db falls back to an existing /data/altv.db (volumes created before the rename keep their data).
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
-    DATABASE_URL=sqlite:/data/altv.db \
-    ALTV_WEB_DIST=/app/web
+    DATABASE_URL=sqlite:/data/chartmate.db \
+    CHARTMATE_WEB_DIST=/app/web
 WORKDIR /app
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /out/package.json ./package.json

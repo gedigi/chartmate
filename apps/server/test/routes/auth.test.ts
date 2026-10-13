@@ -40,7 +40,7 @@ describe('auth', () => {
     const ok = await t.app.inject({ method: 'POST', url: '/api/login', payload: { password: 'hunter2' } });
     expect(ok.statusCode).toBe(204);
     const setCookie = String(ok.headers['set-cookie']);
-    expect(setCookie).toMatch(/^altv_session=v1\.\d+\./);
+    expect(setCookie).toMatch(/^chartmate_session=v1\.\d+\./);
     expect(setCookie).toMatch(/HttpOnly/i);
     expect(setCookie).toMatch(/SameSite=Lax/i);
     expect(setCookie).toMatch(/Path=\//);
@@ -54,13 +54,13 @@ describe('auth', () => {
       .toEqual({ authRequired: true, authenticated: true });
 
     // Tampered / unsigned cookies are rejected.
-    expect((await t.app.inject({ method: 'GET', url: barsUrl, headers: { cookie: 'altv_session=1' } })).statusCode).toBe(401);
+    expect((await t.app.inject({ method: 'GET', url: barsUrl, headers: { cookie: 'chartmate_session=1' } })).statusCode).toBe(401);
     expect((await t.app.inject({ method: 'GET', url: barsUrl, headers: { cookie: cookie.replace(/.$/, 'x') } })).statusCode).toBe(401);
 
     const out = await t.app.inject({ method: 'POST', url: '/api/logout', headers: { cookie } });
     expect(out.statusCode).toBe(204);
     const cleared = String(out.headers['set-cookie']);
-    expect(cleared).toMatch(/^altv_session=;/);
+    expect(cleared).toMatch(/^chartmate_session=;/);
     expect(cleared).toMatch(/Expires=Thu, 01 Jan 1970|Max-Age=0/);
   });
 
@@ -99,14 +99,14 @@ describe('SPA static serving', () => {
   });
 
   it('serves files, falls back to index.html for non-api paths, JSON 404 for /api', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'altv-web-'));
-    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>altv</title>');
+    dir = mkdtempSync(join(tmpdir(), 'chartmate-web-'));
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>Chartmate</title>');
     writeFileSync(join(dir, 'app.js'), 'console.log(1)');
     t = await makeApp({ webDist: dir, password: 'hunter2' });
 
     const root = await t.app.inject({ method: 'GET', url: '/' });
     expect(root.statusCode).toBe(200);
-    expect(root.body).toContain('<title>altv</title>');
+    expect(root.body).toContain('<title>Chartmate</title>');
 
     const asset = await t.app.inject({ method: 'GET', url: '/app.js' });
     expect(asset.statusCode).toBe(200);
@@ -115,7 +115,7 @@ describe('SPA static serving', () => {
     const deep = await t.app.inject({ method: 'GET', url: '/baskets/abc' });
     expect(deep.statusCode).toBe(200);
     expect(deep.headers['content-type']).toMatch(/text\/html/);
-    expect(deep.body).toContain('<title>altv</title>');
+    expect(deep.body).toContain('<title>Chartmate</title>');
 
     // With auth on, unknown /api paths are guarded like the rest of the API.
     const guarded = await t.app.inject({ method: 'GET', url: '/api/x' });
@@ -193,8 +193,8 @@ describe('auth guard: encoded-path bypass regression', () => {
   });
 
   it('/%61pi/x is a JSON 404 (open) or 401 (auth), never index.html; SPA paths still served', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'altv-web-'));
-    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>altv</title>');
+    dir = mkdtempSync(join(tmpdir(), 'chartmate-web-'));
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>Chartmate</title>');
     writeFileSync(join(dir, 'app.js'), 'console.log(1)');
 
     t = await makeApp({ webDist: dir });
@@ -212,7 +212,7 @@ describe('auth guard: encoded-path bypass regression', () => {
     for (const url of ['/', '/baskets/abc', '/chart/stock:AAPL']) {
       const r = await t.app.inject({ method: 'GET', url });
       expect(r.statusCode, url).toBe(200);
-      expect(r.body, url).toContain('<title>altv</title>');
+      expect(r.body, url).toContain('<title>Chartmate</title>');
     }
     expect((await t.app.inject({ method: 'GET', url: '/app.js' })).body).toBe('console.log(1)');
     expect((await t.app.inject({ method: 'GET', url: '/%61pp.js' })).statusCode).toBe(200);
@@ -281,19 +281,39 @@ describe('session expiry and logout', () => {
     t = await makeApp({ password: 'hunter2' });
     for (const value of ['1', 'v1.', 'v1.abc', 'v2.123', `v1.${Date.now()}x`]) {
       const signed = t.app.signCookie(value);
-      const r = await t.app.inject({ method: 'GET', url: '/api/watchlist', headers: { cookie: `altv_session=${encodeURIComponent(signed)}` } });
+      const r = await t.app.inject({ method: 'GET', url: '/api/watchlist', headers: { cookie: `chartmate_session=${encodeURIComponent(signed)}` } });
       expect(r.statusCode, value).toBe(401);
     }
     const good = t.app.signCookie(`v1.${Date.now()}`);
-    expect((await t.app.inject({ method: 'GET', url: '/api/watchlist', headers: { cookie: `altv_session=${encodeURIComponent(good)}` } })).statusCode).toBe(200);
+    expect((await t.app.inject({ method: 'GET', url: '/api/watchlist', headers: { cookie: `chartmate_session=${encodeURIComponent(good)}` } })).statusCode).toBe(200);
   });
 
   it('logout is public and always clears the cookie', async () => {
     t = await makeApp({ password: 'hunter2' });
-    for (const headers of [{}, { cookie: 'altv_session=garbage' }]) {
+    for (const headers of [{}, { cookie: 'chartmate_session=garbage' }]) {
       const r = await t.app.inject({ method: 'POST', url: '/api/logout', headers });
       expect(r.statusCode).toBe(204);
-      expect(String(r.headers['set-cookie'])).toMatch(/^altv_session=;/);
+      expect(String(r.headers['set-cookie'])).toMatch(/^chartmate_session=;/);
     }
+  });
+
+  it('accepts the pre-rename altv_session cookie and replaces it on the next login/logout', async () => {
+    t = await makeApp({ password: 'hunter2' });
+    const legacy = `altv_session=${encodeURIComponent(t.app.signCookie(`v1.${Date.now()}`))}`;
+    expect((await t.app.inject({ method: 'GET', url: '/api/watchlist', headers: { cookie: legacy } })).statusCode).toBe(200);
+    expect((await t.app.inject({ method: 'GET', url: '/api/session', headers: { cookie: legacy } })).json())
+      .toEqual({ authRequired: true, authenticated: true });
+    // Unsigned legacy cookies are rejected like any other.
+    expect((await t.app.inject({ method: 'GET', url: '/api/watchlist', headers: { cookie: 'altv_session=v1.1' } })).statusCode).toBe(401);
+
+    const login = await t.app.inject({ method: 'POST', url: '/api/login', payload: { password: 'hunter2' }, headers: { cookie: legacy } });
+    const set = ([] as string[]).concat(login.headers['set-cookie'] as string | string[]);
+    expect(set.some((c) => /^chartmate_session=v1\./.test(c))).toBe(true);
+    expect(set.some((c) => /^altv_session=;/.test(c))).toBe(true);
+
+    const out = await t.app.inject({ method: 'POST', url: '/api/logout', headers: { cookie: legacy } });
+    const cleared = ([] as string[]).concat(out.headers['set-cookie'] as string | string[]);
+    expect(cleared.some((c) => /^chartmate_session=;/.test(c))).toBe(true);
+    expect(cleared.some((c) => /^altv_session=;/.test(c))).toBe(true);
   });
 });

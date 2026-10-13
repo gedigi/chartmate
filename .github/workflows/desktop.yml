@@ -68,7 +68,7 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # app-update.yml (owner/repo from GITHUB_REPOSITORY); only used by signed builds.
-          ALTV_PUBLISH: github
+          CHARTMATE_PUBLISH: github
         run: |
           node scripts/bundle.mjs --platform=darwin
           pnpm exec electron-builder --config electron-builder.config.cjs --mac --publish never
@@ -125,7 +125,7 @@ jobs:
           AZURE_PUBLISHER_NAME: ${{ secrets.AZURE_PUBLISHER_NAME }}
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-          ALTV_PUBLISH: github
+          CHARTMATE_PUBLISH: github
         run: |
           node scripts/bundle.mjs --platform=win32
           pnpm exec electron-builder --config electron-builder.config.cjs --win --publish never

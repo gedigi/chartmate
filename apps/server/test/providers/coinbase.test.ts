@@ -51,7 +51,7 @@ describe('CoinbaseProvider', () => {
     expect(u.origin + u.pathname).toBe('https://api.exchange.coinbase.com/products/BTC-USD/candles');
     expect(u.searchParams.get('granularity')).toBe('3600');
     expect(Date.parse(u.searchParams.get('start')!)).toBe(from);
-    expect(new Headers(inits[0]?.headers).get('User-Agent')).toBe('altv');
+    expect(new Headers(inits[0]?.headers).get('User-Agent')).toBe('Chartmate');
 
     expect(res.bars).toHaveLength(rows.length);
     for (let i = 1; i < res.bars.length; i++) expect(res.bars[i]!.ts).toBeGreaterThan(res.bars[i - 1]!.ts);

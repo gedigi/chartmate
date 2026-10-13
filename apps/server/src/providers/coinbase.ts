@@ -5,7 +5,7 @@ import { decimalsOf, num, rankMatches } from './util.js';
 import type { FetchBarsResult, MarketDataProvider, ProviderLimits } from './types.js';
 
 const BASE_URL = 'https://api.exchange.coinbase.com';
-const HEADERS = { 'User-Agent': 'altv', Accept: 'application/json' };
+const HEADERS = { 'User-Agent': 'Chartmate', Accept: 'application/json' };
 const MAX_CANDLES = 300;
 const PRODUCTS_TTL_MS = 3_600_000;
 const DAY = 86_400_000;

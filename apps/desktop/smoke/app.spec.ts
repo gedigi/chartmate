@@ -25,7 +25,7 @@ let launchMs = 0;
 
 test.beforeAll(async () => {
   userData = mkdtempSync(join(tmpdir(), 'chartmate-smoke-'));
-  const env = { ...process.env, ALTV_USER_DATA_DIR: userData, ALTV_PROVIDERS: providers } as Record<string, string>;
+  const env = { ...process.env, CHARTMATE_USER_DATA_DIR: userData, CHARTMATE_PROVIDERS: providers } as Record<string, string>;
   // Packaged builds refuse to start with these set (src/boot.ts); a developer shell may have them.
   for (const k of ['ELECTRON_RUN_AS_NODE', 'NODE_USE_ENV_PROXY', 'NODE_USE_SYSTEM_CA', 'NODE_EXTRA_CA_CERTS', 'SSLKEYLOGFILE']) delete env[k];
   const t = Date.now();

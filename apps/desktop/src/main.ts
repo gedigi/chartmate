@@ -45,7 +45,7 @@ const isPackaged = app.isPackaged;
 process.umask(0o077);
 
 app.setName(product.productName);
-// Packaged builds always use the per-user default (only dev runs and the TEST-ONLY copy honor ALTV_USER_DATA_DIR).
+// Packaged builds always use the per-user default (only dev runs and the TEST-ONLY copy honor CHARTMATE_USER_DATA_DIR).
 const userData = resolveUserDataDir(join(app.getPath('appData'), product.productName), process.env, { allowOverride: !isPackaged || __TEST_INSPECTABLE__ });
 app.setPath('userData', userData);
 app.setPath('sessionData', userData);

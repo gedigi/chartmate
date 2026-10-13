@@ -33,10 +33,10 @@ export default defineConfig({
     command: `pnpm build && node e2e/reset-db.mjs test-results ${DB_FILE} && node apps/server/dist/main.js`,
     cwd: ROOT,
     env: {
-      ALTV_PROVIDERS: 'fixture',
+      CHARTMATE_PROVIDERS: 'fixture',
       DATABASE_URL: `sqlite:./test-results/${DB_FILE}`,
       PORT: String(PORT),
-      ALTV_PASSWORD: '',
+      CHARTMATE_PASSWORD: '',
     },
     url: `${BASE_URL}/api/health`,
     reuseExistingServer: false,

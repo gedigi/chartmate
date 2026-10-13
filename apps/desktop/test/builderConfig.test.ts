@@ -52,17 +52,21 @@ describe('electron-builder config', () => {
   it('uses Azure Trusted Signing on Windows only when configured', () => {
     const env = {
       AZURE_TENANT_ID: 't', AZURE_CLIENT_ID: 'c', AZURE_CLIENT_SECRET: 's', AZURE_TRUSTED_SIGNING_ENDPOINT: 'https://weu.codesigning.azure.net',
-      AZURE_TRUSTED_SIGNING_ACCOUNT: 'acc', AZURE_TRUSTED_SIGNING_PROFILE: 'prof', AZURE_PUBLISHER_NAME: 'CN=altv',
+      AZURE_TRUSTED_SIGNING_ACCOUNT: 'acc', AZURE_TRUSTED_SIGNING_PROFILE: 'prof', AZURE_PUBLISHER_NAME: 'CN=Chartmate',
     };
     expect(buildConfig(env).win.azureSignOptions).toEqual({
-      publisherName: 'CN=altv', endpoint: 'https://weu.codesigning.azure.net', codeSigningAccountName: 'acc', certificateProfileName: 'prof',
+      publisherName: 'CN=Chartmate', endpoint: 'https://weu.codesigning.azure.net', codeSigningAccountName: 'acc', certificateProfileName: 'prof',
     });
   });
 
   it('GitHub publish settings come from GITHUB_REPOSITORY (never hardcoded) and only when asked', () => {
-    expect(buildConfig({ ALTV_PUBLISH: 'github', GITHUB_REPOSITORY: 'someone/somerepo' }).publish)
+    expect(buildConfig({ CHARTMATE_PUBLISH: 'github', GITHUB_REPOSITORY: 'someone/somerepo' }).publish)
       .toEqual([{ provider: 'github', owner: 'someone', repo: 'somerepo', releaseType: 'release' }]);
-    expect(() => buildConfig({ ALTV_PUBLISH: 'github' })).toThrow(/GITHUB_REPOSITORY/);
+    expect(() => buildConfig({ CHARTMATE_PUBLISH: 'github' })).toThrow(/GITHUB_REPOSITORY/);
+    // The pre-rename ALTV_PUBLISH still works; CHARTMATE_PUBLISH wins when both are set.
+    expect(buildConfig({ ALTV_PUBLISH: 'github', GITHUB_REPOSITORY: 'someone/somerepo' }).publish).toHaveLength(1);
+    expect(buildConfig({ CHARTMATE_PUBLISH: '', ALTV_PUBLISH: 'github', GITHUB_REPOSITORY: 'someone/somerepo' }).publish).toBeNull();
+    expect(buildConfig({}).publish).toBeNull();
   });
 
   it('Windows ships an NSIS installer and a portable zip for x64 and arm64', () => {
