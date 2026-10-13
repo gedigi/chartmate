@@ -23,6 +23,12 @@ export function customIndicatorProblem(v: unknown): string | null {
   if (c.decimalParams !== undefined && !(Array.isArray(c.decimalParams) && c.decimalParams.every((i) => Number.isInteger(i)))) {
     return 'catalog.decimalParams must be an array of param indices';
   }
+  for (const key of ['paramMin', 'paramMax'] as const) {
+    const v = c[key];
+    if (v !== undefined && !(Array.isArray(v) && v.every((x) => typeof x === 'number' && Number.isFinite(x)))) {
+      return `catalog.${key} must be an array of finite numbers`;
+    }
+  }
   if (c.description !== undefined && typeof c.description !== 'string') return 'catalog.description must be a string';
   if (usePricePrecision !== undefined && typeof usePricePrecision !== 'boolean') return 'usePricePrecision must be a boolean';
   return null;

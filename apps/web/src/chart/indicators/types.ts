@@ -18,6 +18,10 @@ export interface CatalogEntry {
   bars?: boolean;
   /** Indices of params that accept decimals > 0; every other param must be an integer in 1…1000. */
   decimalParams?: number[];
+  /** Per-param minimum of an integer param (index-aligned; missing entries default to 1). */
+  paramMin?: number[];
+  /** Per-param maximum of an integer param (index-aligned; missing entries default to 1000). */
+  paramMax?: number[];
   /** Optional longer explanation (picker / chip tooltip). */
   description?: string;
 }

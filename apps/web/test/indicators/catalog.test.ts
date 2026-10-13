@@ -72,6 +72,28 @@ describe('validateParam', () => {
     expect(validateParam('SAR', 0, '0.5')).toBeNull();
     expect(validateParam('SAR', 2, '-1')).toMatch(/greater than 0/i);
   });
+
+  it('honours per-param integer ranges (WYCKOFF: sensitivity 0–50, lengths ≥ 1)', () => {
+    expect(validateParam('WYCKOFF', 0, '14')).toBeNull();
+    expect(validateParam('WYCKOFF', 0, '0')).toBe('Must be a whole number ≥ 1');
+    expect(validateParam('WYCKOFF', 1, '0')).toBeNull();
+    expect(validateParam('WYCKOFF', 1, '50')).toBeNull();
+    expect(validateParam('WYCKOFF', 1, '51')).toBe('Must be at most 50');
+    expect(validateParam('WYCKOFF', 1, '-1')).toBe('Must be a whole number ≥ 0');
+    expect(validateParam('WYCKOFF', 1, '2.5')).toBe('Must be a whole number ≥ 0');
+    expect(validateParam('WYCKOFF', 2, '0')).toBe('Must be a whole number ≥ 1');
+    expect(validateParam('WYCKOFF', 2, '5')).toBeNull();
+  });
+});
+
+describe('WYCKOFF catalog entry', () => {
+  it('is an overlay with the agreed label, params and labels', () => {
+    expect(catalogEntry('WYCKOFF')).toMatchObject({
+      label: 'Wyckoff Accumulation and Distribution', pane: 'main', defaultParams: [14, 20, 5],
+      paramLabels: ['RSI Length', 'Trend Sensitivity', 'Pivot Length'], lines: [],
+      paramMin: [1, 0, 1], paramMax: [1000, 50, 1000],
+    });
+  });
 });
 
 describe('migrateCalcParams', () => {

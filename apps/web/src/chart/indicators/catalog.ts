@@ -91,8 +91,10 @@ export function validateParam(name: string, index: number, raw: string): string 
   if (text === '') return 'Required';
   const v = Number(text);
   if (!Number.isFinite(v)) return 'Must be a number';
-  const decimal = catalogEntry(name)?.decimalParams?.includes(index) ?? false;
-  if (decimal) return v > 0 ? null : 'Must be greater than 0';
-  if (!Number.isInteger(v) || v < 1) return 'Must be a whole number ≥ 1';
-  return v <= MAX_PERIOD ? null : `Must be at most ${MAX_PERIOD}`;
+  const entry = catalogEntry(name);
+  if (entry?.decimalParams?.includes(index)) return v > 0 ? null : 'Must be greater than 0';
+  const min = entry?.paramMin?.[index] ?? 1;
+  const max = entry?.paramMax?.[index] ?? MAX_PERIOD;
+  if (!Number.isInteger(v) || v < min) return `Must be a whole number ≥ ${min}`;
+  return v <= max ? null : `Must be at most ${max}`;
 }
