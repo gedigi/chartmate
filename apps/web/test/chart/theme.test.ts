@@ -251,6 +251,26 @@ describe('readable label text', () => {
   });
 });
 
+describe('UI token contrast (styles.css)', () => {
+  const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
+  const vars = (selector: string) => {
+    const start = css.indexOf(selector);
+    const body = css.slice(css.indexOf('{', start) + 1, css.indexOf('}', start));
+    return Object.fromEntries([...body.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1]!, m[2]!.trim()]));
+  };
+  it('accent buttons, badges, accent / muted text reach 4.5:1 in both themes', () => {
+    for (const sel of [":root[data-theme='dark']", ":root[data-theme='light']"]) {
+      const v = vars(sel);
+      const check = (fg: string, bg: string) => expect(contrastRatio(v[fg]!, v[bg]!), `${sel} ${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+      check('--accent-text', '--accent');
+      check('--accent-text', '--accent-hover');
+      for (const b of ['--badge-stock', '--badge-crypto', '--badge-basket']) { check(b, '--bg-elevated'); check(b, '--bg-raised'); }
+      for (const t of ['--text-muted', '--accent-fg', '--error']) for (const s of ['--bg', '--bg-panel', '--bg-raised', '--bg-elevated']) check(t, s);
+      check('--warn-text', '--warn-bg');
+    }
+  });
+});
+
 describe('overlayStyles', () => {
   it('derives the chart overlay defaults from the resolved default drawing style', () => {
     const d = resolveAppearance('dark', undefined).drawing;

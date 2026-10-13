@@ -80,13 +80,13 @@
   --text: #131726;
   --text-muted: #545c6f;
   --text-subtle: #8a91a3;
-  --accent: #2479d6;
-  --accent-hover: #1d68bb;
+  --accent: #1f6fc8;
+  --accent-hover: #1a62b0;
   --accent-text: #ffffff;
   --accent-fg: #1a64b8;
-  --accent-soft: rgb(36 121 214 / 0.11);
+  --accent-soft: rgb(31 111 200 / 0.11);
   --iris: #5b49e0;
-  --focus-ring: #2479d6;
+  --focus-ring: #1f6fc8;
   --cross-bg: #131726;
   --crosshair: #a6abb8;
   --level: #b9bdc9;
@@ -104,8 +104,8 @@
   --warn-bg: #fff4d6;
   --warn-text: #8a5a00;
   --error: #b4003f;
-  --badge-stock: #2479d6;
-  --badge-crypto: #c26a00;
+  --badge-stock: #1f6fc8;
+  --badge-crypto: #a35800;
   --badge-basket: #6a55e0;
   --scrim: rgb(19 23 38 / 0.28);
   --shadow-sm: none;
@@ -142,7 +142,7 @@
 html, body, #root { height: 100%; margin: 0; }
 body { background: var(--bg-panel); color: var(--text); }
 ::selection { background: var(--accent-soft); }
-:root[data-theme='light'] ::selection { background: rgb(36 121 214 / 0.2); }
+:root[data-theme='light'] ::selection { background: rgb(31 111 200 / 0.2); }
 /* Numbers line up wherever they live (prices, changes, axis-like readouts). */
 .num, input, .tabs button, .segmented button { font-variant-numeric: tabular-nums; }
 

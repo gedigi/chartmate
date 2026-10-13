@@ -18,7 +18,7 @@ export const THEME_TOKENS = {
     crossBg: '#e9ecf4', crosshair: '#5b6171', level: '#474e60', lastPrice: '#e9ecf4',
   },
   light: {
-    bg: '#fafbfd', panel: '#e7eaf1', elevated: '#ffffff', border: '#e1e4eb', grid: '#eef0f4', text: '#131726', muted: '#545c6f', accent: '#2479d6',
+    bg: '#fafbfd', panel: '#e7eaf1', elevated: '#ffffff', border: '#e1e4eb', grid: '#eef0f4', text: '#131726', muted: '#545c6f', accent: '#1f6fc8',
     up: '#12b996', down: '#d92855', upSoft: '#67dbbb', downSoft: '#ff7d8e', upFg: '#006b56', downFg: '#b4003f',
     crossBg: '#131726', crosshair: '#a6abb8', level: '#b9bdc9', lastPrice: '#131726',
   },
