@@ -128,27 +128,52 @@ describe('CoinbaseProvider', () => {
     expect(await p.search('aa')).toEqual([{ id: 'crypto:AAC', assetClass: 'crypto', ticker: 'AAC', name: 'AAC/USD', exchange: 'Coinbase', pricePrecision: 4 }]);
   });
 
-  it('quotes come from /stats sequentially with changePct = (last − open)/open × 100', async () => {
+  // Candles recorded live (granularity 86400, newest first); last = stats.last. Day = 2026-10-13 UTC.
+  const QNOW = Date.parse('2026-10-13T06:50:00Z');
+  const mk = (h: (url: URL) => Response | Promise<Response>) => make(h, () => QNOW);
+  const candles = () => fixture<number[][]>('coinbase/candles-btc-86400.json');
+  const quoteHandler = (stats: unknown) => (url: URL) =>
+    url.pathname.endsWith('/candles') ? jsonResponse(candles()) : jsonResponse(stats);
+
+  it('quotes: price from /stats last, changePct vs the previous daily candle close', async () => {
     const stats = fixture('coinbase/stats-btc.json');
-    const { p, calls } = make(() => jsonResponse(stats));
+    const { p, calls } = mk(quoteHandler(stats));
     const res = await p.quotes(['BTC', 'ETH']);
-    expect(calls.map((c) => c.pathname)).toEqual(['/products/BTC-USD/stats', '/products/ETH-USD/stats']);
+    expect(calls.map((c) => c.pathname)).toEqual([
+      '/products/BTC-USD/stats', '/products/BTC-USD/candles', '/products/ETH-USD/stats', '/products/ETH-USD/candles',
+    ]);
+    expect(calls[1]!.searchParams.get('granularity')).toBe('86400');
     const last = +stats.last;
-    const open = +stats.open;
-    expect(res[0]).toEqual({ id: 'crypto:BTC', price: last, changePct: ((last - open) / open) * 100, ts: NOW });
+    const prevClose = candles()[1]![4]!;
+    expect(prevClose).toBe(81742.5);
+    expect(res[0]).toEqual({ id: 'crypto:BTC', price: last, changePct: ((last / prevClose) - 1) * 100, ts: QNOW });
+    expect(res[0]!.changePct).not.toBeCloseTo(((last - +stats.open) / +stats.open) * 100, 2); // not the rolling 24h open
     expect(res[1]!.id).toBe('crypto:ETH');
+  });
+
+  it('quotes: uses the latest candle before the current UTC day when today has no candle yet', async () => {
+    const stats = fixture('coinbase/stats-btc.json');
+    const rows = candles().slice(1); // drop today's candle
+    const { p } = mk((url) => (url.pathname.endsWith('/candles') ? jsonResponse(rows) : jsonResponse(stats)));
+    const [q] = await p.quotes(['BTC']);
+    expect(q!.changePct).toBeCloseTo(((+stats.last / 81742.5) - 1) * 100, 9);
+  });
+
+  it('quotes: null changePct when no previous daily candle exists', async () => {
+    const stats = fixture('coinbase/stats-btc.json');
+    const { p } = mk((url) => (url.pathname.endsWith('/candles') ? jsonResponse([]) : jsonResponse(stats)));
+    expect((await p.quotes(['BTC']))[0]!.changePct).toBeNull();
   });
 
   it('quotes skip per-code 404s and non-finite prices instead of aborting', async () => {
     const stats = fixture('coinbase/stats-btc.json');
-    const { p, calls } = make((url) => {
+    const { p } = mk((url) => {
       if (url.pathname === '/products/NOPE-USD/stats') return jsonResponse({ message: 'NotFound' }, 404);
       if (url.pathname === '/products/BAD-USD/stats') return jsonResponse({ open: '1', last: '' });
-      return jsonResponse(stats);
+      return quoteHandler(stats)(url);
     });
     const res = await p.quotes(['NOPE', 'BTC', 'BAD', 'ETH']);
     expect(res.map((q) => q.id)).toEqual(['crypto:BTC', 'crypto:ETH']);
-    expect(calls).toHaveLength(4);
   });
 
   it('quotes still propagate retryable failures', async () => {

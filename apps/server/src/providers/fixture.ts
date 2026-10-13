@@ -85,10 +85,17 @@ export class FixtureProvider implements MarketDataProvider {
         last = this.generate(sym, '1m', end - DAY, end).at(-1);
       }
       if (!last) continue;
-      const prev = price(sym, last.ts + MIN - DAY);
+      const prev = this.prevDailyClose(sym, last.ts);
       out.push({ id: this.info(sym).id, price: last.close, changePct: ((last.close - prev) / prev) * 100, ts: last.ts });
     }
     return out;
+  }
+
+  /** Close of the daily bar before the day containing `ts` (crypto: previous UTC day; stocks: previous weekday). */
+  private prevDailyClose(sym: FixtureSymbol, ts: number): number {
+    let prevTs = Math.floor(ts / DAY) * DAY - DAY;
+    if (this.assetClass === 'stock') while ([0, 6].includes(new Date(prevTs).getUTCDay())) prevTs -= DAY;
+    return makeBar(sym, prevTs, DAY).close;
   }
 
   async firstBarTs(code: string): Promise<number | null> {

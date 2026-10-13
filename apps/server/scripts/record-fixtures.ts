@@ -63,8 +63,8 @@ async function recordBinance(): Promise<void> {
   ];
   save('binance/exchange-info.json', { timezone: info.timezone, serverTime: info.serverTime, symbols });
 
-  const syms = encodeURIComponent(JSON.stringify(['BTCUSDT', 'ETHUSDT']));
-  save('binance/ticker-24hr.json', await getJson(`${base}/api/v3/ticker/24hr?symbols=${syms}`));
+  const syms = encodeURIComponent(JSON.stringify(['WALUSDT', 'SUIUSDT']));
+  save('binance/ticker-tradingday.json', await getJson(`${base}/api/v3/ticker/tradingDay?symbols=${syms}&timeZone=0`));
 }
 
 async function recordCoinbase(): Promise<void> {
@@ -74,6 +74,7 @@ async function recordCoinbase(): Promise<void> {
   const products = (await getJson(`${base}/products`)) as { id: string; quote_currency: string }[];
   const wanted = ['BTC-USD', 'ETH-USD', 'SOL-USD', 'ETH-BTC', 'BTC-EUR'];
   save('coinbase/products.json', wanted.map((id) => products.find((p) => p.id === id)).filter(Boolean));
+  save('coinbase/candles-btc-86400.json', ((await getJson(`${base}/products/BTC-USD/candles?granularity=86400`)) as unknown[]).slice(0, 3));
   save('coinbase/stats-btc.json', await getJson(`${base}/products/BTC-USD/stats`));
 }
 

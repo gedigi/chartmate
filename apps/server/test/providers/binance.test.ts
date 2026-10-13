@@ -138,35 +138,88 @@ describe('BinanceProvider', () => {
     expect((await p.search('big'))[0]!.pricePrecision).toBe(0);
   });
 
-  it('quotes read lastPrice, priceChangePercent and closeTime from ticker/24hr', async () => {
-    const tick = fixture<any[]>('binance/ticker-24hr.json');
-    const { p, calls } = make(() => jsonResponse(tick));
-    const res = await p.quotes(['BTC', 'ETH']);
-    expect(calls[0]!.pathname).toBe('/api/v3/ticker/24hr');
-    expect(JSON.parse(calls[0]!.searchParams.get('symbols')!)).toEqual(['BTCUSDT', 'ETHUSDT']);
-    expect(res).toEqual([
-      { id: 'crypto:BTC', price: +tick[0].lastPrice, changePct: +tick[0].priceChangePercent, ts: tick[0].closeTime },
-      { id: 'crypto:ETH', price: +tick[1].lastPrice, changePct: +tick[1].priceChangePercent, ts: tick[1].closeTime },
-    ]);
+  // Fixtures recorded live from data-api.binance.vision (ticker/tradingDay?timeZone=0, 1d klines) on 2026-10-13 UTC.
+  // WAL: openPrice 0.03509 differs from the previous 1d close 0.03508, so changePct is computed from the kline close.
+  const WAL_PREV = 0.03508;
+  const SUI_PREV = 1.0284;
+  const DAY_OPEN = 1791849600000;
+  const prevKline = (close: number) => [DAY_OPEN - 86_400_000, '1', '1', '1', String(close), '5', DAY_OPEN - 1, '0', 1, '0', '0', '0'];
+  const tradingDayHandler = (tick: any[], prev: Record<string, number> = { WALUSDT: WAL_PREV, SUIUSDT: SUI_PREV }) => (url: URL) => {
+    if (url.pathname === '/api/v3/ticker/tradingDay') {
+      const wanted: string[] = url.searchParams.has('symbols') ? JSON.parse(url.searchParams.get('symbols')!) : [url.searchParams.get('symbol')!];
+      const rows = tick.filter((t) => wanted.includes(t.symbol));
+      if (rows.length !== wanted.length) return jsonResponse({ code: -1121, msg: 'Invalid symbol.' }, 400);
+      return jsonResponse(url.searchParams.has('symbols') ? rows : rows[0]);
+    }
+    if (url.pathname === '/api/v3/klines') return jsonResponse([prevKline(prev[url.searchParams.get('symbol')!]!)]);
+    return jsonResponse({}, 500);
+  };
+
+  it('quotes: changePct is last vs the previous UTC daily close (1d kline), not the rolling 24h or the day open', async () => {
+    const tick = fixture<any[]>('binance/ticker-tradingday.json');
+    const { p, calls } = make(tradingDayHandler(tick));
+    const res = await p.quotes(['WAL', 'SUI']);
+    const batch = calls.find((c) => c.pathname === '/api/v3/ticker/tradingDay')!;
+    expect(batch.searchParams.get('timeZone')).toBe('0');
+    expect(JSON.parse(batch.searchParams.get('symbols')!)).toEqual(['WALUSDT', 'SUIUSDT']);
+    const wal = tick.find((t) => t.symbol === 'WALUSDT');
+    const sui = tick.find((t) => t.symbol === 'SUIUSDT');
+    expect(res.map((q) => q.id)).toEqual(['crypto:WAL', 'crypto:SUI']);
+    expect(res[0]!.price).toBe(+wal.lastPrice);
+    expect(res[0]!.changePct).toBeCloseTo(((+wal.lastPrice / WAL_PREV) - 1) * 100, 9);
+    expect(res[0]!.changePct).not.toBeCloseTo(+wal.priceChangePercent, 3);
+    expect(res[1]!.changePct).toBeCloseTo(((+sui.lastPrice / SUI_PREV) - 1) * 100, 9);
+    expect(res[0]!.ts).toBe(wal.closeTime);
+    const k = calls.find((c) => c.pathname === '/api/v3/klines')!;
+    expect(Object.fromEntries(k.searchParams)).toMatchObject({ interval: '1d', endTime: String(DAY_OPEN - 1), limit: '1' });
+  });
+
+  it('quotes: the previous close is cached for the UTC day', async () => {
+    const tick = fixture<any[]>('binance/ticker-tradingday.json');
+    const { p, calls } = make(tradingDayHandler(tick));
+    await p.quotes(['WAL']);
+    await p.quotes(['WAL']);
+    expect(calls.filter((c) => c.pathname === '/api/v3/klines')).toHaveLength(1);
+  });
+
+  it('quotes: chunks the tradingDay request at 100 symbols', async () => {
+    const codes = Array.from({ length: 150 }, (_, i) => `C${i}`);
+    const { p, calls } = make((url) => {
+      if (url.pathname === '/api/v3/klines') return jsonResponse([prevKline(1)]);
+      const syms: string[] = JSON.parse(url.searchParams.get('symbols')!);
+      return jsonResponse(syms.map((symbol) => ({ symbol, lastPrice: '2', openPrice: '1', openTime: DAY_OPEN, closeTime: DAY_OPEN + 5 })));
+    });
+    const res = await p.quotes(codes);
+    const batches = calls.filter((c) => c.pathname === '/api/v3/ticker/tradingDay').map((c) => JSON.parse(c.searchParams.get('symbols')!).length);
+    expect(batches).toEqual([100, 50]);
+    expect(res).toHaveLength(150);
+    expect(res[0]!.changePct).toBe(100);
   });
 
   it('quotes: batch failing with -1121 falls back to per-symbol requests and skips unknown symbols', async () => {
-    const tick = fixture<any[]>('binance/ticker-24hr.json');
-    const { p, calls } = make((url) => {
-      if (url.searchParams.has('symbols')) return jsonResponse({ code: -1121, msg: 'Invalid symbol.' }, 400);
-      const sym = url.searchParams.get('symbol');
-      const row = tick.find((t) => t.symbol === sym);
-      return row ? jsonResponse(row) : jsonResponse({ code: -1121, msg: 'Invalid symbol.' }, 400);
-    });
-    const res = await p.quotes(['BTC', 'NOPE', 'ETH']);
-    expect(res.map((q) => q.id)).toEqual(['crypto:BTC', 'crypto:ETH']);
-    expect(calls.map((c) => c.searchParams.get('symbol'))).toEqual([null, 'BTCUSDT', 'NOPEUSDT', 'ETHUSDT']);
+    const tick = fixture<any[]>('binance/ticker-tradingday.json');
+    const { p, calls } = make(tradingDayHandler(tick));
+    const res = await p.quotes(['WAL', 'NOPE', 'SUI']);
+    expect(res.map((q) => q.id)).toEqual(['crypto:WAL', 'crypto:SUI']);
+    const td = calls.filter((c) => c.pathname === '/api/v3/ticker/tradingDay').map((c) => c.searchParams.get('symbol'));
+    expect(td).toEqual([null, 'WALUSDT', 'NOPEUSDT', 'SUIUSDT']);
+  });
+
+  it('quotes: falls back to openPrice when the previous kline is unavailable', async () => {
+    const tick = fixture<any[]>('binance/ticker-tradingday.json');
+    const h = tradingDayHandler(tick);
+    const { p } = make((url) => (url.pathname === '/api/v3/klines' ? jsonResponse([]) : h(url)));
+    const [q] = await p.quotes(['WAL']);
+    const wal = tick.find((t) => t.symbol === 'WALUSDT');
+    expect(q!.changePct).toBeCloseTo(((+wal.lastPrice / +wal.openPrice) - 1) * 100, 9);
   });
 
   it('quotes skip rows whose lastPrice is not a finite number', async () => {
-    const tick = fixture<any[]>('binance/ticker-24hr.json');
-    const { p } = make(() => jsonResponse([{ ...tick[0], lastPrice: 'abc' }, tick[1]]));
-    expect((await p.quotes(['BTC', 'ETH'])).map((q) => q.id)).toEqual(['crypto:ETH']);
+    const tick = fixture<any[]>('binance/ticker-tradingday.json');
+    const h = tradingDayHandler(tick);
+    const { p } = make((url) => (url.pathname === '/api/v3/ticker/tradingDay'
+      ? jsonResponse([{ ...tick[0], lastPrice: 'abc' }, tick[1]]) : h(url)));
+    expect((await p.quotes(['SUI', 'WAL'])).map((q) => q.id)).toEqual(['crypto:WAL']);
   });
 
   it('quotes([]) makes no request', async () => {

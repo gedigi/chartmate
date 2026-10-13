@@ -122,6 +122,10 @@ describe('FixtureProvider', () => {
     expect(q[0]!.price).toBe(bars.at(-1)!.close);
     expect(q[0]!.ts).toBe(bars.at(-1)!.ts);
     expect(typeof q[0]!.changePct).toBe('number');
+    // changePct is vs the previous UTC daily close (the 1D bar before the quote's day)
+    const daily = (await crypto().fetchBars('BTC', '1D', NOW - 3 * DAY, NOW)).bars;
+    const prevClose = daily.filter((b) => b.ts < Math.floor(q[0]!.ts / DAY) * DAY).at(-1)!.close;
+    expect(q[0]!.changePct).toBeCloseTo(((q[0]!.price / prevClose) - 1) * 100, 9);
     for (const x of q) expect(Number.isFinite(x.price)).toBe(true);
     // unknown codes are skipped
     expect(await crypto().quotes(['NOPE'])).toEqual([]);
@@ -132,6 +136,14 @@ describe('FixtureProvider', () => {
     const { bars } = await stock().fetchBars('AAPL', '1m', NOW - 3 * DAY, NOW);
     expect(q!.ts).toBe(bars.at(-1)!.ts);
     expect(nyParts(q!.ts).dow).toBe(5); // Friday post-market
+  });
+
+  it('stock quote changePct is vs the previous daily close', async () => {
+    const [q] = await stock().quotes(['AAPL']);
+    const daily = (await stock().fetchBars('AAPL', '1D', NOW - 10 * DAY, NOW)).bars;
+    const dayStart = Math.floor(q!.ts / DAY) * DAY;
+    const prevClose = daily.filter((b) => b.ts < dayStart).at(-1)!.close;
+    expect(q!.changePct).toBeCloseTo(((q!.price / prevClose) - 1) * 100, 9);
   });
 
   it('reports no stock splits', async () => {

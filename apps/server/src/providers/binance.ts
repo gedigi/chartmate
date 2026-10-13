@@ -7,13 +7,16 @@ import type { FetchBarsResult, MarketDataProvider, ProviderLimits } from './type
 const INTERVAL: Record<NativeTimeframe, string> = { '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '1h', '1D': '1d' };
 const PAGE = 1000;
 const INFO_TTL_MS = 3_600_000;
+/** `ticker/tradingDay` accepts at most 100 symbols per request. */
+const TICKER_BATCH = 100;
 
 type Kline = [number, string, string, string, string, string, ...unknown[]];
 interface ExchangeSymbol {
   symbol: string; baseAsset: string; quoteAsset: string; status: string;
   filters?: { filterType: string; tickSize?: string }[];
 }
-interface Ticker24h { symbol: string; lastPrice: string; priceChangePercent: string; closeTime: number }
+/** `/ticker/tradingDay?timeZone=0`: statistics for the current UTC day (openTime = 00:00 UTC). */
+interface TickerDay { symbol: string; lastPrice: string; openPrice: string; openTime: number; closeTime: number }
 
 export interface BinanceOptions { baseUrl: string; fetchImpl?: typeof fetch; now?: () => number }
 
@@ -29,6 +32,8 @@ export class BinanceProvider implements MarketDataProvider {
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
   private info: { at: number; symbols: SymbolInfo[] } | null = null;
+  /** Previous UTC daily close per pair, valid for the UTC day starting at `dayOpen`. */
+  private readonly prevClose = new Map<string, { dayOpen: number; close: number }>();
 
   constructor(opts: BinanceOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, '');
@@ -63,24 +68,17 @@ export class BinanceProvider implements MarketDataProvider {
     return rankMatches(symbols, (s) => s.ticker, q);
   }
 
+  /**
+   * changePct = last / previous UTC daily close - 1 (TradingView / stock convention), not Binance's rolling 24h.
+   * `ticker/tradingDay` gives the current UTC day's last price; its `openPrice` is usually, but not always, the
+   * previous close (WALUSDT: 0.03509 vs 0.03508), so the close comes from the previous 1d kline (cached per UTC
+   * day) and `openPrice` is only a fallback.
+   */
   async quotes(codes: string[]): Promise<Quote[]> {
     if (codes.length === 0) return [];
     const pairs = codes.map(pair);
-    let rows: Ticker24h[];
-    try {
-      rows = await this.get<Ticker24h[]>('/api/v3/ticker/24hr', { symbols: JSON.stringify(pairs) });
-    } catch (err) {
-      // One unknown symbol fails the whole batch: retry per symbol and skip the unknown ones.
-      if (!(err instanceof NotFoundError)) throw err;
-      rows = [];
-      for (const p of pairs) {
-        try {
-          rows.push(await this.get<Ticker24h>('/api/v3/ticker/24hr', { symbol: p }));
-        } catch (e) {
-          if (!(e instanceof NotFoundError)) throw e;
-        }
-      }
-    }
+    const rows: TickerDay[] = [];
+    for (let i = 0; i < pairs.length; i += TICKER_BATCH) rows.push(...(await this.tradingDay(pairs.slice(i, i + TICKER_BATCH))));
     const bySymbol = new Map(rows.map((r) => [r.symbol, r]));
     const out: Quote[] = [];
     for (const p of pairs) {
@@ -89,15 +87,46 @@ export class BinanceProvider implements MarketDataProvider {
       const price = num(r.lastPrice);
       const ts = num(r.closeTime);
       if (!Number.isFinite(price) || !Number.isFinite(ts)) continue;
-      const changePct = num(r.priceChangePercent);
+      const prev = await this.previousClose(p, r);
       out.push({
         id: `crypto:${p.slice(0, -'USDT'.length)}`,
         price,
-        changePct: Number.isFinite(changePct) ? changePct : null,
+        changePct: Number.isFinite(prev) && prev > 0 ? (price / prev - 1) * 100 : null,
         ts,
       });
     }
     return out;
+  }
+
+  private async tradingDay(pairs: string[]): Promise<TickerDay[]> {
+    try {
+      return await this.get<TickerDay[]>('/api/v3/ticker/tradingDay', { symbols: JSON.stringify(pairs), timeZone: '0' });
+    } catch (err) {
+      // One unknown symbol fails the whole batch: retry per symbol and skip the unknown ones.
+      if (!(err instanceof NotFoundError)) throw err;
+      const rows: TickerDay[] = [];
+      for (const p of pairs) {
+        try {
+          rows.push(await this.get<TickerDay>('/api/v3/ticker/tradingDay', { symbol: p, timeZone: '0' }));
+        } catch (e) {
+          if (!(e instanceof NotFoundError)) throw e;
+        }
+      }
+      return rows;
+    }
+  }
+
+  private async previousClose(pairName: string, r: TickerDay): Promise<number> {
+    const dayOpen = num(r.openTime);
+    const cached = this.prevClose.get(pairName);
+    if (cached && cached.dayOpen === dayOpen) return cached.close;
+    const fallback = num(r.openPrice);
+    if (!Number.isFinite(dayOpen)) return fallback;
+    const k = await this.get<Kline[]>('/api/v3/klines', { symbol: pairName, interval: '1d', endTime: String(dayOpen - 1), limit: '1' });
+    const close = k[0] ? num(k[0][4]) : NaN;
+    if (!Number.isFinite(close)) return fallback; // brand-new listing: the day's open is the best reference
+    this.prevClose.set(pairName, { dayOpen, close });
+    return close;
   }
 
   async firstBarTs(code: string): Promise<number | null> {

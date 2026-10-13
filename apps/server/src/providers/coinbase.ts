@@ -8,6 +8,7 @@ const BASE_URL = 'https://api.exchange.coinbase.com';
 const HEADERS = { 'User-Agent': 'altv', Accept: 'application/json' };
 const MAX_CANDLES = 300;
 const PRODUCTS_TTL_MS = 3_600_000;
+const DAY = 86_400_000;
 const HALF_HOUR = 30 * 60_000;
 
 /** Granularity in seconds; 30m is not native (built from 5m). */
@@ -16,7 +17,7 @@ const GRANULARITY: Record<Exclude<NativeTimeframe, '30m'>, number> = { '1m': 60,
 /** [time(s), low, high, open, close, volume] */
 type Candle = [number, number, number, number, number, number];
 interface Product { id: string; base_currency: string; quote_currency: string; status: string; trading_disabled?: boolean; quote_increment?: string }
-interface Stats { open: string; last: string }
+interface Stats { last: string }
 
 export interface CoinbaseOptions { fetchImpl?: typeof fetch; now?: () => number; baseUrl?: string }
 
@@ -73,15 +74,32 @@ export class CoinbaseProvider implements MarketDataProvider {
       }
       const last = num(s.last);
       if (!Number.isFinite(last)) continue;
-      const open = num(s.open);
+      const prev = await this.previousDailyClose(code);
       out.push({
         id: `crypto:${code.toUpperCase()}`,
         price: last,
-        changePct: Number.isFinite(open) && open !== 0 ? ((last - open) / open) * 100 : null,
+        changePct: prev !== null && prev > 0 ? (last / prev - 1) * 100 : null,
         ts: this.now(),
       });
     }
     return out;
+  }
+
+  /**
+   * Close of the latest daily candle before the current UTC day (stats.open is a rolling 24h open, not the
+   * daily-bar convention). Candles come newest-first; today's may be absent just after 00:00 UTC.
+   */
+  private async previousDailyClose(code: string): Promise<number | null> {
+    const dayStart = Math.floor(this.now() / DAY) * DAY;
+    const params = new URLSearchParams({
+      granularity: String(GRANULARITY['1D']),
+      start: new Date(dayStart - 7 * DAY).toISOString(),
+      end: new Date(this.now()).toISOString(),
+    });
+    const rows = await this.get<Candle[]>(`/products/${product(code)}/candles?${params}`);
+    let best: Candle | undefined;
+    for (const c of rows) if (c[0] * 1000 < dayStart && (!best || c[0] > best[0])) best = c;
+    return best && Number.isFinite(best[4]) ? best[4] : null;
   }
 
   /** Coinbase exposes no listing date. */
