@@ -21,6 +21,7 @@ const AppearanceSchema = z.object({
   lineColor: Hex.optional(),
   lineWidth: LineWidth.optional(),
   drawing: LineStyleSchema.strict().optional(),
+  lastPriceLine: z.enum(['neutral', 'candle']).optional(),
 }).strict();
 
 /**

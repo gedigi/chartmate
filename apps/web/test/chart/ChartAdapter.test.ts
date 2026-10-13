@@ -597,9 +597,14 @@ describe('ChartAdapter', () => {
       const a = make();
       a.setAppearance({ dark: { upColor: '#ffffff', downColor: '#e63b7a', drawing: { color: '#ffffff', size: 1, style: 'solid' } } });
       let s = chart().setStyles.mock.calls.at(-1)![0];
-      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#ffffff', downColor: '#e63b7a', text: { color: '#131722' } });
+      // Neutral last price line by default: white with dark text on the dark theme.
+      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#ffffff', downColor: '#ffffff', noChangeColor: '#ffffff', text: { color: '#131722' } });
       expect(s.overlay.text).toMatchObject({ backgroundColor: '#ffffff', color: '#131722' });
       a.setTheme('light');
+      s = chart().setStyles.mock.calls.at(-1)![0];
+      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#111827', downColor: '#111827', text: { color: '#ffffff' } });
+      expect(s.candle.bar).toMatchObject({ upColor: '#00a870', downColor: '#d4113b' });
+      a.setAppearance({ light: { lastPriceLine: 'candle' } });
       s = chart().setStyles.mock.calls.at(-1)![0];
       expect(s.candle.priceMark.last).toMatchObject({ upColor: '#00a870', downColor: '#d4113b', text: { color: '#ffffff' } });
       expect(s.overlay.line).toMatchObject({ color: '#2b66ff' });

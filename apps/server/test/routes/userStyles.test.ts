@@ -17,14 +17,14 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
 
   const full = {
     upColor: '#00ff00', downColor: '#FF0000', candleBody: 'hollow_up', lineColor: '#123456', lineWidth: 3,
-    drawing: { color: '#abcdef', size: 2, style: 'dotted' },
+    drawing: { color: '#abcdef', size: 2, style: 'dotted' }, lastPriceLine: 'candle',
   } as const;
 
   it('accepts and round-trips a per-theme appearance', async () => {
     const appearance = { dark: full, light: { upColor: '#000000' } };
     expect((await putLayout({ ...layout, appearance })).statusCode).toBe(200);
     expect((await t.app.inject({ method: 'GET', url: '/api/layouts/default' })).json()).toEqual({ ...layout, appearance });
-    for (const a of [{}, { dark: {} }, { light: full }]) expect((await putLayout({ ...layout, appearance: a })).statusCode).toBe(200);
+    for (const a of [{}, { dark: {} }, { light: full }, { light: { lastPriceLine: 'neutral' } }]) expect((await putLayout({ ...layout, appearance: a })).statusCode).toBe(200);
   });
 
   it('accepts the legacy flat appearance and migrates it to the dark theme', async () => {
@@ -44,6 +44,7 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
     for (const appearance of [
       { upColor: 'red' }, { downColor: '#fff' }, { candleBody: 'filled' }, { lineWidth: 0 }, { lineWidth: 5 }, { lineWidth: 1.5 },
       { drawing: { color: '#000000', size: 2 } }, { drawing: { color: '#000000', size: 2, style: 'wavy' } }, { bogus: 1 },
+      { lastPriceLine: 'white' }, { lastPriceLine: true },
     ]) {
       expect((await putLayout({ ...layout, appearance })).statusCode, JSON.stringify(appearance)).toBe(400);
       expect((await putLayout({ ...layout, appearance: { dark: appearance } })).statusCode, JSON.stringify(appearance)).toBe(400);

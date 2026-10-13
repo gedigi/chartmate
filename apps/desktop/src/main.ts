@@ -15,7 +15,7 @@ import { MarketDataService } from '../../server/src/market/service.js';
 import { createRegistry } from '../../server/src/providers/registry.js';
 import { DB_FILE_NAME, desktopConfig, resolveUserDataDir } from './lib/desktopConfig.js';
 import {
-  APP_ENTRY_URL, APP_HOST, APP_SCHEME, hardenAllSessions, hardenApp, PRIVILEGED_SCHEMES, secureWebPreferences,
+  APP_ENTRY_URL, APP_HOST, APP_SCHEME, hardenAllSessions, hardenApp, isAppUrl, PRIVILEGED_SCHEMES, secureWebPreferences,
 } from './lib/hardening.js';
 import { createCrashPolicy } from './lib/crashLimiter.js';
 import { installListenGuard } from './lib/listenGuard.js';
@@ -27,6 +27,7 @@ import { createGuardedFetch, installFetchAllowlist, providerHosts } from './lib/
 import { createNodeSqliteDb, type NodeSqliteHandle } from './lib/nodeSqlite.js';
 import { createAppProtocolHandler } from './lib/protocol.js';
 import { ensurePrivateDir, migrateLegacyUserData, restrictFiles } from './lib/storage.js';
+import { frameOptions, themeFromThemeColor, titleBarOverlay } from './lib/titleBar.js';
 import { shouldEnableAutoUpdate } from './lib/updatePolicy.js';
 import {
   BACKGROUND, DEFAULT_SIZE, loadWindowState, MIN_SIZE, saveWindowState, visibleBounds, type WindowState,
@@ -159,11 +160,34 @@ function createWindow(): void {
     minHeight: MIN_SIZE.height,
     // macOS takes the icon from the bundle (.icns); Windows/Linux windows need it explicitly.
     ...(process.platform === 'darwin' ? {} : { icon: join(__dirname, 'icon.png') }),
+    // Frameless: the web top bar is the title bar (macOS traffic lights / Windows caption overlay on top of it).
+    ...frameOptions(process.platform, state.theme),
     webPreferences: secureWebPreferences({ isPackaged }),
   });
   mainWindow = win;
   if (state.maximized) win.maximize();
   win.on('page-title-updated', (e) => e.preventDefault());
+  if (process.platform === 'darwin') {
+    // The traffic lights are hidden in full screen: tell the page (a constant script, main → page only) so the top
+    // bar drops their reserved space. `display-mode: fullscreen` does not match native window full screen.
+    const setFullScreen = (on: boolean) => {
+      if (win.isDestroyed() || !isAppUrl(win.webContents.getURL())) return;
+      win.webContents.executeJavaScript(`document.documentElement.toggleAttribute('data-fullscreen', ${on})`, false).catch(() => {});
+    };
+    win.on('enter-full-screen', () => setFullScreen(true));
+    win.on('leave-full-screen', () => setFullScreen(false));
+    win.webContents.on('did-finish-load', () => { if (win.isFullScreen()) setFullScreen(true); });
+  }
+  if (process.platform === 'win32') {
+    // Caption buttons follow the UI theme. No IPC and no preload script; the page's <meta name="theme-color"> (set only in the
+    // desktop shell) is reported by Chromium; only our own app:// page counts, and only the two exact top bar
+    // colors map to a theme — every other value is ignored.
+    win.webContents.on('did-change-theme-color', (_e, color) => {
+      if (!isAppUrl(win.webContents.getURL())) return;
+      const theme = themeFromThemeColor(color);
+      if (theme) win.setTitleBarOverlay(titleBarOverlay(theme));
+    });
+  }
   win.once('ready-to-show', () => {
     win.show();
     log.info(`startup: window shown ${Date.now() - t0} ms after process start`);

@@ -70,6 +70,30 @@ test('loads the UI from app://chartmate with the product title', async () => {
   console.log(`[smoke] launch → chart canvas visible: ${launchMs} ms (packaged=${!!packaged}, providers=${providers})`);
 });
 
+test('frameless window: the top bar is the title bar (drag region, room for the window controls)', async () => {
+  const shell = process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'windows' : null;
+  const r = await page.evaluate(() => {
+    const bar = document.querySelector('.top-bar')!;
+    const button = bar.querySelector('button')!;
+    const region = (el: Element) => getComputedStyle(el).getPropertyValue('-webkit-app-region');
+    return {
+      shell: document.documentElement.dataset.shell ?? null, bar: region(bar), button: region(button),
+      padLeft: getComputedStyle(bar).paddingLeft, themeColor: document.querySelector('meta[name="theme-color"]')?.getAttribute('content') ?? null,
+    };
+  });
+  expect(r.shell).toBe(shell);
+  if (!shell) return;
+  expect(r).toMatchObject({ bar: 'drag', button: 'no-drag' });
+  expect(r.themeColor).toMatch(/^#(141820|f7f8fa)$/);
+  if (shell === 'mac') {
+    expect(r.padLeft).toBe('80px');
+    if (app) {
+      const lights = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.getWindowButtonPosition());
+      expect(lights).toEqual({ x: 14, y: 14 });
+    }
+  }
+});
+
 test('/api/health works through the app:// scheme, with CSP and security headers', async () => {
   const r = await page.evaluate(async () => {
     const res = await fetch('/api/health');
