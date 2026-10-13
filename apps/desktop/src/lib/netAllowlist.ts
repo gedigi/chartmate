@@ -127,10 +127,16 @@ export function createGuardedFetch(base: typeof fetch, allowed: Iterable<string>
   return guarded as typeof fetch;
 }
 
-/** Replaces `target.fetch` (normally `globalThis`) with the guarded version; returns an undo function. */
-export function installFetchAllowlist(target: { fetch: typeof fetch }, allowed: Iterable<string>, opts: GuardOptions = {}): () => void {
+/**
+ * Replaces `target.fetch` (normally `globalThis`) with the guarded version; returns an undo function. `base` is the
+ * transport the guard calls (the desktop passes the proxy-proof, CA-pinned fetch from directFetch.ts); it defaults
+ * to the original `target.fetch`.
+ */
+export function installFetchAllowlist(
+  target: { fetch: typeof fetch }, allowed: Iterable<string>, opts: GuardOptions & { base?: typeof fetch } = {},
+): () => void {
   const original = target.fetch;
-  target.fetch = createGuardedFetch(original, allowed, opts);
+  target.fetch = createGuardedFetch(opts.base ?? original, allowed, opts);
   return () => {
     target.fetch = original;
   };

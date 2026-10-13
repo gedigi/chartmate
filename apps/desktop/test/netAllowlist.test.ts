@@ -145,6 +145,15 @@ describe('installFetchAllowlist', () => {
     undo();
     expect(target.fetch).toBe(fn);
   });
+
+  it('uses the given base transport instead of the original fetch', async () => {
+    const orig = fakeFetch({});
+    const base = fakeFetch({ 'https://query1.finance.yahoo.com/a': () => new Response('via base') });
+    const target = { fetch: orig.fn };
+    installFetchAllowlist(target, HOSTS, { base: base.fn });
+    expect(await (await target.fetch('https://query1.finance.yahoo.com/a')).text()).toBe('via base');
+    expect(orig.calls).toHaveLength(0);
+  });
 });
 
 describe('providerHosts', () => {

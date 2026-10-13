@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { FORBIDDEN_SWITCHES, findForbiddenSwitches, sanitizeEnv, STRIPPED_ENV_VARS } from '../src/lib/startupGuards.js';
+import { FORBIDDEN_ENV_VARS, FORBIDDEN_SWITCHES, findForbiddenEnv, findForbiddenSwitches } from '../src/lib/startupGuards.js';
 
 describe('findForbiddenSwitches', () => {
   const exe = '/Applications/Chartmate.app/Contents/MacOS/Chartmate';
@@ -19,6 +19,11 @@ describe('findForbiddenSwitches', () => {
     '--host-rules=MAP * evil', '--load-extension=/tmp/x', '--enable-blink-features=X',
     '--unsafely-treat-insecure-origin-as-secure=http://x', '--renderer-cmd-prefix=gdb', '--utility-cmd-prefix=x',
     '--gpu-launcher=x', '--browser-subprocess-path=/tmp/x', '--log-net-log=/tmp/n.json', '--user-data-dir=/tmp/u',
+    // second review round
+    '--ssl-key-log-file=/tmp/keys', '--enable-features=X', '--disable-features=TrustedDOMTypes', '--disable-gpu-sandbox',
+    '--allow-file-access-from-files', '--allow-running-insecure-content', '--disable-blink-features=X',
+    '--force-fieldtrials=X/Y', '--single-process', '--no-zygote', '--disable-setuid-sandbox', '--ssl-version-max=tls1',
+    '--proxy-bypass-list=*', '--remote-debugging-targets=x', '--enable-automation', '--disk-cache-dir=/tmp/c',
   ])('rejects %s', (arg) => {
     expect(findForbiddenSwitches([exe, arg])).not.toEqual([]);
   });
@@ -51,13 +56,12 @@ describe('findForbiddenSwitches', () => {
   });
 });
 
-describe('sanitizeEnv', () => {
-  it('removes proxy/CA-injection variables and leaves the rest', () => {
-    const env: Record<string, string | undefined> = {
-      NODE_USE_ENV_PROXY: '1', NODE_USE_SYSTEM_CA: '1', NODE_EXTRA_CA_CERTS: '/tmp/evil.pem', HOME: '/Users/x',
-    };
-    expect(sanitizeEnv(env).sort()).toEqual(['NODE_EXTRA_CA_CERTS', 'NODE_USE_ENV_PROXY', 'NODE_USE_SYSTEM_CA']);
-    expect(env).toEqual({ HOME: '/Users/x' });
-    expect(STRIPPED_ENV_VARS).toEqual(['NODE_USE_ENV_PROXY', 'NODE_USE_SYSTEM_CA', 'NODE_EXTRA_CA_CERTS']);
+describe('findForbiddenEnv', () => {
+  it('reports proxy/CA/key-log variables that are set (non-empty)', () => {
+    expect(FORBIDDEN_ENV_VARS).toEqual(['NODE_USE_ENV_PROXY', 'NODE_USE_SYSTEM_CA', 'NODE_EXTRA_CA_CERTS', 'SSLKEYLOGFILE']);
+    expect(findForbiddenEnv({ HOME: '/x', HTTPS_PROXY: 'http://p' })).toEqual([]);
+    expect(findForbiddenEnv({ NODE_USE_ENV_PROXY: '1', SSLKEYLOGFILE: '/tmp/k', NODE_EXTRA_CA_CERTS: ' ' }))
+      .toEqual(['NODE_USE_ENV_PROXY', 'SSLKEYLOGFILE']);
+    expect(findForbiddenEnv({ NODE_USE_SYSTEM_CA: '1', NODE_EXTRA_CA_CERTS: '/tmp/ca.pem' })).toEqual(['NODE_USE_SYSTEM_CA', 'NODE_EXTRA_CA_CERTS']);
   });
 });

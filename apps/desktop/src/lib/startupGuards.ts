@@ -1,21 +1,35 @@
 /**
  * Chromium/Node command-line switches a packaged build refuses to start with. Each of them either opens a debug
- * channel into the app (CDP, inspector), weakens the sandbox or web security, redirects or intercepts its network
- * traffic, loads foreign code, or relocates its profile. The fuses cover the Node-side equivalents
- * (ELECTRON_RUN_AS_NODE, NODE_OPTIONS, --inspect); Chromium switches have no fuse, so they are checked here,
- * before anything else runs.
+ * channel into the app (CDP, inspector), weakens the sandbox, site isolation, web security or TLS, toggles engine
+ * features (which can switch security features off), redirects or records its network traffic, loads foreign
+ * code, or relocates its profile. The fuses cover the Node-side equivalents (ELECTRON_RUN_AS_NODE, NODE_OPTIONS,
+ * --inspect); Chromium switches have no fuse, so they are checked here, before anything else runs.
  */
 export const FORBIDDEN_SWITCHES: readonly string[] = Object.freeze([
+  // Debugging / automation channels
   'remote-debugging-port', 'remote-debugging-pipe', 'remote-debugging-address', 'remote-allow-origins',
+  'remote-debugging-targets', 'auto-open-devtools-for-tabs', 'enable-automation',
   'inspect', // also inspect-brk, inspect-port, inspect-publish-uid … (prefix match below)
   'js-flags',
-  'no-sandbox', 'disable-web-security', 'disable-site-isolation-trials',
+  // Sandbox / process model
+  'no-sandbox', 'disable-gpu-sandbox', 'disable-setuid-sandbox', 'disable-seccomp-filter-sandbox',
+  'disable-namespace-sandbox', 'no-zygote', 'single-process', 'in-process-gpu',
+  // Web security / isolation / engine features
+  'disable-web-security', 'disable-site-isolation-trials', 'allow-file-access-from-files', 'allow-file-access',
+  'allow-running-insecure-content', 'reduce-security-for-testing', 'unsafely-treat-insecure-origin-as-secure',
+  'enable-features', 'disable-features', 'force-fieldtrials', 'force-fieldtrial-params',
+  'enable-blink-features', 'disable-blink-features', 'enable-experimental-web-platform-features',
+  'enable-unsafe-webgpu', 'enable-unsafe-swiftshader',
+  // TLS
   'ignore-certificate-errors', 'ignore-certificate-errors-spki-list', 'allow-insecure-localhost',
-  'unsafely-treat-insecure-origin-as-secure',
-  'proxy-server', 'proxy-pac-url', 'host-resolver-rules', 'host-rules',
-  'load-extension', 'enable-blink-features',
-  'renderer-cmd-prefix', 'utility-cmd-prefix', 'gpu-launcher', 'browser-subprocess-path',
-  'log-net-log', 'user-data-dir',
+  'ssl-key-log-file', 'ssl-version-min', 'ssl-version-max', 'cipher-suite-blacklist',
+  // Network redirection / capture
+  'proxy-server', 'proxy-pac-url', 'proxy-bypass-list', 'proxy-auto-detect', 'winhttp-proxy-resolver',
+  'host-resolver-rules', 'host-rules', 'log-net-log',
+  // Foreign code
+  'load-extension', 'renderer-cmd-prefix', 'utility-cmd-prefix', 'gpu-launcher', 'browser-subprocess-path',
+  // Profile relocation
+  'user-data-dir', 'disk-cache-dir',
 ]);
 
 const PREFIXES: readonly string[] = ['inspect'];
@@ -47,17 +61,17 @@ export function findForbiddenSwitches(argv: readonly string[], platform: NodeJS.
   return [...found];
 }
 
-/** Variables that would let the environment proxy or re-root TLS for the main process's outbound requests. */
-export const STRIPPED_ENV_VARS: readonly string[] = Object.freeze(['NODE_USE_ENV_PROXY', 'NODE_USE_SYSTEM_CA', 'NODE_EXTRA_CA_CERTS']);
+/**
+ * Environment variables a packaged build refuses to start with. Node acts on NODE_USE_ENV_PROXY and
+ * NODE_USE_SYSTEM_CA during pre-execution, before any app code runs (global proxy dispatcher, system CA store), so
+ * they cannot be neutralised by deleting them later; SSLKEYLOGFILE would make TLS session keys loggable.
+ * NODE_EXTRA_CA_CERTS is normally removed by Electron already (the EnableNodeOptionsEnvironmentVariable fuse covers
+ * it), and stays listed as defence in depth. The provider fetch also ignores proxies and pins the bundled root CAs
+ * regardless (directFetch.ts).
+ */
+export const FORBIDDEN_ENV_VARS: readonly string[] = Object.freeze(['NODE_USE_ENV_PROXY', 'NODE_USE_SYSTEM_CA', 'NODE_EXTRA_CA_CERTS', 'SSLKEYLOGFILE']);
 
-/** Deletes STRIPPED_ENV_VARS from `env`; returns the names that were present. */
-export function sanitizeEnv(env: Record<string, string | undefined>): string[] {
-  const removed: string[] = [];
-  for (const k of STRIPPED_ENV_VARS) {
-    if (k in env) {
-      delete env[k];
-      removed.push(k);
-    }
-  }
-  return removed;
+/** Forbidden variables that are set to a non-empty value. */
+export function findForbiddenEnv(env: Record<string, string | undefined>): string[] {
+  return FORBIDDEN_ENV_VARS.filter((k) => typeof env[k] === 'string' && env[k]!.trim() !== '');
 }
