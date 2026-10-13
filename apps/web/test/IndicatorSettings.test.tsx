@@ -103,6 +103,72 @@ describe('IndicatorSettings', () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
+  describe('reference levels', () => {
+    const show = () => screen.getByRole('checkbox', { name: 'Show reference lines' });
+    const values = () => screen.getByLabelText('Values');
+
+    it('oscillators show their default levels (old layouts without levels); unchanged levels are not saved', async () => {
+      const onSave = vi.fn();
+      render(<IndicatorSettings state={RSI} onSave={onSave} onClose={() => {}} />);
+      expect(screen.getByRole('group', { name: 'Levels' })).toBeInTheDocument();
+      expect(show()).toBeChecked();
+      expect(values()).toHaveValue('70, 30');
+      await userEvent.click(save());
+      expect(onSave.mock.calls[0]![0]).toEqual(RSI);
+    });
+
+    it('overlays have no Levels section', () => {
+      render(<IndicatorSettings state={BOLL} onSave={() => {}} onClose={() => {}} />);
+      expect(screen.queryByRole('group', { name: 'Levels' })).not.toBeInTheDocument();
+    });
+
+    it('edited values and the hide toggle are saved; stored values are shown', async () => {
+      const onSave = vi.fn();
+      render(<IndicatorSettings state={{ ...RSI, levels: [80, 20] }} onSave={onSave} onClose={() => {}} />);
+      expect(values()).toHaveValue('80, 20');
+      await userEvent.clear(values());
+      await userEvent.type(values(), '75, 50, 25');
+      await userEvent.click(show());
+      expect(values()).toBeDisabled();
+      await userEvent.click(save());
+      expect(onSave.mock.calls[0]![0]).toEqual({ ...RSI, levels: [75, 50, 25], showLevels: false });
+    });
+
+    it('invalid values show an error and disable Save while the levels are shown', async () => {
+      render(<IndicatorSettings state={RSI} onSave={() => {}} onClose={() => {}} />);
+      await userEvent.clear(values());
+      await userEvent.type(values(), '70, high');
+      expect(values()).toHaveAttribute('aria-invalid', 'true');
+      expect(save()).toBeDisabled();
+      await userEvent.clear(values());
+      await userEvent.type(values(), '1 2 3 4 5 6');
+      expect(screen.getByText('At most 5 levels')).toBeInTheDocument();
+      await userEvent.click(show()); // hidden levels never block saving
+      expect(save()).toBeEnabled();
+    });
+
+    it('clearing the values saves an empty list (no lines)', async () => {
+      const onSave = vi.fn();
+      render(<IndicatorSettings state={RSI} onSave={onSave} onClose={() => {}} />);
+      await userEvent.clear(values());
+      await userEvent.click(save());
+      expect(onSave.mock.calls[0]![0]).toEqual({ ...RSI, levels: [] });
+    });
+
+    it('Reset restores the default levels and shows them', async () => {
+      const onSave = vi.fn();
+      render(<IndicatorSettings state={{ ...RSI, levels: [90, 10], showLevels: false }} onSave={onSave} onClose={() => {}} />);
+      expect(show()).not.toBeChecked();
+      await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
+      expect(show()).toBeChecked();
+      expect(values()).toHaveValue('70, 30');
+      await userEvent.click(save());
+      const saved = onSave.mock.calls[0]![0] as IndicatorState;
+      expect(saved).not.toHaveProperty('levels');
+      expect(saved).not.toHaveProperty('showLevels');
+    });
+  });
+
   it('an indicator with no params says so', () => {
     render(<IndicatorSettings state={{ name: 'VWAP', pane: 'main', calcParams: [], visible: true }} onSave={() => {}} onClose={() => {}} />);
     expect(screen.getByText(/no parameters/i)).toBeInTheDocument();
