@@ -34,9 +34,28 @@ export interface IndicatorSpec extends Pick<IndicatorState, 'lineColors' | 'line
 type IndicatorOverrides = Pick<IndicatorSpec, 'lineColors' | 'lineWidths' | 'lineStyles' | 'barColors'>;
 const OVERRIDE_KEYS = ['lineColors', 'lineWidths', 'lineStyles', 'barColors'] as const;
 
+/**
+ * Drawings that lie at a single price (every point has the same value): the style bar edits that price.
+ * Only those the toolbar offers matter, the others are listed for drawings restored from elsewhere.
+ */
+export const HORIZONTAL_DRAWINGS: ReadonlySet<string> = new Set(['horizontalStraightLine', 'priceLine', 'horizontalRayLine', 'horizontalSegment']);
+
+/** Most decimals a typed price keeps (crypto quotes can be finer than the symbol precision). */
+export const MAX_PRICE_DECIMALS = 8;
+
+/** `v` rounded to `decimals` decimals (clean binary value, e.g. 1.005 → 1.01 not 1.0049999). */
+export function roundPrice(v: number, decimals: number): number {
+  const f = 10 ** decimals;
+  return Number((Math.round(v * f) / f).toFixed(decimals));
+}
+
 /** Style of the selected drawing, as the floating style bar edits it. */
 export type SelectedDrawing =
-  | { id: string; kind: 'line'; style: DrawingLineStyle; locked: boolean }
+  | {
+    id: string; kind: 'line'; style: DrawingLineStyle; locked: boolean;
+    /** Horizontal drawings only: their price and the symbol's price precision. */
+    price?: { value: number; precision: number };
+  }
   | { id: string; kind: 'text'; style: TextStyle; locked: boolean };
 
 const INDICATOR_DASH = [4, 4];
@@ -175,6 +194,7 @@ export class ChartAdapter {
     this.loader = loader;
     this.tf = p.tf;
     this.assetClass = p.symbol.assetClass;
+    this.pricePrecision = p.symbol.pricePrecision;
     this.basketHasCrypto = p.symbol.assetClass === 'basket' && p.basketHasCrypto === true;
     // Same symbol, but daily-anchored drawings now display differently (daily ↔ intraday): re-place them.
     if (prevSymbol === p.symbol.id && prevMapping !== this.mapsDailyAnchors()) this.replaceForAnchorMapping(p.symbol.id);
@@ -438,8 +458,11 @@ export class ChartAdapter {
   /** Overlays whose mode was switched to strong_magnet (reverted when they stop being active). */
   private readonly strongIds = new Set<string>();
   private readonly selectionListeners = new Set<(s: SelectedDrawing | null) => void>();
+  private readonly priceEditListeners = new Set<(id: string) => void>();
+  /** Price precision of the current symbol (horizontal drawings placed with the mouse are rounded to it). */
+  private pricePrecision = 2;
 
-  private readonly handlers: Pick<OverlayCreate, 'onDrawEnd' | 'onPressedMoveStart' | 'onPressedMoveEnd' | 'onRemoved' | 'onSelected' | 'onDeselected'> = {
+  private readonly handlers: Pick<OverlayCreate, 'onDrawEnd' | 'onPressedMoveStart' | 'onPressedMoveEnd' | 'onRemoved' | 'onSelected' | 'onDeselected' | 'onDoubleClick'> = {
     onDrawEnd: ({ overlay }) => {
       if (this.drawing?.id === overlay.id) {
         const { onEnd } = this.drawing;
@@ -447,6 +470,7 @@ export class ChartAdapter {
         if (this.lockAll) this.chart.overrideOverlay({ id: overlay.id, lock: true });
         this.revertMode(overlay.id);
         this.anchorAfterEdit(overlay.id);
+        this.roundHorizontal(overlay);
         onEnd?.();
         this.emitSelection(); // the style bar is hidden while a drawing is being placed
       }
@@ -466,6 +490,7 @@ export class ChartAdapter {
       const after = completePoints(overlay);
       if (before && after && samePoints(before, after)) return;
       this.anchorAfterEdit(overlay.id);
+      this.roundHorizontal(overlay);
       this.emitChange();
     },
     onRemoved: ({ overlay }) => {
@@ -480,7 +505,23 @@ export class ChartAdapter {
     },
     onSelected: ({ overlay }) => { this.select(overlay.id); },
     onDeselected: ({ overlay }) => { if (this.selectedId === overlay.id) this.select(null); },
+    // Double-clicking a horizontal line selects it and asks the style bar to focus its price field.
+    onDoubleClick: ({ overlay }) => {
+      if (!HORIZONTAL_DRAWINGS.has(overlay.name) || overlay.id === this.drawing?.id) return false;
+      if (this.selectedId !== overlay.id) this.select(overlay.id);
+      for (const cb of this.priceEditListeners) cb(overlay.id);
+      return false;
+    },
   };
+
+  /** Rounds a horizontal drawing placed / moved with the mouse to the symbol's price precision. */
+  private roundHorizontal(overlay: Overlay): void {
+    if (!HORIZONTAL_DRAWINGS.has(overlay.name)) return;
+    const points = completePoints(overlay);
+    if (!points) return;
+    const rounded = points.map((p) => ({ ...p, value: roundPrice(p.value, this.pricePrecision) }));
+    if (!samePoints(points, rounded)) this.chart.overrideOverlay({ id: overlay.id, points: rounded });
+  }
 
   // ── daily-anchored drawings ──
   // Daily+ bars of stocks/baskets are stamped at UTC midnight (20:00 New York the evening before). A drawing
@@ -605,7 +646,42 @@ export class ChartAdapter {
       return { id: o.id, kind: 'text', style, locked: o.lock };
     }
     const style = readLine(o.styles) ?? { ...d };
-    return { id: o.id, kind: 'line', style, locked: o.lock };
+    const sel: SelectedDrawing = { id: o.id, kind: 'line', style, locked: o.lock };
+    const value = o.points[0]?.value;
+    if (HORIZONTAL_DRAWINGS.has(o.name) && typeof value === 'number') sel.price = { value, precision: this.pricePrecision };
+    return sel;
+  }
+
+  /**
+   * Moves the selected horizontal drawing to `price` (rounded to MAX_PRICE_DECIMALS): every point gets that
+   * value and keeps its timestamp, so the anchoring (anchorTf, stored daily timestamps) is unchanged. Saved like
+   * any drawing edit. False (nothing changes) for an invalid price or no unlocked horizontal drawing selected.
+   */
+  setSelectedPrice(price: number): boolean {
+    if (!Number.isFinite(price) || price <= 0) return false;
+    const sel = this.getSelectedDrawing();
+    if (!sel || sel.kind !== 'line' || !sel.price || sel.locked) return false;
+    const o = this.userOverlays().find((x) => x.id === sel.id);
+    const points = o ? completePoints(o) : null;
+    if (!points) return false;
+    const value = roundPrice(price, MAX_PRICE_DECIMALS);
+    const next = points.map((p) => ({ ...p, value }));
+    this.chart.overrideOverlay({ id: sel.id, points: next });
+    const anchor = this.anchors.get(sel.id);
+    if (anchor?.display && anchor.original) {
+      // Shown remapped: the stored daily points take the new price too (still "unmoved" in time).
+      anchor.display = next;
+      anchor.original = anchor.original.map((p) => ({ ...p, value }));
+    }
+    this.emitChange();
+    this.emitSelection();
+    return true;
+  }
+
+  /** Fired with its id when the user double-clicks a horizontal drawing (selected first). Returns an unsubscribe. */
+  onPriceEditRequest(cb: (id: string) => void): () => void {
+    this.priceEditListeners.add(cb);
+    return () => { this.priceEditListeners.delete(cb); };
   }
 
   /** Deselects the selected drawing (Escape); the style bar closes. */
@@ -838,6 +914,7 @@ export class ChartAdapter {
     this.changeListeners.clear();
     this.lockListeners.clear();
     this.selectionListeners.clear();
+    this.priceEditListeners.clear();
     dispose(this.el);
   }
 }

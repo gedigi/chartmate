@@ -1037,3 +1037,141 @@ describe('ChartAdapter daily-anchored drawings (anchorTf)', () => {
     expect(a.serializeDrawings()[0]).toEqual(anchored);
   });
 });
+
+describe('ChartAdapter precise price of horizontal drawings', () => {
+  const D1 = Date.UTC(2024, 2, 4);
+  const D2 = Date.UTC(2024, 6, 8);
+  const OPEN1 = Date.UTC(2024, 2, 4, 14, 30); // 09:30 New York
+  const userOverlays = () => chart().overlays.filter((o) => o.groupId !== 'markers');
+  const ETH: SymbolInfo = { id: 'crypto:ETH', assetClass: 'crypto', ticker: 'ETH', name: 'Ether', pricePrecision: 3 };
+
+  async function loadAt(symbol: SymbolInfo, tf: '1D' | '1h') {
+    const a = make();
+    a.load({ symbol, tf, session: 'rth', pollMs: 15000 }, events());
+    vi.spyOn(api, 'bars').mockResolvedValue({
+      symbol: symbol.id, tf, session: 'rth', hasMoreBefore: false, stale: false, notices: [], markers: [],
+      bars: [{ ts: D1, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 }],
+    });
+    const loader = chart().setDataLoader.mock.calls.at(-1)![0] as { getBars: (p: unknown) => Promise<void> };
+    await loader.getBars({
+      type: 'init', timestamp: null, symbol: { ticker: symbol.id }, period: { type: 'day', span: 1 },
+      callback: (d: Array<{ timestamp: number; high: number }>) => { chart().data.splice(0, chart().data.length, ...d); },
+    });
+    return a;
+  }
+  const select = (o: FakeOverlay) => o.onSelected?.({ overlay: o });
+
+  it('getSelectedDrawing exposes the price and symbol precision of horizontal kinds only', async () => {
+    const a = await loadAt(ETH, '1h');
+    a.restoreDrawings([
+      { name: 'horizontalStraightLine', points: [{ timestamp: D1, value: 1234.5 }], lock: false },
+      { name: 'priceLine', points: [{ timestamp: D1, value: 99.125 }], lock: true },
+      { name: 'horizontalRayLine', points: [{ timestamp: D1, value: 7 }, { timestamp: D2, value: 7 }], lock: false },
+      { name: 'segment', points: [{ timestamp: D1, value: 1 }, { timestamp: D2, value: 2 }], lock: false },
+    ]);
+    const [h, p, r, s] = userOverlays();
+    select(h!);
+    expect(a.getSelectedDrawing()).toMatchObject({ kind: 'line', price: { value: 1234.5, precision: 3 } });
+    select(p!);
+    expect(a.getSelectedDrawing()).toMatchObject({ price: { value: 99.125, precision: 3 }, locked: true });
+    select(r!);
+    expect(a.getSelectedDrawing()).toMatchObject({ price: { value: 7, precision: 3 } });
+    select(s!);
+    expect(a.getSelectedDrawing()).not.toHaveProperty('price');
+  });
+
+  it('setSelectedPrice moves every point to the price via overrideOverlay keeping the timestamps; saved and emitted', async () => {
+    const a = await loadAt(ETH, '1h');
+    const changed = vi.fn();
+    const selection = vi.fn();
+    a.onDrawingsChange(changed);
+    a.onSelectionChange(selection);
+    a.restoreDrawings([{ name: 'horizontalRayLine', points: [{ timestamp: D1, value: 7 }, { timestamp: D2, value: 7 }], lock: false }]);
+    const o = userOverlays()[0]!;
+    select(o);
+    chart().overrideOverlay.mockClear();
+    expect(a.setSelectedPrice(84123.45)).toBe(true);
+    expect(chart().overrideOverlay).toHaveBeenCalledWith({ id: o.id, points: [{ timestamp: D1, value: 84123.45 }, { timestamp: D2, value: 84123.45 }] });
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(selection).toHaveBeenLastCalledWith(expect.objectContaining({ price: { value: 84123.45, precision: 3 } }));
+    expect(a.serializeDrawings()).toEqual([{ name: 'horizontalRayLine', points: [{ timestamp: D1, value: 84123.45 }, { timestamp: D2, value: 84123.45 }], lock: false }]);
+  });
+
+  it('setSelectedPrice rejects invalid prices, locked drawings and non-horizontal kinds', async () => {
+    const a = await loadAt(ETH, '1h');
+    a.restoreDrawings([
+      { name: 'horizontalStraightLine', points: [{ timestamp: D1, value: 5 }], lock: true },
+      { name: 'segment', points: [{ timestamp: D1, value: 1 }, { timestamp: D2, value: 2 }], lock: false },
+      { name: 'horizontalStraightLine', points: [{ timestamp: D1, value: 5 }], lock: false },
+    ]);
+    const [locked, seg, free] = userOverlays();
+    chart().overrideOverlay.mockClear();
+    expect(a.setSelectedPrice(10)).toBe(false); // nothing selected
+    select(locked!);
+    expect(a.setSelectedPrice(10)).toBe(false);
+    select(seg!);
+    expect(a.setSelectedPrice(10)).toBe(false);
+    select(free!);
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(a.setSelectedPrice(bad)).toBe(false);
+    expect(chart().overrideOverlay).not.toHaveBeenCalled();
+  });
+
+  it('changing only the price keeps anchorTf and the stored daily timestamps (also when shown remapped on intraday)', async () => {
+    const anchored = { name: 'horizontalStraightLine', points: [{ timestamp: D1, value: 10 }], lock: false, anchorTf: '1D' as const };
+    for (const tf of ['1D', '1h'] as const) {
+      const a = await loadAt(AAPL, tf);
+      a.restoreDrawings([anchored], AAPL.id);
+      const o = userOverlays()[0]!;
+      expect(o.points[0]!.timestamp).toBe(tf === '1h' ? OPEN1 : D1);
+      select(o);
+      a.setSelectedPrice(12.34);
+      expect(o.points[0]!.timestamp, tf).toBe(tf === '1h' ? OPEN1 : D1);
+      expect(a.serializeDrawings(), tf).toEqual([{ ...anchored, points: [{ timestamp: D1, value: 12.34 }] }]);
+    }
+  });
+
+  it('a horizontal line placed with the mouse is rounded to the symbol precision; other drawings are not', async () => {
+    const a = await loadAt(ETH, '1h');
+    a.startDrawing('horizontalStraightLine');
+    const h = userOverlays().at(-1)!;
+    h.points = [{ timestamp: D1, value: 1234.567891 }];
+    h.onDrawEnd?.({ overlay: h });
+    expect(h.points).toEqual([{ timestamp: D1, value: 1234.568 }]);
+    expect(a.serializeDrawings()[0]!.points).toEqual([{ timestamp: D1, value: 1234.568 }]);
+    a.startDrawing('segment');
+    const s = userOverlays().at(-1)!;
+    s.points = [{ timestamp: D1, value: 1.23456 }, { timestamp: D2, value: 2.34567 }];
+    s.onDrawEnd?.({ overlay: s });
+    expect(s.points).toEqual([{ timestamp: D1, value: 1.23456 }, { timestamp: D2, value: 2.34567 }]);
+  });
+
+  it('a horizontal line dragged with the mouse is rounded too', async () => {
+    const a = await loadAt(ETH, '1h');
+    a.restoreDrawings([{ name: 'priceLine', points: [{ timestamp: D1, value: 5 }], lock: false }]);
+    const o = userOverlays()[0]! as FakeOverlay & { onPressedMoveStart?: (e: unknown) => void };
+    o.onPressedMoveStart?.({ overlay: o });
+    o.points = [{ timestamp: D2, value: 6.66666 }];
+    o.onPressedMoveEnd?.({ overlay: o });
+    expect(a.serializeDrawings()[0]!.points).toEqual([{ timestamp: D2, value: 6.667 }]);
+  });
+
+  it('double-clicking a horizontal line selects it and requests the price editor', async () => {
+    const a = await loadAt(ETH, '1h');
+    const request = vi.fn();
+    const off = a.onPriceEditRequest(request);
+    a.restoreDrawings([
+      { name: 'horizontalStraightLine', points: [{ timestamp: D1, value: 5 }], lock: false },
+      { name: 'segment', points: [{ timestamp: D1, value: 1 }, { timestamp: D2, value: 2 }], lock: false },
+    ]);
+    const [h, s] = userOverlays() as Array<FakeOverlay & { onDoubleClick?: (e: unknown) => void }>;
+    s!.onDoubleClick?.({ overlay: s });
+    expect(request).not.toHaveBeenCalled();
+    h!.onDoubleClick?.({ overlay: h });
+    expect(a.getSelectedDrawing()).toMatchObject({ id: h!.id, price: { value: 5 } });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith(h!.id);
+    off();
+    h!.onDoubleClick?.({ overlay: h });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+});

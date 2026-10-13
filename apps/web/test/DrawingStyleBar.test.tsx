@@ -5,11 +5,19 @@ import { DrawingStyleBar, type DrawingStyleControls } from '../src/components/Dr
 
 function makeControls() {
   let cb: ((s: SelectedDrawing | null) => void) | null = null;
+  let editCb: ((id: string) => void) | null = null;
   const c = {
     onSelectionChange: vi.fn((f: (s: SelectedDrawing | null) => void) => { cb = f; return () => { cb = null; }; }),
     setSelectedStyle: vi.fn(),
+    setSelectedPrice: vi.fn((_v: number) => true),
+    onPriceEditRequest: vi.fn((f: (id: string) => void) => { editCb = f; return () => { editCb = null; }; }),
   };
-  return { c: c as typeof c & DrawingStyleControls, emit: (s: SelectedDrawing | null) => act(() => cb?.(s)), subscribed: () => cb !== null };
+  return {
+    c: c as typeof c & DrawingStyleControls,
+    emit: (s: SelectedDrawing | null) => act(() => cb?.(s)),
+    requestPriceEdit: (id = 'h') => act(() => editCb?.(id)),
+    subscribed: () => cb !== null && editCb !== null,
+  };
 }
 
 const bar = () => screen.queryByRole('toolbar', { name: 'Drawing style' });
@@ -73,5 +81,112 @@ describe('DrawingStyleBar', () => {
     expect(subscribed()).toBe(true);
     unmount();
     expect(subscribed()).toBe(false);
+  });
+
+  describe('price of horizontal drawings', () => {
+    const LINE = { id: 'h', kind: 'line' as const, style: { color: '#123456', size: 1, style: 'solid' as const }, locked: false };
+    const price = () => screen.getByLabelText('Price') as HTMLInputElement;
+
+    it('shows a Price field only for horizontal drawings, formatted to the symbol precision with a matching step', () => {
+      const { c, emit } = makeControls();
+      render(<DrawingStyleBar controls={c} />);
+      emit(LINE);
+      expect(screen.queryByLabelText('Price')).toBeNull();
+      emit({ ...LINE, price: { value: 84123.5, precision: 2 } });
+      expect(price()).toHaveValue(84123.5);
+      expect(price().value).toBe('84123.50');
+      expect(price()).toHaveAttribute('step', '0.01');
+      emit({ ...LINE, price: { value: 0.1234567, precision: 4 } }); // finer than the precision: not hidden
+      expect(price().value).toBe('0.1234567');
+      expect(price()).toHaveAttribute('step', '0.0001');
+      emit({ ...LINE, price: { value: 12, precision: 0 } });
+      expect(price().value).toBe('12');
+      expect(price()).toHaveAttribute('step', '1');
+    });
+
+    it('Enter applies the typed price (more decimals than the precision are accepted, up to 8)', () => {
+      const { c, emit } = makeControls();
+      render(<DrawingStyleBar controls={c} />);
+      emit({ ...LINE, price: { value: 84000, precision: 2 } });
+      fireEvent.change(price(), { target: { value: '84123.45' } });
+      expect(c.setSelectedPrice).not.toHaveBeenCalled();
+      fireEvent.keyDown(price(), { key: 'Enter' });
+      expect(c.setSelectedPrice).toHaveBeenCalledWith(84123.45);
+      fireEvent.change(price(), { target: { value: '0.12345678' } });
+      fireEvent.keyDown(price(), { key: 'Enter' });
+      expect(c.setSelectedPrice).toHaveBeenLastCalledWith(0.12345678);
+    });
+
+    it('blur applies; an unchanged value does not', () => {
+      const { c, emit } = makeControls();
+      render(<DrawingStyleBar controls={c} />);
+      emit({ ...LINE, price: { value: 100, precision: 2 } });
+      fireEvent.blur(price());
+      expect(c.setSelectedPrice).not.toHaveBeenCalled();
+      fireEvent.change(price(), { target: { value: '101.5' } });
+      fireEvent.blur(price());
+      expect(c.setSelectedPrice).toHaveBeenCalledWith(101.5);
+    });
+
+    it('Escape reverts the field to the current price without applying (and is not propagated)', () => {
+      const { c, emit } = makeControls();
+      const outer = vi.fn();
+      render(<div onKeyDown={outer}><DrawingStyleBar controls={c} /></div>);
+      emit({ ...LINE, price: { value: 100, precision: 2 } });
+      fireEvent.change(price(), { target: { value: '150' } });
+      fireEvent.keyDown(price(), { key: 'Escape' });
+      expect(price().value).toBe('100.00');
+      fireEvent.blur(price());
+      expect(c.setSelectedPrice).not.toHaveBeenCalled();
+      expect(outer).not.toHaveBeenCalled();
+    });
+
+    it('invalid prices show an inline error and are not applied', () => {
+      const { c, emit } = makeControls();
+      render(<DrawingStyleBar controls={c} />);
+      emit({ ...LINE, price: { value: 100, precision: 2 } });
+      for (const bad of ['', '0', '-5', '1.123456789']) {
+        fireEvent.change(price(), { target: { value: bad } });
+        fireEvent.keyDown(price(), { key: 'Enter' });
+        expect(screen.getByRole('alert'), bad).toBeInTheDocument();
+        expect(price(), bad).toHaveAttribute('aria-invalid', 'true');
+      }
+      expect(c.setSelectedPrice).not.toHaveBeenCalled();
+      fireEvent.change(price(), { target: { value: '99' } });
+      expect(screen.queryByRole('alert')).toBeNull(); // the error clears while editing
+      fireEvent.keyDown(price(), { key: 'Enter' });
+      expect(c.setSelectedPrice).toHaveBeenCalledWith(99);
+    });
+
+    it('the field follows the selection (new price / other drawing) and is disabled for locked drawings', () => {
+      const { c, emit } = makeControls();
+      render(<DrawingStyleBar controls={c} />);
+      emit({ ...LINE, price: { value: 100, precision: 2 } });
+      fireEvent.change(price(), { target: { value: '120' } });
+      fireEvent.keyDown(price(), { key: 'Enter' });
+      emit({ ...LINE, price: { value: 120, precision: 2 } }); // the adapter re-emits the applied price
+      expect(price().value).toBe('120.00');
+      emit({ ...LINE, id: 'other', locked: true, price: { value: 5, precision: 2 } });
+      expect(price().value).toBe('5.00');
+      expect(price()).toBeDisabled();
+    });
+
+    it('a double-click request focuses the Price field, also when it arrives with the selection (same tick)', () => {
+      const { c, emit, requestPriceEdit } = makeControls();
+      render(<><DrawingStyleBar controls={c} /><button type="button">elsewhere</button></>);
+      emit({ ...LINE, price: { value: 100, precision: 2 } });
+      expect(price()).not.toHaveFocus(); // a plain selection does not steal the focus
+      requestPriceEdit();
+      expect(price()).toHaveFocus();
+      act(() => screen.getByRole('button', { name: 'elsewhere' }).focus());
+      emit(null);
+      act(() => { emit({ ...LINE, id: 'h2', price: { value: 7, precision: 2 } }); requestPriceEdit('h2'); });
+      expect(price()).toHaveFocus();
+      // Handled requests are not replayed: re-selecting later does not grab the focus again.
+      act(() => screen.getByRole('button', { name: 'elsewhere' }).focus());
+      emit(null);
+      emit({ ...LINE, id: 'h2', price: { value: 7, precision: 2 } });
+      expect(price()).not.toHaveFocus();
+    });
   });
 });

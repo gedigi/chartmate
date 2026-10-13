@@ -33,7 +33,7 @@ describe('dotted line style', () => {
 
   it('the drawing style bar offers Dotted', () => {
     let cb: ((s: SelectedDrawing | null) => void) | null = null;
-    const c = { onSelectionChange: vi.fn((f: typeof cb) => { cb = f; return () => {}; }), setSelectedStyle: vi.fn() };
+    const c = { onSelectionChange: vi.fn((f: typeof cb) => { cb = f; return () => {}; }), setSelectedStyle: vi.fn(), setSelectedPrice: vi.fn(), onPriceEditRequest: vi.fn(() => () => {}) };
     render(<DrawingStyleBar controls={c as unknown as DrawingStyleControls} />);
     act(() => cb?.({ id: 'a', kind: 'line', style: { color: '#123456', size: 2, style: 'dotted' }, locked: false }));
     const sel = screen.getByLabelText('Line style');

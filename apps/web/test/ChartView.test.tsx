@@ -38,6 +38,8 @@ const fake = vi.hoisted(() => {
     deselect = vi.fn();
     selectionCb: ((s: unknown) => void) | null = null;
     onSelectionChange = vi.fn((cb: (s: unknown) => void) => { this.selectionCb = cb; return () => { this.selectionCb = null; }; });
+    setSelectedPrice = vi.fn(() => true);
+    onPriceEditRequest = vi.fn(() => () => {});
     constructor() { instances.push(this); }
   }
   return { instances, FakeAdapter };
