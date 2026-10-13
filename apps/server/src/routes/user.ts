@@ -48,23 +48,25 @@ const PositionDefaultsSchema = z.object({ accountSize: Amount, riskMode: RiskMod
 
 /**
  * Normalized drawing styles; unknown keys (e.g. raw KLineChart styles) are stripped. Tolerant per part: an invalid
- * `line`, `text`, `label` or `position` part is dropped on its own so valid parts survive; if no valid part remains, styles are dropped.
+ * `line`, `text`, `label`, `extend` or `position` part is dropped on its own so valid parts survive; if no valid part remains, styles are dropped.
  */
 const DrawingStylesSchema = z.object({
   line: LineStyleSchema.optional().catch(undefined),
   text: z.object({ color: Hex, size: z.number().int().min(MIN_TEXT_SIZE).max(MAX_TEXT_SIZE) }).optional().catch(undefined),
   label: z.object({ onLine: z.boolean().optional(), onAxis: z.boolean().optional() }).optional().catch(undefined),
+  extend: z.object({ left: z.boolean().optional(), right: z.boolean().optional() }).optional().catch(undefined),
   position: PositionSettingsSchema.optional().catch(undefined),
 }).transform((s) => {
   const out: {
     line?: z.infer<typeof LineStyleSchema>; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean };
-    position?: PositionSettings;
+    extend?: { left?: boolean; right?: boolean }; position?: PositionSettings;
   } = {};
   if (s.line) out.line = s.line;
   if (s.text) out.text = s.text;
   if (s.label && (s.label.onLine !== undefined || s.label.onAxis !== undefined)) out.label = s.label;
+  if (s.extend && (s.extend.left !== undefined || s.extend.right !== undefined)) out.extend = s.extend;
   if (s.position && Object.keys(s.position).length > 0) out.position = s.position as PositionSettings;
-  return out.line || out.text || out.label || out.position ? out : undefined;
+  return out.line || out.text || out.label || out.extend || out.position ? out : undefined;
 });
 
 const IndicatorSchema = z.object({
@@ -86,6 +88,7 @@ const LayoutSchema = z.object({
   appearance: ThemedAppearanceSchema.optional(),
   // Tolerant: invalid defaults are dropped on their own, so they can never block saving the rest of the layout.
   positionDefaults: PositionDefaultsSchema.optional().catch(undefined),
+  colorDefaultsRev: z.number().int().min(0).max(1_000_000).optional(),
 }) satisfies z.ZodType<Layout, unknown>;
 
 const DrawingSchema = z.object({

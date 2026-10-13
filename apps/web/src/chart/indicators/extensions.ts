@@ -20,6 +20,11 @@ export function customIndicatorProblem(v: unknown): string | null {
   if (!isStringArray(c.paramLabels)) return 'catalog.paramLabels must be an array of strings';
   if (c.paramLabels.length !== c.defaultParams.length) return 'catalog.paramLabels must have one label per default param';
   if (!isStringArray(c.lines)) return 'catalog.lines must be an array of strings';
+  if (c.lineSlots !== undefined && !(
+    Array.isArray(c.lineSlots) && c.lineSlots.length === c.lines.length && c.lineSlots.every((i) => Number.isInteger(i) && i >= 0)
+  )) {
+    return 'catalog.lineSlots must be an array of non-negative integers, one per line';
+  }
   if (c.decimalParams !== undefined && !(Array.isArray(c.decimalParams) && c.decimalParams.every((i) => Number.isInteger(i)))) {
     return 'catalog.decimalParams must be an array of param indices';
   }

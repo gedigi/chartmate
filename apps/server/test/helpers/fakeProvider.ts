@@ -1,6 +1,6 @@
 import {
   nyParts, tagSessionFixedHours, tfMs,
-  type Bar, type NativeTimeframe, type Quote, type SymbolInfo,
+  type Bar, type NativeTimeframe, type Quote, type QuoteExt, type SymbolInfo,
 } from '@altv/shared';
 import { NotFoundError } from '../../src/errors.js';
 import type { FetchBarsResult, MarketDataProvider, ProviderLimits } from '../../src/providers/types.js';
@@ -36,6 +36,8 @@ export class FakeProvider implements MarketDataProvider {
   quotePrice: ((code: string) => number | undefined) | null = null;
   /** Optional quote timestamp (default: now). */
   quoteTs: ((code: string) => number) | null = null;
+  /** Optional extended-hours part of the quote per code (default: none). */
+  quoteExt: ((code: string) => QuoteExt | undefined) | null = null;
   /** Optional gate awaited inside search (to observe concurrency). */
   searchGate: Promise<void> | null = null;
 
@@ -69,7 +71,9 @@ export class FakeProvider implements MarketDataProvider {
     for (const c of codes) {
       if (!this.universe.includes(c)) continue;
       const price = this.quotePrice ? this.quotePrice(c) : 10;
-      if (price !== undefined) out.push({ id: `${this.assetClass}:${c}`, price, changePct: 1, ts: this.quoteTs ? this.quoteTs(c) : this.now() });
+      if (price === undefined) continue;
+      const ext = this.quoteExt?.(c);
+      out.push({ id: `${this.assetClass}:${c}`, price, changePct: 1, ts: this.quoteTs ? this.quoteTs(c) : this.now(), ...(ext ? { ext } : {}) });
     }
     return out;
   }

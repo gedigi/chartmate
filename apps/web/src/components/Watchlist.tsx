@@ -1,4 +1,4 @@
-import { MAX_SECTION_TITLE, MAX_WATCHLIST_SECTIONS, type Quote, type SymbolId, type SymbolInfo, type WatchlistSection } from '@altv/shared';
+import { MAX_SECTION_TITLE, MAX_WATCHLIST_SECTIONS, type Quote, type QuoteExt, type SymbolId, type SymbolInfo, type WatchlistSection } from '@altv/shared';
 import { useEffect, useId, useRef, useState, type DragEvent, type JSX, type KeyboardEvent } from 'react';
 import { api } from '../api/client';
 import { retryDelayMs } from '../state/retry';
@@ -28,6 +28,26 @@ function fmtChange(pct: number): { text: string; dir: 'up' | 'down' | '' } {
   const r = Math.round(pct * 100) / 100;
   if (r === 0) return { text: '0.00%', dir: '' };
   return { text: `${r > 0 ? '+' : ''}${r.toFixed(2)}%`, dir: r > 0 ? 'up' : 'down' };
+}
+
+const EXT_LABEL = { pre: 'Pre', post: 'Post' } as const;
+const EXT_NAME = { pre: 'Pre-market', post: 'Post-market' } as const;
+const ET_TIME = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+});
+
+/** Compact second line for a pre/post-market price: "Pre 231.40 +0.82%" (the change is vs the regular close). */
+function ExtLine({ ext, precision }: { ext: QuoteExt; precision: number }): JSX.Element {
+  const chg = fmtChange(ext.changePct);
+  const name = EXT_NAME[ext.session];
+  return (
+    <span className="wl-ext" title={`${name} price, ${ET_TIME.format(ext.ts)} ET; change vs the last regular close`}>
+      <span className="wl-ext-label" aria-hidden="true">{EXT_LABEL[ext.session]}</span>
+      <span className="sr-only">{name}</span>{' '}
+      <span className="wl-ext-price">{fmtPrice(ext.price, precision)}</span>{' '}
+      <span className={`wl-ext-change ${chg.dir}`}>{chg.text}</span>
+    </span>
+  );
 }
 
 function fallbackTicker(id: SymbolId): string {
@@ -428,6 +448,12 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
             <span className="wl-price">{q && info ? fmtPrice(q.price, info.pricePrecision) : '—'}</span>
             <span className={`wl-change ${chg?.dir ?? ''}`}>{chg ? chg.text : '—'}</span>
           </span>
+          {/* Always present, so rows keep their height when the extended line comes and goes at 09:30/16:00. */}
+          {q?.ext && info ? (
+            <span className="wl-ext-slot"><ExtLine ext={q.ext} precision={info.pricePrecision} /></span>
+          ) : (
+            <span className="wl-ext-slot" aria-hidden="true" />
+          )}
         </div>
         <button
           type="button"

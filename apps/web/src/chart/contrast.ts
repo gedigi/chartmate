@@ -26,8 +26,9 @@ export function contrastRatio(a: string, b: string): number {
 
 /**
  * Contrast ratio at which the preferred label text colour (white by default) is kept: the WCAG 3:1 level for
- * UI components / large text, with a deliberate 0.01 tolerance so the dark theme's default up colour #26a69a
- * (TradingView's teal, 2.9985:1 against white) keeps white text as TradingView does. Compared unrounded.
+ * UI components / large text, with a deliberate 0.01 tolerance so TradingView's teal #26a69a (2.9985:1 against
+ * white; this app's earlier dark-theme up colour, still a common user pick) keeps white text as TradingView does.
+ * Compared unrounded.
  */
 export const WHITE_TEXT_MIN_CONTRAST = 2.99;
 

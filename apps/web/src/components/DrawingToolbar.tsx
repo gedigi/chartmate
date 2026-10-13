@@ -36,7 +36,7 @@ const TOOLS: ReadonlyArray<{ tool: DrawingTool; label: string; icon: JSX.Element
   { tool: 'horizontalStraightLine', label: 'Horizontal line', icon: <Icon><path d="M1 10h18" />{dot(10, 10)}</Icon> },
   { tool: 'verticalStraightLine', label: 'Vertical line', icon: <Icon><path d="M10 1v18" />{dot(10, 10)}</Icon> },
   { tool: 'priceLine', label: 'Price line', icon: <Icon><path d="M3 12h11" />{dot(3, 12)}<path d="M13 8h5v4h-5z" strokeWidth="1.2" /></Icon> },
-  { tool: 'parallelStraightLine', label: 'Parallel channel', icon: <Icon><path d="M2 13L13 2M7 18L18 7" /></Icon> },
+  { tool: 'parallelChannel', label: 'Parallel channel', icon: <Icon><path d="M2 13L13 2M7 18L18 7" /></Icon> },
   { tool: 'fibonacciLine', label: 'Fibonacci retracement', icon: <Icon><path d="M2 3h16M2 8h16M2 12h16M2 17h16" /><path d="M4 17L16 3" strokeDasharray="2 2" /></Icon> },
   // Positions: a box split at the entry line, the arrow in the profit zone.
   { tool: 'longPosition', label: 'Long position', icon: <Icon><rect x="3" y="3" width="14" height="14" rx="1" /><path d="M3 11h14M10 9V5M8 7l2-2 2 2" /></Icon> },

@@ -16,21 +16,21 @@ describe('resolveAppearance', () => {
         drawing: { color: THEME_TOKENS[theme].accent, size: 1, style: 'solid' },
       });
     }
-    expect(resolveAppearance('dark', { dark: { upColor: '#00ff00', lineWidth: 4 } })).toMatchObject({ upColor: '#00ff00', downColor: '#ef5350', lineWidth: 4 });
+    expect(resolveAppearance('dark', { dark: { upColor: '#00ff00', lineWidth: 4 } })).toMatchObject({ upColor: '#00ff00', downColor: '#ff3b5c', lineWidth: 4 });
   });
 
   it('picks the active theme\'s settings; the other theme keeps its defaults', () => {
     const a = { dark: { upColor: '#ffffff' }, light: { downColor: '#000000' } };
-    expect(resolveAppearance('dark', a)).toMatchObject({ upColor: '#ffffff', downColor: '#ef5350' });
-    expect(resolveAppearance('light', a)).toMatchObject({ upColor: '#089981', downColor: '#000000' });
+    expect(resolveAppearance('dark', a)).toMatchObject({ upColor: '#ffffff', downColor: '#ff3b5c' });
+    expect(resolveAppearance('light', a)).toMatchObject({ upColor: '#00a870', downColor: '#000000' });
     expect(resolveAppearance('light', { dark: { upColor: '#ffffff' } })).toEqual(resolveAppearance('light', undefined));
   });
 });
 
 describe('per-theme default candle colours (match the --up / --down CSS tokens)', () => {
-  it('dark #26a69a / #ef5350, light #089981 / #f23645', () => {
-    expect(THEME_TOKENS.dark).toMatchObject({ up: '#26a69a', down: '#ef5350' });
-    expect(THEME_TOKENS.light).toMatchObject({ up: '#089981', down: '#f23645' });
+  it('dark #00d68f / #ff3b5c, light #00a870 / #d4113b', () => {
+    expect(THEME_TOKENS.dark).toMatchObject({ up: '#00d68f', down: '#ff3b5c' });
+    expect(THEME_TOKENS.light).toMatchObject({ up: '#00a870', down: '#d4113b' });
     expect(THEME_CSS_VARS).toMatchObject({ up: '--up', down: '--down' });
     for (const theme of ['dark', 'light'] as const) {
       const { up, down } = THEME_TOKENS[theme];
@@ -45,12 +45,12 @@ describe('per-theme default candle colours (match the --up / --down CSS tokens)'
 
 describe('indicator histogram bar defaults follow the theme up / down colours', () => {
   it('defaultBarColors(theme) and the chart-level indicator bar styles', () => {
-    expect(defaultBarColors('dark')).toEqual({ up: '#26a69a', down: '#ef5350' });
-    expect(defaultBarColors('light')).toEqual({ up: '#089981', down: '#f23645' });
+    expect(defaultBarColors('dark')).toEqual({ up: '#00d68f', down: '#ff3b5c' });
+    expect(defaultBarColors('light')).toEqual({ up: '#00a870', down: '#d4113b' });
     for (const theme of ['dark', 'light'] as const) {
       const { up, down } = defaultBarColors(theme);
       // Same translucency as KLineChart's own default bars.
-      expect(chartStyles(theme).indicator?.bars).toEqual([{ upColor: hexToRgba(up, 0.7), downColor: hexToRgba(down, 0.7) }]);
+      expect(chartStyles(theme).indicator?.bars).toEqual([{ style: 'fill', upColor: hexToRgba(up, 0.7), downColor: hexToRgba(down, 0.7) }]);
     }
   });
 });
@@ -100,10 +100,13 @@ describe('readable label text', () => {
     }
   });
 
-  it('the default last price label keeps white text in both themes (TradingView-style)', () => {
+  it('the default last price label text reads on every label colour: dark on the light dark-theme mint, white in light', () => {
+    const expected = { dark: DARK_TEXT, light: LIGHT_TEXT } as const;
     for (const theme of ['dark', 'light'] as const) {
-      expect(lastText(theme, undefined)).toBe(LIGHT_TEXT);
-      expect(chartStyles(theme).candle?.priceMark?.last?.text?.color).toBe(LIGHT_TEXT);
+      expect(lastText(theme, undefined)).toBe(expected[theme]);
+      expect(chartStyles(theme).candle?.priceMark?.last?.text?.color).toBe(expected[theme]);
+      const { up, down, muted } = THEME_TOKENS[theme];
+      for (const bg of [up, down, muted]) expect(contrastRatio(expected[theme], bg)).toBeGreaterThanOrEqual(3);
     }
   });
 
@@ -113,7 +116,7 @@ describe('readable label text', () => {
 
   it('the default overlay text (annotation bubble = drawing colour) is readable', () => {
     expect(overlayStyles({ color: '#ffffff', size: 1, style: 'solid' }).text).toMatchObject({ color: DARK_TEXT, backgroundColor: '#ffffff' });
-    expect(overlayStyles({ color: '#2962ff', size: 1, style: 'solid' }).text).toMatchObject({ color: LIGHT_TEXT });
+    expect(overlayStyles({ color: '#2b66ff', size: 1, style: 'solid' }).text).toMatchObject({ color: LIGHT_TEXT });
   });
 
   it('per-drawing annotation styles carry a readable text colour', () => {

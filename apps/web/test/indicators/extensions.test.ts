@@ -13,6 +13,7 @@ describe('customIndicatorProblem', () => {
     expect(customIndicatorProblem(valid())).toBeNull();
     expect(customIndicatorProblem({ ...valid(), usePricePrecision: true })).toBeNull();
     expect(customIndicatorProblem({ ...valid(), catalog: { ...valid().catalog, paramMin: [0], paramMax: [50] } })).toBeNull();
+    expect(customIndicatorProblem({ ...valid(), catalog: { ...valid().catalog, lineSlots: [3] } })).toBeNull();
   });
 
   it.each([
@@ -29,6 +30,11 @@ describe('customIndicatorProblem', () => {
     ['non-string line', { ...valid(), catalog: { ...valid().catalog, lines: [null] } }, /catalog\.lines/],
     ['lines missing', { ...valid(), catalog: { ...valid().catalog, lines: undefined } }, /catalog\.lines/],
     ['paramMin not numbers', { ...valid(), catalog: { ...valid().catalog, paramMin: ['1'] } }, /catalog\.paramMin/],
+    ['lineSlots not an array', { ...valid(), catalog: { ...valid().catalog, lineSlots: 1 } }, /catalog\.lineSlots/],
+    ['lineSlots wrong length', { ...valid(), catalog: { ...valid().catalog, lineSlots: [0, 1] } }, /catalog\.lineSlots/],
+    ['negative lineSlot', { ...valid(), catalog: { ...valid().catalog, lineSlots: [-1] } }, /catalog\.lineSlots/],
+    ['fractional lineSlot', { ...valid(), catalog: { ...valid().catalog, lineSlots: [1.5] } }, /catalog\.lineSlots/],
+    ['string lineSlot', { ...valid(), catalog: { ...valid().catalog, lineSlots: ['1'] } }, /catalog\.lineSlots/],
     ['paramMax not numbers', { ...valid(), catalog: { ...valid().catalog, paramMax: 5 } }, /catalog\.paramMax/],
   ])('rejects %s', (_label, mod, msg) => {
     expect(customIndicatorProblem(mod)).toMatch(msg);

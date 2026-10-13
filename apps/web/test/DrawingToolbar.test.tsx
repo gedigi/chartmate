@@ -158,7 +158,7 @@ describe('DrawingToolbar', () => {
   it.each([
     ['Trend line', 'segment'], ['Ray', 'rayLine'], ['Extended line', 'straightLine'],
     ['Horizontal line', 'horizontalStraightLine'], ['Vertical line', 'verticalStraightLine'], ['Price line', 'priceLine'],
-    ['Parallel channel', 'parallelStraightLine'], ['Fibonacci retracement', 'fibonacciLine'],
+    ['Parallel channel', 'parallelChannel'], ['Fibonacci retracement', 'fibonacciLine'],
     ['Long position', 'longPosition'], ['Short position', 'shortPosition'],
   ])('clicking %s starts drawing %s and highlights it until the drawing completes', async (label, tool) => {
     const { c, end } = makeControls();

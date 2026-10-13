@@ -8,25 +8,109 @@ export type ThemeName = 'dark' | 'light';
 /**
  * Fallback chart tokens. The ones with a CSS custom property (THEME_CSS_VARS) are read from src/styles.css at
  * runtime (refreshThemeTokens); these constants are only used when that is not possible, and a parity test
- * keeps them equal to styles.css. `grid` and `crossBg` are chart-only.
+ * keeps them equal to styles.css.
  */
 export const THEME_TOKENS = {
   dark: {
-    bg: '#131722', panel: '#1e222d', elevated: '#2a2e39', border: '#363a45', grid: '#1f2330', text: '#d1d4dc', muted: '#868b98', accent: '#2962ff',
-    up: '#26a69a', down: '#ef5350', crossBg: '#363a45',
+    bg: '#0f1218', panel: '#141820', elevated: '#1b2029', border: '#262c38', grid: '#181d26', text: '#e4e7ee', muted: '#8b93a3', accent: '#2b66ff',
+    up: '#00d68f', down: '#ff3b5c', crossBg: '#2a303c',
   },
   light: {
-    bg: '#ffffff', panel: '#f8f9fd', elevated: '#ffffff', border: '#e0e3eb', grid: '#f0f3fa', text: '#131722', muted: '#6a6d78', accent: '#2962ff',
-    up: '#089981', down: '#f23645', crossBg: '#131722',
+    bg: '#ffffff', panel: '#f7f8fa', elevated: '#ffffff', border: '#e3e6eb', grid: '#f1f3f6', text: '#111827', muted: '#5b6474', accent: '#2b66ff',
+    up: '#00a870', down: '#d4113b', crossBg: '#1f2937',
   },
 } as const;
+
+/*
+ * Up / down (candles, volume / MACD / AO bars, position zones, watchlist and basket changes): a vivid emerald and a
+ * vivid rose-red at near-maximum chroma. Besides the hue they differ in LIGHTNESS so they stay apart for red-green
+ * colour-blind readers: on dark the up colour is the light one (OKLCH L 0.77 vs 0.66), on white the down colour is
+ * the dark one (L 0.56 vs 0.65; protanopia darkens reds, which only widens that gap). OKLab ΔE×100 up↔down: dark 40
+ * (protan 28, deutan 10), light 35 (protan 25, deutan 9). Both are ≥ 3:1 against their background; the down red sits
+ * between the palette's orange and pink at ΔE ≥ 12 (dark) / 14 (light) from both. Small TEXT uses the --up-fg /
+ * --down-fg CSS tokens instead (≥ 4.5:1 on every surface they are drawn on).
+ */
+
+/**
+ * Bump when the default colours change: layouts saved under an older revision get colours equal to an earlier
+ * default read as "unset" ONCE (see useLayout's migrateColorDefaults), then carry this revision so a colour the
+ * user picks later — even an old default — is never touched again.
+ */
+export const COLOR_DEFAULTS_REV = 2;
+
+/**
+ * Default colours of earlier revisions (rev 0: the original release; rev 1: an unreleased intermediate set). A
+ * stored appearance / bar colour exactly equal to one of them was (almost certainly) never picked by the user —
+ * the dialogs write the shown defaults along with the edited field — so the one-time migration unsets it.
+ */
+export const LEGACY_DEFAULTS = {
+  dark: { up: ['#26a69a', '#34d399'], down: ['#ef5350', '#f23c50'], accent: ['#2962ff', '#3d6af5'] },
+  light: { up: ['#089981', '#10a37a'], down: ['#f23645', '#c41d3d'], accent: ['#2962ff', '#3d6af5'] },
+} as const satisfies Record<ThemeName, Record<'up' | 'down' | 'accent', readonly string[]>>;
+
+const isOneOf = (a: string | undefined, list: readonly string[]): boolean => typeof a === 'string' && list.includes(a.toLowerCase());
+
+/** One theme's stored appearance without the fields that equal that theme's legacy defaults (undefined when empty). */
+export function dropLegacyAppearanceDefaults(theme: ThemeName, a: ChartAppearance): ChartAppearance | undefined {
+  const old = LEGACY_DEFAULTS[theme];
+  const out: ChartAppearance = { ...a };
+  if (isOneOf(out.upColor, old.up)) delete out.upColor;
+  if (isOneOf(out.downColor, old.down)) delete out.downColor;
+  if (isOneOf(out.lineColor, old.accent)) delete out.lineColor;
+  if (out.drawing && isOneOf(out.drawing.color, old.accent)) {
+    // The whole default drawing style → unset; a custom width / dash keeps that, with today's accent.
+    if (out.drawing.size === 1 && out.drawing.style === 'solid') delete out.drawing;
+    else out.drawing = { ...out.drawing, color: THEME_TOKENS[theme].accent };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Legacy default bar colour → the current default of the same theme, per direction. */
+const legacyBarMap = (dir: 'up' | 'down'): ReadonlyMap<string, string> => new Map(
+  (['dark', 'light'] as const).flatMap((t) => LEGACY_DEFAULTS[t][dir].map((c) => [c, THEME_TOKENS[t][dir]] as const)),
+);
+const LEGACY_BAR_UP = legacyBarMap('up');
+const LEGACY_BAR_DOWN = legacyBarMap('down');
+
+/**
+ * An indicator's stored bar colours with legacy defaults resolved, direction-aware (`up` only matches a legacy UP
+ * colour, `down` a legacy DOWN colour, so an inverted pair is the user's choice and is kept): both legacy defaults
+ * → undefined (the bars follow the theme again); one legacy default next to a user colour → that side becomes the
+ * current default it stood for (bar colours are not per theme, so it cannot be left unset alone).
+ */
+export function dropLegacyBarColors(b: { up: string; down: string }): { up: string; down: string } | undefined {
+  const up = LEGACY_BAR_UP.get(b.up.toLowerCase());
+  const down = LEGACY_BAR_DOWN.get(b.down.toLowerCase());
+  if (up !== undefined && down !== undefined) return undefined;
+  return { up: up ?? b.up, down: down ?? b.down };
+}
+
+/**
+ * Categorical palette of indicator LINES, per theme (surfaces #0f1218 / #ffffff): blue, orange, cyan, violet, amber,
+ * pink — vivid (near-maximum OKLCH chroma per hue), deliberately without green / red so a line never reads as a
+ * candle up / down. Adjacent slots stay apart under protan / deutan simulation (validator: worst adjacent ΔE 12.7
+ * dark, 16.6 light). Dark cyan / amber are lighter than the validator's L band (0.70 / 0.74 vs ≤ 0.67) on purpose:
+ * inside it those hues are dull. Slot n colours the n-th line of an indicator (see `lineSlots` in the catalog);
+ * amber / pink are below 3:1 on white, acceptable because the legend / tooltip names every line. Histogram bars
+ * keep the theme up / down colours (`defaultIndicatorBars`).
+ */
+export const INDICATOR_PALETTE = {
+  dark: ['#2488f7', '#e56c19', '#00b3c2', '#8d7cf8', '#e49916', '#f631aa'],
+  light: ['#1272da', '#eb6111', '#0095a0', '#541cdc', '#eda100', '#e12ca0'],
+} as const satisfies Record<ThemeName, readonly string[]>;
+
+/** Colour of palette slot `slot` (0-based) in `theme`; wraps only as a safety net (the catalog has <= 6 lines per indicator). */
+export function indicatorPaletteColor(theme: ThemeName, slot: number): string {
+  const p = INDICATOR_PALETTE[theme];
+  return p[((slot % p.length) + p.length) % p.length]!;
+}
 
 type ThemeTokens = { -readonly [K in keyof typeof THEME_TOKENS.dark]: string };
 
 /** Chart token → CSS custom property in styles.css. */
 export const THEME_CSS_VARS: Readonly<Partial<Record<keyof ThemeTokens, string>>> = {
   bg: '--bg', panel: '--bg-panel', elevated: '--bg-elevated', border: '--border', text: '--text', muted: '--text-muted', accent: '--accent',
-  up: '--up', down: '--down',
+  up: '--up', down: '--down', grid: '--grid', crossBg: '--cross-bg',
 };
 
 const live: Partial<Record<ThemeName, ThemeTokens>> = {};
@@ -197,14 +281,14 @@ export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
       tooltip: { title: { color: t.text, template: '{displayName} · {tf}' }, legend: { color: t.muted } },
     },
     indicator: {
-      // Default histogram bars: the theme's up / down colours, as translucent as KLineChart's own defaults.
-      bars: [defaultIndicatorBars(theme)],
+      // Default histogram bars: filled, in the theme's up / down colours, as translucent as KLineChart's own defaults.
+      bars: [{ style: 'fill', ...defaultIndicatorBars(theme) }],
       tooltip: { title: { color: t.text }, legend: { color: t.muted } },
       lastValueMark: { show: false },
     },
     xAxis: axis,
     yAxis: axis,
-    separator: { color: t.border, activeBackgroundColor: 'rgba(41,98,255,0.15)' },
+    separator: { color: t.border, activeBackgroundColor: hexToRgba(t.accent, 0.15) },
     crosshair: {
       horizontal: { line: { color: t.muted }, text: crossText },
       vertical: { line: { color: t.muted }, text: crossText },

@@ -1,3 +1,4 @@
+import { indicatorPaletteColor, type ThemeName } from '../theme';
 import { CUSTOM_INDICATORS } from './extensions';
 import type { CatalogEntry } from './types';
 
@@ -8,13 +9,15 @@ const numbered = (prefix: string, n: number) => Array.from({ length: n }, (_, i)
 
 /**
  * KLineChart built-ins we expose. `lines` follow each template's line-figure order.
+ * Default line colours: line i uses palette slot i (INDICATOR_PALETTE), except BOLL (Upper/Middle/Lower = slots
+ * 2/1/3, so the middle band matches MA's first line) and VWAP (slot 3, see custom/vwap.ts). Max 4 lines today.
  * Note: KLineChart's `MA` is the simple moving average; its `SMA` is a different, weighted average.
  */
 const BUILTIN: CatalogEntry[] = [
   // overlays (candle pane)
   { name: 'MA', label: 'Moving Average (SMA)', pane: 'main', defaultParams: [5, 10, 30, 60], paramLabels: periods('MA', 4), lines: numbered('MA', 4) },
   { name: 'EMA', label: 'Exponential MA', pane: 'main', defaultParams: [6, 12, 20], paramLabels: periods('EMA', 3), lines: numbered('EMA', 3) },
-  { name: 'BOLL', label: 'Bollinger Bands', pane: 'main', defaultParams: [20, 2], paramLabels: ['Period', 'Std dev'], lines: ['Upper', 'Middle', 'Lower'], decimalParams: [1] },
+  { name: 'BOLL', label: 'Bollinger Bands', pane: 'main', defaultParams: [20, 2], paramLabels: ['Period', 'Std dev'], lines: ['Upper', 'Middle', 'Lower'], lineSlots: [1, 0, 2], decimalParams: [1] },
   // SAR params are percentages (KLineChart divides by 100); it draws circles, so there are no line colours.
   { name: 'SAR', label: 'Parabolic SAR', pane: 'main', defaultParams: [2, 2, 20], paramLabels: ['Start AF (%)', 'Step (%)', 'Max AF (%)'], lines: [], decimalParams: [0, 1, 2] },
   { name: 'BBI', label: 'Bull and Bear Index', pane: 'main', defaultParams: [3, 6, 12, 24], paramLabels: periods('MA', 4), lines: ['BBI'] },
@@ -54,13 +57,18 @@ export function catalogEntry(name: string): CatalogEntry | undefined {
   return CATALOG.find((e) => e.name === name);
 }
 
-/** KLineChart's default indicator line palette (lower-case, as `<input type="color">` reports it). */
-export const DEFAULT_LINE_COLORS = ['#ff9600', '#935ebd', '#1677ff', '#e11d74', '#01c5c4'] as const;
+/**
+ * Default colour of line `i` of indicator `name` in `theme`: the palette slot from the catalog's `lineSlots`
+ * (default: slot i). Unknown indicators use slot i.
+ */
+export function defaultLineColor(i: number, name: string | undefined, theme: ThemeName): string {
+  const slot = (name === undefined ? undefined : catalogEntry(name)?.lineSlots?.[i]) ?? i;
+  return indicatorPaletteColor(theme, slot);
+}
 
-/** Default colour of line `i`: the indicator's own default (catalog `defaultColors`) or KLineChart's palette. */
-export function defaultLineColor(i: number, name?: string): string {
-  const own = name === undefined ? undefined : catalogEntry(name)?.defaultColors?.[i];
-  return own ?? DEFAULT_LINE_COLORS[i % DEFAULT_LINE_COLORS.length]!;
+/** Default colours of all lines of indicator `name` in `theme`, in line order. */
+export function defaultLineColors(name: string, theme: ThemeName): string[] {
+  return (catalogEntry(name)?.lines ?? []).map((_, i) => defaultLineColor(i, name, theme));
 }
 
 /**

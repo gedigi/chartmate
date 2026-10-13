@@ -68,14 +68,35 @@ describe('IndicatorSettings line width / style and bar colours', () => {
   it('bar colour defaults follow the active theme; untouched defaults are not saved; overrides win', async () => {
     const onSave = vi.fn();
     const { unmount } = render(<IndicatorSettings state={VOL} theme="light" onSave={onSave} onClose={() => {}} />);
-    expect(screen.getByLabelText('Up bar colour')).toHaveValue('#089981');
-    expect(screen.getByLabelText('Down bar colour')).toHaveValue('#f23645');
+    expect(screen.getByLabelText('Up bar colour')).toHaveValue('#00a870');
+    expect(screen.getByLabelText('Down bar colour')).toHaveValue('#d4113b');
     await userEvent.click(save());
     expect(onSave).toHaveBeenLastCalledWith(VOL);
     unmount();
     render(<IndicatorSettings state={{ ...VOL, barColors: { up: '#00ff00', down: '#ff0000' } }} theme="light" onSave={onSave} onClose={() => {}} />);
     expect(screen.getByLabelText('Up bar colour')).toHaveValue('#00ff00');
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
-    expect(screen.getByLabelText('Up bar colour')).toHaveValue('#089981');
+    expect(screen.getByLabelText('Up bar colour')).toHaveValue('#00a870');
+  });
+});
+
+describe('IndicatorSettings default line colours follow the theme palette', () => {
+  const values = (names: string[]) => names.map((n) => (screen.getByLabelText(`${n} colour`) as HTMLInputElement).value);
+  it('colour pickers show the current theme defaults; untouched are not saved; user colours win; Reset returns to theme defaults', async () => {
+    const onSave = vi.fn();
+    const { unmount } = render(<IndicatorSettings state={RSI} theme="light" onSave={onSave} onClose={() => {}} />);
+    expect(values(['RSI1', 'RSI2', 'RSI3'])).toEqual(['#1272da', '#eb6111', '#0095a0']);
+    await userEvent.click(save());
+    expect(onSave).toHaveBeenCalledWith(RSI);
+    unmount();
+
+    const user = { ...RSI, lineColors: ['#111111', '#222222', '#333333'] };
+    render(<IndicatorSettings state={user} theme="dark" onSave={onSave} onClose={() => {}} />);
+    expect(screen.getByLabelText('RSI1 colour')).toHaveValue('#111111');
+    await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
+    expect(values(['RSI1', 'RSI2', 'RSI3'])).toEqual(['#2488f7', '#e56c19', '#00b3c2']);
+    onSave.mockClear();
+    await userEvent.click(save());
+    expect(onSave.mock.calls[0]![0]).not.toHaveProperty('lineColors');
   });
 });

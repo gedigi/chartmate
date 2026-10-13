@@ -73,7 +73,16 @@ export function TopBar(p: TopBarProps): JSX.Element {
       <div className="top-bar-end">
         <button type="button" className="icon-button" onClick={p.onToggleTheme}
           aria-label={p.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
-          {p.theme === 'dark' ? '☀' : '☾'}
+          {p.theme === 'dark' ? (
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true" focusable="false">
+              <circle cx="10" cy="10" r="3.4" />
+              <path d="M10 2v1.8M10 16.2V18M2 10h1.8M16.2 10H18M4.3 4.3l1.3 1.3M14.4 14.4l1.3 1.3M4.3 15.7l1.3-1.3M14.4 5.6l1.3-1.3" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" aria-hidden="true" focusable="false">
+              <path d="M16.5 12.3A7 7 0 0 1 7.7 3.5a7 7 0 1 0 8.8 8.8z" />
+            </svg>
+          )}
         </button>
         {p.view === 'chart' && (
           <button type="button" className="icon-button" onClick={() => setAppearanceOpen(true)} disabled={p.controlsDisabled}
@@ -87,7 +96,12 @@ export function TopBar(p: TopBarProps): JSX.Element {
         )}
         {p.view === 'chart' && (
           <button type="button" className="icon-button" onClick={p.onToggleSidebar} aria-pressed={p.sidebarOpen}
-            aria-label="Toggle watchlist">☰</button>
+            aria-label="Toggle watchlist">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true" focusable="false">
+              <rect x="2.8" y="3.8" width="14.4" height="12.4" rx="2" />
+              <path d="M12.4 3.8v12.4" />
+            </svg>
+          </button>
         )}
         {p.onLogout && <button type="button" onClick={p.onLogout}>Log out</button>}
       </div>

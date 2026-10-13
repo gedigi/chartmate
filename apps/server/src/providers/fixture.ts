@@ -1,5 +1,5 @@
 import {
-  tagSessionFixedHours, nyParts, tfMs,
+  tagSessionFixedHours, nyParts, pctChange, tfMs,
   type Bar, type NativeTimeframe, type Quote, type SymbolInfo,
 } from '@altv/shared';
 import { NotFoundError } from '../errors.js';
@@ -79,16 +79,34 @@ export class FixtureProvider implements MarketDataProvider {
     for (const code of codes) {
       const sym = this.find(code);
       if (!sym) continue;
-      // Latest 1m bar: crypto is always open; stocks scan back up to a week of minutes.
+      // Latest 1m bar: crypto is always open; stocks: the latest REGULAR bar (scanning back up to a week of minutes).
       let last: Bar | undefined;
+      let latest: Bar | undefined;
       for (let end = now; !last && end > now - 7 * DAY; end -= DAY) {
-        last = this.generate(sym, '1m', end - DAY, end).at(-1);
+        const day = this.generate(sym, '1m', end - DAY, end);
+        latest ??= day.at(-1);
+        last = this.assetClass === 'crypto' ? day.at(-1) : day.filter((b) => b.session === 'regular').at(-1);
       }
       if (!last) continue;
       const prev = this.prevDailyClose(sym, last.ts);
-      out.push({ id: this.info(sym).id, price: last.close, changePct: ((last.close - prev) / prev) * 100, ts: last.ts });
+      const q: Quote = { id: this.info(sym).id, price: last.close, changePct: pctChange(last.close, prev), ts: last.ts };
+      // While the simulated clock is in pre/post hours, the latest extended bar rides along vs the regular close.
+      const session = latest?.session;
+      if (latest && (session === 'pre' || session === 'post') && latest.ts > last.ts && this.extendedNow(now) === session) {
+        const changePct = pctChange(latest.close, last.close);
+        if (changePct !== null) q.ext = { session, price: latest.close, changePct, ts: latest.ts };
+      }
+      out.push(q);
     }
     return out;
+  }
+
+  /** The stock extended session the simulated clock is in (weekday 04:00–09:30 / 16:00–20:00 NY), else null. */
+  private extendedNow(now: number): 'pre' | 'post' | null {
+    const dow = nyParts(now).dow;
+    if (this.assetClass !== 'stock' || dow === 0 || dow === 6) return null;
+    const s = tagSessionFixedHours(now);
+    return s === 'pre' || s === 'post' ? s : null;
   }
 
   /** Close of the daily bar before the day containing `ts` (crypto: previous UTC day; stocks: previous weekday). */

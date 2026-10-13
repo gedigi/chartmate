@@ -110,6 +110,26 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
     ]);
   });
 
+  it('drawing styles: channel extend options are accepted alone or with a line; invalid ones are dropped', async () => {
+    const base = { name: 'parallelChannel', points: [{ timestamp: 1, value: 2 }], lock: false };
+    const r = await putDrawings([
+      { ...base, styles: { extend: { right: true } } },
+      { ...base, styles: { line: { color: '#ff0000', size: 2, style: 'dashed' }, extend: { left: true, right: false } } },
+      { ...base, styles: { extend: { left: 'yes' } } },
+      { ...base, styles: { extend: {} } },
+      { ...base, styles: { line: { color: '#ff0000', size: 2, style: 'solid' }, extend: 'both' } },
+      { ...base, styles: { extend: { left: false, right: false, up: true } } },
+    ]);
+    expect(r.statusCode).toBe(200);
+    expect(r.json().map((d: DrawingState) => d.styles)).toEqual([
+      { extend: { right: true } },
+      { line: { color: '#ff0000', size: 2, style: 'dashed' }, extend: { left: true, right: false } },
+      undefined, undefined,
+      { line: { color: '#ff0000', size: 2, style: 'solid' } },
+      { extend: { left: false, right: false } },
+    ]);
+  });
+
   it('drawing styles: an invalid part is dropped but valid parts survive', async () => {
     const base = { name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false };
     const r = await putDrawings([

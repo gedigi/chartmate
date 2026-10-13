@@ -89,7 +89,9 @@ export class BinanceProvider implements MarketDataProvider {
       const r = bySymbol.get(p);
       if (!r) continue;
       const price = num(r.lastPrice);
-      const ts = num(r.closeTime);
+      // tradingDay has no last-trade time, and closeTime is the end of the UTC day (23:59:59.999): never stamp a quote
+      // in the future.
+      const ts = Math.min(num(r.closeTime), this.now());
       if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(ts)) continue; // price 0 = no trade yet today
       live.push({ p, r, price, ts });
     }

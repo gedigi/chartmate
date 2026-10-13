@@ -13,8 +13,8 @@ import {
   type TextStyle,
 } from './drawingStyles';
 import {
-  drawingConstraint, flattenBase, LABEL_STYLE_KEY, labelOptions, POSITION_STYLE_KEY, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
-  type LabelOptions,
+  drawingConstraint, EXTEND_STYLE_KEY, extendOptions, flattenBase, LABEL_STYLE_KEY, labelOptions, POSITION_STYLE_KEY, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
+  type ExtendOptions, type LabelOptions,
 } from './drawingTemplates';
 import {
   DEFAULT_WIDTH_BARS, defaultGeometry, endAfterBars, fromPositionPoints, nextBarTime, qtyDecimals, shiftByBars, sideOf,
@@ -22,13 +22,14 @@ import {
 } from './position';
 import { positionContext, positionSettingsOf, positionState, registerPositionOverlays } from './positionOverlay';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
-import { catalogEntry } from './indicators/catalog';
+import { catalogEntry, defaultLineColor } from './indicators/catalog';
 import { PRICE_PRECISION_INDICATORS } from './indicators/extensions';
 import { registerCustomIndicators } from './indicators/register';
 import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
 import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
 import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS } from './sessionShade';
+import { solidBarFigures } from './solidBars';
 import {
   candleStyles, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, overlayStyles, refreshThemeTokens, resolveAppearance, themeTokens,
   type ThemeName,
@@ -36,7 +37,7 @@ import {
 
 export type DrawingTool =
   | 'segment' | 'rayLine' | 'straightLine' | 'horizontalStraightLine' | 'verticalStraightLine'
-  | 'priceLine' | 'parallelStraightLine' | 'fibonacciLine' | 'simpleAnnotation' | 'longPosition' | 'shortPosition';
+  | 'priceLine' | 'parallelChannel' | 'fibonacciLine' | 'simpleAnnotation' | 'longPosition' | 'shortPosition';
 
 export interface IndicatorSpec extends Pick<IndicatorState, 'lineColors' | 'lineWidths' | 'lineStyles' | 'barColors'> {
   name: string; pane: 'main' | 'sub'; calcParams?: number[]; visible?: boolean;
@@ -66,6 +67,8 @@ export type SelectedDrawing =
     price?: { value: number; precision: number };
     /** Price / horizontal lines only: effective price-label options (price text on the line, label on the axis). */
     label?: LabelOptions;
+    /** Parallel channels only: effective extend options (lines extended past the left / right end). */
+    extend?: ExtendOptions;
   }
   | { id: string; kind: 'text'; style: TextStyle; locked: boolean }
   | {
@@ -301,6 +304,14 @@ export class ChartAdapter {
     this.updatePositionColors();
     this.chart.setStyles(this.styles());
     for (const o of this.chart.getOverlays({ groupId: MARKERS })) this.chart.overrideOverlay({ id: o.id, styles: markerStyles(t) });
+    // Indicator lines without a colour override carry the palette of the theme they were written in: rewrite
+    // them (width / style overrides kept; user colours are never touched).
+    for (const i of this.chart.getIndicators()) {
+      const o = this.overrides.get(i.id) ?? {};
+      if (o.lineColors) continue;
+      const styles = this.indicatorStyles(i.name, o, undefined, 'all-lines');
+      if (styles?.lines) this.chart.overrideIndicator({ id: i.id, name: i.name, styles: { lines: styles.lines } });
+    }
     // Indicators without a bar-colour override follow the chart styles, except those whose override was removed
     // (their defaults were written explicitly): give them the new theme's default bars.
     if (this.themedBars.size === 0) return;
@@ -396,23 +407,27 @@ export class ChartAdapter {
 
   // ── indicators ────────────────────────────────────────────────────────────
 
-  /** Default line `i` of indicator `name` (KLineChart palette, or the catalog's own default colour). */
+  /** Default lines of indicator `name`: KLineChart's line style with the active theme's palette colour per slot. */
   private defaultLines(name: string): IndicatorStyle['lines'] {
-    const palette = this.chart.getStyles().indicator.lines;
-    const own = catalogEntry(name)?.defaultColors;
-    return palette.map((l, i) => ({ ...l, color: own?.[i] ?? l.color }));
+    const base = this.chart.getStyles().indicator.lines;
+    const n = Math.max(catalogEntry(name)?.lines.length ?? 0, base.length);
+    return Array.from({ length: n }, (_, i) => ({ ...base[i % base.length]!, color: defaultLineColor(i, name, this.theme) }));
   }
 
   /**
    * KLineChart styles for the overrides; `reset` lists the kinds (lines / bars) that had overrides before and
    * must be written back to their defaults explicitly when they are gone (KLineChart merges override styles).
    */
-  private indicatorStyles(name: string, o: IndicatorOverrides, reset?: IndicatorOverrides): DeepPartial<IndicatorStyle> | undefined {
+  private indicatorStyles(name: string, o: IndicatorOverrides, reset?: IndicatorOverrides, force: false | true | 'all-lines' = false): DeepPartial<IndicatorStyle> | undefined {
     const styles: DeepPartial<IndicatorStyle> = {};
     const hasLines = Boolean(o.lineColors || o.lineWidths || o.lineStyles);
-    if (hasLines || (reset && (reset.lineColors || reset.lineWidths || reset.lineStyles))) {
+    const lineCount = catalogEntry(name)?.lines.length ?? 0;
+    if (hasLines || (reset && (reset.lineColors || reset.lineWidths || reset.lineStyles)) || (force && lineCount > 0)) {
       const defaults = this.defaultLines(name);
-      const n = hasLines ? Math.max(o.lineColors?.length ?? 0, o.lineWidths?.length ?? 0, o.lineStyles?.length ?? 0) : defaults.length;
+      // Forced writes (create / theme re-apply) cover every catalog line, so lines past a partial override array
+      // still get the theme palette instead of KLineChart's defaults; plain updates write the overridden lines only.
+      const overridden = Math.max(o.lineColors?.length ?? 0, o.lineWidths?.length ?? 0, o.lineStyles?.length ?? 0);
+      const n = force && lineCount > 0 ? lineCount : hasLines && force !== 'all-lines' ? overridden : lineCount > 0 ? lineCount : defaults.length;
       styles.lines = Array.from({ length: n }, (_, i) => {
         const d = defaults[i % defaults.length]!;
         const style = o.lineStyles?.[i] ?? 'solid';
@@ -450,13 +465,18 @@ export class ChartAdapter {
     if (spec.calcParams) create.calcParams = spec.calcParams;
     if (spec.visible !== undefined) create.visible = spec.visible;
     const overrides = ChartAdapter.overridesOf(spec);
-    const styles = this.indicatorStyles(spec.name, overrides);
+    // Always written (force), every catalog line: the lines carry the active theme's palette (a template's own
+    // colour would stick), including lines past a partial override array such as lineWidths: [3].
+    const styles = this.indicatorStyles(spec.name, overrides, undefined, true);
     if (styles) create.styles = styles;
     create.extendData = this.indicatorExt;
     if (PRICE_PRECISION_INDICATORS.has(spec.name)) create.precision = this.indicatorExt.pricePrecision ?? 4;
     const id = this.chart.createIndicator(create, main);
     if (!id) throw new Error(`Cannot create indicator ${spec.name}`);
-    if (styles) this.overrides.set(id, overrides);
+    // Histogram bars are always filled (MACD / AO outline rising bars by default).
+    const figures = solidBarFigures(this.chart.getIndicators().find((i) => i.id === id)?.figures);
+    if (figures) this.chart.overrideIndicator({ id, name: spec.name, figures });
+    if (OVERRIDE_KEYS.some((k) => overrides[k])) this.overrides.set(id, overrides);
     return id;
   }
 
@@ -882,7 +902,19 @@ export class ChartAdapter {
     if (HORIZONTAL_DRAWINGS.has(o.name) && typeof value === 'number') sel.price = { value, precision: this.pricePrecision };
     const label = labelOptions(o.name, o.styles);
     if (label) sel.label = label;
+    const extend = extendOptions(o.name, o.styles);
+    if (extend) sel.extend = extend;
     return sel;
+  }
+
+  /** Changes the selected channel's extend options; saved like any drawing edit. */
+  setSelectedExtend(patch: Partial<ExtendOptions>): void {
+    const sel = this.getSelectedDrawing();
+    if (!sel || sel.kind !== 'line' || !sel.extend || sel.locked) return;
+    const next = { ...sel.extend, ...patch };
+    this.chart.overrideOverlay({ id: sel.id, styles: { [EXTEND_STYLE_KEY]: next } as DeepPartial<OverlayStyle> });
+    this.emitChange();
+    this.emitSelection();
   }
 
   /** Changes the selected price / horizontal line's label options; saved like any drawing edit. */
@@ -951,6 +983,7 @@ export class ChartAdapter {
       : lineToOverlay({ ...sel.style, ...(patch as Partial<DrawingLineStyle>) });
     // Label options are re-sent with the style (never lost, whatever KLineChart's style merging does).
     if (sel.kind === 'line' && sel.label) (styles as Record<string, unknown>)[LABEL_STYLE_KEY] = { ...sel.label };
+    if (sel.kind === 'line' && sel.extend) (styles as Record<string, unknown>)[EXTEND_STYLE_KEY] = { ...sel.extend };
     this.chart.overrideOverlay({ id: sel.id, styles });
     this.emitChange();
     this.emitSelection();

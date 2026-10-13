@@ -9,7 +9,13 @@ export interface Bar {
   simulated?: boolean;
 }
 export interface SymbolInfo { id: SymbolId; assetClass: AssetClass; ticker: string; name: string; exchange?: string; pricePrecision: number }
-export interface Quote { id: SymbolId; price: number; changePct: number | null; ts: number }
+/** Extended-hours price: `changePct` is vs the latest REGULAR close (the quote's own `price`). */
+export interface QuoteExt { session: 'pre' | 'post'; price: number; changePct: number; ts: number }
+/**
+ * `price`/`changePct`/`ts` are always the REGULAR session pair: the last regular price and its day change vs the
+ * previous regular close. `ext` is set only while a stock trades pre/post-market (never for crypto).
+ */
+export interface Quote { id: SymbolId; price: number; changePct: number | null; ts: number; ext?: QuoteExt }
 export interface BasketVersion { effectiveFrom: string /* 'YYYY-MM-DD' */; weights: Record<SymbolId, number> }
 export interface Basket { id: string; name: string; baseValue: number; versions: BasketVersion[]; createdAt: number; updatedAt: number }
 export interface Marker { ts: number; label: string }
@@ -56,6 +62,11 @@ export interface Layout {
   appearance?: ThemedAppearance;
   /** Risk settings new long / short positions start with (missing → DEFAULT_POSITION_SETTINGS). */
   positionDefaults?: PositionDefaults;
+  /**
+   * Revision of the default colours this layout's stored colours were last migrated to (missing → 0). The web app
+   * clears colours equal to an older default once and then stores its current revision.
+   */
+  colorDefaultsRev?: number;
 }
 
 /** Long / short position drawing tools. */
@@ -140,10 +151,13 @@ export function migrateAppearance(a: unknown): ThemedAppearance | undefined {
 }
 /**
  * Normalized drawing styles: `line` for line tools, `text` (annotation bubble colour + font size) for text,
- * `label` (price text on the line / price label on the y-axis) for price and horizontal lines; missing → defaults.
+ * `label` (price text on the line / price label on the y-axis) for price and horizontal lines; `extend` (lines
+ * extended past the left / right end) for parallel channels; missing → defaults (a new 'parallelChannel' is finite,
+ * a legacy 'parallelStraightLine' is extended both ways).
  */
 export interface DrawingStyles {
   line?: DrawingLineStyle; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean };
+  extend?: { left?: boolean; right?: boolean };
   /** Long / short positions: their own risk settings (over the defaults). */
   position?: PositionSettings;
 }

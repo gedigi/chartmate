@@ -19,7 +19,7 @@ const WIDTHS = Array.from({ length: MAX_LINE_WIDTH - MIN_LINE_WIDTH + 1 }, (_, i
 /**
  * Edits one indicator's params (validated: integers ≥ 1, except params the catalog marks as decimal, which
  * must be > 0) and line colours. Colours are only saved while they differ from the defaults, so untouched
- * (or reset) indicators keep following KLineChart's palette. The same applies to line widths
+ * (or reset) indicators keep following the active theme's indicator palette. The same applies to line widths
  * (1–4) / styles (solid, dashed, dotted) and, for histogram indicators, the up/down bar colours.
  */
 export function IndicatorSettings({ state, onSave, onClose, theme = 'dark' }: IndicatorSettingsProps): JSX.Element {
@@ -28,7 +28,7 @@ export function IndicatorSettings({ state, onSave, onClose, theme = 'dark' }: In
   const defaults = entry?.defaultParams ?? state.calcParams;
   const labels = entry?.paramLabels ?? state.calcParams.map((_, i) => `Param ${i + 1}`);
   const lines = entry?.lines ?? [];
-  const defaultColors = lines.map((_, i) => defaultLineColor(i, state.name));
+  const defaultColors = lines.map((_, i) => defaultLineColor(i, state.name, theme));
 
   // Explicit migration of stored params (shorter lists are padded with defaults); the user sees complete values
   // and Save writes the clean, complete list.
@@ -36,7 +36,7 @@ export function IndicatorSettings({ state, onSave, onClose, theme = 'dark' }: In
     const params = entry ? migrateCalcParams(state.name, state.calcParams) : state.calcParams;
     return labels.map((_, i) => String(params[i] ?? ''));
   });
-  const [colors, setColors] = useState(() => lines.map((_, i) => state.lineColors?.[i] ?? defaultLineColor(i, state.name)));
+  const [colors, setColors] = useState(() => lines.map((_, i) => state.lineColors?.[i] ?? defaultLineColor(i, state.name, theme)));
   const [widths, setWidths] = useState(() => lines.map((_, i) => state.lineWidths?.[i] ?? 1));
   const [styles, setStyles] = useState<LineStyleKind[]>(() => lines.map((_, i) => state.lineStyles?.[i] ?? 'solid'));
   const hasBars = entry?.bars === true;
