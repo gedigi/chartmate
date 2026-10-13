@@ -447,11 +447,12 @@ cd apps/desktop
 node smoke/prepare-inspectable.mjs release/mac-arm64/Chartmate.app release/test-only
 SMOKE_APP="$PWD/release/test-only/Chartmate TEST-ONLY.app" \
 SMOKE_HARDENED_APP="$PWD/release/mac-arm64/Chartmate.app" \
-SMOKE_EXPECT_UNSIGNED=1 pnpm smoke                       # 1 = unsigned build (no updater), 0 = signed
+SMOKE_EXPECT_UNSIGNED=1 \
+SMOKE_ALLOW_REAL_USERDATA=1 pnpm smoke     # see below; EXPECT_UNSIGNED: 1 = unsigned build, 0 = signed
 SMOKE_LIVE=1 pnpm smoke                                                       # + live providers (internet)
 ```
 
-A packaged build exits at once when started with a debugging or weakening switch (see "Security model"), so no
+A packaged build refuses to start with a debugging or weakening switch (see "Security model"), so no
 test harness can attach to it. `smoke/prepare-inspectable.mjs` therefore builds a separate copy for the
 functional tests:
 
@@ -464,16 +465,22 @@ The functional tests (`app.spec.ts`) drive that copy over CDP. `packaged-hardeni
 **unmodified** artifact; CI runs it on macOS and on Windows, where it also covers the `/switch` syntax:
 
 - it opens no listening socket;
-- it exits with code 1 on `--remote-debugging-port=0`, `--inspect` and the other refused switches, with no CDP or
-  debugger endpoint reachable;
-- it exits with code 1 when the refused environment variables are set;
+- it refuses `--remote-debugging-port=0`, `--inspect` and the other refused switches, naming them on stderr and
+  in an error box, with no CDP or debugger endpoint and no listener at all;
+- it refuses the forbidden environment variables in the same way;
 - `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` have no effect;
 - it ignores `ALTV_USER_DATA_DIR`;
 - a tampered `app.asar` refuses to start (macOS);
 - the updater is present only in signed builds (`SMOKE_EXPECT_UNSIGNED`).
 
-Because packaged builds ignore `ALTV_USER_DATA_DIR`, this spec runs against the real per-user data directory. It
-moves that directory aside first and restores it afterwards. Don't run it while Chartmate is open.
+Because packaged builds ignore `ALTV_USER_DATA_DIR`, this spec runs against the real per-user data directories:
+the current one, plus those of any `previousProductNames`. For that reason it only runs in CI (`CI=true`) or
+locally with `SMOKE_ALLOW_REAL_USERDATA=1`.
+
+- It moves the directories aside to `*.smoke-backup` first and moves them back afterwards, retrying while
+  Windows still holds file handles.
+- Nothing is deleted: the directory the run created is renamed to `*.smoke-trash-<timestamp>`.
+- Don't run it while Chartmate is open.
 
 ### CI and releases
 
@@ -519,7 +526,7 @@ What gets logged:
 `ALTV_USER_DATA_DIR=/abs/path` overrides the directory in **development runs only**; packaged builds ignore it,
 just as they refuse `--user-data-dir`. Migrations run before the window loads.
 
-Environment overrides the desktop app honours:
+Environment overrides the desktop app honors:
 
 - `ALTV_PROVIDERS` (`live` (the default) or `fixture`);
 - `CRYPTO_PROVIDER`;
@@ -537,6 +544,10 @@ Independently of that, provider requests never use Node's global dispatcher. The
 `Agent` (`src/lib/directFetch.ts`) that connects directly, ignoring `HTTP(S)_PROXY`, and trusts only Node's
 bundled root CAs (`tls.rootCertificates`). Real Node and Electron child processes prove this
 (`test/directFetch.test.ts`).
+
+Provider traffic is therefore **direct-only**. Corporate HTTP proxies are not supported, and neither are
+TLS-inspecting middleboxes, which need their own root certificate. On such networks the desktop app cannot reach
+the market data providers; use the self-hosted server there instead.
 
 Everything else that concerns the network surface or storage is fixed.
 
@@ -586,7 +597,7 @@ The renderer is treated as untrusted web content, and the main process exposes n
   enforced with no policy allowed: the app never writes HTML strings into the DOM, and the smoke test checks that
   the chart, the baskets view and the search render without a violation. Responses also carry `nosniff`,
   `X-Frame-Options: DENY`, `no-referrer`, COOP/CORP `same-origin` and a deny-all `Permissions-Policy`.
-- **Navigation**: `will-navigate`, `will-frame-navigate` and `will-redirect` are cancelled unless the target is
+- **Navigation**: `will-navigate`, `will-frame-navigate` and `will-redirect` are canceled unless the target is
   `app://altv`. Every `window.open` is denied, and webviews cannot attach. These rules are applied to every
   `WebContents` through `web-contents-created`.
 - **Permissions and devices** (permission request and check handlers, device permissions, display capture, the

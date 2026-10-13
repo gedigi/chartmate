@@ -30,7 +30,7 @@ describe('desktopConfig', () => {
     expect(config.trustProxy).toBe(false);
   });
 
-  it('honours the provider overrides', () => {
+  it('honors the provider overrides', () => {
     expect(desktopConfig({ userData: UD, env: { ALTV_PROVIDERS: 'fixture' } }).config.providers).toBe('fixture');
     expect(desktopConfig({ userData: UD, env: { CRYPTO_PROVIDER: 'coinbase' } }).config.cryptoProvider).toBe('coinbase');
     expect(desktopConfig({ userData: UD, env: { BINANCE_BASE_URL: 'https://api.binance.com/' } }).config.binanceBaseUrl).toBe('https://api.binance.com');

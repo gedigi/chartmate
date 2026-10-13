@@ -1,6 +1,6 @@
 // Proves, in real child processes (Node, and Electron-as-Node when its binary is available), that the main
 // process's provider fetch ignores HTTPS_PROXY + NODE_USE_ENV_PROXY and NODE_EXTRA_CA_CERTS, while the built-in
-// global fetch does honour them (baseline).
+// global fetch does honor them (baseline).
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { createServer as createHttpsServer } from 'node:https';

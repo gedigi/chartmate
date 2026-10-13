@@ -45,7 +45,7 @@ const isPackaged = app.isPackaged;
 process.umask(0o077);
 
 app.setName(product.productName);
-// Packaged builds always use the per-user default (only dev runs and the TEST-ONLY copy honour ALTV_USER_DATA_DIR).
+// Packaged builds always use the per-user default (only dev runs and the TEST-ONLY copy honor ALTV_USER_DATA_DIR).
 const userData = resolveUserDataDir(join(app.getPath('appData'), product.productName), process.env, { allowOverride: !isPackaged || __TEST_INSPECTABLE__ });
 app.setPath('userData', userData);
 app.setPath('sessionData', userData);
@@ -191,7 +191,7 @@ function createWindow(): void {
       saved = true;
       saveWindowState(stateFile, { bounds: win.getNormalBounds(), maximized: win.isMaximized(), theme });
       win.close();
-      // preventDefault above cancelled an in-flight quit (⌘Q / app.quit()): resume it.
+      // preventDefault above canceled an in-flight quit (⌘Q / app.quit()): resume it.
       if (appQuitRequested) app.quit();
     };
     const timeout = new Promise<string>((r) => setTimeout(() => r('dark'), 300));

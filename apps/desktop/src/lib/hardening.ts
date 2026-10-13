@@ -62,7 +62,7 @@ export function isAppUrl(url: string): boolean {
 
 /**
  * Renderer request filter: only app://altv requests may leave the renderer (plus devtools:// for the DevTools UI in
- * development). Everything else (http, https, ws, file, ftp, other app hosts …) is cancelled.
+ * development). Everything else (http, https, ws, file, ftp, other app hosts …) is canceled.
  */
 export function isRendererRequestAllowed(url: string, opts: { dev: boolean }): boolean {
   if (isAppUrl(url)) return true;
