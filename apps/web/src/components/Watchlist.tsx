@@ -1,6 +1,7 @@
 import { MAX_SECTION_TITLE, MAX_WATCHLIST_SECTIONS, type Quote, type QuoteExt, type SymbolId, type SymbolInfo, type WatchlistSection } from '@chartmate/shared';
 import { useEffect, useId, useRef, useState, type DragEvent, type JSX, type KeyboardEvent } from 'react';
 import { api } from '../api/client';
+import { publishQuotes } from '../state/quoteStore';
 import { retryDelayMs } from '../state/retry';
 import { useWatchlist } from '../state/useWatchlist';
 import {
@@ -150,6 +151,7 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
       api.quotes(list).then(
         (res) => {
           if (canceled) return;
+          publishQuotes(res); // shared with the detail panel
           setQuotes((cur) => {
             const next = { ...cur };
             for (const q of res) next[q.id] = q;

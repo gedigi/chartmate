@@ -1,6 +1,7 @@
-import type { Bar, Quote, SymbolId, SymbolInfo } from '@chartmate/shared';
-import { useEffect, useState, type JSX } from 'react';
+import type { Bar, SymbolId, SymbolInfo } from '@chartmate/shared';
+import { useEffect, useState, useSyncExternalStore, type JSX } from 'react';
 import { api } from '../api/client';
+import { cachedQuote, lastQuote, publishQuotes, subscribeQuotes } from '../state/quoteStore';
 import { compactNumber, MARKET_STATUS_LABEL, marketStatus, symbolStats } from '../state/symbolStats';
 import { DayRangeGauge } from './RangeGauge';
 
@@ -10,67 +11,82 @@ export interface SymbolDetailsProps {
 }
 
 const DAY = 86_400_000;
-const QUOTE_POLL_MS = 15_000;
-const BARS_POLL_MS = 5 * 60_000;
+export const QUOTE_POLL_MS = 15_000;
+export const BARS_POLL_MS = 5 * 60_000;
+/** A quote the watchlist fetched this recently is reused instead of fetching it again. */
+const QUOTE_FRESH_MS = QUOTE_POLL_MS + 5_000;
 
 const fmt = (v: number, precision: number) =>
   v.toLocaleString('en-US', { minimumFractionDigits: precision, maximumFractionDigits: precision });
 
+type BarsState = { symbol: SymbolId; status: 'ready'; bars: Bar[] } | { symbol: SymbolId; status: 'error' };
+
 /**
  * The detail panel at the bottom of the watchlist rail for the open symbol: name, market status, the day range (a
  * ruled gauge with the open → now move), and open / previous close / volume / 30-day average volume / 52-week high and
- * low. Everything comes from the existing daily bars and quote endpoints; nothing is shown until they answer.
+ * low. Everything comes from the existing daily bars and quote endpoints: the quote is the watchlist's when it has
+ * a fresh one (shared quote store), else polled here; polling pauses while the page is hidden.
  */
 export function SymbolDetails({ symbol, info }: SymbolDetailsProps): JSX.Element | null {
-  const [data, setData] = useState<{ symbol: SymbolId; bars: Bar[] } | null>(null);
-  const [quote, setQuote] = useState<{ symbol: SymbolId; quote: Quote } | null>(null);
+  const [bars, setBars] = useState<BarsState | null>(null);
+  const [reload, setReload] = useState(0);
   const [now, setNow] = useState(() => Date.now());
+  const quote = useSyncExternalStore(subscribeQuotes, () => lastQuote(symbol));
 
+  // Daily bars: on symbol change / retry, then every 5 min while visible.
   useEffect(() => {
     let canceled = false;
     const ctl = new AbortController();
     const load = () => {
       const t = Date.now();
       api.bars({ symbol, tf: '1D', session: 'rth', from: t - 370 * DAY, to: t + DAY }, ctl.signal).then(
-        (r) => { if (!canceled) setData({ symbol, bars: r.bars }); },
-        () => { /* keep what is shown */ },
-      );
-    };
-    const poll = () => {
-      if (document.hidden) return;
-      api.quotes([symbol]).then(
-        (qs) => {
-          if (canceled) return;
-          const q = qs.find((x) => x.id === symbol);
-          if (q) setQuote({ symbol, quote: q });
-          setNow(Date.now());
-        },
-        () => { /* keep the previous quote */ },
+        (r) => { if (!canceled) setBars({ symbol, status: 'ready', bars: r.bars }); },
+        () => { if (!canceled) setBars((cur) => (cur?.symbol === symbol && cur.status === 'ready' ? cur : { symbol, status: 'error' })); },
       );
     };
     load();
-    poll();
-    const bt = setInterval(load, BARS_POLL_MS);
-    const qt = setInterval(poll, QUOTE_POLL_MS);
+    const t = setInterval(() => { if (!document.hidden) load(); }, BARS_POLL_MS);
     return () => {
       canceled = true;
       ctl.abort();
-      clearInterval(bt);
-      clearInterval(qt);
+      clearInterval(t);
+    };
+  }, [symbol, reload]);
+
+  // Quote: the watchlist's when fresh, else fetched here (published for everyone); also ticks the status clock.
+  useEffect(() => {
+    let canceled = false;
+    const poll = () => {
+      if (document.hidden) return;
+      setNow(Date.now());
+      if (cachedQuote(symbol, QUOTE_FRESH_MS)) return;
+      api.quotes([symbol]).then((qs) => { if (!canceled) publishQuotes(qs); }, () => { /* keep the previous quote */ });
+    };
+    poll();
+    const t = setInterval(poll, QUOTE_POLL_MS);
+    const onVis = () => { if (!document.hidden) poll(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      canceled = true;
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
     };
   }, [symbol]);
 
   if (!info || info.id !== symbol) return null;
-  const q = quote?.symbol === symbol ? quote.quote : undefined;
-  const stats = data?.symbol === symbol ? symbolStats(data.bars, q, now) : null;
+  const q = quote?.id === symbol ? quote : undefined;
+  const current = bars?.symbol === symbol ? bars : null;
+  const stats = current?.status === 'ready' ? symbolStats(current.bars, q, now) : null;
   const status = marketStatus(info.assetClass, q, now);
   const p = info.pricePrecision;
-  const dir = !stats ? '' : stats.price > stats.open ? 'up' : stats.price < stats.open ? 'down' : '';
+  // Direction vs the previous close, like the watchlist row's change pill (the open when there is no previous bar).
+  const ref = stats ? stats.prevClose ?? stats.open : 0;
+  const dir = !stats ? '' : stats.price > ref ? 'up' : stats.price < ref ? 'down' : '';
   const title = info.assetClass === 'basket' ? info.name : info.ticker;
   const name = info.assetClass === 'basket' ? 'Basket' : info.name;
 
   return (
-    <section className="symbol-details" aria-label={`${title} details`}>
+    <section className="symbol-details" aria-label={`${title} details`} aria-busy={current === null}>
       <div className="sd-head">
         <span className="sd-ticker">{title}</span>
         {name !== title && <span className="sd-name" title={name}>{name}</span>}
@@ -80,6 +96,13 @@ export function SymbolDetails({ symbol, info }: SymbolDetailsProps): JSX.Element
           <span className={`sd-dot${status === 'open' || status === 'always' ? ' live' : ''}`} aria-hidden="true" />
           {MARKET_STATUS_LABEL[status]}
         </div>
+      )}
+      {current === null && <p className="sd-note">Loading details…</p>}
+      {current?.status === 'error' && (
+        <p className="sd-note">
+          Couldn&apos;t load details.{' '}
+          <button type="button" className="sd-retry" onClick={() => { setBars(null); setReload((r) => r + 1); }}>Retry</button>
+        </p>
       )}
       {stats && (
         <>

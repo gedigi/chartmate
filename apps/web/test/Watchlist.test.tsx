@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api/client';
 import { Watchlist } from '../src/components/Watchlist';
+import { lastQuote } from '../src/state/quoteStore';
 
 const INFO: Record<string, SymbolInfo> = {
   'stock:AAPL': { id: 'stock:AAPL', assetClass: 'stock', ticker: 'AAPL', name: 'Apple Inc.', pricePrecision: 2 },
@@ -53,6 +54,13 @@ describe('Watchlist', () => {
     expect(rows()[1]).toHaveAttribute('aria-current', 'true');
     expect(rows()[0]).not.toHaveAttribute('aria-current');
     await waitFor(() => expect(document.querySelectorAll('polyline')).toHaveLength(2));
+  });
+
+  it('shares the polled quotes with the rest of the page (the detail panel reuses them)', async () => {
+    setup(['stock:AAPL']);
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={vi.fn()} />);
+    await screen.findByText('1,234.50');
+    expect(lastQuote('stock:AAPL')).toMatchObject({ price: 1234.5 });
   });
 
   it('click selects a symbol', async () => {
