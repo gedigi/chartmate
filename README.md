@@ -397,6 +397,165 @@ Error handling:
 By convention only files under `apps/web/src/chart/` import `klinecharts` (there is no lint rule
 enforcing it); custom indicators normally need only the types from `../types`.
 
+## Desktop app
+
+`apps/desktop` packages the same server and web UI as a desktop app (product name **Chartmate**) for macOS and
+Windows, built with Electron 44. The self-hosted server is unchanged; the desktop app embeds it.
+
+### How it works
+
+- **No network listener.** The Fastify app (`buildApp` from `apps/server`) runs inside the Electron main process
+  and never calls `listen()`. Any attempt to listen is refused (`net.Server.prototype.listen` throws). The window
+  loads `app://altv/`, a privileged custom scheme: `/api/*` goes to `fastify.inject` with the same 1 MB body limit;
+  everything else is a read-only static file from the built web UI, with an SPA fallback for HTML navigations.
+  The web client already uses relative `/api/...` URLs, so the same bundle works in the browser and on desktop.
+- **SQLite without a native module.** The desktop build uses Node's built-in `node:sqlite` (Node 24.21 inside
+  Electron 44, no flag needed) through a small adapter for Kysely's own `SqliteDialect`
+  (`apps/desktop/src/lib/nodeSqlite.ts`). better-sqlite3 and pg are never bundled (the bundle script fails if
+  they are). The server's DB-backed test suites also run against this dialect (`apps/desktop` `pnpm test`).
+- **One file.** esbuild bundles the desktop main process and the whole server into a single minified
+  `dist/main.cjs` (~2 MB). The package holds only that file, the web build and the icon, in an asar archive with
+  maximum compression and English locales only. It has no `node_modules`.
+
+### Build and run
+
+```sh
+pnpm install
+pnpm --filter @altv/desktop start      # build the web UI, bundle, run unpackaged (DevTools enabled)
+pnpm --filter @altv/desktop dist:mac   # release/Chartmate-<v>-mac-{arm64,x64}.{dmg,zip}
+pnpm --filter @altv/desktop dist:win   # release/Chartmate-<v>-win-{x64,arm64}.exe (NSIS); needs Windows or CI
+pnpm --filter @altv/desktop test       # unit + security tests (protocol, allowlist, hardening, fuses, config)
+```
+
+Building the NSIS installer on Apple-silicon Macs fails unless Rosetta is installed, because electron-builder's
+`makensis` is an x86_64 binary. Build Windows installers in CI. `.github/workflows/desktop.yml` builds macOS and
+Windows on tag `v*` (as a draft GitHub Release) or on manual dispatch, then smoke-tests the packaged apps.
+
+Smoke tests (Playwright) run against a real window:
+
+```sh
+pnpm --filter @altv/desktop bundle && pnpm --filter @altv/desktop smoke          # unpackaged app
+SMOKE_APP=$PWD/apps/desktop/release/mac-arm64/Chartmate.app \
+SMOKE_HARDENED_APP=$PWD/apps/desktop/release/mac-arm64/Chartmate.app \
+  pnpm --filter @altv/desktop smoke                                              # packaged app
+SMOKE_LIVE=1 pnpm --filter @altv/desktop smoke                                   # + live providers (internet)
+```
+
+Playwright's `_electron.launch` needs the Node inspector, which the packaged build disables (fuse). So the
+packaged run starts the unmodified app with Chromium's `--remote-debugging-port=0` and drives the page over CDP.
+`packaged-hardening.spec.ts` checks the following on the shipped binary:
+
+- it opens no listening socket;
+- it ignores `ELECTRON_RUN_AS_NODE`, `NODE_OPTIONS` and `--inspect`;
+- it refuses to start once `app.asar` has been tampered with.
+
+### Data location
+
+| OS | Directory |
+|---|---|
+| macOS | `~/Library/Application Support/Chartmate/` |
+| Windows | `%APPDATA%\Chartmate\` |
+
+The directory holds:
+
+- `altv.db` (SQLite with WAL), created with mode 0600 inside a 0700 directory;
+- `window-state.json`;
+- `logs/main.log`, which rotates at 1 MB and keeps 2 old files. Only warnings and errors are logged, and credentials
+  and secrets are scrubbed.
+
+`ALTV_USER_DATA_DIR=/abs/path` overrides the directory (used by tests). Migrations run before the window loads.
+
+Environment overrides the desktop app honours:
+
+- `ALTV_PROVIDERS` (`live` (the default) or `fixture`);
+- `CRYPTO_PROVIDER`;
+- `BINANCE_BASE_URL` (https only);
+- `ALTV_DISABLE_UPDATES=1`.
+
+Everything that concerns the network surface or storage is fixed.
+
+### Security model
+
+The renderer is treated as untrusted web content, and the main process exposes nothing to it except `app://altv`.
+
+- **Auth is disabled** on desktop. No port is listening, and the only client is the app's own sandboxed
+  renderer. A password would only put a login screen in front of a single-user local app.
+- **Window settings** (`src/lib/hardening.ts`, pinned by a snapshot test):
+  - `sandbox`, `contextIsolation` and `webSecurity` are on;
+  - Node is off everywhere, including workers and subframes;
+  - there is no preload script and no `webview`;
+  - spellcheck and experimental features are off;
+  - DevTools are available only in unpackaged runs. In a packaged build, DevTools are also closed if they ever
+    open, and the menu has no DevTools item.
+- **Sandboxing**: `app.enableSandbox()` is called before ready, and only a single instance can run.
+- **CSP**: every `app://` response sets it as a header, with no `'unsafe-inline'` anywhere:
+  `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`.
+  React `style` props and KLineChart set styles through the CSSOM, which CSP does not restrict. The pre-paint theme
+  script is the external `/theme-init.js`. Responses also carry `nosniff`, `X-Frame-Options: DENY`,
+  `no-referrer`, COOP/CORP `same-origin` and a deny-all `Permissions-Policy`.
+- **Navigation**: `will-navigate`, `will-frame-navigate` and `will-redirect` are cancelled unless the target is
+  `app://altv`. Every `window.open` is denied, and webviews cannot attach. These rules are applied to every
+  `WebContents` through `web-contents-created`.
+- **Permissions and devices** (`setPermissionRequestHandler`, `setPermissionCheckHandler`,
+  `setDevicePermissionHandler`, display capture, HID/serial/USB pickers): all denied. Downloads are blocked.
+- **Renderer network**: `webRequest.onBeforeRequest` cancels every request that is not `app://altv`. `devtools:`
+  is also allowed in development.
+- **Main-process network**: `globalThis.fetch` is wrapped by an allowlist. It allows HTTPS only, exact hosts and
+  the default port, and it follows redirects itself so that every hop is checked. The allowed hosts are:
+  - `query1/query2.finance.yahoo.com` and `finance.yahoo.com`, found by observing live traffic;
+  - `guce.yahoo.com` and `consent.yahoo.com`, for the EU consent flow (from the yahoo-finance2 source);
+  - the configured Binance host, or `api.exchange.coinbase.com`.
+
+  Fixture mode allows nothing.
+- **Fuses** (flipped in the `afterPack` hook with `@electron/fuses`):
+  - RunAsNode: off;
+  - EnableCookieEncryption: on;
+  - EnableNodeOptionsEnvironmentVariable: off;
+  - EnableNodeCliInspectArguments: off;
+  - EnableEmbeddedAsarIntegrityValidation: on;
+  - OnlyLoadAppFromAsar: on;
+  - LoadBrowserProcessSpecificV8Snapshot: off;
+  - GrantFileProtocolExtraPrivileges: off.
+- **Unused features**: the app never uses `remote`, `file://` or `shell.openExternal`.
+- **Residual risk**: Chromium's `--remote-debugging-port` switch is not covered by any fuse. Someone who can
+  already launch programs as the user can still attach a debugger locally.
+
+### Signing, notarization, updates
+
+Signing is configured only through environment variables or CI secrets. Without them, the build is unsigned and
+still succeeds.
+
+- **macOS**:
+  - Signing: set `CSC_LINK` (a base64 `.p12`) and `CSC_KEY_PASSWORD`.
+  - Notarization: also set `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`.
+  - The hardened runtime is on. The only entitlement is `com.apple.security.cs.allow-jit`, which V8 needs. Because
+    there are no native modules, there is no `disable-library-validation`.
+- **Windows**: use Azure Trusted Signing (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`,
+  `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT`, `AZURE_TRUSTED_SIGNING_PROFILE`,
+  `AZURE_PUBLISHER_NAME`) or a certificate (`WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`).
+- **Auto-update** (`electron-updater`, GitHub provider) is wired but **off by default**. It only starts when all of
+  these hold:
+  - the build is packaged and signed;
+  - `autoUpdate` is `true` in `product.json`;
+  - a publish provider was configured at build time (`ALTV_PUBLISH=github`, which CI sets for tags). This is what
+    produces `app-update.yml`.
+
+  `ALTV_DISABLE_UPDATES=1` turns it off at runtime. The updater is a separate bundle that is loaded only when
+  enabled. Its session may reach only the GitHub hosts. Signature verification stays at electron-updater's
+  defaults.
+
+### Renaming the product
+
+Edit `apps/desktop/product.json` and nothing else:
+
+- `productName` sets the window title, menu, `.app` and installer names, and the data directory name.
+- `appId` is the bundle id or AppUserModelID.
+- `executableName` names the Windows and Linux executable.
+
+The data directory follows `productName`. To carry users' data over, add the old name to `previousProductNames`.
+On first start the app then moves `altv.db` (and its WAL/SHM files) and `window-state.json` from the old directory.
+It never overwrites existing data.
+
 ## Tests
 
 ```sh
