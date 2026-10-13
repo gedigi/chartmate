@@ -65,7 +65,7 @@ export function IndicatorChips({ layout, setLayout, theme = 'dark' }: IndicatorC
                   const e = catalogEntry(s.name);
                   const color = e && e.lines.length > 0 ? s.lineColors?.[0] ?? defaultLineColor(0, s.name, theme)
                     : e?.bars ? s.barColors?.up ?? resolveAppearance(theme, layout.appearance).upColor : null;
-                  return color ? <span className="indicator-chip-dot" aria-hidden="true" style={{ background: color }} /> : null;
+                  return color ? <span className="indicator-chip-dot" aria-hidden="true" style={{ backgroundColor: color }} /> : null;
                 })()}
                 <span className="indicator-chip-label">{label}</span>
                 <button
