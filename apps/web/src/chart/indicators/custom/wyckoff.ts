@@ -5,7 +5,7 @@
 // License 2.0 (https://mozilla.org/MPL/2.0/).
 // Original Pine Script® source © faytterro.
 
-import type { Chart, IndicatorDrawParams, KLineData } from 'klinecharts';
+import type { CandleType, Chart, IndicatorDrawParams, KLineData } from 'klinecharts';
 import { wyckoff, WYCKOFF_COLORS, type WyckoffBox, type WyckoffSignal } from '../wyckoffCalc';
 import type { CustomIndicator } from '../types';
 
@@ -28,6 +28,50 @@ function fontFamily(chart: Chart): string {
 
 const TRIANGLE_GAP = 3;
 const LABEL_SIZE = 10;
+
+export interface BarRect { x: number; y: number; w: number; h: number; stroke: boolean }
+
+/**
+ * Rectangles of a recoloured bar (Pine's barcolor keeps the bar style), with the same geometry KLineChart's
+ * CandleBarView uses for `type`: solid candle (wick + filled body), hollow candle (wick halves + stroke-only
+ * body; per direction for candle_up_stroke / candle_down_stroke) or OHLC bar (vertical bar + open tick on the
+ * left, close tick on the right). Nothing for 'area'. `px` are the bar's prices in pixels.
+ */
+export function barcolorRects(
+  type: CandleType,
+  x: number,
+  px: { open: number; close: number; high: number; low: number },
+  price: { open: number; close: number },
+  space: { gapBar: number; halfGapBar: number },
+): BarRect[] {
+  const [p0, p1, p2, p3] = [px.open, px.close, px.high, px.low].sort((a, b) => a - b) as [number, number, number, number];
+  const correction = space.gapBar % 2 === 0 ? 1 : 0;
+  const body = { x: x - space.halfGapBar, y: p1, w: space.gapBar + correction, h: Math.max(1, p2 - p1) };
+  const solid = (): BarRect[] => [{ x, y: p0, w: 1, h: p3 - p0, stroke: false }, { ...body, stroke: false }];
+  const hollow = (): BarRect[] => [
+    { x, y: p0, w: 1, h: p1 - p0, stroke: false },
+    { x, y: p2, w: 1, h: p3 - p2, stroke: false },
+    { ...body, stroke: true },
+  ];
+  switch (type) {
+    case 'candle_solid': return solid();
+    case 'candle_stroke': return hollow();
+    case 'candle_up_stroke': return price.close > price.open ? hollow() : solid();
+    case 'candle_down_stroke': return price.open > price.close ? hollow() : solid();
+    case 'ohlc': {
+      let size = Math.min(Math.max(Math.round(space.gapBar * 0.2), 1), 8);
+      if (size > 2 && size % 2 === 1) size--;
+      const half = Math.floor(size / 2);
+      const tickY = (y: number) => (y + size > p3 ? p3 - size : y);
+      return [
+        { x: x - half, y: p0, w: size, h: p3 - p0, stroke: false },
+        { x: x - space.halfGapBar, y: tickY(px.open), w: space.halfGapBar - half, h: size, stroke: false },
+        { x: x + half, y: tickY(px.close), w: space.halfGapBar - half, h: size, stroke: false },
+      ];
+    }
+    default: return [];
+  }
+}
 
 /** Draws a triangle (tip up when `up`) whose base/tip spans [y, y ± h] centred on x. */
 function triangle(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, up: boolean, color: string): void {
@@ -101,21 +145,24 @@ export function drawWyckoff({ ctx, chart, indicator, xAxis, yAxis }: IndicatorDr
     }
   }
 
-  // barcolor: repaint the candle (body + wick) of coloured bars over the chart's own candles.
-  if (styles.candle?.type !== 'area') {
-    for (let i = from; i < to; i++) {
-      const color = result[i]?.barColor;
-      const d = data[i];
-      if (!color || !d) continue;
-      const x = xAxis.convertToPixel(i);
-      const yH = yAxis.convertToPixel(d.high);
-      const yL = yAxis.convertToPixel(d.low);
-      const yO = yAxis.convertToPixel(d.open);
-      const yC = yAxis.convertToPixel(d.close);
-      ctx.fillStyle = color;
-      ctx.fillRect(Math.round(x) - 0.5, yH, 1, Math.max(1, yL - yH));
-      const top = Math.min(yO, yC);
-      ctx.fillRect(Math.round(x - halfGapBar), top, Math.max(1, Math.round(gapBar)), Math.max(1, Math.abs(yC - yO)));
+  // barcolor: repaint the bar in the chart's own bar style (solid / hollow candle, OHLC bar); not on area charts.
+  const candleType = (styles.candle?.type ?? 'candle_solid') as CandleType;
+  for (let i = from; i < to; i++) {
+    const color = result[i]?.barColor;
+    const d = data[i];
+    if (!color || !d) continue;
+    const px = {
+      open: yAxis.convertToPixel(d.open), close: yAxis.convertToPixel(d.close),
+      high: yAxis.convertToPixel(d.high), low: yAxis.convertToPixel(d.low),
+    };
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    for (const r of barcolorRects(candleType, xAxis.convertToPixel(i), px, d, { gapBar, halfGapBar })) {
+      // Same pixel rules as KLineChart's rect figure (1px border inset by 0.5; too small to stroke -> filled).
+      if (r.stroke && r.w > 2 && r.h > 2) ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+      else ctx.fillRect(r.x, r.y, r.w, r.h);
     }
   }
 

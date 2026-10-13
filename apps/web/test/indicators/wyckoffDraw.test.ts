@@ -1,6 +1,6 @@
 // Tests for the port of 'Wyckoff Accumulation Distribution' by faytterro (MPL-2.0, https://mozilla.org/MPL/2.0/).
 import { describe, expect, it, vi } from 'vitest';
-import wyckoffIndicator, { drawWyckoff, wyckoffBarResults, type WyckoffBarResult } from '../../src/chart/indicators/custom/wyckoff';
+import wyckoffIndicator, { barcolorRects, drawWyckoff, wyckoffBarResults, type WyckoffBarResult } from '../../src/chart/indicators/custom/wyckoff';
 import { WYCKOFF_COLORS as C } from '../../src/chart/indicators/wyckoffCalc';
 
 const THEME_TEXT = '#131722';
@@ -20,7 +20,10 @@ function makeCtx() {
   return { ctx, calls };
 }
 
-function run(data: Array<{ open: number; high: number; low: number; close: number }>, result: WyckoffBarResult[], range = { realFrom: 0, realTo: data.length }) {
+function run(
+  data: Array<{ open: number; high: number; low: number; close: number }>, result: WyckoffBarResult[],
+  range = { realFrom: 0, realTo: data.length }, candleType = 'candle_solid',
+) {
   const { ctx, calls } = makeCtx();
   const ret = drawWyckoff({
     ctx: ctx as never,
@@ -28,7 +31,7 @@ function run(data: Array<{ open: number; high: number; low: number; close: numbe
       getDataList: () => data,
       getVisibleRange: () => range,
       getBarSpace: () => ({ bar: 10, halfBar: 5, gapBar: 8, halfGapBar: 4 }),
-      getStyles: () => ({ candle: { type: 'candle_solid', tooltip: { title: { color: THEME_TEXT, family: 'Arial' } } }, indicator: {} }),
+      getStyles: () => ({ candle: { type: candleType, tooltip: { title: { color: THEME_TEXT, family: 'Arial' } } }, indicator: {} }),
     } as never,
     indicator: { result } as never,
     bounding: {} as never,
@@ -84,5 +87,70 @@ describe('drawWyckoff', () => {
     const xs = calls.filter(([n]) => n === 'fillRect').map(([, a]) => a[0] as number);
     expect(Math.min(...xs)).toBeGreaterThanOrEqual(480);
     expect(Math.max(...xs)).toBeLessThanOrEqual(610);
+  });
+});
+
+describe('barcolorRects (recoloured bar keeps the chart bar style, like KLineChart draws it)', () => {
+  // pixels: high 100 (top), open 120, close 140, low 160; gapBar 8 (even → +1 correction), x = 50
+  const up = { open: 10, close: 12 }; // close > open
+  const down = { open: 12, close: 10 };
+  const px = { open: 120, close: 140, high: 100, low: 160 };
+  const space = { gapBar: 8, halfGapBar: 4 };
+  const solid = [
+    { x: 50, y: 100, w: 1, h: 60, stroke: false }, // wick
+    { x: 46, y: 120, w: 9, h: 20, stroke: false }, // body
+  ];
+  const hollow = [
+    { x: 50, y: 100, w: 1, h: 20, stroke: false }, // upper wick
+    { x: 50, y: 140, w: 1, h: 20, stroke: false }, // lower wick
+    { x: 46, y: 120, w: 9, h: 20, stroke: true }, // stroke-only body
+  ];
+
+  it('candle_solid: wick + filled body', () => {
+    expect(barcolorRects('candle_solid', 50, px, up, space)).toEqual(solid);
+  });
+
+  it('candle_stroke: hollow body for every bar', () => {
+    expect(barcolorRects('candle_stroke', 50, px, up, space)).toEqual(hollow);
+    expect(barcolorRects('candle_stroke', 50, px, down, space)).toEqual(hollow);
+  });
+
+  it('candle_up_stroke / candle_down_stroke: hollow only in their direction', () => {
+    expect(barcolorRects('candle_up_stroke', 50, px, up, space)).toEqual(hollow);
+    expect(barcolorRects('candle_up_stroke', 50, px, down, space)).toEqual(solid);
+    expect(barcolorRects('candle_down_stroke', 50, px, down, space)).toEqual(hollow);
+    expect(barcolorRects('candle_down_stroke', 50, px, up, space)).toEqual(solid);
+  });
+
+  it('ohlc: vertical bar with the open tick on the left and the close tick on the right', () => {
+    // size = min(max(round(8·0.2), 1), 8) = 2, half 1
+    expect(barcolorRects('ohlc', 50, px, up, space)).toEqual([
+      { x: 49, y: 100, w: 2, h: 60, stroke: false },
+      { x: 46, y: 120, w: 3, h: 2, stroke: false },
+      { x: 51, y: 140, w: 3, h: 2, stroke: false },
+    ]);
+    // ticks are kept inside the bar at the low end
+    const atLow = barcolorRects('ohlc', 50, { open: 159, close: 100, high: 100, low: 160 }, down, space);
+    expect(atLow[1]).toEqual({ x: 46, y: 158, w: 3, h: 2, stroke: false });
+  });
+
+  it('area: nothing to recolour', () => {
+    expect(barcolorRects('area', 50, px, up, space)).toEqual([]);
+  });
+});
+
+describe('drawWyckoff bar styles', () => {
+  const data = [{ open: 10, high: 12, low: 8, close: 11 }];
+  const result: WyckoffBarResult[] = [{ barColor: C.lime, signals: [], boxes: [] }];
+
+  it('hollow candles get a stroke-only recoloured body', () => {
+    const { calls } = run(data, result, undefined, 'candle_stroke');
+    expect(calls.filter(([n]) => n === 'strokeRect')).toHaveLength(1);
+    expect(calls.filter(([n, a]) => n === 'fillRect' && a[4] === C.lime)).toHaveLength(2); // the two wick halves
+  });
+
+  it('area charts are not recoloured', () => {
+    const { calls } = run(data, result, undefined, 'area');
+    expect(calls.filter(([n, a]) => n === 'fillRect' && a[4] === C.lime)).toHaveLength(0);
   });
 });
