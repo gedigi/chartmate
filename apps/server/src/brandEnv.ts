@@ -12,3 +12,10 @@ export function brandEnv(env: Record<string, string | undefined>, name: string):
   const current = env[ENV_PREFIX + name];
   return current !== undefined ? current : env[LEGACY_ENV_PREFIX + name];
 }
+
+/** Legacy `ALTV_<name>` variables that are set but ignored because `CHARTMATE_<name>` is present (startup warning). */
+export function shadowedLegacyVars(env: Record<string, string | undefined>, names: readonly string[]): string[] {
+  return names
+    .filter((n) => env[ENV_PREFIX + n] !== undefined && env[LEGACY_ENV_PREFIX + n] !== undefined)
+    .map((n) => LEGACY_ENV_PREFIX + n);
+}

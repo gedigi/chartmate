@@ -113,7 +113,7 @@ function fitText(text: string, size: number, max: number): string {
 
 /**
  * The figures of a position: zones, traversed shading (outcome, from the fill bar), entry line, labels. Labels are
- * centerd on the visible part of the box and kept inside the pane; target / stop labels sit outside their edge;
+ * centered on the visible part of the box and kept inside the pane; target / stop labels sit outside their edge;
  * the center and outcome labels move right of the box when it is narrower than them, and the outcome label moves
  * beyond the stop label when the stop zone is too short; labels wider than the pane are truncated.
  */

@@ -73,7 +73,7 @@ export function barcolorRects(
   }
 }
 
-/** Draws a triangle (tip up when `up`) whose base/tip spans [y, y ± h] centerd on x. */
+/** Draws a triangle (tip up when `up`) whose base/tip spans [y, y ± h] centered on x. */
 function triangle(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, up: boolean, color: string): void {
   ctx.fillStyle = color;
   ctx.beginPath();
@@ -105,7 +105,7 @@ export function drawWyckoff({ ctx, chart, indicator, xAxis, yAxis }: IndicatorDr
 
   ctx.save();
 
-  // Boxes (rect + centerd text), in creation order so newer boxes paint over older ones.
+  // Boxes (rect + centered text), in creation order so newer boxes paint over older ones.
   for (const r of result) {
     for (const b of r?.boxes ?? []) {
       const l = Math.min(b.left, b.right);

@@ -12,8 +12,10 @@ export function readStored(name: string): string | null {
     if (current !== null) return current;
     const legacy = localStorage.getItem(LEGACY_STORAGE_PREFIX + name);
     if (legacy === null) return null;
-    localStorage.setItem(STORAGE_PREFIX + name, legacy);
-    localStorage.removeItem(LEGACY_STORAGE_PREFIX + name);
+    try {
+      localStorage.setItem(STORAGE_PREFIX + name, legacy);
+      localStorage.removeItem(LEGACY_STORAGE_PREFIX + name);
+    } catch { /* migration write failed (e.g. quota): still return the saved value */ }
     return legacy;
   } catch {
     return null;

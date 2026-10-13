@@ -100,7 +100,7 @@ describe('positionFigures', () => {
     expect(label(f, 'Waiting').attrs).toMatchObject({ x: 324, align: 'left' });
   });
 
-  it('without room beside the box, the center / outcome labels stay centerd and fully on the pane', () => {
+  it('without room beside the box, the center / outcome labels stay centered and fully on the pane', () => {
     const mid = [{ x: 140, y: 100 }, { x: 140, y: 80 }, { x: 140, y: 120 }, { x: 390, y: 100 }];
     const f = positionFigures({ ...base, coords: mid, paneWidth: 530, outcome: { kind: 'stop', fillTs: T0, ts: T0 + 2 * DAY, price: 98, pnl: -100, pnlPct: -2 } }) as Fig[];
     const o = label(f, 'Stop hit');

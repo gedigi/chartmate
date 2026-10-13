@@ -31,7 +31,7 @@ export const LEGACY_DB_FILE_NAME = 'altv.db';
 const DB_FILE_NAME = 'chartmate.db';
 
 /** App variables read as CHARTMATE_<name>, with the legacy ALTV_<name> as a fallback (see brandEnv.ts). */
-const BRAND_VARS = ['PASSWORD', 'SESSION_SECRET', 'PROVIDERS', 'WEB_DIST', 'TRUST_PROXY'] as const;
+export const BRAND_VARS = ['PASSWORD', 'SESSION_SECRET', 'PROVIDERS', 'WEB_DIST', 'TRUST_PROXY'] as const;
 
 const blankToUndefined = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? undefined : v);
 

@@ -1,6 +1,7 @@
 import { BasketService } from './baskets/service.js';
 import { buildApp } from './app.js';
-import { loadConfig } from './config.js';
+import { shadowedLegacyVars } from './brandEnv.js';
+import { BRAND_VARS, loadConfig } from './config.js';
 import { createDb } from './db/connect.js';
 import { migrate } from './db/migrations.js';
 import { createRepos } from './db/repos.js';
@@ -37,6 +38,9 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
   await app.listen({ host: config.host, port: config.port });
+  for (const legacy of shadowedLegacyVars(process.env, BRAND_VARS)) {
+    app.log.warn(`${legacy} is ignored because ${legacy.replace(/^ALTV_/, 'CHARTMATE_')} is set (even if empty)`);
+  }
   const shownHost = config.host.includes(':') ? `[${config.host}]` : config.host;
   app.log.info(
     `Chartmate listening on http://${shownHost}:${config.port} (${dialect}, providers=${config.providers}, ` +

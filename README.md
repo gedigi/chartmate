@@ -104,7 +104,9 @@ The older `ALTV_*` names (e.g. `ALTV_PASSWORD`) are still accepted when the `CHA
 The project used to be called altv. Upgrading keeps existing installs working without any change:
 
 - **Environment variables**: every `ALTV_<NAME>` is still read when `CHARTMATE_<NAME>` is not set at all. When
-  both are set, `CHARTMATE_<NAME>` wins (even when it is empty), so you can switch at your own pace.
+  both are set, `CHARTMATE_<NAME>` wins (even when it is empty, which for `CHARTMATE_PASSWORD` turns auth off)
+  and the server logs a warning naming the ignored `ALTV_<NAME>`. In Docker the image sets
+  `CHARTMATE_WEB_DIST` itself, so a custom web directory must use the new name.
 - **Database file**: when a `sqlite:` URL names `chartmate.db` (the new default, also in Docker) and that file
   does not exist but an `altv.db` does in the same directory, the server keeps using `altv.db`. Rename the file
   (with the server stopped, together with its `-wal`/`-shm` files) or set `DATABASE_URL` if you want the new
@@ -212,7 +214,7 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
     colors at 20 % opacity, the entry line, and labels `Target: <price> (<±%>) <±amount>`,
     `Stop: <price> (<±%>) <±amount>` and `<Long|Short> · Qty <q> · R:R <ratio>` (% and amounts are the
     position's gain / loss at that level; label text is white or dark, whichever reads on its color). Labels
-    are centerd on the visible part of the box and stay inside the chart (a box wider than the screen still shows
+    are centered on the visible part of the box and stay inside the chart (a box wider than the screen still shows
     them); the center / outcome labels move to the right of a box narrower than them, the outcome label moves
     beyond the stop label when the stop zone is too short, and labels wider than the chart are cut with "…".
   - **Editing**: drag the target handle (top/bottom left corner) or the stop handle to change only that price

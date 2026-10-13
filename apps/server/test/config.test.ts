@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, it, expect } from 'vitest';
 import { loadConfig, resolveLegacySqliteUrl } from '../src/config.js';
-import { brandEnv } from '../src/brandEnv.js';
+import { brandEnv, shadowedLegacyVars } from '../src/brandEnv.js';
 
 describe('loadConfig', () => {
   it('applies defaults', () => {
@@ -82,5 +82,12 @@ describe('loadConfig', () => {
     // Other names and Postgres are never rewritten.
     expect(resolveLegacySqliteUrl('sqlite:/data/mine.db', files('/data/altv.db'))).toBe('sqlite:/data/mine.db');
     expect(resolveLegacySqliteUrl('postgres://h/chartmate.db', () => true)).toBe('postgres://h/chartmate.db');
+  });
+});
+
+describe('shadowedLegacyVars', () => {
+  it('lists ALTV_ vars overridden by a present CHARTMATE_ var, even an empty one', () => {
+    const env = { CHARTMATE_PASSWORD: '', ALTV_PASSWORD: 'x', ALTV_PROVIDERS: 'live', CHARTMATE_WEB_DIST: '/w' };
+    expect(shadowedLegacyVars(env, ['PASSWORD', 'PROVIDERS', 'WEB_DIST'])).toEqual(['ALTV_PASSWORD']);
   });
 });

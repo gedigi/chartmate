@@ -60,3 +60,16 @@ describe('localStorage keys (chartmate.*, migrating legacy altv.*)', () => {
     expect(() => migrateLegacyStorage()).not.toThrow();
   });
 });
+
+describe('readStored when the migration write fails', () => {
+  it('still returns the legacy value', () => {
+    localStorage.clear();
+    localStorage.setItem('altv.watchlist.initialized', '1');
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+    try {
+      expect(readStored('watchlist.initialized')).toBe('1');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

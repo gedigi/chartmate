@@ -7,8 +7,10 @@
     if (theme === null) {
       theme = localStorage.getItem('altv.theme');
       if (theme !== null) {
-        localStorage.setItem('chartmate.theme', theme);
-        localStorage.removeItem('altv.theme');
+        try {
+          localStorage.setItem('chartmate.theme', theme);
+          localStorage.removeItem('altv.theme');
+        } catch (e) { /* migration write failed: still apply the saved theme */ }
       }
     }
     document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
