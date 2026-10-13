@@ -331,7 +331,7 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
               onKeyDown={(e) => onHeaderKeyDown(e, s, row)}
             >
               <span className="wl-chevron" aria-hidden="true">{s.collapsed ? '▸' : '▾'}</span>
-              <span className="wl-section-title" title="Double-click to rename" onDoubleClick={() => startRename(s)}>{s.title}</span>
+              <span className="wl-section-title" onDoubleClick={() => startRename(s)}>{s.title}</span>
               {s.collapsed && <span className="wl-section-count">{row.count}<span className="sr-only"> symbols</span></span>}
             </button>
           )}
@@ -445,7 +445,7 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
         {rows.map((row, pos) => (row.entry.type === 'section' ? renderSection(row, row.entry) : renderSymbol(row, row.entry.id, pos)))}
       </ul>
       <p id={hintId} className="sr-only">Enter opens the chart, Delete removes, Alt+Arrow keys reorder.</p>
-      <p id={sectionHintId} className="sr-only">Enter collapses or expands, F2 renames, Alt+Arrow keys move the section header.</p>
+      <p id={sectionHintId} className="sr-only">Enter collapses or expands, F2 or double-click renames, Alt+Arrow keys move the section header.</p>
       {loaded && entries.length === 0 && <div className="watchlist-empty">No symbols. Search above to add one.</div>}
     </section>
   );
