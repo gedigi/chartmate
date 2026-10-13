@@ -1,6 +1,7 @@
 import type { SymbolId, SymbolInfo } from '@chartmate/shared';
 import { useEffect, useId, useRef, useState, type JSX, type KeyboardEvent } from 'react';
 import { api, errorMessage } from '../api/client';
+import { exchangeName } from '../exchanges';
 import { hasCommandModifier, isApplePlatform, isInPopup, isModalOpen } from '../keyboard';
 
 const DEBOUNCE_MS = 200;
@@ -33,6 +34,13 @@ const IDLE: State = { items: null, forQuery: '', loading: false, error: null };
 
 /** Debounced symbol search combobox (stocks, crypto and baskets). */
 const ASSET_LABEL = { stock: 'Stock', crypto: 'Crypto', basket: 'Basket' } as const;
+
+/** "Apple Inc. · Nasdaq": the name (none when it repeats the ticker, e.g. a basket) and a known exchange's name. */
+function searchName(item: SymbolInfo): string {
+  const name = item.name === item.ticker ? '' : item.name;
+  const exchange = exchangeName(item.exchange);
+  return exchange && name ? `${name} · ${exchange}` : name;
+}
 
 export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filter, ariaLabel = 'Search symbol', disabled, shortcut }: SymbolSearchProps): JSX.Element {
   const [query, setQuery] = useState('');
@@ -171,7 +179,7 @@ export function SymbolSearch({ onSelect, placeholder = 'Search symbol…', filte
                   onClick={() => choose(item)}
                 >
                   <span className="search-ticker">{item.ticker}</span>
-                  <span className="search-name">{item.name === item.ticker ? '' : item.exchange && item.assetClass === 'stock' ? `${item.name} · ${item.exchange}` : item.name}</span>
+                  <span className="search-name">{searchName(item)}</span>
                   <span className={`badge badge-${item.assetClass}`}>{ASSET_LABEL[item.assetClass]}</span>
                 </li>
               ))}

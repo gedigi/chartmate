@@ -23,7 +23,8 @@ describe('SymbolSearch', () => {
     expect(search.mock.calls[0]![0]).toBe('aapl');
     expect(options).toHaveLength(3);
     expect(options[0]).toHaveTextContent('AAPL');
-    expect(options[0]).toHaveTextContent('Apple Inc.');
+    expect(options[0]).toHaveTextContent('Apple Inc. · Nasdaq'); // Yahoo's NMS, humanized
+    expect(options[0]).not.toHaveTextContent('NMS');
     expect(options[0]).toHaveTextContent('Stock');
     expect(options[1]).toHaveTextContent('Crypto');
     expect(options[2]).toHaveTextContent('Basket');
@@ -85,6 +86,15 @@ describe('SymbolSearch', () => {
       fireEvent.keyDown(document.body, { key: 'k', ctrlKey: true });
       expect(screen.getByRole('combobox')).not.toHaveFocus();
     });
+  });
+
+  it('unknown exchange codes are omitted, never shown raw', async () => {
+    vi.spyOn(api, 'search').mockResolvedValue([{ ...RESULTS[0]!, exchange: 'FIXTURE' }]);
+    render(<SymbolSearch onSelect={() => {}} />);
+    await userEvent.type(screen.getByRole('combobox'), 'aapl');
+    const [option] = await screen.findAllByRole('option');
+    expect(option).toHaveTextContent('Apple Inc.');
+    expect(option).not.toHaveTextContent('FIXTURE');
   });
 
   it('ArrowDown + Enter selects the highlighted result', async () => {
