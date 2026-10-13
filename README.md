@@ -6,15 +6,19 @@ Free data sources only (Yahoo Finance for stocks, Binance or Coinbase for crypto
 SQLite or Postgres.
 
 Monorepo (pnpm): `packages/shared` (types, resampling, basket math), `apps/server` (Fastify API),
-`apps/web` (React + KLineChart).
+`apps/web` (React + KLineChart), `apps/desktop` (Electron app, see [Desktop app](#desktop-app)) and `e2e`
+(Playwright). Contributors and coding agents: see [AGENTS.md](AGENTS.md).
 
 ## Quick start (development)
 
 Requires Node >= 22 and pnpm 8.
 
 ```sh
-pnpm i && pnpm dev
+pnpm install --ignore-scripts && pnpm dev
 ```
+
+No dependency install script is needed (CI installs the same way), except Electron's binary download for
+running the desktop app unpackaged: `node apps/desktop/node_modules/electron/install.js`.
 
 This starts the API server (`tsx watch`, port 8787) and the Vite dev server in parallel. Open
 http://localhost:5173 (Vite's default port); Vite proxies `/api/*` to `http://localhost:8787`
@@ -143,31 +147,38 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
 - **Drawings** are saved per symbol on the server (debounced ~1 s after each change). Points are stored in
   time/price coordinates (bar timestamp + price), not pixels, so they stay anchored to the same price and
   time across timeframes, zoom levels and window sizes.
-- **Chart appearance** (gear icon in the top bar): candle up/down colors, body style (filled, hollow,
-  hollow up, hollow down; OHLC bars use the colors only), line/area color and width, and the default
-  style (color, width, solid/dashed/dotted) of new drawings. It is global (stored in the `default` layout, not
-  per symbol) and applies live. Appearance is **per theme**: the dialog edits the active theme ("Dark
-  theme" / "Light theme"), toggling the theme switches to the other theme's settings, and "Reset to
+- **Chart appearance** ("Chart appearance" button in the top bar): candle up/down colors, body style (filled,
+  hollow, hollow up, hollow down; OHLC bars use the colors only), **last price line** (neutral, the default:
+  white on dark, near-black on light; or the candle up/down color), line/area color and width, and the
+  default style (color, width, solid/dashed/dotted) of new drawings. It is global (stored in the `default`
+  layout, not per symbol) and applies live. Appearance is **per theme**: the dialog edits the active theme
+  ("Dark theme" / "Light theme"), toggling the theme switches to the other theme's settings, and "Reset to
   defaults" resets only the active theme. A color that barely shows on the theme background (contrast
-  ratio below 1.5) gets an inline "Low contrast" warning. Layouts saved before appearance was per theme
-  (one flat appearance) still load: their settings become the dark theme's.
-- **Default candle colors** follow the theme's `--up` / `--down` CSS tokens (dark `#26a69a` / `#ef5350`,
-  light `#089981` / `#f23645`), so candles and the watchlist agree. Histogram indicators (VOL, MACD, AO)
-  default to the same up / down colors.
-- **Readable labels**: the last-price label, text annotations and crosshair labels keep white text while it
-  reaches about 3:1 (2.99, so the default teal keeps white text) contrast with the label color; otherwise
-  they use white or near-black, whichever contrasts more. KLineChart draws the last-price text in one color
-  for up, down and unchanged labels, so the rule uses the worst case over the three colors. Start/version
-  marker labels keep their muted color on the chart background under the same rule.
+  ratio below 1.5) gets an inline "Low contrast on the … background" warning. Layouts saved before
+  appearance was per theme (one flat appearance) still load: their settings become the dark theme's.
+- **Default market colors**: one up and one down color per theme (the `--up` / `--down` CSS tokens; dark
+  `#00d68f` / `#ff3b5c`, light `#00a870` / `#d4113b`), used by candles, volume, MACD and AO bars, positions,
+  the watchlist, baskets and sparklines. Rising MACD / AO bars use an opaque soft tone of the same hue.
+  Stored colors equal to the defaults of earlier versions are reset once, so they follow the current
+  defaults; colors you picked yourself are kept.
+- **Readable labels**: labels drawn on a color (crosshair, text annotations, the last price label in candle
+  color mode) keep white text while it reaches about 3:1 contrast with the label color, otherwise they use
+  white or near-black, whichever contrasts more. KLineChart draws the last price text in one color for up,
+  down and unchanged labels, so in candle color mode the rule uses the worst case over the three colors.
+  Start/version marker labels keep their muted color on the chart background under the same rule.
 - **Indicator settings** also set each line's width (1–4 px) and solid/dashed/dotted style, and the up/down bar
   colors of histogram indicators (VOL, MACD, AO); unchanged bar colors follow the theme.
-- **Oscillator reference levels**: oscillator panes draw thin dashed lines in the theme's muted color behind
+- **Oscillator reference levels**: oscillator panes draw thin dashed lines in the theme's muted level color behind
   the indicator lines, TradingView-style: MACD, AO, ROC, MTM and TRIX at 0; RSI at 70 / 30; KDJ at 80 / 20;
   CCI at ±100; WR at -20 / -80 (KLineChart's WR runs from -100 to 0); DMI at 25 (ADX trend threshold). Like a
   TradingView `hline`, the levels are part of the pane's auto-range, so RSI always shows its 30–70 band and
   MACD its zero line even when the values stay on one side. The settings dialog's **Levels** section hides
   them or edits the values (up to 5, separated by commas; empty = none); Reset restores the defaults. They
   are saved with the layout only when changed (older layouts use the defaults).
+- **Drawing tools** (toolbar on the left of the chart): trend line, ray, extended line, horizontal line,
+  vertical line, price line, parallel channel, Fibonacci retracement, text, long position and short
+  position; plus magnet, lock all, delete selected (**Delete** / **Backspace**) and clear all. **Escape**
+  cancels the active tool and deselects the drawing.
 - **Drawing styles**: selecting a drawing shows a small style bar at the top of the chart (color, width,
   solid/dashed/dotted; text annotations: color and font size). Styles are saved with the drawing; drawings
   without their own style follow the default drawing style. Legacy drawings with non-hex colors (or other
@@ -197,9 +208,9 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
     ⌘/Ctrl snaps it to OHLC). Target and stop start at the default distances, ±2 % unless changed with "Use as
     default" (long: target above, stop below; short inverted), and
     the box is about 20 bars wide (counted on the loaded bars, extrapolated with the timeframe past the last bar).
-  - **Chart**: a green profit zone (entry → target) and a red loss zone (entry → stop) in the candle up / down
-    colors at 20 % opacity, the entry line, and labels `Target: <price> (<±%>)`, `Stop: <price> (<±%>)` and
-    `<Long|Short> · R:R <ratio>` (the % is the position's gain / loss at that level, in % of the entry; label
+  - **Chart**: a profit zone (entry → target) and a loss zone (entry → stop) as translucent tints of the
+    candle up / down colors (hue-locked where the background allows it, else 20 % opacity), the entry line,
+    and labels `Target: <price> (<±%>)`, `Stop: <price> (<±%>)` and `<Long|Short> · R:R <ratio>` (the % is the position's gain / loss at that level, in % of the entry; label
     text is white or dark, whichever reads on its color). Labels
     are centered on the visible part of the box and stay inside the chart (a box wider than the screen still shows
     them); the center / outcome labels move to the right of a box narrower than them, the outcome label moves
@@ -330,6 +341,28 @@ A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
 - A version holds at most 50 constituents, and its effective date must lie between 1970-01-01 and
   tomorrow (UTC).
 
+## HTTP API
+
+JSON over `/api` (the web client uses nothing else). With `CHARTMATE_PASSWORD` set, every route except
+`/api/health`, `/api/session`, `/api/login` and `/api/logout` needs the session cookie (else 401).
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/health` | Liveness (`{ ok: true }`), used by the Docker healthcheck. |
+| `GET /api/session`, `POST /api/login`, `POST /api/logout` | Auth state, login (`{ password }`), logout. |
+| `GET /api/symbols/search?q=` | Symbol search (stocks, crypto and your baskets). |
+| `GET /api/symbols/:id` | Symbol info (name, exchange, price precision). |
+| `GET /api/bars?symbol=&tf=&session=rth\|eth&from=&to=` | Bars in a range (ms timestamps), with `stale`, notices and markers. |
+| `GET /api/latest?symbol=&tf=&session=` | The latest bar. |
+| `GET /api/quotes?symbols=` / `GET /api/sparklines?symbols=` | Watchlist quotes / sparklines (comma-separated ids, at most 50). |
+| `GET`, `POST /api/baskets`; `GET`, `PUT`, `DELETE /api/baskets/:id`; `POST /api/baskets/:id/versions` | Baskets and their versions. |
+| `GET`, `PUT /api/watchlist` | The watchlist (see [Watchlist and sections](#watchlist-and-sections)). |
+| `GET`, `PUT /api/layouts/:key` | Chart layout; `default` is the one the app uses. |
+| `GET`, `PUT /api/drawings/:symbol` | Drawings of a symbol. |
+
+Symbol ids are `stock:<TICKER>`, `crypto:<BASE>` or `basket:<uuid>`; timeframes are `1m 5m 15m 30m 1h 2h 4h 1D
+1W 1M`.
+
 ## Troubleshooting
 
 **Missing days in daily/weekly/monthly history (caches created before this fix).** Earlier builds could
@@ -361,19 +394,28 @@ Every file in `apps/web/src/chart/indicators/custom/*.ts` is a custom indicator.
 `apps/web/src/chart/indicators/types.ts`):
 
 - `template`: a KLineChart indicator template (what you would pass to `registerIndicator`).
-- `catalog`: how it appears in the indicator picker and settings dialog (label, pane, default params and
-  their labels, one name per line). `catalog.name` must equal `template.name`.
+- `catalog`: how it appears in the indicator picker and settings dialog. `catalog.name` must equal
+  `template.name`; a custom indicator with a built-in's name replaces that built-in.
 - `usePricePrecision` (optional): format values with the charted symbol's price precision.
+
+`catalog` fields:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `name`, `label` | yes | Template name; name shown in the picker. |
+| `pane` | yes | `'main'` (overlay on the candles) or `'sub'` (own pane). |
+| `defaultParams`, `paramLabels` | yes | Default params and one label per param. |
+| `lines` | yes | One name per line figure, in figure order (color, width and style inputs). |
+| `lineSlots` | no | Palette slot of each line (index-aligned with `lines`); default: line i uses slot i. The palette has 6 slots per theme. |
+| `bars` | no | Histogram with editable up/down colors; inferred when the template has a `bar` figure. |
+| `decimalParams` | no | Indices of params that accept decimals (> 0); the others are integers. |
+| `paramMin`, `paramMax` | no | Per-param range of integer params (default 1…1000). |
+| `levels` | no | Default reference levels, at most 5 (dashed lines, editable in the settings dialog); sub-pane indicators only. A template's own `draw` callback still runs after the levels. |
+| `description` | no | Longer explanation (picker and chip tooltip). |
 
 The files are picked up at build time with `import.meta.glob` (eager), registered with KLineChart, and
 listed in the picker; no other file needs editing. `custom/vwap.ts` and `custom/atr.ts` are the built-in
 examples. Restart `pnpm dev` (or rebuild) after adding a file.
-
-`catalog.paramMin` / `catalog.paramMax` (optional, one entry per param) set the accepted range of integer
-params in the settings dialog (default 1…1000).
-
-`catalog.levels` (optional, up to 5 numbers) gives a sub-pane indicator default reference levels (dashed
-lines, editable in the settings dialog). A template's own `draw` callback still runs after the levels.
 
 `custom/wyckoff.ts` (with its calculation in `wyckoffCalc.ts`) is a port of the TradingView script
 'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colors in a `draw`
@@ -449,12 +491,18 @@ Windows, built with Electron 44. The self-hosted server is unchanged; the deskto
 - **One file.** esbuild bundles the desktop main process and the whole server into a single minified
   `dist/main.cjs` (~2 MB). The package holds only that file, the web build and the icon, in an asar archive with
   maximum compression and English locales only. It has no `node_modules`.
+- **Frameless window.** The web top bar is the title bar. On macOS the native traffic lights sit on it; on
+  Windows the native caption buttons (minimize, maximize, close, snap layouts) are drawn over its right end in
+  the top bar's colors, following the theme through the page's `<meta name="theme-color">` (no IPC). Linux
+  keeps the native frame.
 
 ### Build and run
 
 ```sh
-pnpm install
+pnpm install --ignore-scripts
+node apps/desktop/node_modules/electron/install.js   # Electron binary (skipped by --ignore-scripts); once
 pnpm --filter @chartmate/desktop start      # build the web UI, bundle, run unpackaged (DevTools enabled)
+pnpm --filter @chartmate/desktop pack:dir   # unpacked app only, e.g. release/mac-arm64/Chartmate.app
 pnpm --filter @chartmate/desktop dist:mac   # release/Chartmate-<v>-mac-{arm64,x64}.{dmg,zip}
 pnpm --filter @chartmate/desktop dist:win   # release/Chartmate-<v>-win-{x64,arm64}.{exe,zip}; needs Windows or CI
 pnpm --filter @chartmate/desktop test       # unit + security tests (protocol, guards, allowlist, fuses, workflows …)
@@ -477,6 +525,9 @@ SMOKE_EXPECT_UNSIGNED=1 \
 SMOKE_ALLOW_REAL_USERDATA=1 pnpm smoke     # see below; EXPECT_UNSIGNED: 1 = unsigned build, 0 = signed
 SMOKE_LIVE=1 pnpm smoke                                                       # + live providers (internet)
 ```
+
+`app.spec.ts` uses the fixture providers unless `SMOKE_PROVIDERS=live`. The packaged example needs a packaged
+app first (`pack:dir` or `dist:mac`).
 
 A packaged build refuses to start with a debugging or weakening switch (see "Security model"), so no
 test harness can attach to it. `smoke/prepare-inspectable.mjs` therefore builds a separate copy for the
@@ -510,7 +561,8 @@ locally with `SMOKE_ALLOW_REAL_USERDATA=1`.
 
 ### CI and releases
 
-`.github/workflows/ci.yml` runs typecheck, tests, e2e and the Docker build on pull requests.
+`.github/workflows/ci.yml` runs typecheck, tests, the web build, e2e and the Docker build on pull requests and
+on pushes to `main`.
 `.github/workflows/desktop.yml` runs on tags `v*` and on manual dispatch:
 
 - **Permissions**: the workflows default to a read-only token, and every action is pinned to a commit SHA.
@@ -695,9 +747,10 @@ It never overwrites existing data.
 ## Tests
 
 ```sh
-pnpm test        # unit + route tests, no network
+pnpm test        # unit + route tests of every package (incl. desktop), no network
 pnpm typecheck   # all packages + the e2e suite
 pnpm e2e         # Playwright end-to-end test (Chromium)
+pnpm --filter @chartmate/web test   # one package: shared, server, web or desktop
 ```
 
 `pnpm e2e` builds everything, starts the built server on port 8799 in fixture mode (`CHARTMATE_PROVIDERS=fixture`,
