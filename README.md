@@ -405,9 +405,15 @@ Windows, built with Electron 44. The self-hosted server is unchanged; the deskto
 ### How it works
 
 - **No network listener.** The Fastify app (`buildApp` from `apps/server`) runs inside the Electron main process
-  and never calls `listen()`. Any attempt to listen is refused (`net.Server.prototype.listen` throws). The window
-  loads `app://altv/`, a privileged custom scheme: `/api/*` goes to `fastify.inject` with the same 1 MB body limit;
-  everything else is a read-only static file from the built web UI, with an SPA fallback for HTML navigations.
+  and never calls `listen()`. `net.Server.prototype.listen` is guarded (`src/lib/listenGuard.ts`) and throws for
+  every call. The one exception is narrow and audited: during an auto-update install on macOS (signed builds
+  only), electron-updater must hand the downloaded zip to Squirrel.Mac over a short-lived HTTP server. For that
+  case only, the updater arms the guard for one listener, which must be on `127.0.0.1`/`::1` with an ephemeral port.
+  Every allowed or refused listener is written to the log.
+- **The app:// scheme.** The window loads `app://altv/`, a privileged custom scheme:
+  - `/api/*` goes to `fastify.inject`, with the same 1 MB body limit as the server;
+  - everything else is a read-only static file from the built web UI, with an SPA fallback for HTML navigations.
+
   The web client already uses relative `/api/...` URLs, so the same bundle works in the browser and on desktop.
 - **SQLite without a native module.** The desktop build uses Node's built-in `node:sqlite` (Node 24.21 inside
   Electron 44, no flag needed) through a small adapter for Kysely's own `SqliteDialect`
@@ -423,31 +429,64 @@ Windows, built with Electron 44. The self-hosted server is unchanged; the deskto
 pnpm install
 pnpm --filter @altv/desktop start      # build the web UI, bundle, run unpackaged (DevTools enabled)
 pnpm --filter @altv/desktop dist:mac   # release/Chartmate-<v>-mac-{arm64,x64}.{dmg,zip}
-pnpm --filter @altv/desktop dist:win   # release/Chartmate-<v>-win-{x64,arm64}.exe (NSIS); needs Windows or CI
-pnpm --filter @altv/desktop test       # unit + security tests (protocol, allowlist, hardening, fuses, config)
+pnpm --filter @altv/desktop dist:win   # release/Chartmate-<v>-win-{x64,arm64}.{exe,zip}; needs Windows or CI
+pnpm --filter @altv/desktop test       # unit + security tests (protocol, guards, allowlist, fuses, workflows …)
 ```
 
 Building the NSIS installer on Apple-silicon Macs fails unless Rosetta is installed, because electron-builder's
-`makensis` is an x86_64 binary. Build Windows installers in CI. `.github/workflows/desktop.yml` builds macOS and
-Windows on tag `v*` (as a draft GitHub Release) or on manual dispatch, then smoke-tests the packaged apps.
+`makensis` is an x86_64 binary. Build Windows installers in CI.
 
-Smoke tests (Playwright) run against a real window:
+### Smoke tests
 
 ```sh
-pnpm --filter @altv/desktop bundle && pnpm --filter @altv/desktop smoke          # unpackaged app
-SMOKE_APP=$PWD/apps/desktop/release/mac-arm64/Chartmate.app \
-SMOKE_HARDENED_APP=$PWD/apps/desktop/release/mac-arm64/Chartmate.app \
-  pnpm --filter @altv/desktop smoke                                              # packaged app
-SMOKE_LIVE=1 pnpm --filter @altv/desktop smoke                                   # + live providers (internet)
+pnpm --filter @altv/desktop bundle && pnpm --filter @altv/desktop smoke     # unpackaged app
+
+# packaged app: the shipped build + a TEST-ONLY inspectable copy of it
+cd apps/desktop
+node smoke/prepare-inspectable.mjs release/mac-arm64/Chartmate.app release/test-only
+SMOKE_APP="$PWD/release/test-only/Chartmate TEST-ONLY.app" \
+SMOKE_HARDENED_APP="$PWD/release/mac-arm64/Chartmate.app" pnpm smoke
+SMOKE_LIVE=1 pnpm smoke                                                       # + live providers (internet)
 ```
 
-Playwright's `_electron.launch` needs the Node inspector, which the packaged build disables (fuse). So the
-packaged run starts the unmodified app with Chromium's `--remote-debugging-port=0` and drives the page over CDP.
-`packaged-hardening.spec.ts` checks the following on the shipped binary:
+A packaged build exits at once when started with a debugging or weakening switch (see "Security model"), so no
+test harness can attach to it. `smoke/prepare-inspectable.mjs` therefore builds a separate copy for the
+functional tests:
+
+- the copy is named `… TEST-ONLY` and carries a `TEST-ONLY-NOT-FOR-DISTRIBUTION.txt` marker;
+- its only code difference is that the switch guard is compiled out (`bundle.mjs --test-inspectable`);
+- on macOS, asar integrity stays on: the Info.plist hash is updated and the copy is re-signed ad hoc;
+- on Windows, the copy turns asar integrity validation off, because the hash lives in a PE resource.
+
+The functional tests (`app.spec.ts`) drive that copy over CDP. `packaged-hardening.spec.ts` checks the
+**unmodified** artifact:
 
 - it opens no listening socket;
-- it ignores `ELECTRON_RUN_AS_NODE`, `NODE_OPTIONS` and `--inspect`;
-- it refuses to start once `app.asar` has been tampered with.
+- it exits with code 1 on `--remote-debugging-port=0`, `--inspect` and similar switches, with no CDP or debugger
+  endpoint reachable;
+- `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` have no effect;
+- a tampered `app.asar` refuses to start;
+- an unsigned build contains no updater code.
+
+### CI and releases
+
+`.github/workflows/ci.yml` runs typecheck, tests, e2e and the Docker build on pull requests.
+`.github/workflows/desktop.yml` runs on tags `v*` and on manual dispatch:
+
+- **Permissions**: the workflows default to a read-only token, and every action is pinned to a commit SHA.
+- **Installs**: dependencies are installed with `--ignore-scripts`; no install script is needed.
+- **`test` job**: runs without any secrets.
+- **`package-mac` and `package-win` jobs**: build, sign and smoke-test on each OS. Signing secrets are visible only
+  to the packaging step of their own OS.
+- **`release` job** (tags only): the only job with `contents: write`. It creates the GitHub Release for the tag
+  (a pre-release for `v0.x`) and attaches:
+  - the dmg and zip for macOS arm64 and x64;
+  - the NSIS installer and zip for Windows x64 and arm64.
+
+  The release notes say whether each platform's build is signed.
+
+Unsigned releases are allowed (no certificates yet). Expect Gatekeeper and SmartScreen warnings, and install
+updates manually.
 
 ### Data location
 
@@ -460,8 +499,15 @@ The directory holds:
 
 - `altv.db` (SQLite with WAL), created with mode 0600 inside a 0700 directory;
 - `window-state.json`;
-- `logs/main.log`, which rotates at 1 MB and keeps 2 old files. Only warnings and errors are logged, and credentials
-  and secrets are scrubbed.
+- `logs/main.log`, which rotates at 1 MB and keeps 2 old files.
+
+What gets logged:
+
+- **Main process**: lifecycle lines (start, window shown, quit) at INFO, plus warnings (blocked navigations,
+  requests and listeners) and errors.
+- **Embedded server**: warnings and errors only. Error objects are reduced to type, message and code, with no
+  stack, request URLs drop their query strings, and headers are never logged.
+- **Before writing any line**: absolute paths, URL credentials and secret-looking values are scrubbed.
 
 `ALTV_USER_DATA_DIR=/abs/path` overrides the directory (used by tests). Migrations run before the window loads.
 
@@ -472,7 +518,8 @@ Environment overrides the desktop app honours:
 - `BINANCE_BASE_URL` (https only);
 - `ALTV_DISABLE_UPDATES=1`.
 
-Everything that concerns the network surface or storage is fixed.
+At startup the app removes `NODE_USE_ENV_PROXY`, `NODE_USE_SYSTEM_CA` and `NODE_EXTRA_CA_CERTS` from its
+environment. Everything else that concerns the network surface or storage is fixed.
 
 ### Security model
 
@@ -487,21 +534,47 @@ The renderer is treated as untrusted web content, and the main process exposes n
   - spellcheck and experimental features are off;
   - DevTools are available only in unpackaged runs. In a packaged build, DevTools are also closed if they ever
     open, and the menu has no DevTools item.
-- **Sandboxing**: `app.enableSandbox()` is called before ready, and only a single instance can run.
-- **CSP**: every `app://` response sets it as a header, with no `'unsafe-inline'` anywhere:
-  `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`.
-  React `style` props and KLineChart set styles through the CSSOM, which CSP does not restrict. The pre-paint theme
-  script is the external `/theme-init.js`. Responses also carry `nosniff`, `X-Frame-Options: DENY`,
-  `no-referrer`, COOP/CORP `same-origin` and a deny-all `Permissions-Policy`.
+- **Sandboxing and crashes**: `app.enableSandbox()` is called before ready, and only a single instance can run. A
+  crashed renderer is reloaded at most 3 times per minute; after that, a static error page is shown.
+- **Command-line switches** (`src/boot.ts`, the first module evaluated): a packaged build exits with code 1 if any
+  of these switches is present:
+
+  | Group | Switches |
+  |---|---|
+  | Remote debugging | `--remote-debugging-port`, `--remote-debugging-pipe`, `--remote-debugging-address`, `--remote-allow-origins` |
+  | Node inspector and V8 | `--inspect*`, `--js-flags` |
+  | Sandbox and web security | `--no-sandbox`, `--disable-web-security`, `--disable-site-isolation-trials` |
+  | TLS checks | `--ignore-certificate-errors(-spki-list)`, `--allow-insecure-localhost`, `--unsafely-treat-insecure-origin-as-secure` |
+  | Proxy and DNS | `--proxy-server`, `--proxy-pac-url`, `--host-resolver-rules`, `--host-rules` |
+  | Foreign code | `--load-extension`, `--enable-blink-features`, `--renderer-cmd-prefix`, `--utility-cmd-prefix`, `--gpu-launcher`, `--browser-subprocess-path` |
+  | Logging and profile | `--log-net-log`, `--user-data-dir` |
+
+  Chromium switches have no fuse; the fuses below cover the Node equivalents.
+- **CSP**: every `app://` response sets it as a header:
+
+  ```
+  default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self';
+  connect-src 'self'; media-src 'none'; worker-src 'none'; frame-src 'none'; child-src 'none';
+  manifest-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none';
+  require-trusted-types-for 'script'; trusted-types 'none'
+  ```
+
+  There is no `'unsafe-inline'` or `'unsafe-eval'`. React `style` props and KLineChart set styles through the
+  CSSOM, which CSP does not restrict. The pre-paint theme script is the external `/theme-init.js`. Trusted Types are
+  enforced with no policy allowed: the app never writes HTML strings into the DOM, and the smoke test checks that
+  the chart, the baskets view and the search render without a violation. Responses also carry `nosniff`,
+  `X-Frame-Options: DENY`, `no-referrer`, COOP/CORP `same-origin` and a deny-all `Permissions-Policy`.
 - **Navigation**: `will-navigate`, `will-frame-navigate` and `will-redirect` are cancelled unless the target is
   `app://altv`. Every `window.open` is denied, and webviews cannot attach. These rules are applied to every
   `WebContents` through `web-contents-created`.
-- **Permissions and devices** (`setPermissionRequestHandler`, `setPermissionCheckHandler`,
-  `setDevicePermissionHandler`, display capture, HID/serial/USB pickers): all denied. Downloads are blocked.
+- **Permissions and devices** (permission request and check handlers, device permissions, display capture, the
+  HID/serial/USB pickers): all denied, and downloads are blocked. These rules apply to **every** session, including
+  ones created later, through `session-created`.
 - **Renderer network**: `webRequest.onBeforeRequest` cancels every request that is not `app://altv`. `devtools:`
   is also allowed in development.
 - **Main-process network**: `globalThis.fetch` is wrapped by an allowlist. It allows HTTPS only, exact hosts and
-  the default port, and it follows redirects itself so that every hop is checked. The allowed hosts are:
+  the default port, and it follows redirects itself so that every hop is checked. On a redirect to another
+  origin it drops the `Authorization`, `Cookie` and `Proxy-Authorization` headers. The allowed hosts are:
   - `query1/query2.finance.yahoo.com` and `finance.yahoo.com`, found by observing live traffic;
   - `guce.yahoo.com` and `consent.yahoo.com`, for the EU consent flow (from the yahoo-finance2 source);
   - the configured Binance host, or `api.exchange.coinbase.com`.
@@ -517,13 +590,11 @@ The renderer is treated as untrusted web content, and the main process exposes n
   - LoadBrowserProcessSpecificV8Snapshot: off;
   - GrantFileProtocolExtraPrivileges: off.
 - **Unused features**: the app never uses `remote`, `file://` or `shell.openExternal`.
-- **Residual risk**: Chromium's `--remote-debugging-port` switch is not covered by any fuse. Someone who can
-  already launch programs as the user can still attach a debugger locally.
 
 ### Signing, notarization, updates
 
-Signing is configured only through environment variables or CI secrets. Without them, the build is unsigned and
-still succeeds.
+Signing is configured only through environment variables or CI secrets. `build/signing.cjs` decides, per
+platform, whether a build is signed. Without the secrets, the build is unsigned and still succeeds.
 
 - **macOS**:
   - Signing: set `CSC_LINK` (a base64 `.p12`) and `CSC_KEY_PASSWORD`.
@@ -533,16 +604,20 @@ still succeeds.
 - **Windows**: use Azure Trusted Signing (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`,
   `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT`, `AZURE_TRUSTED_SIGNING_PROFILE`,
   `AZURE_PUBLISHER_NAME`) or a certificate (`WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`).
-- **Auto-update** (`electron-updater`, GitHub provider) is wired but **off by default**. It only starts when all of
-  these hold:
-  - the build is packaged and signed;
-  - `autoUpdate` is `true` in `product.json`;
-  - a publish provider was configured at build time (`ALTV_PUBLISH=github`, which CI sets for tags). This is what
-    produces `app-update.yml`.
-
-  `ALTV_DISABLE_UPDATES=1` turns it off at runtime. The updater is a separate bundle that is loaded only when
-  enabled. Its session may reach only the GitHub hosts. Signature verification stays at electron-updater's
-  defaults.
+- **Auto-update** (`electron-updater`, GitHub provider) is **off by default**.
+  - **Unsigned builds**: the updater is compiled out entirely, whatever `product.json` says. There is no
+    `updater.cjs` in the package and no updater code path in `main.cjs`.
+  - **Signed builds**: the updater runs only when all of these hold:
+    - `autoUpdate` is `true` in `product.json`;
+    - the build ships an `app-update.yml`;
+    - `ALTV_DISABLE_UPDATES` is not set to `1`.
+  - **How updates are verified**:
+    - Windows: electron-updater checks the installer's Authenticode signature against the `publisherName` pinned
+      in `app-update.yml`. The app refuses to update if that field is missing.
+    - macOS: Squirrel.Mac checks that the new app's code signature satisfies the running app's designated
+      requirement. This is also the only case that opens a listener (the loopback exception described under
+      "How it works").
+  - **Network**: the updater's own session may reach only the GitHub hosts.
 
 ### Renaming the product
 
