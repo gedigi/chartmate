@@ -27,10 +27,10 @@ describe('frameless window options per platform', () => {
 
   it('Windows: hidden title bar + caption button overlay in the top bar colors of the theme', () => {
     expect(frameOptions('win32', 'dark')).toEqual({
-      titleBarStyle: 'hidden', titleBarOverlay: { color: '#141820', symbolColor: '#e4e7ee', height: TOP_BAR_HEIGHT - 1 },
+      titleBarStyle: 'hidden', titleBarOverlay: { color: '#07090f', symbolColor: '#e9ecf4', height: TOP_BAR_HEIGHT - 1 },
     });
     expect(frameOptions('win32', 'light')).toEqual({
-      titleBarStyle: 'hidden', titleBarOverlay: { color: '#f7f8fa', symbolColor: '#111827', height: TOP_BAR_HEIGHT - 1 },
+      titleBarStyle: 'hidden', titleBarOverlay: { color: '#e7eaf1', symbolColor: '#131726', height: TOP_BAR_HEIGHT - 1 },
     });
     expect(frameOptions('win32', 'dark')).not.toHaveProperty('frame');
   });
@@ -72,9 +72,9 @@ describe('main process wiring (source)', () => {
 
 describe('theme-color → caption overlay theme (strict)', () => {
   it('accepts only the two exact top bar colors', () => {
-    expect(themeFromThemeColor('#141820')).toBe('dark');
-    expect(themeFromThemeColor('#F7F8FA')).toBe('light');
-    for (const bad of [null, undefined, '', 'red', '#141821', '#14182000', '#fff', 'rgb(20,24,32)', ' #141820', 42, {}]) {
+    expect(themeFromThemeColor('#07090f')).toBe('dark');
+    expect(themeFromThemeColor('#E7EAF1')).toBe('light');
+    for (const bad of [null, undefined, '', 'red', '#07090e', '#07090f00', '#fff', 'rgb(7,9,15)', ' #07090f', '#141820', '#f7f8fa', 42, {}]) {
       expect(themeFromThemeColor(bad)).toBeNull();
     }
   });

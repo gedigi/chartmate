@@ -68,15 +68,15 @@ describe('IndicatorSettings line width / style and bar colors', () => {
   it('bar color defaults follow the active theme; untouched defaults are not saved; overrides win', async () => {
     const onSave = vi.fn();
     const { unmount } = render(<IndicatorSettings state={VOL} theme="light" onSave={onSave} onClose={() => {}} />);
-    expect(screen.getByLabelText('Up bar color')).toHaveValue('#00a870');
-    expect(screen.getByLabelText('Down bar color')).toHaveValue('#d4113b');
+    expect(screen.getByLabelText('Up bar color')).toHaveValue('#12b996');
+    expect(screen.getByLabelText('Down bar color')).toHaveValue('#d92855');
     await userEvent.click(save());
     expect(onSave).toHaveBeenLastCalledWith(VOL);
     unmount();
     render(<IndicatorSettings state={{ ...VOL, barColors: { up: '#00ff00', down: '#ff0000' } }} theme="light" onSave={onSave} onClose={() => {}} />);
     expect(screen.getByLabelText('Up bar color')).toHaveValue('#00ff00');
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
-    expect(screen.getByLabelText('Up bar color')).toHaveValue('#00a870');
+    expect(screen.getByLabelText('Up bar color')).toHaveValue('#12b996');
   });
 
   it('bar color defaults follow the custom candle colors of the active theme', async () => {
@@ -95,7 +95,7 @@ describe('IndicatorSettings default line colors follow the theme palette', () =>
   it('color pickers show the current theme defaults; untouched are not saved; user colors win; Reset returns to theme defaults', async () => {
     const onSave = vi.fn();
     const { unmount } = render(<IndicatorSettings state={RSI} theme="light" onSave={onSave} onClose={() => {}} />);
-    expect(values(['RSI1', 'RSI2', 'RSI3'])).toEqual(['#1272da', '#eb6111', '#0095a0']);
+    expect(values(['RSI1', 'RSI2', 'RSI3'])).toEqual(['#c98512', '#5b49e0', '#0a8ea6']);
     await userEvent.click(save());
     expect(onSave).toHaveBeenCalledWith(RSI);
     unmount();
@@ -104,7 +104,7 @@ describe('IndicatorSettings default line colors follow the theme palette', () =>
     render(<IndicatorSettings state={user} theme="dark" onSave={onSave} onClose={() => {}} />);
     expect(screen.getByLabelText('RSI1 color')).toHaveValue('#111111');
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
-    expect(values(['RSI1', 'RSI2', 'RSI3'])).toEqual(['#2488f7', '#e56c19', '#00b3c2']);
+    expect(values(['RSI1', 'RSI2', 'RSI3'])).toEqual(['#f2b861', '#a99bff', '#3fc8e4']);
     onSave.mockClear();
     await userEvent.click(save());
     expect(onSave.mock.calls[0]![0]).not.toHaveProperty('lineColors');

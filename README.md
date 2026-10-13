@@ -136,7 +136,11 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
 
 ## Charts
 
-- **Timeframes** 1m … 1M, chart types candles / bars / line / area, light and dark themes.
+- **Timeframes** 1m … 1M, chart types candles / bars / line / area, light and dark themes. The look is flat:
+  the chart sits on its own rounded sheet, chrome is solid panels with hairline edges (no glass, glow or drop
+  shadows), and every font is the system sans-serif (no web fonts). The time axis labels read with context
+  ("Sep 21", "22", "13:30"; daily: "Sep", "22"), the crosshair date chip reads "Wed Sep 30 '26 · 12:30".
+- **Symbol search**: the top bar search field (**⌘K** on macOS, **Ctrl+K** elsewhere, focuses it from anywhere).
 - **RTH / ETH toggle** for stocks (and baskets containing a stock): RTH shows regular-hours bars only,
   ETH adds pre- and post-market bars, shaded on intraday stock charts (basket charts are not shaded).
   It is hidden for crypto, which trades around the clock.
@@ -149,7 +153,9 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   time across timeframes, zoom levels and window sizes.
 - **Chart appearance** ("Chart appearance" button in the top bar): candle up/down colors, body style (filled,
   hollow, hollow up, hollow down; OHLC bars use the colors only), **last price line** (neutral, the default:
-  white on dark, near-black on light; or the candle up/down color), line/area color and width, and the
+  the theme's text color, near-white on dark and ink on light; or the candle up/down color). The last price
+  sits in a capsule on the price axis with a fine dashed price line; on intraday charts (and daily crypto
+  charts) the capsule also counts down to the bar close ("4:59", "1:04:59"; "Closed" once the bar ended), line/area color and width, and the
   default style (color, width, solid/dashed/dotted) of new drawings. It is global (stored in the `default`
   layout, not per symbol) and applies live. Appearance is **per theme**: the dialog edits the active theme
   ("Dark theme" / "Light theme"), toggling the theme switches to the other theme's settings, and "Reset to
@@ -157,10 +163,11 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   ratio below 1.5) gets an inline "Low contrast on the … background" warning. Layouts saved before
   appearance was per theme (one flat appearance) still load: their settings become the dark theme's.
 - **Default market colors**: one up and one down color per theme (the `--up` / `--down` CSS tokens; dark
-  `#00d68f` / `#ff3b5c`, light `#00a870` / `#d4113b`), used by candles, volume, MACD and AO bars, positions,
-  the watchlist, baskets and sparklines. Rising MACD / AO bars use an opaque soft tone of the same hue.
+  `#34e0b8` / `#ff4d73`, light `#12b996` / `#d92855`), used by candles, volume, MACD and AO bars, positions,
+  the watchlist, baskets and sparklines. Volume / MACD / AO bars without their own colors follow the active
+  theme's candle colors, custom ones included. Rising MACD / AO bars use an opaque soft tone of the same hue.
   Stored colors equal to the defaults of earlier versions are reset once, so they follow the current
-  defaults; colors you picked yourself are kept.
+  defaults (indicator line colors that are all the old palette too); colors you picked yourself are kept.
 - **Readable labels**: labels drawn on a color (crosshair, text annotations, the last price label in candle
   color mode) keep white text while it reaches about 3:1 contrast with the label color, otherwise they use
   white or near-black, whichever contrasts more. KLineChart draws the last price text in one color for up,
@@ -273,10 +280,18 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
 
 ## Watchlist and sections
 
-The right sidebar lists symbols with live quotes (every 15 s) and a sparkline. Click a row (or Enter) to open
-its chart; Delete removes the focused row; drag rows or press **Alt+↑/↓** to reorder.
-The row always shows the regular-session price and day change; during pre/post-market a second line ("Pre 231.40
-+0.82%") shows the extended price and its change vs the last regular close (`Quote.ext`).
+The right sidebar lists symbols with live quotes (every 15 s) and a 30-day sparkline. Click a row (or Enter) to
+open its chart; Delete removes the focused row; drag rows or press **Alt+↑/↓** to reorder. The open symbol's row
+is marked with a bracket.
+The row always shows the regular-session price and day change (a tinted pill); during pre/post-market a second
+line ("Pre 231.40 +0.82%") shows the extended price and its change vs the last regular close (`Quote.ext`),
+otherwise the name. A small gauge under the price places the price in its 30-day range (the sparkline's daily
+closes and the live price).
+
+Below the list, a **detail panel** shows the open symbol: market status (stocks: open / pre-market / after hours /
+closed from the New York clock and the quote's freshness; crypto trades around the clock), the day range as a
+gauge (open → now), and open, previous close, volume, 30-day average volume and the 52-week high / low, all from
+the daily bars and the quote.
 
 **Sections** group symbols under a header, TradingView-style. The watchlist is one ordered list of symbols and
 section headers: the symbols below a header belong to it until the next header; symbols above the first header
@@ -286,7 +301,7 @@ form an untitled top group.
   Up to 50 sections and 200 symbols.
 - **Rename**: double-click the title (or F2 on the header, or the **…** menu → Rename). Enter saves, Escape
   cancels, an empty title keeps the old one; at most 40 characters.
-- **Collapse / expand**: click the header. A collapsed header shows how many symbols it hides; the state is saved.
+- **Collapse / expand**: click the header (the count of its symbols shows on the right); the state is saved.
 - **… menu**: Rename, Add section above, Delete section (only the header goes: its symbols move to the previous
   section).
 - **Adding a symbol** puts it at the end of the *active* section — the last header or symbol you clicked or

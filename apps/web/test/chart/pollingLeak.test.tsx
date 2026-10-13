@@ -55,7 +55,7 @@ const k = vi.hoisted(() => {
     return {
       store,
       setSymbol: store.setSymbol, setPeriod: store.setPeriod, setDataLoader: store.setDataLoader, resetData: store.resetData,
-      setStyles() {}, setTimezone() {}, resize() {},
+      setStyles() {}, setTimezone() {}, setFormatter() {}, overrideXAxis() {}, resize() {},
       getDataList: () => [], getIndicators: () => [], getOverlays: () => [],
       getStyles: () => ({ indicator: { lines: [] } }),
       createIndicator: () => `ind_${++seq}`, overrideIndicator: () => true, removeIndicator: () => true,

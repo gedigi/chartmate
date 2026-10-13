@@ -1,7 +1,7 @@
 import { migrateAppearance, type Layout, type SymbolId } from '@chartmate/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
-import { COLOR_DEFAULTS_REV, dropLegacyAppearanceDefaults, dropLegacyBarColors } from '../chart/theme';
+import { COLOR_DEFAULTS_REV, dropLegacyAppearanceDefaults, dropLegacyBarColors, dropLegacyLineColors } from '../chart/theme';
 import { retryDelayMs } from './retry';
 import { useDebouncedSave } from './useDebouncedSave';
 
@@ -44,14 +44,21 @@ export function withoutLegacyDefaults(l: Layout): Layout {
       out = rest;
     }
   }
-  if (l.indicators.some((i) => i.barColors)) {
+  if (l.indicators.some((i) => i.barColors || i.lineColors)) {
     out = {
       ...out,
       indicators: l.indicators.map((i) => {
-        if (!i.barColors) return i;
-        const { barColors, ...rest } = i;
-        const clean = dropLegacyBarColors(barColors);
-        return clean ? { ...rest, barColors: clean } : rest;
+        let next = i;
+        if (next.barColors) {
+          const { barColors, ...rest } = next;
+          const clean = dropLegacyBarColors(barColors);
+          next = clean ? { ...rest, barColors: clean } : rest;
+        }
+        if (next.lineColors && !dropLegacyLineColors(next.lineColors)) {
+          const { lineColors: _old, ...rest } = next;
+          next = rest;
+        }
+        return next;
       }),
     };
   }

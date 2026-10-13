@@ -137,13 +137,19 @@ export function tintFill(color: string, bg: string, amount: number, fallbackAlph
   const [L, C, H] = oklch(toHex(c.rgb));
   const [Lb] = oklch(toHex(b.rgb));
   const target = parseColor(fromOklch(L + (Lb - L) * amount, C * (1 - amount * 0.75), H))!.rgb;
-  let alpha = 0;
+  let up = 0;
+  let down = 0;
   for (let i = 0; i < 3; i++) {
     const t = target[i]!;
     const g = b.rgb[i]!;
-    if (t > g) alpha = Math.max(alpha, (t - g) / (255 - g));
-    else if (t < g) alpha = Math.max(alpha, (g - t) / g);
+    if (t > g) up = Math.max(up, (t - g) / (255 - g));
+    else if (t < g) down = Math.max(down, (g - t) / g);
   }
+  let alpha = Math.max(up, down);
+  // A near-white background leaves little headroom above it (#fafbfd: 2–5 per channel), so a channel the tint wants
+  // ABOVE the background can need an almost opaque fill. Then the darkening channels set the opacity and the others
+  // saturate at 255: the composite lands within a hair of the tint, same hue.
+  if (alpha >= 0.6 && down > 0 && down < 0.6) alpha = down;
   if (!(alpha > 0) || alpha >= 0.6) return rgba(c.rgb, fallbackAlpha);
-  return rgba(target.map((t, i) => b.rgb[i]! + (t - b.rgb[i]!) / alpha), alpha);
+  return rgba(target.map((t, i) => Math.min(255, Math.max(0, b.rgb[i]! + (t - b.rgb[i]!) / alpha))), alpha);
 }

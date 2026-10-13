@@ -25,8 +25,8 @@ export const TRAFFIC_LIGHT_POSITION = Object.freeze({ x: 14, y: (TOP_BAR_HEIGHT 
  * announces its theme through <meta name="theme-color"> = that theme's --bg-panel (desktop shell only).
  */
 export const TITLE_BAR_OVERLAY: Readonly<Record<Theme, Readonly<{ color: string; symbolColor: string }>>> = Object.freeze({
-  dark: Object.freeze({ color: '#141820', symbolColor: '#e4e7ee' }),
-  light: Object.freeze({ color: '#f7f8fa', symbolColor: '#111827' }),
+  dark: Object.freeze({ color: '#07090f', symbolColor: '#e9ecf4' }),
+  light: Object.freeze({ color: '#e7eaf1', symbolColor: '#131726' }),
 });
 
 /** Overlay options for `theme` (Windows). The height leaves the top bar's 1 px bottom border visible. */

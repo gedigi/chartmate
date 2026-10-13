@@ -31,6 +31,7 @@ import { toPeriod } from './periods';
 import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
 import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS } from './sessionShade';
 import { solidBarFigures } from './solidBars';
+import { axisTickLabels, countdownText, crosshairDate, hasCountdown } from './timeLabels';
 import {
   candleStyles, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeSoftTone, themeTokens,
   type ThemeName,
@@ -205,7 +206,8 @@ export class ChartAdapter {
 
   private styles(): DeepPartial<Styles> {
     const base = chartStyles(this.theme);
-    const candle = candleStyles(this.chartType, this.theme, this.appearance);
+    const countdown = this.tf !== null && this.assetClass !== null && hasCountdown(this.tf, this.assetClass);
+    const candle = candleStyles(this.chartType, this.theme, this.appearance, countdown);
     return {
       ...base,
       candle: { ...base.candle, ...candle, priceMark: { ...base.candle?.priceMark, ...candle.priceMark } },
@@ -262,7 +264,9 @@ export class ChartAdapter {
     this.markers = [];
     this.renderMarkers();
     this.setIndicatorContext({ assetClass: p.symbol.assetClass, intraday: isIntraday(p.tf), pricePrecision: p.symbol.pricePrecision });
-    this.chart.setTimezone(timezoneFor(p.symbol, p.tf));
+    const timezone = timezoneFor(p.symbol, p.tf);
+    this.chart.setTimezone(timezone);
+    this.setTimeTexts(p.tf, timezone);
     this.chart.setSymbol({
       ticker: p.symbol.id,
       pricePrecision: p.symbol.pricePrecision,
@@ -281,6 +285,24 @@ export class ChartAdapter {
       subscribeBar: (params) => loader.subscribeBar({ ...params, callback: (bar) => { this.historyBlocked = false; params.callback(bar); this.onBarsAdded(); } }),
       unsubscribeBar: () => loader.unsubscribeBar(),
     });
+  }
+
+  /**
+   * Time texts of timeframe `tf` in the chart `timezone`: axis ticks with context ("Sep 21", "22", "13:30"), the
+   * crosshair date chip and the last price capsule's bar-close countdown (shown for intraday / daily crypto bars).
+   */
+  private setTimeTexts(tf: Timeframe, timezone: string): void {
+    this.chart.setFormatter({
+      formatDate: ({ timestamp }) => crosshairDate(timestamp, tf, timezone),
+      formatExtendText: ({ data }) => countdownText(data.timestamp, tf, Date.now()),
+    });
+    this.chart.overrideXAxis({
+      createTicks: ({ defaultTicks }) => {
+        const labels = axisTickLabels(defaultTicks.map((t) => Number(t.value)), tf, timezone);
+        return defaultTicks.map((t, i) => ({ ...t, text: labels[i]! }));
+      },
+    });
+    this.chart.setStyles(this.styles());
   }
 
   /**

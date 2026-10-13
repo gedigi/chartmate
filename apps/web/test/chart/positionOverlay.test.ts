@@ -45,10 +45,10 @@ describe('positionFigures', () => {
 
   it('with the chart background known, zones are hue-locked tints where an rgba() can produce one (color.ts tintFill)', async () => {
     const { tintFill } = await import('../../src/chart/color');
-    const light = { up: '#00a870', down: '#d4113b', neutral: '#5b6474', bg: '#ffffff' };
+    const light = { up: '#12b996', down: '#d92855', neutral: '#545c6f', bg: '#ffffff' };
     const rects = (positionFigures({ ...base, colors: light }) as Fig[]).filter((x) => x.type === 'rect');
-    expect(rects[0]!.styles.color).toBe(tintFill('#00a870', '#ffffff', P.ZONE_TINT, P.ZONE_ALPHA));
-    expect(rects[1]!.styles.color).toBe(tintFill('#d4113b', '#ffffff', P.ZONE_TINT, P.ZONE_ALPHA));
+    expect(rects[0]!.styles.color).toBe(tintFill('#12b996', '#ffffff', P.ZONE_TINT, P.ZONE_ALPHA));
+    expect(rects[1]!.styles.color).toBe(tintFill('#d92855', '#ffffff', P.ZONE_TINT, P.ZONE_ALPHA));
     expect(rects[1]!.styles.color).not.toBe('rgba(212,17,59,0.2)'); // not the plain (pink on white) rgba
   });
 

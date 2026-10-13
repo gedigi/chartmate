@@ -2,7 +2,7 @@ import type { Layout } from '@chartmate/shared';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { api, ApiError } from '../src/api/client';
-import { COLOR_DEFAULTS_REV } from '../src/chart/theme';
+import { COLOR_DEFAULTS_REV, THEME_TOKENS } from '../src/chart/theme';
 import { DEFAULT_LAYOUT, migrateColorDefaults, useLayout, withoutLegacyDefaults } from '../src/state/useLayout';
 
 const ma = { name: 'MA', pane: 'main' as const, calcParams: [20], visible: true };
@@ -91,7 +91,7 @@ describe('useLayout (one global indicator set in the default layout)', () => {
     const { barColors: _gone, ...volPlain } = vol;
     const expected = {
       ...saved, appearance: { dark: { downColor: '#e63b7a' } },
-      indicators: [ma, volPlain, { ...macd, barColors: { up: '#00ff00', down: '#d4113b' } }],
+      indicators: [ma, volPlain, { ...macd, barColors: { up: '#00ff00', down: THEME_TOKENS.light.down } }],
     };
     expect(result.current.layout).toEqual(expected);
     expect(put.mock.calls).toEqual([['default', expected]]);
@@ -113,7 +113,7 @@ describe('useLayout (one global indicator set in the default layout)', () => {
   it('withoutLegacyDefaults: an all-default appearance is dropped; a custom drawing width keeps it with the new accent', () => {
     expect(withoutLegacyDefaults({ ...saved, appearance: { dark: { upColor: '#26a69a' } } })).toEqual(saved);
     expect(withoutLegacyDefaults({ ...saved, appearance: { light: { drawing: { color: '#2962FF', size: 3, style: 'dashed' } } } }))
-      .toEqual({ ...saved, appearance: { light: { drawing: { color: '#2b66ff', size: 3, style: 'dashed' } } } });
+      .toEqual({ ...saved, appearance: { light: { drawing: { color: THEME_TOKENS.light.accent, size: 3, style: 'dashed' } } } });
     // The other theme's old defaults are user colors here (light #089981 in the dark theme stays).
     expect(withoutLegacyDefaults({ ...saved, appearance: { dark: { upColor: '#089981' } } })).toEqual({ ...saved, appearance: { dark: { upColor: '#089981' } } });
     expect(withoutLegacyDefaults(saved)).toBe(saved);
@@ -122,8 +122,33 @@ describe('useLayout (one global indicator set in the default layout)', () => {
   it('bar colors: direction-aware — an inverted legacy pair is the user\'s choice and is kept', () => {
     const ind = (barColors: { up: string; down: string }) => ({ ...saved, indicators: [{ ...ma, barColors }] });
     expect(withoutLegacyDefaults(ind({ up: '#ef5350', down: '#26a69a' }))).toEqual(ind({ up: '#ef5350', down: '#26a69a' }));
-    expect(withoutLegacyDefaults(ind({ up: '#089981', down: '#123456' }))).toEqual(ind({ up: '#00a870', down: '#123456' }));
+    expect(withoutLegacyDefaults(ind({ up: '#089981', down: '#123456' }))).toEqual(ind({ up: THEME_TOKENS.light.up, down: '#123456' }));
     expect(withoutLegacyDefaults(ind({ up: '#34d399', down: '#c41d3d' }))).toEqual({ ...saved, indicators: [ma] });
+  });
+
+  it('rev 2 ("Graphite & Signal") defaults are old defaults too: users on them get the current palette; picks survive', () => {
+    const l = (appearance: Layout['appearance'], indicators = [ma]) => ({ ...savedRev0, indicators, appearance });
+    const migrated = migrateColorDefaults(l({
+      dark: { upColor: '#00d68f', downColor: '#FF3B5C', lineColor: '#2b66ff' },
+      light: { upColor: '#00a870', downColor: '#123456', drawing: { color: '#2b66ff', size: 1, style: 'solid' } },
+    }));
+    expect(migrated).toEqual({ ...saved, appearance: { light: { downColor: '#123456' } } });
+    // Bar colors: a rev 2 default pair follows the candles again; one rev 2 side next to a user color becomes today's.
+    const vol = (barColors: { up: string; down: string }) => ({ ...ma, name: 'VOL', barColors });
+    expect(withoutLegacyDefaults({ ...saved, indicators: [vol({ up: '#00d68f', down: '#ff3b5c' })] }).indicators).toEqual([{ ...ma, name: 'VOL' }]);
+    expect(withoutLegacyDefaults({ ...saved, indicators: [vol({ up: '#abcdef', down: '#d4113b' })] }).indicators)
+      .toEqual([vol({ up: '#abcdef', down: THEME_TOKENS.light.down })]);
+  });
+
+  it('indicator line colors made only of the old palette are dropped (lines follow the new palette); any user color keeps the list', () => {
+    const ema = (lineColors?: string[]) => ({ name: 'EMA', pane: 'main' as const, calcParams: [6, 12, 20], visible: true, ...(lineColors ? { lineColors } : {}) });
+    expect(withoutLegacyDefaults({ ...saved, indicators: [ema(['#2488f7', '#E56C19', '#00b3c2'])] }).indicators).toEqual([ema()]);
+    expect(withoutLegacyDefaults({ ...saved, indicators: [ema(['#1272da', '#eb6111', '#0095a0'])] }).indicators).toEqual([ema()]);
+    expect(withoutLegacyDefaults({ ...saved, indicators: [ema(['#ff0000', '#e56c19', '#00b3c2'])] }).indicators)
+      .toEqual([ema(['#ff0000', '#e56c19', '#00b3c2'])]);
+    // Already migrated layouts are never touched again.
+    const current = { ...saved, indicators: [ema(['#2488f7', '#e56c19', '#00b3c2'])] };
+    expect(migrateColorDefaults(current)).toBe(current);
   });
 
   it('an appearance change saves the default key only', async () => {

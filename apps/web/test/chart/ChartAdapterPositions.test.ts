@@ -17,7 +17,7 @@ const k = vi.hoisted(() => {
     const data: Array<{ timestamp: number; high: number }> = [];
     const chart = {
       overlays, indicators, data,
-      setStyles: vi.fn(), setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(), setTimezone: vi.fn(), resetData: vi.fn(),
+      setStyles: vi.fn(), setFormatter: vi.fn(), overrideXAxis: vi.fn(), setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(), setTimezone: vi.fn(), resetData: vi.fn(),
       resize: vi.fn(), getDataList: vi.fn(() => data),
       getStyles: vi.fn(() => ({
         indicator: {
@@ -278,7 +278,7 @@ describe('ChartAdapter long / short positions', () => {
     a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 15000 }, events());
     expect(positionContext.barMs).toBe(DAY);
     a.setTheme('light');
-    expect(positionContext.colors.up).toBe('#00a870');
+    expect(positionContext.colors.up).toBe('#12b996');
     a.setPositionDefaults(undefined);
     expect(positionContext.defaults).toEqual({ targetPct: 2, stopPct: 2 });
   });

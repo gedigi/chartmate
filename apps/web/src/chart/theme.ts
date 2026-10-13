@@ -1,6 +1,6 @@
 import type { CandleBodyStyle, ChartAppearance, ChartType, DrawingLineStyle, LastPriceLineStyle, ThemedAppearance } from '@chartmate/shared';
 import type { DeepPartial, Styles } from 'klinecharts';
-import { readableTextOn, readableTextOnAll } from './contrast';
+import { contrastRatio, readableTextOn, readableTextOnAll } from './contrast';
 import { softTone } from './color';
 import { klineLine } from './drawingStyles';
 
@@ -13,26 +13,26 @@ export type ThemeName = 'dark' | 'light';
  */
 export const THEME_TOKENS = {
   dark: {
-    bg: '#0f1218', panel: '#141820', elevated: '#1b2029', border: '#262c38', grid: '#181d26', text: '#e4e7ee', muted: '#8b93a3', accent: '#2b66ff',
-    up: '#00d68f', down: '#ff3b5c', upSoft: '#008255', downSoft: '#aa0031', upFg: '#00d68f', downFg: '#ff7c85',
-    crossBg: '#2a303c', crosshair: '#5f6878', level: '#4a5263', lastPrice: '#ffffff',
+    bg: '#0c0f18', panel: '#07090f', elevated: '#141826', border: '#1c202c', grid: '#121620', text: '#e9ecf4', muted: '#8f97ab', accent: '#7cc4ff',
+    up: '#34e0b8', down: '#ff4d73', upSoft: '#00876d', downSoft: '#ac053e', upFg: '#34e0b8', downFg: '#ff7a8e',
+    crossBg: '#e9ecf4', crosshair: '#5b6171', level: '#474e60', lastPrice: '#e9ecf4',
   },
   light: {
-    bg: '#ffffff', panel: '#f7f8fa', elevated: '#ffffff', border: '#e3e6eb', grid: '#f1f3f6', text: '#111827', muted: '#5b6474', accent: '#2b66ff',
-    up: '#00a870', down: '#d4113b', upSoft: '#65d39f', downSoft: '#ff787e', upFg: '#006944', downFg: '#b0002d',
-    crossBg: '#1f2937', crosshair: '#8a93a3', level: '#b6bcc6', lastPrice: '#111827',
+    bg: '#fafbfd', panel: '#e7eaf1', elevated: '#ffffff', border: '#e1e4eb', grid: '#eef0f4', text: '#131726', muted: '#545c6f', accent: '#2479d6',
+    up: '#12b996', down: '#d92855', upSoft: '#67dbbb', downSoft: '#ff7d8e', upFg: '#006b56', downFg: '#b4003f',
+    crossBg: '#131726', crosshair: '#a6abb8', level: '#b9bdc9', lastPrice: '#131726',
   },
 } as const;
 
 /*
- * Up / down (candles, volume / MACD / AO bars, position zones, watchlist and basket changes): a vivid emerald and a
- * vivid rose-red at near-maximum chroma. Besides the hue they differ in LIGHTNESS so they stay apart for red-green
- * color-blind readers: on dark the up color is the light one (OKLCH L 0.77 vs 0.66), on white the down color is
- * the dark one (L 0.56 vs 0.65; protanopia darkens reds, which only widens that gap). OKLab ΔE×100 up↔down: dark 40
- * (protan 28, deutan 10), light 35 (protan 25, deutan 9). Both are ≥ 3:1 against their background; the down red sits
- * between the palette's orange and pink at ΔE ≥ 12 (dark) / 14 (light) from both. Small TEXT uses the --up-fg /
- * --down-fg CSS tokens instead (≥ 4.5:1 on every surface they are drawn on, including a tinted pill on the current
- * watchlist row), hue-locked to the strong color.
+ * "Luminous, flat": a cool ink ground (dark) / mist ground (light) with the chart on its own surface, chrome on flat
+ * solid panels (no glass, glow or shadow), one sky accent for drawings and focus.
+ *
+ * Up / down (candles, volume / MACD / AO bars, position zones, watchlist and basket changes): Lumen teal and Ember
+ * rose, vivid. Besides the hue they differ in LIGHTNESS so they stay apart for red-green color-blind readers: the up
+ * color is the light one in both themes (OKLCH L dark 0.81 vs 0.68, light 0.70 vs 0.58). Small TEXT uses the --up-fg
+ * / --down-fg CSS tokens instead (≥ 4.5:1 on every surface they are drawn on, including a tinted pill), hue-locked to
+ * the strong color.
  *
  * One family per direction: every strong up / down mark (candles, volume, MACD / AO, positions, watchlist, baskets,
  * sparklines) uses the SAME opaque color; the only other member is the soft tone (upSoft / downSoft: rising MACD /
@@ -49,17 +49,34 @@ export const THEME_TOKENS = {
  * default read as "unset" ONCE (see useLayout's migrateColorDefaults), then carry this revision so a color the
  * user picks later — even an old default — is never touched again.
  */
-export const COLOR_DEFAULTS_REV = 2;
+export const COLOR_DEFAULTS_REV = 3;
 
 /**
- * Default colors of earlier revisions (rev 0: the original release; rev 1: an unreleased intermediate set). A
- * stored appearance / bar color exactly equal to one of them was (almost certainly) never picked by the user —
- * the dialogs write the shown defaults along with the edited field — so the one-time migration unsets it.
+ * Default colors of earlier revisions (rev 0: the original release; rev 1: an unreleased intermediate set; rev 2: the
+ * "Graphite & Signal" set). A stored appearance / bar color exactly equal to one of them was (almost certainly) never
+ * picked by the user — the dialogs write the shown defaults along with the edited field — so the one-time migration
+ * unsets it.
  */
 export const LEGACY_DEFAULTS = {
-  dark: { up: ['#26a69a', '#34d399'], down: ['#ef5350', '#f23c50'], accent: ['#2962ff', '#3d6af5'] },
-  light: { up: ['#089981', '#10a37a'], down: ['#f23645', '#c41d3d'], accent: ['#2962ff', '#3d6af5'] },
+  dark: { up: ['#26a69a', '#34d399', '#00d68f'], down: ['#ef5350', '#f23c50', '#ff3b5c'], accent: ['#2962ff', '#3d6af5', '#2b66ff'] },
+  light: { up: ['#089981', '#10a37a', '#00a870'], down: ['#f23645', '#c41d3d', '#d4113b'], accent: ['#2962ff', '#3d6af5', '#2b66ff'] },
 } as const satisfies Record<ThemeName, Record<'up' | 'down' | 'accent', readonly string[]>>;
+
+/**
+ * Indicator line palettes of earlier revisions (rev 2), per theme. A stored `lineColors` list made only of these (each
+ * line an old palette color) was the default palette written along with another edit, so the migration drops it and
+ * the lines follow the current palette.
+ */
+export const LEGACY_INDICATOR_PALETTES: readonly (readonly string[])[] = [
+  ['#2488f7', '#e56c19', '#00b3c2', '#8d7cf8', '#e49916', '#f631aa'],
+  ['#1272da', '#eb6111', '#0095a0', '#541cdc', '#eda100', '#e12ca0'],
+];
+
+/** `lineColors` without legacy palette defaults: undefined when every entry is an old palette color. */
+export function dropLegacyLineColors(colors: readonly string[]): readonly string[] | undefined {
+  const old = new Set(LEGACY_INDICATOR_PALETTES.flat());
+  return colors.length > 0 && colors.every((c) => old.has(c.toLowerCase())) ? undefined : colors;
+}
 
 const isOneOf = (a: string | undefined, list: readonly string[]): boolean => typeof a === 'string' && list.includes(a.toLowerCase());
 
@@ -99,17 +116,14 @@ export function dropLegacyBarColors(b: { up: string; down: string }): { up: stri
 }
 
 /**
- * Categorical palette of indicator LINES, per theme (surfaces #0f1218 / #ffffff): blue, orange, cyan, violet, amber,
- * pink — vivid (near-maximum OKLCH chroma per hue), deliberately without green / red so a line never reads as a
- * candle up / down. Adjacent slots stay apart under protan / deutan simulation (validator: worst adjacent ΔE 12.7
- * dark, 16.6 light). Dark cyan / amber are lighter than the validator's L band (0.70 / 0.74 vs ≤ 0.67) on purpose:
- * inside it those hues are dull. Slot n colors the n-th line of an indicator (see `lineSlots` in the catalog);
- * amber / pink are below 3:1 on white, acceptable because the legend / tooltip names every line. Histogram bars
- * keep the theme up / down colors (`defaultIndicatorBars`).
+ * Categorical palette of indicator LINES, per theme (surfaces #0c0f18 / #fafbfd): halo gold, iris, cyan, orange, pink,
+ * blue — vivid, deliberately without green / red so a line never reads as a candle up / down, and apart from the sky
+ * drawing color. Slot n colors the n-th line of an indicator (see `lineSlots` in the catalog); the legend / tooltip
+ * names every line. Histogram bars keep the candle up / down colors (`defaultIndicatorBars`).
  */
 export const INDICATOR_PALETTE = {
-  dark: ['#2488f7', '#e56c19', '#00b3c2', '#8d7cf8', '#e49916', '#f631aa'],
-  light: ['#1272da', '#eb6111', '#0095a0', '#541cdc', '#eda100', '#e12ca0'],
+  dark: ['#f2b861', '#a99bff', '#3fc8e4', '#ff8f5a', '#f27bd0', '#6f9dff'],
+  light: ['#c98512', '#5b49e0', '#0a8ea6', '#e0621a', '#c8399a', '#2f62d6'],
 } as const satisfies Record<ThemeName, readonly string[]>;
 
 /** Color of palette slot `slot` (0-based) in `theme`; wraps only as a safety net (the catalog has <= 6 lines per indicator). */
@@ -258,7 +272,7 @@ export function overlayStyles(d: DrawingLineStyle): DeepPartial<Styles['overlay'
 }
 
 /** Candle-series styles for a chart type with the (theme-resolved) appearance applied. */
-export function candleStyles(type: ChartType, theme: ThemeName, appearance: ThemedAppearance | undefined): DeepPartial<Styles['candle']> {
+export function candleStyles(type: ChartType, theme: ThemeName, appearance: ThemedAppearance | undefined, countdown = false): DeepPartial<Styles['candle']> {
   const a = resolveAppearance(theme, appearance);
   const muted = themeTokens(theme).muted;
   const colors: DeepPartial<Styles['candle']> = {
@@ -267,7 +281,7 @@ export function candleStyles(type: ChartType, theme: ThemeName, appearance: Them
       upBorderColor: a.upColor, downBorderColor: a.downColor, noChangeBorderColor: muted,
       upWickColor: a.upColor, downWickColor: a.downColor, noChangeWickColor: muted,
     },
-    priceMark: { last: lastPriceMark(theme, a.lastPriceLine, a.upColor, a.downColor) },
+    priceMark: { last: lastPriceMark(theme, a.lastPriceLine, a.upColor, a.downColor, countdown) },
   };
   switch (type) {
     case 'candle': return { ...colors, type: BODY_TYPE[a.candleBody] };
@@ -285,47 +299,78 @@ export function candleStyles(type: ChartType, theme: ThemeName, appearance: Them
 /**
  * Typeface of everything drawn on the chart canvas (axes, legends, price labels, drawings, positions): the same
  * stack as the UI's --font-sans in styles.css (a test keeps them equal), instead of KLineChart's Helvetica Neue,
- * so chart and chrome speak with one voice.
+ * so chart and chrome speak with one voice. System fonts only (no web fonts: strict CSP, offline desktop app);
+ * every stack ends in sans-serif.
  */
-export const CHART_FONT = "'Inter', 'InterVariable', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Roboto, 'Helvetica Neue', Arial, sans-serif";
+export const CHART_FONT = "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI Variable Text', 'Segoe UI', system-ui, Roboto, 'Helvetica Neue', Arial, sans-serif";
 
-/** Corner radius of chart labels (crosshair, last price, positions): the UI's --radius-sm. */
-export const LABEL_RADIUS = 4;
+/** Corner radius of chart labels (crosshair, last price, positions). */
+export const LABEL_RADIUS = 6;
 
 /**
- * Color of the neutral last price line (the default): white on the dark theme, the theme's primary text color
- * (near-black) on the light one, where white would not show.
+ * Color of the neutral last price line (the default): the theme's primary text color (near-white on the dark theme,
+ * ink on the light one).
  */
 export function neutralLastPriceColor(theme: ThemeName): string {
   return themeTokens(theme).lastPrice;
 }
 
-/** KLineChart's last price mark styles except the colors: a fine dashed line and a compact, semibold label. */
-const lastPriceLine = () => ({ show: true, style: 'dashed' as const, dashedValue: [3, 3], size: 1 });
+/** KLineChart's last price mark styles except the colors: a fine dashed price line and a compact capsule label. */
+const lastPriceLine = () => ({ show: true, style: 'dashed' as const, dashedValue: [2, 3], size: 1 });
 const LAST_PRICE_TEXT = {
-  family: CHART_FONT, size: 12, weight: '600', borderRadius: LABEL_RADIUS,
-  paddingLeft: 6, paddingRight: 6, paddingTop: 4, paddingBottom: 4,
-} as const;
+  family: CHART_FONT, size: 12, weight: '650', borderRadius: LABEL_RADIUS as number | number[],
+  paddingLeft: 8, paddingRight: 8, paddingTop: 5, paddingBottom: 5,
+};
+/** The bar-close countdown under the price in the capsule (KLineChart extend text, refreshed every second). */
+const COUNTDOWN_TEXT = {
+  show: true, position: 'below_price' as const, updateInterval: 1000,
+  family: CHART_FONT, size: 10, weight: '600', borderRadius: [0, 0, LABEL_RADIUS, LABEL_RADIUS] as number | number[],
+  // KLineChart centers the price rect on the price and stacks this one below it; the text sits paddingTop into its
+  // rect, so 0 here keeps the two lines tight while the price stays vertically centered on the price line.
+  paddingLeft: 8, paddingRight: 8, paddingTop: 0, paddingBottom: 6,
+};
 
 export interface LastPriceMarkStyles {
   upColor: string; downColor: string; noChangeColor: string;
   line: ReturnType<typeof lastPriceLine>;
   text: typeof LAST_PRICE_TEXT & { color: string };
+  extendTexts: Array<typeof COUNTDOWN_TEXT & { color: string }>;
 }
 
 /**
- * KLineChart's last price mark (line + y-axis label): one neutral color whatever the bar direction, or the candle
- * up / down (/ no-change) colors. The label text contrasts with the label fill (dark on the white label, white on
- * the near-black one); in 'candle' mode KLineChart draws the text in one color whatever the fill, so it is white
- * while its worst-case contrast over the three fills is about 3:1, else the better of white / dark.
+ * KLineChart's last price mark (price line + y-axis capsule): one neutral color whatever the bar direction (the
+ * default), or the candle up / down colors. The capsule text contrasts with its fill; in 'candle' mode KLineChart
+ * draws the text in one color whatever the fill, so it is chosen for the worst case over the fills (the no-change
+ * fill is the neutral gray that reads best with it). `countdown`: the capsule carries the time
+ * to the bar close under the price (the text comes from the adapter's formatExtendText).
  */
-export function lastPriceMark(theme: ThemeName, mode: LastPriceLineStyle, up: string, down: string): LastPriceMarkStyles {
+export function lastPriceMark(theme: ThemeName, mode: LastPriceLineStyle, up: string, down: string, countdown = false): LastPriceMarkStyles {
+  let fills: { upColor: string; downColor: string; noChangeColor: string };
+  let color: string;
   if (mode === 'candle') {
-    const muted = themeTokens(theme).muted;
-    return { upColor: up, downColor: down, noChangeColor: muted, line: lastPriceLine(), text: { ...LAST_PRICE_TEXT, color: lastPriceTextColor(up, down, muted) } };
+    const t = themeTokens(theme);
+    // The neutral gray (muted or the crosshair gray) that leaves the label text most readable over all three fills.
+    const worst = (n: string) => {
+      const text = lastPriceTextColor(up, down, n);
+      return Math.min(...[up, down, n].map((bg) => contrastRatio(text, bg)));
+    };
+    const noChange = worst(t.crosshair) > worst(t.muted) ? t.crosshair : t.muted;
+    fills = { upColor: up, downColor: down, noChangeColor: noChange };
+    color = lastPriceTextColor(up, down, noChange);
+  } else {
+    const c = neutralLastPriceColor(theme);
+    fills = { upColor: c, downColor: c, noChangeColor: c };
+    color = readableTextOn(c);
   }
-  const c = neutralLastPriceColor(theme);
-  return { upColor: c, downColor: c, noChangeColor: c, line: lastPriceLine(), text: { ...LAST_PRICE_TEXT, color: readableTextOn(c) } };
+  return {
+    ...fills,
+    line: lastPriceLine(),
+    text: {
+      ...LAST_PRICE_TEXT, color,
+      borderRadius: countdown ? [LABEL_RADIUS, LABEL_RADIUS, 0, 0] : LABEL_RADIUS,
+    },
+    extendTexts: [{ ...COUNTDOWN_TEXT, show: countdown, color }],
+  };
 }
 
 export function lastPriceTextColor(up: string, down: string, noChange: string): string {
@@ -333,13 +378,13 @@ export function lastPriceTextColor(up: string, down: string, noChange: string): 
 }
 
 /**
- * Chart-wide styles of `theme` ("Graphite & Signal": the price is the only loud thing). Solid hairline grid (a dashed
+ * Chart-wide styles of `theme` ("Luminous, flat": the price is the only loud thing). Solid hairline grid (a dashed
  * grid shimmers while panning), no tick marks, small muted axis type in the UI typeface, a thin dashed crosshair with
- * compact borderless labels, hairline pane separators, opaque histogram bars in the exact candle colors.
+ * ink chips, hairline pane separators, an O / H / L / C legend, opaque histogram bars in the exact candle colors.
  */
 export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
   const t = themeTokens(theme);
-  const tickText = { color: t.muted, family: CHART_FONT, size: 11, weight: 'normal' };
+  const tickText = { color: t.muted, family: CHART_FONT, size: 11, weight: '500' };
   const axis = {
     axisLine: { show: true, color: t.border, size: 1 },
     tickLine: { show: false },
@@ -347,11 +392,11 @@ export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
   };
   const crossText = {
     color: readableTextOn(t.crossBg), backgroundColor: t.crossBg, borderColor: t.crossBg, borderSize: 0, borderRadius: LABEL_RADIUS,
-    family: CHART_FONT, size: 11, weight: '500', paddingLeft: 6, paddingRight: 6, paddingTop: 4, paddingBottom: 4,
+    family: CHART_FONT, size: 11, weight: '600', paddingLeft: 8, paddingRight: 8, paddingTop: 4, paddingBottom: 4,
   };
   const crossLine = () => ({ show: true, style: 'dashed' as const, dashedValue: [3, 3], size: 1, color: t.crosshair });
   const gridLine = { show: true, size: 1, style: 'solid', color: t.grid } as const;
-  const legend = { family: CHART_FONT, size: 12, color: t.muted, marginLeft: 8, marginTop: 4, marginRight: 4, marginBottom: 4 };
+  const legend = { family: CHART_FONT, size: 12, color: t.muted, marginLeft: 10, marginTop: 4, marginRight: 2, marginBottom: 4 };
   const priceExtreme = { color: t.muted, textFamily: CHART_FONT, textSize: 11 };
   return {
     grid: { show: true, horizontal: gridLine, vertical: gridLine },
@@ -367,15 +412,15 @@ export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
         last: lastPriceMark(theme, defaultAppearance(theme).lastPriceLine, t.up, t.down),
       },
       tooltip: {
-        title: { color: t.text, family: CHART_FONT, size: 13, weight: '600', template: '{displayName} · {tf}', marginLeft: 8, marginTop: 6, marginBottom: 2 },
-        legend,
+        title: { color: t.text, family: CHART_FONT, size: 15, weight: '650', template: '{displayName} · {tf}', marginLeft: 10, marginTop: 8, marginBottom: 2 },
+        legend: { ...legend, template: candleLegend(t) },
       },
     },
     indicator: {
       // Default histogram bars: filled, opaque, in the exact candle up / down colors (rising MACD / AO bars get the
       // soft tone, see solidBars.ts).
       bars: [{ style: 'fill', borderSize: 0, ...defaultIndicatorBars(theme) }],
-      tooltip: { title: { color: t.text, family: CHART_FONT, size: 12, weight: '600' }, legend },
+      tooltip: { title: { color: t.text, family: CHART_FONT, size: 12, weight: '600', marginLeft: 10 }, legend },
       lastValueMark: { show: false },
     },
     xAxis: axis,
@@ -385,5 +430,27 @@ export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
       horizontal: { line: crossLine(), text: crossText },
       vertical: { line: crossLine(), text: crossText },
     },
+  };
+}
+
+type LegendItem = { title: { text: string; color: string }; value: { text: string; color: string } };
+type LegendBar = { open: number; close: number };
+
+/**
+ * The candle legend: "O 172.28  H 172.91  L 169.51  C 170.64  −0.96%  Vol 43.31M" — muted letters, values in the text
+ * color, the change vs the previous close in the theme's up / down TEXT colors (readable as small text).
+ */
+export function candleLegend(t: ThemeTokens): (data: { prev: LegendBar | null; current: LegendBar | null }) => LegendItem[] {
+  return ({ prev, current }) => {
+    const item = (title: string, value: string, color: string = t.text): LegendItem => ({ title: { text: title, color: t.muted }, value: { text: value, color } });
+    const out = [item('O ', '{open}'), item('H ', '{high}'), item('L ', '{low}'), item('C ', '{close}')];
+    const base = prev?.close ?? current?.open;
+    if (current && base) {
+      const pct = Math.round(((current.close - base) / base) * 10_000) / 100;
+      const text = pct === 0 ? '0.00%' : `${pct > 0 ? '+' : '−'}${Math.abs(pct).toFixed(2)}%`;
+      out.push(item('', text, pct > 0 ? t.upFg : pct < 0 ? t.downFg : t.muted));
+    }
+    out.push(item('Vol ', '{volume}'));
+    return out;
   };
 }

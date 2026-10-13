@@ -48,11 +48,12 @@ describe('softTone', () => {
     }
   });
 
-  it('never turns red pink on white: unlike an rgba() fill, which rotates the hue by > 10°', () => {
+  it('never turns red pink on white: unlike an rgba() fill, which rotates the hue by > 5°', () => {
     const { bg, down } = THEME_TOKENS.light;
-    const alphaLook = composite('rgba(212,17,59,0.45)', bg);
+    const [r, g, b] = parseColor(down)!.rgb;
+    const alphaLook = composite(`rgba(${r},${g},${b},0.45)`, bg);
     const alphaHex = `#${alphaLook.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
-    expect(hueDiff(oklch(alphaHex)[2], oklch(down)[2])).toBeGreaterThan(10);
+    expect(hueDiff(oklch(alphaHex)[2], oklch(down)[2])).toBeGreaterThan(5);
     expect(hueDiff(oklch(softTone(down, bg))[2], oklch(down)[2])).toBeLessThan(1.5);
   });
 
@@ -75,9 +76,18 @@ describe('tintFill', () => {
     }
   });
 
+  it('on an off-white background (little headroom above it) the tint still keeps the hue: the darkening channels set the opacity', () => {
+    for (const strong of ['#d92855', '#12b996']) {
+      const fill = tintFill(strong, '#fafbfd', 0.8, 0.2);
+      expect(parseColor(fill)!.alpha).toBeLessThan(0.6);
+      const on = `#${composite(fill, '#fafbfd').map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
+      expect(hueDiff(oklch(on)[2], oklch(strong)[2])).toBeLessThan(3);
+    }
+  });
+
   it('falls back to the color at the fallback alpha when no such fill exists (the dark theme\'s emerald)', () => {
     const { bg, up } = THEME_TOKENS.dark;
-    expect(tintFill(up, bg, 0.8, 0.2)).toBe('rgba(0,214,143,0.2)');
+    expect(tintFill(up, bg, 0.8, 0.2)).toBe('rgba(52,224,184,0.2)');
     expect(tintFill('red', bg, 0.8, 0.2)).toBe('red');
   });
 });

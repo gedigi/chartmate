@@ -17,21 +17,21 @@ describe('resolveAppearance', () => {
         drawing: { color: THEME_TOKENS[theme].accent, size: 1, style: 'solid' }, lastPriceLine: 'neutral',
       });
     }
-    expect(resolveAppearance('dark', { dark: { upColor: '#00ff00', lineWidth: 4 } })).toMatchObject({ upColor: '#00ff00', downColor: '#ff3b5c', lineWidth: 4 });
+    expect(resolveAppearance('dark', { dark: { upColor: '#00ff00', lineWidth: 4 } })).toMatchObject({ upColor: '#00ff00', downColor: '#ff4d73', lineWidth: 4 });
   });
 
   it('picks the active theme\'s settings; the other theme keeps its defaults', () => {
     const a = { dark: { upColor: '#ffffff' }, light: { downColor: '#000000' } };
-    expect(resolveAppearance('dark', a)).toMatchObject({ upColor: '#ffffff', downColor: '#ff3b5c' });
-    expect(resolveAppearance('light', a)).toMatchObject({ upColor: '#00a870', downColor: '#000000' });
+    expect(resolveAppearance('dark', a)).toMatchObject({ upColor: '#ffffff', downColor: '#ff4d73' });
+    expect(resolveAppearance('light', a)).toMatchObject({ upColor: '#12b996', downColor: '#000000' });
     expect(resolveAppearance('light', { dark: { upColor: '#ffffff' } })).toEqual(resolveAppearance('light', undefined));
   });
 });
 
 describe('per-theme default candle colors (match the --up / --down CSS tokens)', () => {
-  it('dark #00d68f / #ff3b5c, light #00a870 / #d4113b', () => {
-    expect(THEME_TOKENS.dark).toMatchObject({ up: '#00d68f', down: '#ff3b5c' });
-    expect(THEME_TOKENS.light).toMatchObject({ up: '#00a870', down: '#d4113b' });
+  it('dark #34e0b8 / #ff4d73, light #12b996 / #d92855', () => {
+    expect(THEME_TOKENS.dark).toMatchObject({ up: '#34e0b8', down: '#ff4d73' });
+    expect(THEME_TOKENS.light).toMatchObject({ up: '#12b996', down: '#d92855' });
     expect(THEME_CSS_VARS).toMatchObject({ up: '--up', down: '--down' });
     for (const theme of ['dark', 'light'] as const) {
       const { up, down } = THEME_TOKENS[theme];
@@ -46,8 +46,8 @@ describe('per-theme default candle colors (match the --up / --down CSS tokens)',
 
 describe('indicator histogram bar defaults follow the theme up / down colors', () => {
   it('defaultBarColors(theme) and the chart-level indicator bar styles', () => {
-    expect(defaultBarColors('dark')).toEqual({ up: '#00d68f', down: '#ff3b5c' });
-    expect(defaultBarColors('light')).toEqual({ up: '#00a870', down: '#d4113b' });
+    expect(defaultBarColors('dark')).toEqual({ up: '#34e0b8', down: '#ff4d73' });
+    expect(defaultBarColors('light')).toEqual({ up: '#12b996', down: '#d92855' });
     for (const theme of ['dark', 'light'] as const) {
       const { up, down } = defaultBarColors(theme);
       // Opaque: exactly the candle colors (an rgba() of them reads pink on white / brown on dark).
@@ -74,7 +74,7 @@ describe('candleStyles', () => {
       upColor: '#00ff00', upBorderColor: '#00ff00', upWickColor: '#00ff00',
       downColor: '#ff00ff', downBorderColor: '#ff00ff', downWickColor: '#ff00ff',
     });
-    expect(s.priceMark?.last).toMatchObject({ upColor: '#ffffff', downColor: '#ffffff' });
+    expect(s.priceMark?.last).toMatchObject({ upColor: THEME_TOKENS.dark.lastPrice, downColor: THEME_TOKENS.dark.lastPrice });
     const c = candleStyles('candle', 'dark', { dark: { upColor: '#00ff00', downColor: '#ff00ff', lastPriceLine: 'candle' } });
     expect(c.priceMark?.last).toMatchObject({ upColor: '#00ff00', downColor: '#ff00ff' });
   });
@@ -118,13 +118,13 @@ describe('market color family (one source of truth per theme)', () => {
       const b = parseColor(bg)!.rgb;
       return `#${f.map((v, i) => Math.round(v * a + b[i]! * (1 - a)).toString(16).padStart(2, '0')).join('')}`;
     };
-    const tints = { dark: { tint: 0.14, selected: '#1b2233' }, light: { tint: 0.1, selected: '#edf1fb' } } as const;
+    const tints = { dark: { tint: 0.13, selected: '#131a28', raised: '#10131d' }, light: { tint: 0.12, selected: '#e9eff8', raised: '#f4f5f9' } } as const;
     for (const theme of ['dark', 'light'] as const) {
       const t = THEME_TOKENS[theme];
-      const { tint, selected } = tints[theme];
-      const surfaces = [t.bg, t.panel, t.elevated, selected];
+      const { tint, selected, raised } = tints[theme];
+      const surfaces = [t.bg, t.panel, t.elevated, selected, raised];
       for (const [fg, strong] of [[t.upFg, t.up], [t.downFg, t.down]] as const) {
-        for (const s of [...surfaces, over(strong, tint, t.panel), over(strong, tint, selected)]) {
+        for (const s of [...surfaces, over(strong, tint, t.panel), over(strong, tint, selected), over(strong, tint, raised)]) {
           expect(contrastRatio(fg, s), `${theme} ${fg} on ${s}`).toBeGreaterThanOrEqual(4.5);
         }
         const dh = Math.abs(((oklch(fg)[2] - oklch(strong)[2] + 540) % 360) - 180);
@@ -145,21 +145,34 @@ describe('market color family (one source of truth per theme)', () => {
 });
 
 describe('last price line', () => {
-  it('is neutral by default: white on dark, the primary text color on light, with contrasting label text', () => {
+  it('the capsule carries a bar-close countdown under the price when asked (joined corners), none by default', () => {
+    const plain = candleStyles('candle', 'dark', undefined).priceMark!.last!;
+    expect(plain.extendTexts).toEqual([expect.objectContaining({ show: false })]);
+    expect(plain.text).toMatchObject({ borderRadius: 6 });
+    const withCountdown = candleStyles('candle', 'dark', undefined, true).priceMark!.last!;
+    expect(withCountdown.text).toMatchObject({ borderRadius: [6, 6, 0, 0] });
+    expect(withCountdown.extendTexts).toEqual([expect.objectContaining({
+      show: true, position: 'below_price', updateInterval: 1000, borderRadius: [0, 0, 6, 6], color: withCountdown.text!.color, family: CHART_FONT,
+    })]);
+  });
+
+  it('is neutral by default: the primary text color of the theme, with contrasting label text', () => {
+    const lamp = THEME_TOKENS.dark.text;
     for (const s of [chartStyles('dark').candle?.priceMark?.last, candleStyles('candle', 'dark', undefined).priceMark?.last]) {
-      expect(s).toMatchObject({ upColor: '#ffffff', downColor: '#ffffff', noChangeColor: '#ffffff', text: { color: DARK_TEXT } });
+      expect(s).toMatchObject({ upColor: lamp, downColor: lamp, noChangeColor: lamp, text: { color: DARK_TEXT } });
+      expect(THEME_TOKENS.dark.lastPrice).toBe(lamp);
     }
     const ink = THEME_TOKENS.light.text;
     for (const s of [chartStyles('light').candle?.priceMark?.last, candleStyles('candle', 'light', undefined).priceMark?.last]) {
       expect(s).toMatchObject({ upColor: ink, downColor: ink, noChangeColor: ink, text: { color: LIGHT_TEXT } });
       expect(THEME_TOKENS.light.lastPrice).toBe(ink);
     }
-    expect(contrastRatio(DARK_TEXT, '#ffffff')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(DARK_TEXT, lamp)).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(LIGHT_TEXT, ink)).toBeGreaterThanOrEqual(4.5);
   });
 
   it('neutral ignores custom candle colors; unknown values fall back to neutral; it is per theme', () => {
-    expect(candleStyles('line', 'dark', { dark: { upColor: '#00ff00', lastPriceLine: 'neutral' } }).priceMark?.last?.upColor).toBe('#ffffff');
+    expect(candleStyles('line', 'dark', { dark: { upColor: '#00ff00', lastPriceLine: 'neutral' } }).priceMark?.last?.upColor).toBe(THEME_TOKENS.dark.lastPrice);
     expect(resolveAppearance('dark', { dark: { lastPriceLine: 'bogus' as never } }).lastPriceLine).toBe('neutral');
     expect(resolveAppearance('light', { dark: { lastPriceLine: 'candle' } }).lastPriceLine).toBe('neutral');
     expect(resolveAppearance('dark', { dark: { lastPriceLine: 'candle' } }).lastPriceLine).toBe('candle');
@@ -182,12 +195,13 @@ describe('readable label text', () => {
     }
   });
 
-  it('the default last price label text reads on every label color: dark on the light dark-theme mint, white in light', () => {
-    const expected = { dark: DARK_TEXT, light: LIGHT_TEXT } as const;
+  it('the default last price label text reads on every label color (dark on the vivid teal / rose and a neutral gray for no change)', () => {
     for (const theme of ['dark', 'light'] as const) {
-      expect(lastText(theme, { [theme]: {} })).toBe(expected[theme]);
-      const { up, down, muted } = THEME_TOKENS[theme];
-      for (const bg of [up, down, muted]) expect(contrastRatio(expected[theme], bg)).toBeGreaterThanOrEqual(3);
+      expect(lastText(theme, { [theme]: {} })).toBe(DARK_TEXT);
+      const { up, down, crosshair, muted } = THEME_TOKENS[theme];
+      const noChange = candleStyles('candle', theme, { [theme]: { lastPriceLine: 'candle' } }).priceMark?.last?.noChangeColor;
+      expect([muted, crosshair]).toContain(noChange);
+      for (const bg of [up, down, noChange!]) expect(contrastRatio(DARK_TEXT, bg)).toBeGreaterThanOrEqual(3);
     }
   });
 
@@ -216,7 +230,9 @@ describe('readable label text', () => {
       expect(m.backgroundColor).toBe('rgba(0,0,0,0)');
       expect(contrastRatio(m.color!, t.bg)).toBeGreaterThanOrEqual(3);
       expect(m.color).toBe(t.muted); // muted is kept while it reads
-      expect(cross.color).toBe(LIGHT_TEXT);
+      // Ink chips: the label fill is the theme's text color, its text the opposite.
+      expect(t.crossBg).toBe(t.text);
+      expect(cross.color).toBe(theme === 'dark' ? DARK_TEXT : LIGHT_TEXT);
     }
   });
 
