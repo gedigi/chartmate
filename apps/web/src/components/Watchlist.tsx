@@ -64,6 +64,7 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
   const listRef = useRef<HTMLUListElement>(null);
   const hintId = useId();
   const sectionHintId = useId();
+  const headerIdBase = useId();
 
   const key = ids.join(',');
   const setKey = ids.slice().sort().join(',');
@@ -300,6 +301,8 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
     if (s.id === activeSection) classes.push('active');
     dragClasses(row, classes);
     const isRenaming = renaming?.id === s.id;
+    const titleId = `${headerIdBase}-${s.id}-title`;
+    const countId = `${headerIdBase}-${s.id}-count`;
     return (
       <li key={`section:${s.id}`} className={classes.join(' ')} {...dragProps(row)}>
         <div role="heading" aria-level={3} className="wl-section-head">
@@ -320,20 +323,37 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
               onBlur={() => finishRename(true)}
             />
           ) : (
-            <button
-              type="button"
-              className="wl-section-toggle"
-              data-section={s.id}
-              aria-expanded={!s.collapsed}
-              aria-describedby={sectionHintId}
-              onFocus={() => setActiveSection(s.id)}
-              onClick={() => update((cur) => setCollapsed(cur, s.id, !s.collapsed))}
-              onKeyDown={(e) => onHeaderKeyDown(e, s, row)}
-            >
-              <span className="wl-chevron" aria-hidden="true">{s.collapsed ? '▸' : '▾'}</span>
-              <span className="wl-section-title" onDoubleClick={() => startRename(s)}>{s.title}</span>
-              {s.collapsed && <span className="wl-section-count">{row.count}<span className="sr-only"> symbols</span></span>}
-            </button>
+            <>
+              {/* The toggle holds only the chevron (named by the title and count), so double-clicking the title to
+                  rename never toggles the section. */}
+              <button
+                type="button"
+                className="wl-section-toggle"
+                data-section={s.id}
+                aria-expanded={!s.collapsed}
+                aria-labelledby={s.collapsed ? `${titleId} ${countId}` : titleId}
+                aria-describedby={sectionHintId}
+                onFocus={() => setActiveSection(s.id)}
+                onClick={() => update((cur) => setCollapsed(cur, s.id, !s.collapsed))}
+                onKeyDown={(e) => onHeaderKeyDown(e, s, row)}
+              >
+                <span className="wl-chevron" aria-hidden="true">{s.collapsed ? '▸' : '▾'}</span>
+              </button>
+              <span
+                id={titleId}
+                className="wl-section-title"
+                onClick={(e) => e.currentTarget.parentElement?.querySelector<HTMLElement>('.wl-section-toggle')?.focus()}
+                onDoubleClick={() => startRename(s)}
+              >
+                {s.title}
+              </span>
+              {s.collapsed && (
+                <>
+                  <span className="wl-section-count" aria-hidden="true">{row.count}</span>
+                  <span id={countId} hidden>{`${row.count} symbols`}</span>
+                </>
+              )}
+            </>
           )}
         </div>
         <button

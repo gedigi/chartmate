@@ -1,7 +1,7 @@
 import {
   HEX_COLOR_RE, MAX_CURRENCY_LENGTH, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_POSITION_AMOUNT, MAX_RISK_PERCENT, MAX_SECTION_TITLE,
   MAX_TEXT_SIZE, MAX_WATCHLIST_SECTIONS, MAX_WATCHLIST_SYMBOLS, MIN_LINE_WIDTH, MIN_TEXT_SIZE, migrateAppearance, TIMEFRAMES,
-  watchlistProblem,
+  mergeLegacyWatchlist, watchlistProblem,
   type DrawingState, type Layout, type PositionSettings, type Timeframe, type WatchlistEntry,
 } from '@altv/shared';
 import type { FastifyInstance } from 'fastify';
@@ -108,15 +108,14 @@ const WatchlistEntrySchema = z.discriminatedUnion('type', [
 ]);
 /**
  * The watchlist: an entry array (symbols and section headers), or the legacy symbol id array (duplicates dropped),
- * which becomes a list of symbol entries.
+ * which is merged into the stored list so its sections survive (see `mergeLegacyWatchlist`).
  */
 const WatchlistBody = z.union([
-  z.array(SymbolIdSchema).max(MAX_WATCHLIST_SYMBOLS)
-    .transform((ids): WatchlistEntry[] => [...new Set(ids)].map((id) => ({ type: 'symbol', id }))),
+  z.array(SymbolIdSchema).max(MAX_WATCHLIST_SYMBOLS).transform((ids) => ({ legacy: ids })),
   z.array(WatchlistEntrySchema).max(MAX_WATCHLIST_SYMBOLS + MAX_WATCHLIST_SECTIONS).superRefine((entries, ctx) => {
     const problem = watchlistProblem(entries);
     if (problem) ctx.addIssue({ code: 'custom', message: problem });
-  }),
+  }).transform((entries) => ({ entries })),
 ]);
 const DrawingsBody = z.array(DrawingSchema).max(500);
 const LayoutKey = z.object({
@@ -131,7 +130,10 @@ export async function userRoutes(app: FastifyInstance, deps: { repos: Repos }): 
 
   app.get('/api/watchlist', async (): Promise<WatchlistEntry[]> => repos.watchlist.list());
   app.put('/api/watchlist', async (request): Promise<WatchlistEntry[]> => {
-    await repos.watchlist.replace(parse(WatchlistBody, request.body));
+    const body = parse(WatchlistBody, request.body);
+    // A tab opened before sections existed sends symbol ids only: merge them so the stored sections survive.
+    const entries = 'legacy' in body ? mergeLegacyWatchlist(await repos.watchlist.list(), body.legacy) : body.entries;
+    await repos.watchlist.replace(entries);
     return repos.watchlist.list();
   });
 

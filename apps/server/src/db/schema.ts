@@ -9,7 +9,7 @@ export interface SymbolsTable {
 }
 export interface BasketsTable { id: string; name: string; base_value: number; created_at: number; updated_at: number }
 export interface BasketVersionsTable { basket_id: string; idx: number; effective_from: string; weights_json: string }
-/** Legacy (pre-sections) watchlist; still mirrored with the symbols so an older server version keeps working. */
+/** Legacy (pre-sections) watchlist; still mirrored with the symbols for a manual rollback (see README). */
 export interface WatchlistTable { symbol: string; position: number }
 /**
  * Watchlist rows in order (migration 003): `kind` 'symbol' (with `symbol`) or 'section' (with `section_id`, `title`,

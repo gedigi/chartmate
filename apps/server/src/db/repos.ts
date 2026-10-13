@@ -293,7 +293,7 @@ export class WatchlistRepo {
     await this.db.transaction().execute(async trx => {
       await trx.deleteFrom('watchlist_entries').execute();
       if (rows.length > 0) await trx.insertInto('watchlist_entries').values(rows).execute();
-      // Mirror the symbols into the legacy table (rollback safety).
+      // Mirror the symbols into the legacy table, read by an older server after a manual rollback (see README).
       await trx.deleteFrom('watchlist').execute();
       if (legacy.length > 0) await trx.insertInto('watchlist').values(legacy).execute();
     });

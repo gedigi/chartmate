@@ -78,7 +78,9 @@ const m002: Migration = {
 /**
  * Watchlist sections: an ordered entry table (symbols and section headers). Existing watchlist rows are copied in
  * order. Idempotent: the table is created only if missing and filled only while empty. The legacy `watchlist`
- * table is kept (and mirrored by the repo) so rolling back to an older version keeps the symbols.
+ * table is kept and mirrored by the repo. An older server refuses to start once this migration is recorded; a manual
+ * rollback (README, "Watchlist and sections") deletes its kysely_migration row, and the older server then reads the
+ * mirrored symbols.
  */
 const m003: Migration = {
   async up(db: Kysely<any>) {

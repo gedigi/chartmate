@@ -93,6 +93,17 @@ describe('watchlist model', () => {
     expect(show(dropEntry(l, 4, 1))).toBe('A #x- B C #y');
   });
 
+  it('a collapsed section that gains symbols through a header delete or move is expanded (nothing gets hidden)', () => {
+    expect(show(deleteSection([h('a', true), s('BTC'), h('b', true), s('ETH')], 'b'))).toBe('#a BTC ETH');
+    expect(show(moveByKey([h('a', true), s('A1'), h('b', true), s('B1'), s('B2')], 2, 1))).toBe('#a A1 B1 #b B2');
+    expect(show(deleteSection([s('T1'), h('a', true), s('A1'), h('b'), s('B1')], 'b'))).toBe('T1 #a A1 B1');
+    // Dropping a header so that symbols fall under a collapsed section expands that section too.
+    expect(show(dropEntry([h('a', true), s('A1'), h('b'), s('B1'), h('c')], 2, 4))).toBe('#a A1 B1 #c #b');
+    // A collapsed section that only loses symbols stays collapsed.
+    expect(show(deleteSection([h('a', true), s('A1'), h('b', true), s('B1')], 'a'))).toBe('A1 #b- B1');
+    expect(show(dropEntry([h('a'), s('A1'), h('b', true), s('B1'), s('B2'), h('c')], 3, 5))).toBe('#a A1 #b- B2 #c B1');
+  });
+
   it('dropping a header onto a collapsed header from above lands after its whole section', () => {
     const l = [h('y'), s('A'), h('x', true), s('B'), s('C')];
     expect(show(dropEntry(l, 0, 2))).toBe('A #x- B C #y');

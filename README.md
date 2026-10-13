@@ -264,9 +264,18 @@ form an untitled top group.
   view.
 
 The API is `GET /api/watchlist` → `WatchlistEntry[]` (`{ type: 'symbol', id }` or
-`{ type: 'section', id: <uuid>, title, collapsed }`) and `PUT /api/watchlist` with the same array; `PUT` still
-accepts the older plain symbol id array. Migration 003 copies an existing watchlist into the new storage (the old
-table is kept in sync with the symbols, so rolling back to an older version keeps them).
+`{ type: 'section', id: <uuid>, title, collapsed }`) and `PUT /api/watchlist` with the same array. `PUT` still
+accepts the older plain symbol id array (e.g. from a tab opened before an upgrade): it is merged into the stored
+list, so sections are kept — removed symbols are dropped, the rest follow the array's order, new ones are appended
+(an empty array still empties the list). Migration 003 copies an existing watchlist, in order, into the new
+`watchlist_entries` table; the old `watchlist` table is kept and mirrored with the symbols.
+
+Downgrading is not automatic: an older server refuses to start once migration 003 is recorded (Kysely rejects
+unknown applied migrations). To roll back anyway, stop the server, back up the database and delete that record —
+`DELETE FROM kysely_migration WHERE name = '003_watchlist_sections';` — then start the older version: it reads the
+mirrored `watchlist` table (symbols only; sections are not visible to it). Upgrading again re-runs 003, which keeps
+the existing `watchlist_entries` rows, so watchlist edits made while downgraded are not carried over (empty that
+table before upgrading to re-import the old list instead).
 
 ## Baskets
 

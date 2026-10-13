@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  MAX_SECTION_TITLE, MAX_WATCHLIST_SECTIONS, MAX_WATCHLIST_SYMBOLS, normalizeWatchlist, watchlistProblem, watchlistSymbols,
+  MAX_SECTION_TITLE, MAX_WATCHLIST_SECTIONS, MAX_WATCHLIST_SYMBOLS, mergeLegacyWatchlist, normalizeWatchlist, watchlistProblem, watchlistSymbols,
   type WatchlistEntry,
 } from '../src/watchlist.js';
 
@@ -45,5 +45,18 @@ describe('watchlist entries', () => {
     const secs = Array.from({ length: MAX_WATCHLIST_SECTIONS + 1 }, (_, i) => sec(`${String(i).padStart(8, '0')}-3f1a-4c1e-9a7b-2a1d3c4e5f60`));
     expect(watchlistProblem(secs)).toMatch(/sections/);
     expect(watchlistProblem(secs.slice(1))).toBeNull();
+  });
+
+  it('mergeLegacyWatchlist keeps sections: drops removed ids, refills slots in the new order, appends new ids', () => {
+    const stored = [sym('stock:A'), sec(UUID_A, 'Tech'), sym('stock:B'), sym('stock:C'), sec(UUID_B, 'Coins', true), sym('crypto:D')];
+    // C removed, D and A swapped, E new.
+    expect(mergeLegacyWatchlist(stored, ['crypto:D', 'stock:B', 'stock:A', 'stock:E'])).toEqual([
+      sym('crypto:D'), sec(UUID_A, 'Tech'), sym('stock:B'), sec(UUID_B, 'Coins', true), sym('stock:A'), sym('stock:E'),
+    ]);
+    // Same ids, same order → unchanged.
+    expect(mergeLegacyWatchlist(stored, ['stock:A', 'stock:B', 'stock:C', 'crypto:D'])).toEqual(stored);
+    // No sections stored, or an empty array → plain replace.
+    expect(mergeLegacyWatchlist([sym('stock:A')], ['stock:B', 'stock:A'])).toEqual([sym('stock:B'), sym('stock:A')]);
+    expect(mergeLegacyWatchlist(stored, [])).toEqual([]);
   });
 });

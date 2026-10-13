@@ -75,3 +75,23 @@ export function watchlistProblem(entries: readonly WatchlistEntry[]): string | n
   if (sections.size > MAX_WATCHLIST_SECTIONS) return `at most ${MAX_WATCHLIST_SECTIONS} sections`;
   return null;
 }
+
+/**
+ * Applies a legacy `SymbolId[]` save (e.g. from a tab opened before sections existed) to the stored list without
+ * losing its sections: stored entries are kept, symbols missing from `ids` are dropped, the remaining symbol slots
+ * are refilled in the order `ids` gives, and ids not stored yet are appended. With no stored sections, or an empty
+ * `ids`, this is a plain replace.
+ */
+export function mergeLegacyWatchlist(stored: readonly WatchlistEntry[], ids: readonly SymbolId[]): WatchlistEntry[] {
+  const unique = [...new Set(ids)];
+  const plain = unique.map((id): WatchlistEntry => ({ type: 'symbol', id }));
+  if (unique.length === 0 || !stored.some((e) => e.type === 'section')) return plain;
+  const wanted = new Set(unique);
+  const kept = stored.filter((e) => e.type === 'section' || wanted.has(e.id));
+  const storedIds = new Set(watchlistSymbols(stored));
+  const refill = unique.filter((id) => storedIds.has(id));
+  let k = 0;
+  const out = kept.map((e): WatchlistEntry => (e.type === 'symbol' ? { type: 'symbol', id: refill[k++]! } : e));
+  for (const id of unique) if (!storedIds.has(id)) out.push({ type: 'symbol', id });
+  return out;
+}

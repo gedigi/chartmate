@@ -37,6 +37,30 @@ export function setCollapsed(entries: Entries, sectionId: string, collapsed: boo
   return next;
 }
 
+/** Section of every symbol (null = top group). */
+function membership(entries: Entries): Map<string, string | null> {
+  const out = new Map<string, string | null>();
+  let section: string | null = null;
+  for (const e of entries) {
+    if (e.type === 'section') section = e.id;
+    else out.set(e.id, section);
+  }
+  return out;
+}
+
+/**
+ * Expands every collapsed section of `after` that gained a symbol compared to `before`, so a header delete / move
+ * never hides a symbol that was visible.
+ */
+function expandGainers(before: Entries, after: WatchlistEntry[]): WatchlistEntry[] {
+  const was = membership(before);
+  let next = after;
+  for (const [id, section] of membership(after)) {
+    if (section !== null && was.get(id) !== section) next = setCollapsed(next, section, false);
+  }
+  return next;
+}
+
 function expand(entries: Entries, sectionId: string | null): WatchlistEntry[] {
   return sectionId === null ? (entries as WatchlistEntry[]) : setCollapsed(entries, sectionId, false);
 }
@@ -75,10 +99,10 @@ export function renameSection(entries: Entries, sectionId: string, title: string
   return next;
 }
 
-/** Removes only the header: its symbols join the previous section. */
+/** Removes only the header: its symbols join the previous section (expanded if collapsed, so they stay visible). */
 export function deleteSection(entries: Entries, sectionId: string): WatchlistEntry[] {
   const i = headerIndex(entries, sectionId);
-  return i < 0 ? (entries as WatchlistEntry[]) : entries.filter((_, j) => j !== i);
+  return i < 0 ? (entries as WatchlistEntry[]) : expandGainers(entries, entries.filter((_, j) => j !== i));
 }
 
 function splice(entries: Entries, from: number, to: number): WatchlistEntry[] {
@@ -98,15 +122,15 @@ export function moveByKey(entries: Entries, index: number, dir: -1 | 1): Watchli
   let next = expand(entries, sectionIdAt(entries, index));
   next = expand(next, sectionIdAt(next, to));
   next = splice(next, index, to);
-  if (next[to]!.type === 'symbol') next = expand(next, sectionIdAt(next, to));
-  return next;
+  return expandGainers(entries, next);
 }
 
 /**
  * Drag and drop of the entry at `from` onto the row of the entry at `to` (splice semantics: moving down lands after
  * the target, moving up before it). Dropping a symbol onto a collapsed header appends it to that section, which stays
  * collapsed; a header dropped onto a collapsed header from above lands after that whole section. A moved collapsed
- * header is expanded (it moves alone, so its symbols become part of the section above).
+ * header is expanded (it moves alone, so its symbols become part of the section above), and so is any other collapsed
+ * section that gains symbols.
  */
 export function dropEntry(entries: Entries, from: number, to: number): WatchlistEntry[] {
   if (from === to || from < 0 || to < 0 || from >= entries.length || to >= entries.length) return entries as WatchlistEntry[];
@@ -116,13 +140,16 @@ export function dropEntry(entries: Entries, from: number, to: number): Watchlist
     const without = entries.filter((_, j) => j !== from);
     const h = headerIndex(without, target.id);
     const next = without.slice();
-    next.splice(blockEnd(without, h), 0, moved.type === 'section' ? { ...moved, collapsed: false } : moved);
-    return next;
+    if (moved.type === 'symbol') {
+      next.splice(blockEnd(without, h), 0, moved); // explicit drop into a collapsed section: it stays collapsed
+      return next;
+    }
+    next.splice(blockEnd(without, h), 0, { ...moved, collapsed: false });
+    return expandGainers(entries, next);
   }
   let next = moved.type === 'section' ? setCollapsed(entries, moved.id, false) : (entries as WatchlistEntry[]);
   next = splice(next, from, to);
-  if (moved.type === 'symbol') next = expand(next, sectionIdAt(next, to));
-  return next;
+  return expandGainers(entries, next);
 }
 
 export interface WatchlistRow {

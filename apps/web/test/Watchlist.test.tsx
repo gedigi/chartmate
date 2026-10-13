@@ -413,6 +413,24 @@ describe('Watchlist sections', () => {
     expect(lastPut()[1]).toEqual(section(SEC_X, 'Semis'));
   });
 
+  it('double-clicking the title renames without toggling the section (no flicker, no save)', async () => {
+    setup(LIST());
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await screen.findByText('BTC');
+    const toggle = header('Tech');
+    const changes: string[] = [];
+    const observer = new MutationObserver(() => changes.push(toggle.getAttribute('aria-expanded')!));
+    observer.observe(toggle, { attributes: true, attributeFilter: ['aria-expanded'] });
+    const title = screen.getAllByText('Tech').find((el) => el.classList.contains('wl-section-title'))!;
+    await userEvent.dblClick(title);
+    observer.disconnect();
+    expect(changes).toEqual([]);
+    await userEvent.keyboard('{Escape}');
+    expect(header('Tech')).toHaveAttribute('aria-expanded', 'true');
+    await act(async () => { await new Promise((r) => setTimeout(r, 700)); });
+    expect(put).not.toHaveBeenCalled();
+  });
+
   it('actions menu: Rename, Add section above, Delete section (symbols move to the previous section)', async () => {
     setup(LIST());
     render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
@@ -456,7 +474,7 @@ describe('Watchlist sections', () => {
     await screen.findByText('BTC');
     await userEvent.click(header('Tech'));
     expect(header('Tech')).toHaveAttribute('aria-expanded', 'false');
-    expect(header('Tech')).toHaveTextContent('2');
+    expect(header('Tech')).toHaveAccessibleName('Tech 2 symbols');
     expect(visible()).toEqual(['stock:SPY', '#Tech', '#Crypto', 'crypto:BTC']);
     await waitFor(() => expect(put).toHaveBeenCalled(), { timeout: 2000 });
     expect(lastPut()[1]).toEqual(section(SEC_X, 'Tech', true));
@@ -555,7 +573,7 @@ describe('Watchlist sections', () => {
     await screen.findByText('BTC');
     drag(document.querySelector<HTMLElement>('[data-symbol="crypto:BTC"]')!, header('Tech'));
     expect(visible()).toEqual(['stock:SPY', '#Tech', '#Crypto']);
-    expect(header('Tech')).toHaveTextContent('2');
+    expect(header('Tech')).toHaveAccessibleName('Tech 2 symbols');
     await waitFor(() => expect(put).toHaveBeenCalled(), { timeout: 2000 });
     expect(lastPut().map((e) => e.id)).toEqual(['stock:SPY', SEC_X, 'stock:AAPL', 'crypto:BTC', SEC_Y]);
   });

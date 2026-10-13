@@ -31,6 +31,29 @@ describe('user routes', () => {
     expect(put.json()).toEqual(entries(['stock:AAPL', 'crypto:BTC']));
   });
 
+  it('a legacy PUT merges into a list with sections instead of wiping them; [] still empties it', async () => {
+    const stored = [
+      { type: 'symbol', id: 'stock:SPY' },
+      { type: 'section', id: SEC_A, title: 'Tech', collapsed: true },
+      { type: 'symbol', id: 'stock:AAPL' },
+      { type: 'symbol', id: 'stock:MSFT' },
+    ];
+    await t.app.inject({ method: 'PUT', url: '/api/watchlist', payload: stored });
+    // An old tab: MSFT removed, AAPL moved first, BTC added.
+    const put = await t.app.inject({ method: 'PUT', url: '/api/watchlist', payload: ['stock:AAPL', 'stock:SPY', 'crypto:BTC'] });
+    expect(put.statusCode).toBe(200);
+    const merged = [
+      { type: 'symbol', id: 'stock:AAPL' },
+      { type: 'section', id: SEC_A, title: 'Tech', collapsed: true },
+      { type: 'symbol', id: 'stock:SPY' },
+      { type: 'symbol', id: 'crypto:BTC' },
+    ];
+    expect(put.json()).toEqual(merged);
+    expect((await t.app.inject({ method: 'GET', url: '/api/watchlist' })).json()).toEqual(merged);
+    const empty = await t.app.inject({ method: 'PUT', url: '/api/watchlist', payload: [] });
+    expect(empty.json()).toEqual([]);
+  });
+
   it('watchlist entries with sections round-trip in order', async () => {
     const body = [
       { type: 'symbol', id: 'stock:SPY' },
