@@ -448,7 +448,12 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
             <span className="wl-price">{q && info ? fmtPrice(q.price, info.pricePrecision) : '—'}</span>
             <span className={`wl-change ${chg?.dir ?? ''}`}>{chg ? chg.text : '—'}</span>
           </span>
-          {q?.ext && info && <ExtLine ext={q.ext} precision={info.pricePrecision} />}
+          {/* Always present, so rows keep their height when the extended line comes and goes at 09:30/16:00. */}
+          {q?.ext && info ? (
+            <span className="wl-ext-slot"><ExtLine ext={q.ext} precision={info.pricePrecision} /></span>
+          ) : (
+            <span className="wl-ext-slot" aria-hidden="true" />
+          )}
         </div>
         <button
           type="button"

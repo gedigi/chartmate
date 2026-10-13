@@ -257,6 +257,18 @@ describe('Watchlist', () => {
       expect(extOf('stock:AAPL')).not.toBeNull();
     });
 
+    it('every row reserves the second line (stable height across 09:30/16:00); an empty slot is hidden from AT', async () => {
+      setupExt();
+      render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+      await waitFor(() => expect(extOf('stock:AAPL')).not.toBeNull());
+      for (const r of rows()) expect(r.querySelectorAll(':scope > .wl-ext-slot')).toHaveLength(1);
+      const btcSlot = rows()[2]!.querySelector('.wl-ext-slot')!;
+      expect(btcSlot).toBeEmptyDOMElement();
+      expect(btcSlot).toHaveAttribute('aria-hidden', 'true');
+      expect(rows()[0]!.querySelector('.wl-ext-slot')).not.toHaveAttribute('aria-hidden');
+      expect(rows()[0]!.querySelector('.wl-ext-slot > .wl-ext')).not.toBeNull();
+    });
+
     it('a neutral extended change is uncolored "0.00%"', async () => {
       setup(['stock:AAPL']);
       quotes.mockResolvedValue([{ id: 'stock:AAPL', price: 10, changePct: 1, ts: 1, ext: { session: 'post', price: 10, changePct: 0.001, ts: POST_TS } }]);

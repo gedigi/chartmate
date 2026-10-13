@@ -70,10 +70,12 @@
 .wl-change.up { color: var(--up); }
 .wl-change.down { color: var(--down); }
 /* Pre/post-market line under the regular quote: "Pre 231.40 +0.82%" */
-.wl-ext {
-  grid-column: 1 / -1; justify-self: end; margin-top: 1px; font-size: 11px; line-height: 1.2;
-  font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text);
+/* The slot is on every row with a fixed height, so rows don't jump when the line appears or disappears. */
+.wl-ext-slot {
+  grid-column: 1 / -1; justify-self: end; height: 14px; margin-top: 1px; overflow: hidden;
+  font-size: 11px; line-height: 14px;
 }
+.wl-ext { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text); }
 .wl-ext-label { color: var(--text-muted); }
 .wl-ext-change { color: var(--text-muted); }
 .wl-ext-change.up { color: var(--up); }
