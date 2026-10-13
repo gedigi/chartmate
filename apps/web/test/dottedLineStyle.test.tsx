@@ -11,7 +11,11 @@ import { IndicatorSettings } from '../src/components/IndicatorSettings';
 
 describe('dotted line style', () => {
   it('maps to KLineChart dashed with round caps and a dot pattern that scales with the width', () => {
-    expect(dashPattern('dotted', 1)).toEqual([0, 2]);
+    // 1px: square 1px dots every 3px (round-cap zero-length dashes would be half-alpha specks at width 1).
+    expect(dashPattern('dotted', 1)).toEqual([1, 2]);
+    expect(lineToOverlay({ color: '#ff0000', size: 1, style: 'dotted' })).toEqual({
+      line: { color: '#ff0000', size: 1, style: 'dashed', dashedValue: [1, 2], lineCap: 'butt' },
+    });
     expect(dashPattern('dotted', 3)).toEqual([0, 6]);
     expect(lineToOverlay({ color: '#ff0000', size: 2, style: 'dotted' })).toEqual({
       line: { color: '#ff0000', size: 2, style: 'dashed', dashedValue: [0, 4], lineCap: 'round' },
@@ -24,10 +28,12 @@ describe('dotted line style', () => {
   });
 
   it('reads back as dotted (round trip through the overlay styles)', () => {
-    for (const style of ['solid', 'dashed', 'dotted'] as const) {
-      const l = { color: '#123456', size: 3, style };
-      expect(readLine(lineToOverlay(l))).toEqual(l);
-      expect(normalizeOverlayStyles('segment', lineToOverlay(l))).toEqual({ line: l });
+    for (const size of [1, 2, 3, 4]) {
+      for (const style of ['solid', 'dashed', 'dotted'] as const) {
+        const l = { color: '#123456', size, style };
+        expect(readLine(lineToOverlay(l)), `${style} ${size}`).toEqual(l);
+        expect(normalizeOverlayStyles('segment', lineToOverlay(l))).toEqual({ line: l });
+      }
     }
   });
 

@@ -95,6 +95,15 @@ describe('channel midline geometry', () => {
     expect(midlineDash('dotted', 1)).toEqual([14, 6]);
     expect(midlineDash('solid', 4)).toEqual([12, 8]);
   });
+
+  it('reads a 1px dotted channel (square-dot pattern) as dotted', () => {
+    const t = (k.templates.get('parallelStraightLine') ?? (T.registerDrawingTemplates(), k.templates.get('parallelStraightLine')))!;
+    const bounding = { width: 200, height: 100, left: 0, top: 0, right: 0, bottom: 0 };
+    const chart = { getStyles: () => ({ overlay: { line: { color: '#2962ff', size: 1, style: 'solid' } } }) };
+    const overlay = { styles: { line: { color: '#ff0000', size: 1, style: 'dashed', dashedValue: [1, 2], lineCap: 'butt' } } };
+    const figs = t.createPointFigures({ chart, overlay, coordinates: [{ x: 0, y: 10 }, { x: 100, y: 60 }, { x: 0, y: 50 }], bounding });
+    expect(figs[1].styles.dashedValue).toEqual(midlineDash('dotted', 1));
+  });
 });
 
 describe('price label options', () => {
@@ -188,5 +197,28 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     expect(on.map((f: { type: string }) => f.type)).toEqual(['line', 'text']);
     expect(on[1].attrs.text).toBe('5.000');
     expect(t.createYAxisFigures({ ...base, overlay: { points: [{ value: 5 }], styles: null } })[0].attrs).toMatchObject({ text: '5.000', x: 0, align: 'left' });
+  });
+});
+
+// Last: it swaps the registered templates for a fresh module instance's (as HMR does).
+describe('registerDrawingTemplates across module instances (HMR)', () => {
+  const chart = () => ({ getStyles: () => ({ overlay: { line: { color: '#2962ff', size: 1, style: 'solid' } } }) });
+  it('never wraps an already wrapped template (HMR re-runs the module: the midline must not be drawn twice)', async () => {
+    // A fresh module instance (as after HMR) whose getOverlayClass now returns the classes registered above.
+    const actual = await vi.importActual<typeof import('klinecharts')>('klinecharts');
+    for (const t of k.templates.values()) actual.registerOverlay(t as never);
+    vi.resetModules();
+    vi.doMock('klinecharts', () => ({
+      getOverlayClass: actual.getOverlayClass,
+      registerOverlay: (t: { name: string }) => { k.templates.set(t.name, t); },
+    }));
+    const fresh = await import('../../src/chart/drawingTemplates');
+    fresh.registerDrawingTemplates();
+    const t = k.templates.get('parallelStraightLine')!;
+    const bounding = { width: 200, height: 100, left: 0, top: 0, right: 0, bottom: 0 };
+    const figs = t.createPointFigures({ chart: chart(), overlay: { styles: null }, coordinates: [{ x: 0, y: 10 }, { x: 100, y: 60 }, { x: 0, y: 50 }], bounding });
+    expect(figs.filter((f: { type: string; attrs: unknown }) => f.type === 'line' && !Array.isArray(f.attrs))).toHaveLength(1); // one midline
+    expect(t[fresh.WRAPPED_MARK]).toBe(true);
+    vi.doUnmock('klinecharts');
   });
 });

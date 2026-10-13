@@ -27,11 +27,21 @@ export function parseLineStyle(v: string): LineStyleKind {
 }
 
 /**
- * KLineChart only knows solid / dashed: dotted is a dashed line of zero-length dashes with round caps (each
- * dash renders as a dot of the line's width), spaced by twice the width so it scales with it.
+ * KLineChart only knows solid / dashed: dotted is a dashed line of dots. From 2px they are zero-length dashes
+ * with round caps (a dot of the line's width) spaced by twice the width; at 1px a round cap only paints a
+ * half-alpha speck, so 1px dots are square 1px dashes every 3px (butt caps).
  */
 export function dashPattern(style: LineStyleKind, size: number, dashed: number[] = DRAWING_DASH): number[] {
-  return style === 'dotted' ? [0, size * 2] : dashed;
+  if (style !== 'dotted') return dashed;
+  return size <= 1 ? [1, 2] : [0, size * 2];
+}
+
+/** True when KLineChart line styles are our dotted mapping (see dashPattern / klineLine). */
+export function isDottedLine(l: Record<string, unknown> | undefined): boolean {
+  if (l?.style !== 'dashed') return false;
+  if (l.lineCap === 'round') return true;
+  const d = l.dashedValue;
+  return Array.isArray(d) && d.length === 2 && d[0] === 1 && d[1] === 2 && l.size === 1;
 }
 
 /**
@@ -42,7 +52,7 @@ export function klineLine(style: LineStyleKind, size: number, dashed: number[] =
   return {
     style: style === 'solid' ? 'solid' : 'dashed',
     dashedValue: dashPattern(style, size, dashed),
-    lineCap: style === 'dotted' ? 'round' : 'butt',
+    lineCap: style === 'dotted' && size > 1 ? 'round' : 'butt',
   };
 }
 
@@ -81,8 +91,8 @@ export function readLine(styles: unknown): DrawingLineStyle | null {
   const l = (styles as { line?: Record<string, unknown> } | null | undefined)?.line;
   if (!l || !isHexColor(l.color) || !intIn(l.size, MIN_LINE_WIDTH, MAX_LINE_WIDTH)) return null;
   if (l.style !== 'solid' && l.style !== 'dashed' && l.style !== 'dotted') return null;
-  // Normalized ('dotted') or KLineChart form (dotted = dashed with round caps, see klineLine).
-  const style: LineStyleKind = l.style === 'dashed' && l.lineCap === 'round' ? 'dotted' : l.style;
+  // Normalized ('dotted') or KLineChart form (dotted = dashed with a dot pattern, see klineLine).
+  const style: LineStyleKind = isDottedLine(l) ? 'dotted' : l.style;
   return { color: l.color.toLowerCase(), size: l.size, style };
 }
 

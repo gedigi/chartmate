@@ -72,10 +72,12 @@ export function midlineDash(channel: LineStyleKind, size: number): number[] {
   return channel === 'solid' ? [6 * f, 4 * f] : [14 * f, 6 * f];
 }
 
-/** Line style kind of KLineChart overlay line styles (dotted = dashed with round caps, see drawingStyles). */
+/** Line style kind of KLineChart overlay line styles (dotted mapping: see drawingStyles dashPattern). */
 function kindOf(line: Record<string, unknown> | undefined): LineStyleKind {
   if (line?.style !== 'dashed') return 'solid';
-  return line.lineCap === 'round' ? 'dotted' : 'dashed';
+  const d = line.dashedValue;
+  const oneDot = Array.isArray(d) && d[0] === 1 && d[1] === 2 && line.size === 1;
+  return line.lineCap === 'round' || oneDot ? 'dotted' : 'dashed';
 }
 
 /** Key of the price-label options inside an overlay's KLineChart styles (ignored by KLineChart itself). */
@@ -104,7 +106,7 @@ type Template = OverlayTemplate & Record<string, unknown>;
 const TEMPLATE_KEYS = [
   'name', 'totalStep', 'drawingMode', 'lock', 'visible', 'zLevel', 'mode', 'modeSensitivity', 'needDefaultPointFigure',
   'needDefaultXAxisFigure', 'needDefaultYAxisFigure', 'createPointFigures', 'createXAxisFigures', 'createYAxisFigures',
-  'performEventPressedMove', 'performEventMoveForDrawing', 'styles', 'extendData',
+  'performEventPressedMove', 'performEventMoveForDrawing', 'styles', 'extendData', '__altvWrapped', '__altvOriginal',
 ] as const;
 
 /** The template a built-in overlay class was made from (its constructor merges the template into the instance). */
@@ -211,15 +213,25 @@ function withLabels(t: Template): Template {
   } as Template;
 }
 
+/** Marks a template wrapped by us; ORIGINAL_KEY holds the KLineChart template it wraps. */
+export const WRAPPED_MARK = '__altvWrapped';
+const ORIGINAL_KEY = '__altvOriginal';
+
 let registered = false;
 
-/** Re-registers the wrapped built-in drawing templates (once; a no-op when KLineChart lacks a template). */
+/**
+ * Re-registers the wrapped built-in drawing templates (once per module; a no-op when KLineChart lacks a
+ * template). Idempotent across module instances too (HMR): an already wrapped class is unwrapped to its
+ * original template first, so wrappers never stack (e.g. two channel midlines) and use this module's state.
+ */
 export function registerDrawingTemplates(): void {
   if (registered) return;
   registered = true;
   const wrap = (name: string, f: (t: Template) => Template) => {
     const t = builtinTemplate(name);
-    if (t) registerOverlay(f(t));
+    if (!t) return;
+    const base = t[WRAPPED_MARK] === true && t[ORIGINAL_KEY] ? (t[ORIGINAL_KEY] as Template) : t;
+    registerOverlay({ ...f(base), [WRAPPED_MARK]: true, [ORIGINAL_KEY]: base } as Template);
   };
   wrap('segment', withShift);
   wrap('rayLine', withShift);

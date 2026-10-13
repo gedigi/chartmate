@@ -159,6 +159,22 @@ describe('DrawingStyleBar', () => {
       expect(c.setSelectedPrice).toHaveBeenCalledWith(99);
     });
 
+    it('malformed text (validity.badInput, e.g. "1.2.3") says the price must be a positive number', () => {
+      const { c, emit } = makeControls();
+      render(<DrawingStyleBar controls={c} />);
+      emit({ ...LINE, price: { value: 100, precision: 2 } });
+      // Browsers report unparsable number-input text as an empty value with validity.badInput set.
+      Object.defineProperty(price(), 'validity', { configurable: true, get: () => ({ badInput: true }) });
+      fireEvent.change(price(), { target: { value: '' } });
+      fireEvent.keyDown(price(), { key: 'Enter' });
+      expect(screen.getByRole('alert')).toHaveTextContent('Price must be a positive number');
+      Object.defineProperty(price(), 'validity', { configurable: true, get: () => ({ badInput: false }) });
+      fireEvent.change(price(), { target: { value: '' } });
+      fireEvent.keyDown(price(), { key: 'Enter' });
+      expect(screen.getByRole('alert')).toHaveTextContent('Enter a price');
+      expect(c.setSelectedPrice).not.toHaveBeenCalled();
+    });
+
     it('the field follows the selection (new price / other drawing) and is disabled for locked drawings', () => {
       const { c, emit } = makeControls();
       render(<DrawingStyleBar controls={c} />);

@@ -13,7 +13,9 @@ export function formatPrice(value: number, precision: number): string {
 }
 
 /** Error message for a typed price, or null when it is valid. */
-function priceError(text: string): string | null {
+function priceError(text: string, badInput = false): string | null {
+  // A number input reports unparsable text (e.g. "1.2.3") as an empty value with validity.badInput.
+  if (badInput) return 'Price must be a positive number';
   const t = text.trim();
   if (t === '') return 'Enter a price';
   const v = Number(t);
@@ -46,7 +48,7 @@ function PriceField({ controls, value, precision, locked, focusRequest, onFocuse
   }, [focusRequest]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const apply = () => {
-    const err = priceError(text);
+    const err = priceError(text, ref.current?.validity?.badInput === true);
     setError(err);
     if (err) return;
     const v = Number(text.trim());
