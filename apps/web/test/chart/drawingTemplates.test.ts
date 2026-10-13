@@ -206,8 +206,8 @@ describe('extend options', () => {
   it('new channels default to finite; legacy channels (no extend) to extended both ways; own options win', () => {
     expect(extendOptions('parallelChannel', undefined)).toEqual({ left: false, right: false });
     expect(extendOptions('parallelStraightLine', null)).toEqual({ left: true, right: true });
-    expect(extendOptions('parallelChannel', { altvExtend: { right: true } })).toEqual({ left: false, right: true });
-    expect(extendOptions('parallelStraightLine', { altvExtend: { left: false } })).toEqual({ left: false, right: true });
+    expect(extendOptions('parallelChannel', { chartmateExtend: { right: true } })).toEqual({ left: false, right: true });
+    expect(extendOptions('parallelStraightLine', { chartmateExtend: { left: false } })).toEqual({ left: false, right: true });
     expect(extendOptions('segment', undefined)).toBeNull();
   });
 });
@@ -217,8 +217,8 @@ describe('price label options', () => {
     expect(labelOptions('priceLine', undefined)).toEqual({ onLine: true, onAxis: true });
     expect(labelOptions('horizontalStraightLine', null)).toEqual({ onLine: false, onAxis: true });
     expect(labelOptions('segment', undefined)).toBeNull();
-    expect(labelOptions('priceLine', { altvLabel: { onLine: false } })).toEqual({ onLine: false, onAxis: true });
-    expect(labelOptions('horizontalStraightLine', { altvLabel: { onLine: true, onAxis: false } })).toEqual({ onLine: true, onAxis: false });
+    expect(labelOptions('priceLine', { chartmateLabel: { onLine: false } })).toEqual({ onLine: false, onAxis: true });
+    expect(labelOptions('horizontalStraightLine', { chartmateLabel: { onLine: true, onAxis: false } })).toEqual({ onLine: true, onAxis: false });
   });
 });
 
@@ -310,7 +310,7 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     const t = tpl('parallelChannel');
     const bounding = { width: 400, height: 300, left: 0, top: 0, right: 0, bottom: 0 };
     const coords = [{ x: 100, y: 50 }, { x: 200, y: 100 }, { x: 150, y: 175 }];
-    const both = t.createPointFigures({ chart: chart(), overlay: { name: 'parallelChannel', styles: { altvExtend: { left: true, right: true } } }, coordinates: coords, bounding });
+    const both = t.createPointFigures({ chart: chart(), overlay: { name: 'parallelChannel', styles: { chartmateExtend: { left: true, right: true } } }, coordinates: coords, bounding });
     expect(linesOf(both)[0]).toEqual({ coordinates: [{ x: 0, y: 0 }, { x: 400, y: 200 }] });
     expect(midOf(both)!.attrs.coordinates).toEqual([{ x: 0, y: 50 }, { x: 400, y: 250 }]);
     expect(both[0].attrs.coordinates).toEqual([{ x: 0, y: 0 }, { x: 400, y: 200 }, { x: 400, y: 300 }, { x: 0, y: 100 }]);
@@ -324,11 +324,11 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     const base = { chart: { ...chart(2), getDecimalFold: () => ({ format: (s: string) => s }), getThousandsSeparator: () => ({ format: (s: string) => s.replace(/^(\d+)(\d{3})/, '$1,$2') }) }, coordinates: [{ x: 10, y: 40 }], bounding, yAxis };
     const shown = t.createPointFigures({ ...base, overlay: { points: [{ value: 84123.45 }], styles: null } });
     expect(shown.map((f: { type: string }) => f.type)).toEqual(['line', 'text']);
-    const hidden = t.createPointFigures({ ...base, overlay: { points: [{ value: 84123.45 }], styles: { altvLabel: { onLine: false, onAxis: true } } } });
+    const hidden = t.createPointFigures({ ...base, overlay: { points: [{ value: 84123.45 }], styles: { chartmateLabel: { onLine: false, onAxis: true } } } });
     expect(hidden.map((f: { type: string }) => f.type)).toEqual(['line']);
     const axis = t.createYAxisFigures({ ...base, overlay: { points: [{ value: 84123.4 }], styles: null } });
     expect(axis).toEqual([expect.objectContaining({ type: 'text', attrs: expect.objectContaining({ text: '84,123.40', y: 40, x: 300, align: 'right' }) })]);
-    expect(t.createYAxisFigures({ ...base, overlay: { points: [{ value: 1 }], styles: { altvLabel: { onAxis: false } } } })).toEqual([]);
+    expect(t.createYAxisFigures({ ...base, overlay: { points: [{ value: 1 }], styles: { chartmateLabel: { onAxis: false } } } })).toEqual([]);
   });
 
   it('horizontal line: no text on the line by default, can be turned on; axis label on by default', () => {
@@ -336,7 +336,7 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     const bounding = { width: 300, height: 100, left: 0, top: 0, right: 0, bottom: 0 };
     const base = { chart: chart(3), coordinates: [{ x: 10, y: 40 }], bounding, yAxis: { isFromZero: () => true } };
     expect(t.createPointFigures({ ...base, overlay: { points: [{ value: 5 }], styles: null } }).map((f: { type: string }) => f.type)).toEqual(['line']);
-    const on = t.createPointFigures({ ...base, overlay: { points: [{ value: 5 }], styles: { altvLabel: { onLine: true, onAxis: true } } } });
+    const on = t.createPointFigures({ ...base, overlay: { points: [{ value: 5 }], styles: { chartmateLabel: { onLine: true, onAxis: true } } } });
     expect(on.map((f: { type: string }) => f.type)).toEqual(['line', 'text']);
     expect(on[1].attrs.text).toBe('5.000');
     expect(t.createYAxisFigures({ ...base, overlay: { points: [{ value: 5 }], styles: null } })[0].attrs).toMatchObject({ text: '5.000', x: 0, align: 'left' });
@@ -371,7 +371,7 @@ describe('channel hit-testing (KLineChart line / polygon figures)', () => {
   });
 
   it('extended right: the extension hits on the right only', async () => {
-    const on = await hits({ altvExtend: { right: true } });
+    const on = await hits({ chartmateExtend: { right: true } });
     expect(on(300, 150)).toBe(true);
     expect(on(300, 200)).toBe(true); // inside the extended fill
     expect(on(50, 25)).toBe(false);

@@ -262,7 +262,7 @@ describe('ChartAdapter', () => {
 
   it('registers the marker overlay template (a dashed vertical line with a label, ignoring events)', () => {
     make();
-    const tpl = k.state.overlayTemplates.find((t) => t.name === 'altvMarker')!;
+    const tpl = k.state.overlayTemplates.find((t) => t.name === 'chartmateMarker')!;
     expect(tpl).toBeDefined();
     const figures = tpl.createPointFigures({
       overlay: { extendData: 'Start' }, coordinates: [{ x: 40, y: 99 }], bounding: { width: 300, height: 200 },
@@ -304,14 +304,14 @@ describe('ChartAdapter', () => {
     expect(styles.candle.area.backgroundColor).toEqual([{ offset: 0, color: 'rgba(0,0,0,0)' }, { offset: 1, color: 'rgba(0,0,0,0)' }]);
   });
 
-  it('setMarkers places locked altvMarker overlays in group markers on the containing bar', () => {
+  it('setMarkers places locked chartmateMarker overlays in group markers on the containing bar', () => {
     const a = make();
     chart().data.push({ timestamp: 1000, high: 10 }, { timestamp: 2000, high: 20 }, { timestamp: 3000, high: 30 });
     a.setMarkers([{ ts: 2000, label: 'v2' }, { ts: 2500, label: 'v3' }, { ts: 9999, label: 'future' }]);
     const ms = chart().overlays.filter((o) => o.groupId === 'markers');
     expect(ms.map((o) => ({ name: o.name, lock: o.lock, points: o.points, text: o.extendData }))).toEqual([
-      { name: 'altvMarker', lock: true, points: [{ timestamp: 2000, value: 20 }], text: 'v2' },
-      { name: 'altvMarker', lock: true, points: [{ timestamp: 3000, value: 30 }], text: 'v3' },
+      { name: 'chartmateMarker', lock: true, points: [{ timestamp: 2000, value: 20 }], text: 'v2' },
+      { name: 'chartmateMarker', lock: true, points: [{ timestamp: 3000, value: 30 }], text: 'v3' },
     ]);
     a.setMarkers([]);
     expect(chart().overlays.filter((o) => o.groupId === 'markers')).toHaveLength(0);
@@ -1371,7 +1371,7 @@ describe('ChartAdapter Shift constraint and price labels', () => {
       { name: 'segment', points: [{ timestamp: D1, value: 1 }, { timestamp: D2, value: 2 }], lock: false },
     ]);
     const [p, h, s] = userOverlays();
-    expect(p!.styles).toEqual({ altvLabel: { onLine: false } });
+    expect(p!.styles).toEqual({ chartmateLabel: { onLine: false } });
     p!.onSelected?.({ overlay: p });
     expect(a.getSelectedDrawing()).toMatchObject({ label: { onLine: false, onAxis: true } });
     s!.onSelected?.({ overlay: s });
@@ -1379,7 +1379,7 @@ describe('ChartAdapter Shift constraint and price labels', () => {
     h!.onSelected?.({ overlay: h });
     expect(a.getSelectedDrawing()).toMatchObject({ label: { onLine: false, onAxis: true } });
     a.setSelectedLabel({ onLine: true });
-    expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: h!.id, styles: { altvLabel: { onLine: true, onAxis: true } } });
+    expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: h!.id, styles: { chartmateLabel: { onLine: true, onAxis: true } } });
     expect(changed).toHaveBeenCalledTimes(1);
     expect(a.getSelectedDrawing()).toMatchObject({ label: { onLine: true, onAxis: true } });
     expect(a.serializeDrawings()[1]!.styles).toEqual({ label: { onLine: true } });
@@ -1402,7 +1402,7 @@ describe('ChartAdapter Shift constraint and price labels', () => {
       { name: 'segment', points: pts3.slice(0, 2), lock: false },
     ]);
     const [n, l, r, s] = userOverlays();
-    expect(r!.styles).toEqual({ altvExtend: { right: true } });
+    expect(r!.styles).toEqual({ chartmateExtend: { right: true } });
     n!.onSelected?.({ overlay: n });
     expect(a.getSelectedDrawing()).toMatchObject({ kind: 'line', extend: { left: false, right: false } });
     l!.onSelected?.({ overlay: l });
@@ -1414,7 +1414,7 @@ describe('ChartAdapter Shift constraint and price labels', () => {
 
     n!.onSelected?.({ overlay: n });
     a.setSelectedExtend({ right: true });
-    expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: n!.id, styles: { altvExtend: { left: false, right: true } } });
+    expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: n!.id, styles: { chartmateExtend: { left: false, right: true } } });
     expect(changed).toHaveBeenCalledTimes(1);
     expect(a.getSelectedDrawing()).toMatchObject({ extend: { left: false, right: true } });
     expect(a.serializeDrawings()[0]!.styles).toEqual({ extend: { right: true } });

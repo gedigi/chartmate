@@ -146,9 +146,9 @@ function kindOf(line: Record<string, unknown> | undefined): LineStyleKind {
 }
 
 /** Key of the price-label options inside an overlay's KLineChart styles (ignored by KLineChart itself). */
-export const LABEL_STYLE_KEY = 'altvLabel';
+export const LABEL_STYLE_KEY = 'chartmateLabel';
 /** Key of a long / short position's own risk settings inside its KLineChart overlay styles (ignored by KLineChart). */
-export const POSITION_STYLE_KEY = 'altvPosition';
+export const POSITION_STYLE_KEY = 'chartmatePosition';
 export interface LabelOptions { onLine: boolean; onAxis: boolean }
 /** Drawings with price-label toggles and their defaults. */
 export const LABEL_DEFAULTS: Readonly<Record<string, LabelOptions>> = {
@@ -157,7 +157,7 @@ export const LABEL_DEFAULTS: Readonly<Record<string, LabelOptions>> = {
 };
 
 /** Key of a channel's extend options inside its KLineChart styles (ignored by KLineChart itself). */
-export const EXTEND_STYLE_KEY = 'altvExtend';
+export const EXTEND_STYLE_KEY = 'chartmateExtend';
 /** Channels and their default extend options: new channels are finite, legacy ones were always infinite. */
 export const EXTEND_DEFAULTS: Readonly<Record<string, ExtendOptions>> = {
   [CHANNEL]: { left: false, right: false },
@@ -192,7 +192,7 @@ type Template = OverlayTemplate & Record<string, unknown>;
 const TEMPLATE_KEYS = [
   'name', 'totalStep', 'drawingMode', 'lock', 'visible', 'zLevel', 'mode', 'modeSensitivity', 'needDefaultPointFigure',
   'needDefaultXAxisFigure', 'needDefaultYAxisFigure', 'createPointFigures', 'createXAxisFigures', 'createYAxisFigures',
-  'performEventPressedMove', 'performEventMoveForDrawing', 'styles', 'extendData', '__altvWrapped', '__altvOriginal',
+  'performEventPressedMove', 'performEventMoveForDrawing', 'styles', 'extendData', '__chartmateWrapped', '__chartmateOriginal',
 ] as const;
 
 /** The template a built-in overlay class was made from (its constructor merges the template into the instance). */
@@ -316,8 +316,8 @@ function withLabels(t: Template): Template {
 }
 
 /** Marks a template wrapped by us; ORIGINAL_KEY holds the KLineChart template it wraps. */
-export const WRAPPED_MARK = '__altvWrapped';
-const ORIGINAL_KEY = '__altvOriginal';
+export const WRAPPED_MARK = '__chartmateWrapped';
+const ORIGINAL_KEY = '__chartmateOriginal';
 
 let registered = false;
 

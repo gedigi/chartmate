@@ -1,4 +1,4 @@
-# altv
+# Chartmate
 
 A self-hosted, single-user alternative to TradingView: candlestick charts for stocks and crypto,
 indicators, drawing tools, watchlists, and custom **baskets** (weighted synthetic instruments).
@@ -20,8 +20,9 @@ This starts the API server (`tsx watch`, port 8787) and the Vite dev server in p
 http://localhost:5173 (Vite's default port); Vite proxies `/api/*` to `http://localhost:8787`
 (see `apps/web/vite.config.ts`). If you change the server's `PORT`, update that proxy target too.
 
-The SQLite default `sqlite:./data/altv.db` is resolved against the **server's working directory**, which
-for `pnpm dev` is `apps/server/`, so dev data ends up in `apps/server/data/altv.db`.
+The SQLite default `sqlite:./data/chartmate.db` is resolved against the **server's working directory**, which
+for `pnpm dev` is `apps/server/`, so dev data ends up in `apps/server/data/chartmate.db` (an existing
+`altv.db` there keeps being used, see [Upgrading from altv](#upgrading-from-altv)).
 
 ## Production, locally
 
@@ -33,50 +34,51 @@ Open http://localhost:8787. The server also serves the built web app. It listens
 default; set `HOST=0.0.0.0` to reach it from other machines (the Docker image already does).
 
 `pnpm --filter @chartmate/server start` runs with `apps/server/` as its working directory, so the default
-`sqlite:./data/altv.db` is `apps/server/data/altv.db`. The path is relative to wherever the server is
+`sqlite:./data/chartmate.db` is `apps/server/data/chartmate.db`. The path is relative to wherever the server is
 started, so for anything you care about use an absolute path, e.g.
-`DATABASE_URL=sqlite:/home/me/altv/altv.db pnpm --filter @chartmate/server start` (the directory is created
+`DATABASE_URL=sqlite:/home/me/chartmate/chartmate.db pnpm --filter @chartmate/server start` (the directory is created
 if missing).
 
 ## Docker
 
 ```sh
-docker build -t altv .
-docker run -p 8787:8787 -v altv-data:/data altv
+docker build -t chartmate .
+docker run -p 8787:8787 -v chartmate-data:/data chartmate
 ```
 
-The image sets `HOST=0.0.0.0` so the published port is reachable. It runs as the non-root `node` user (uid/gid 1000), stores SQLite at `/data/altv.db` (mount a
-volume on `/data`) and has a built-in healthcheck on `/api/health` (it honours `PORT`).
+The image sets `HOST=0.0.0.0` so the published port is reachable. It runs as the non-root `node` user (uid/gid 1000), stores SQLite at `/data/chartmate.db` (mount a
+volume on `/data`; a volume that already holds an `altv.db` keeps using it) and has a built-in healthcheck on
+`/api/health` (it honors `PORT`).
 
 A named volume (as above) just works. If you bind-mount a host directory instead, it must be writable by
 uid 1000, otherwise the server cannot create the database:
 
 ```sh
-mkdir -p ./altv-data && sudo chown 1000:1000 ./altv-data
-docker run -p 8787:8787 -v "$PWD/altv-data:/data" altv
+mkdir -p ./chartmate-data && sudo chown 1000:1000 ./chartmate-data
+docker run -p 8787:8787 -v "$PWD/chartmate-data:/data" chartmate
 ```
 
 ## Hosted setup (Postgres + password)
 
 ```sh
 docker run -d -p 8787:8787 \
-  -e DATABASE_URL=postgres://user:pass@db-host:5432/altv \
-  -e ALTV_PASSWORD='a-long-random-passphrase' \
-  -e ALTV_SESSION_SECRET="$(openssl rand -hex 32)" \
-  -e ALTV_TRUST_PROXY=1 \
-  altv
+  -e DATABASE_URL=postgres://user:pass@db-host:5432/chartmate \
+  -e CHARTMATE_PASSWORD='a-long-random-passphrase' \
+  -e CHARTMATE_SESSION_SECRET="$(openssl rand -hex 32)" \
+  -e CHARTMATE_TRUST_PROXY=1 \
+  chartmate
 ```
 
 Put it behind an HTTPS reverse proxy. Notes on login security:
 
-- Setting `ALTV_PASSWORD` turns on a login page. Use a strong password.
-- Set `ALTV_SESSION_SECRET` to a random value (as above). If unset, the secret is derived from the
+- Setting `CHARTMATE_PASSWORD` turns on a login page. Use a strong password.
+- Set `CHARTMATE_SESSION_SECRET` to a random value (as above). If unset, the secret is derived from the
   password, so a leaked session cookie would let someone guess the password offline.
 - Login attempts are rate limited: 10 failures per IP per 15 minutes, plus a global limit of 100
   failures per 15 minutes. The global limit means a determined attacker can lock *you* out for a while.
-- Behind a reverse proxy set `ALTV_TRUST_PROXY`, otherwise every client appears to come from the
+- Behind a reverse proxy set `CHARTMATE_TRUST_PROXY`, otherwise every client appears to come from the
   proxy's IP and they all share one rate-limit budget.
-- The session cookie lasts 30 days. Changing `ALTV_SESSION_SECRET` (or the password, if the secret
+- The session cookie lasts 30 days. Changing `CHARTMATE_SESSION_SECRET` (or the password, if the secret
   is derived from it) revokes all existing sessions.
 - Serve over HTTPS only.
 
@@ -86,14 +88,34 @@ Put it behind an HTTPS reverse proxy. Notes on login security:
 | --- | --- | --- |
 | `PORT` | `8787` | HTTP port. |
 | `HOST` | `127.0.0.1` (Docker: `0.0.0.0`) | Listen address. Use `0.0.0.0` (or `::`) to accept connections from other hosts. |
-| `DATABASE_URL` | `sqlite:./data/altv.db` (Docker: `sqlite:/data/altv.db`) | `sqlite:<path>` or `postgres://…`. An empty SQLite path (`sqlite:`) is rejected. |
-| `ALTV_PASSWORD` | unset (no auth) | Enables password login. |
-| `ALTV_SESSION_SECRET` | derived from the password | Cookie signing secret, min 16 chars. Set explicitly in production. |
-| `ALTV_TRUST_PROXY` | unset (`false`) | `true`, a hop count (e.g. `1`), or an IP/CIDR list of trusted proxies. |
+| `DATABASE_URL` | `sqlite:./data/chartmate.db` (Docker: `sqlite:/data/chartmate.db`) | `sqlite:<path>` or `postgres://…`. An empty SQLite path (`sqlite:`) is rejected. |
+| `CHARTMATE_PASSWORD` | unset (no auth) | Enables password login. |
+| `CHARTMATE_SESSION_SECRET` | derived from the password | Cookie signing secret, min 16 chars. Set explicitly in production. |
+| `CHARTMATE_TRUST_PROXY` | unset (`false`) | `true`, a hop count (e.g. `1`), or an IP/CIDR list of trusted proxies. |
 | `CRYPTO_PROVIDER` | `binance` | `binance` or `coinbase`. |
 | `BINANCE_BASE_URL` | `https://data-api.binance.vision` | Alternate Binance-compatible endpoint. |
-| `ALTV_PROVIDERS` | `live` | `fixture` serves deterministic synthetic data (tests/demos, no network). |
-| `ALTV_WEB_DIST` | `apps/web/dist` (Docker: `/app/web`) | Directory of the built web app. |
+| `CHARTMATE_PROVIDERS` | `live` | `fixture` serves deterministic synthetic data (tests/demos, no network). |
+| `CHARTMATE_WEB_DIST` | `apps/web/dist` (Docker: `/app/web`) | Directory of the built web app. |
+
+The older `ALTV_*` names (e.g. `ALTV_PASSWORD`) are still accepted when the `CHARTMATE_*` variable is not set.
+
+## Upgrading from altv
+
+The project used to be called altv. Upgrading keeps existing installs working without any change:
+
+- **Environment variables**: every `ALTV_<NAME>` is still read when `CHARTMATE_<NAME>` is not set at all. When
+  both are set, `CHARTMATE_<NAME>` wins (even when it is empty), so you can switch at your own pace.
+- **Database file**: when a `sqlite:` URL names `chartmate.db` (the new default, also in Docker) and that file
+  does not exist but an `altv.db` does in the same directory, the server keeps using `altv.db`. Rename the file
+  (with the server stopped, together with its `-wal`/`-shm` files) or set `DATABASE_URL` if you want the new
+  name. Explicit `DATABASE_URL`s pointing at `altv.db` keep working as they are.
+- **Login sessions**: the cookie is now `chartmate_session`; an existing `altv_session` cookie is still
+  accepted (and replaced on the next login or logout), so nobody is logged out by the upgrade.
+- **Browser settings**: `localStorage` keys moved from `altv.*` to `chartmate.*` (theme, watchlist seeding
+  flag); old values are migrated on first load.
+- **Packages**: the workspace packages are now `@chartmate/*` (e.g. `pnpm --filter @chartmate/server …`).
+- **Unchanged on purpose**: the desktop app keeps its `app://altv` origin and its `altv.db` file name (renaming either would orphan existing
+  data), and the default session secret derivation is unchanged (existing sessions stay valid).
 
 ## Data sources and caveats
 
@@ -340,7 +362,7 @@ DELETE FROM bars WHERE symbol = 'stock:NVDA';
 DELETE FROM coverage WHERE symbol = 'stock:NVDA';
 ```
 
-For SQLite stop the server first and run these with `sqlite3 <path-to-altv.db>`; for Postgres use `psql`
+For SQLite stop the server first and run these with `sqlite3 <path-to-chartmate.db>` (or `altv.db` for older installs); for Postgres use `psql`
 against `DATABASE_URL`. Restart the server afterwards so baskets recompute their (cached) units from the
 corrected history.
 
@@ -482,11 +504,11 @@ The functional tests (`app.spec.ts`) drive that copy over CDP. `packaged-hardeni
   in an error box, with no CDP or debugger endpoint and no listener at all;
 - it refuses the forbidden environment variables in the same way;
 - `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` have no effect;
-- it ignores `ALTV_USER_DATA_DIR`;
+- it ignores `CHARTMATE_USER_DATA_DIR` (and the legacy `ALTV_USER_DATA_DIR`);
 - a tampered `app.asar` refuses to start (macOS);
 - the updater is present only in signed builds (`SMOKE_EXPECT_UNSIGNED`).
 
-Because packaged builds ignore `ALTV_USER_DATA_DIR`, this spec runs against the real per-user data directories:
+Because packaged builds ignore `CHARTMATE_USER_DATA_DIR`, this spec runs against the real per-user data directories:
 the current one, plus those of any `previousProductNames`. For that reason it only runs in CI (`CI=true`) or
 locally with `SMOKE_ALLOW_REAL_USERDATA=1`.
 
@@ -524,7 +546,8 @@ updates manually.
 
 The directory holds:
 
-- `altv.db` (SQLite with WAL), created with mode 0600 inside a 0700 directory;
+- `altv.db` (SQLite with WAL; the name predates the Chartmate rename and is kept), created with mode 0600 inside a
+  0700 directory;
 - `window-state.json`;
 - `logs/main.log`, which rotates at 1 MB and keeps 2 old files.
 
@@ -536,15 +559,17 @@ What gets logged:
   stack, request URLs drop their query strings, and headers are never logged.
 - **Before writing any line**: absolute paths, URL credentials and secret-looking values are scrubbed.
 
-`ALTV_USER_DATA_DIR=/abs/path` overrides the directory in **development runs only**; packaged builds ignore it,
+`CHARTMATE_USER_DATA_DIR=/abs/path` overrides the directory in **development runs only**; packaged builds ignore it,
 just as they refuse `--user-data-dir`. Migrations run before the window loads.
 
 Environment overrides the desktop app honors:
 
-- `ALTV_PROVIDERS` (`live` (the default) or `fixture`);
+- `CHARTMATE_PROVIDERS` (`live` (the default) or `fixture`);
 - `CRYPTO_PROVIDER`;
 - `BINANCE_BASE_URL` (https only);
-- `ALTV_DISABLE_UPDATES=1`.
+- `CHARTMATE_DISABLE_UPDATES=1`.
+
+The legacy `ALTV_*` names of these variables are still accepted.
 
 A packaged build **refuses to start** if `NODE_USE_ENV_PROXY`, `NODE_USE_SYSTEM_CA` or `SSLKEYLOGFILE` is set.
 Node applies the first two during pre-execution, before any app code runs, so the app cannot undo them, and the
@@ -657,7 +682,7 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
   - **Signed builds**: the updater runs only when all of these hold:
     - `autoUpdate` is `true` in `product.json`;
     - the build ships an `app-update.yml`;
-    - `ALTV_DISABLE_UPDATES` is not set to `1`.
+    - `CHARTMATE_DISABLE_UPDATES` is not set to `1`.
   - **How updates are verified**:
     - Windows: electron-updater checks the installer's Authenticode signature against the `publisherName` pinned
       in `app-update.yml`. The app refuses to update if that field is missing.
@@ -686,7 +711,7 @@ pnpm typecheck   # all packages + the e2e suite
 pnpm e2e         # Playwright end-to-end test (Chromium)
 ```
 
-`pnpm e2e` builds everything, starts the built server on port 8799 in fixture mode (`ALTV_PROVIDERS=fixture`,
+`pnpm e2e` builds everything, starts the built server on port 8799 in fixture mode (`CHARTMATE_PROVIDERS=fixture`,
 no network) with a fresh SQLite file under `test-results/`, and runs `e2e/tests/`. The first time, install
 the browser with `pnpm exec playwright install chromium`.
 

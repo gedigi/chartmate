@@ -3,7 +3,7 @@ import { readableTextOnAll } from './contrast';
 import { themeTokens, type ThemeName } from './theme';
 
 /** Overlay template of chart markers (basket Start, version changes). Never a user drawing. */
-export const MARKER_OVERLAY = 'altvMarker';
+export const MARKER_OVERLAY = 'chartmateMarker';
 const MARKER_DASH = [4, 4];
 
 let registered = false;
