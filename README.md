@@ -243,6 +243,8 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
 
 The right sidebar lists symbols with live quotes (every 15 s) and a sparkline. Click a row (or Enter) to open
 its chart; Delete removes the focused row; drag rows or press **Alt+↑/↓** to reorder.
+The row always shows the regular-session price and day change; during pre/post-market a second line ("Pre 231.40
++0.82%") shows the extended price and its change vs the last regular close (`Quote.ext`).
 
 **Sections** group symbols under a header, TradingView-style. The watchlist is one ordered list of symbols and
 section headers: the symbols below a header belong to it until the next header; symbols above the first header

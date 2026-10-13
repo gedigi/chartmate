@@ -69,6 +69,15 @@
 .wl-change { font-size: 11px; color: var(--text-muted); }
 .wl-change.up { color: var(--up); }
 .wl-change.down { color: var(--down); }
+/* Pre/post-market line under the regular quote: "Pre 231.40 +0.82%" */
+.wl-ext {
+  grid-column: 1 / -1; justify-self: end; margin-top: 1px; font-size: 11px; line-height: 1.2;
+  font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text);
+}
+.wl-ext-label { color: var(--text-muted); }
+.wl-ext-change { color: var(--text-muted); }
+.wl-ext-change.up { color: var(--up); }
+.wl-ext-change.down { color: var(--down); }
 .wl-remove {
   position: absolute; right: 2px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; padding: 0;
   border: none; background: transparent; color: var(--text-muted); cursor: pointer; opacity: 0; line-height: 1;

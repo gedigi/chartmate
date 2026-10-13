@@ -210,6 +210,88 @@ describe('Watchlist', () => {
     expect(rows()[0]!.querySelector('.wl-price')).toHaveTextContent('10.00');
   });
 
+  describe('extended-hours line', () => {
+    const PRE_TS = Date.parse('2026-10-12T12:14:55Z'); // 08:14 EDT
+    const POST_TS = Date.parse('2026-10-12T21:29:40Z'); // 17:29 EDT
+    const extOf = (id: SymbolId) => document.querySelector(`[data-symbol="${id}"] .wl-ext`);
+
+    function setupExt() {
+      setup(['stock:AAPL', 'stock:MSFT', 'crypto:BTC']);
+      quotes.mockResolvedValue([
+        { id: 'stock:AAPL', price: 229.52, changePct: -1.1, ts: 1, ext: { session: 'pre', price: 231.4, changePct: 0.8191, ts: PRE_TS } },
+        { id: 'stock:MSFT', price: 400, changePct: 0.5, ts: 1, ext: { session: 'post', price: 398.123, changePct: -0.4693, ts: POST_TS } },
+        { id: 'crypto:BTC', price: 100, changePct: -2, ts: 1 },
+      ]);
+    }
+
+    it('keeps the main row on the regular price and day change, and adds "Pre/Post price change" below', async () => {
+      setupExt();
+      render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+      await waitFor(() => expect(extOf('stock:AAPL')).not.toBeNull());
+      const aapl = rows()[0]!;
+      expect(aapl.querySelector('.wl-price')).toHaveTextContent('229.52');
+      expect(aapl.querySelector('.wl-change')).toHaveTextContent('-1.10%');
+      expect(aapl.querySelector('.wl-change')).toHaveClass('down');
+      const pre = extOf('stock:AAPL')!;
+      expect(pre.querySelector('.wl-ext-label')).toHaveTextContent('Pre');
+      expect(pre.querySelector('.wl-ext-price')).toHaveTextContent('231.40');
+      expect(pre.querySelector('.wl-ext-change')).toHaveTextContent('+0.82%');
+      expect(pre.querySelector('.wl-ext-change')).toHaveClass('up');
+      const post = await waitFor(() => extOf('stock:MSFT')!);
+      expect(post.querySelector('.wl-ext-label')).toHaveTextContent('Post');
+      expect(post.querySelector('.wl-ext-price')).toHaveTextContent('398.12'); // same precision rules
+      expect(post.querySelector('.wl-ext-change')).toHaveTextContent('-0.47%');
+      expect(post.querySelector('.wl-ext-change')).toHaveClass('down');
+      expect(rows()[1]!.querySelector('.wl-price')).toHaveTextContent('400.00');
+    });
+
+    it('no extended line without ext (crypto, regular hours) or before symbol info loads', async () => {
+      setupExt();
+      let resolve!: (i: SymbolInfo) => void;
+      vi.mocked(api.symbol).mockImplementation((id) => (id === 'stock:AAPL' ? new Promise((r) => { resolve = r; }) : Promise.resolve(INFO[id]!)));
+      render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+      await waitFor(() => expect(extOf('stock:MSFT')).not.toBeNull());
+      expect(extOf('crypto:BTC')).toBeNull();
+      expect(extOf('stock:AAPL')).toBeNull();
+      await act(async () => { resolve(INFO['stock:AAPL']!); });
+      expect(extOf('stock:AAPL')).not.toBeNull();
+    });
+
+    it('a neutral extended change is uncolored "0.00%"', async () => {
+      setup(['stock:AAPL']);
+      quotes.mockResolvedValue([{ id: 'stock:AAPL', price: 10, changePct: 1, ts: 1, ext: { session: 'post', price: 10, changePct: 0.001, ts: POST_TS } }]);
+      render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+      const chg = await waitFor(() => extOf('stock:AAPL')!.querySelector('.wl-ext-change')!);
+      expect(chg).toHaveTextContent('0.00%');
+      expect(chg).not.toHaveClass('up');
+      expect(chg).not.toHaveClass('down');
+    });
+
+    it('is accessible: spelled-out session in the row name and a tooltip with the extended time (ET)', async () => {
+      setupExt();
+      render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+      await waitFor(() => expect(extOf('stock:AAPL')).not.toBeNull());
+      expect(screen.getByRole('button', { name: /AAPL.*229\.52.*-1\.10%.*Pre-market 231\.40 \+0\.82%/ })).toBe(rows()[0]);
+      expect(screen.getByRole('button', { name: /MSFT.*Post-market 398\.12 -0\.47%/ })).toBe(rows()[1]);
+      expect(extOf('stock:AAPL')!.querySelector('.wl-ext-label')).toHaveAttribute('aria-hidden', 'true');
+      const title = extOf('stock:AAPL')!.getAttribute('title')!;
+      expect(title).toMatch(/^Pre-market/);
+      expect(title).toContain('8:14 AM ET');
+      expect(extOf('stock:MSFT')!.getAttribute('title')).toContain('5:29 PM ET');
+    });
+
+    it('drops the extended line when a later poll has no ext', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      setupExt();
+      render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+      await waitFor(() => expect(extOf('stock:AAPL')).not.toBeNull());
+      quotes.mockResolvedValue([{ id: 'stock:AAPL', price: 231, changePct: 0.6, ts: 2 }]);
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(extOf('stock:AAPL')).toBeNull();
+      expect(rows()[0]!.querySelector('.wl-price')).toHaveTextContent('231.00');
+    });
+  });
+
   it('is a list of rows: a focusable select control (aria-current) and a sibling remove button; no nested interactives', async () => {
     setup(['stock:AAPL', 'crypto:BTC']);
     render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
