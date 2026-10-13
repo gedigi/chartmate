@@ -662,9 +662,21 @@ describe('ChartAdapter', () => {
       expect(create.styles.lines).toEqual([
         expect.objectContaining({ color: '#3987e5', size: 3, style: 'solid' }),
         expect.objectContaining({ color: '#d95926', size: 1, style: 'dashed', dashedValue: [4, 4] }),
+        expect.objectContaining({ color: '#1a9fb2', size: 1, style: 'solid' }),
       ]);
       expect(create.styles.bars).toEqual([expect.objectContaining({ style: 'fill', upColor: '#00ff00', downColor: '#ff0000', noChangeColor: '#76808F' })]);
       expect(a.listIndicators()[0]).toMatchObject({ id, lineWidths: [3], lineStyles: ['solid', 'dashed'], barColors: { up: '#00ff00', down: '#ff0000' } });
+    });
+
+    it('a partial override array still gives every catalog line the theme palette on create', () => {
+      const a = make();
+      a.addIndicator({ name: 'EMA', pane: 'main', lineWidths: [3] });
+      const create = chart().createIndicator.mock.calls.at(-1)![0] as { styles: { lines: unknown[] } };
+      expect(create.styles.lines).toEqual([
+        expect.objectContaining({ color: '#3987e5', size: 3 }),
+        expect.objectContaining({ color: '#d95926', size: 1 }),
+        expect.objectContaining({ color: '#1a9fb2', size: 1 }),
+      ]);
     });
 
     it('dotted indicator lines are dashed with a dot pattern scaled by the width (1px square dots, round caps from 2px); dotted→solid resets the cap', () => {
@@ -674,6 +686,7 @@ describe('ChartAdapter', () => {
       expect(create.styles.lines).toEqual([
         expect.objectContaining({ size: 1, style: 'dashed', dashedValue: [1, 2], lineCap: 'butt' }),
         expect.objectContaining({ size: 3, style: 'dashed', dashedValue: [0, 6], lineCap: 'round' }),
+        expect.objectContaining({ size: 1, style: 'solid', lineCap: 'butt' }), // RSI's 3rd line: not overridden
       ]);
       expect(a.listIndicators()[0]).toMatchObject({ lineStyles: ['dotted', 'dotted'] });
       a.updateIndicator(id, { lineStyles: ['solid', 'dashed'] });

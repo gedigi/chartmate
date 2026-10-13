@@ -423,7 +423,10 @@ export class ChartAdapter {
     const lineCount = catalogEntry(name)?.lines.length ?? 0;
     if (hasLines || (reset && (reset.lineColors || reset.lineWidths || reset.lineStyles)) || (force && lineCount > 0)) {
       const defaults = this.defaultLines(name);
-      const n = hasLines && force !== 'all-lines' ? Math.max(o.lineColors?.length ?? 0, o.lineWidths?.length ?? 0, o.lineStyles?.length ?? 0) : lineCount > 0 ? lineCount : defaults.length;
+      // Forced writes (create / theme re-apply) cover every catalog line, so lines past a partial override array
+      // still get the theme palette instead of KLineChart's defaults; plain updates write the overridden lines only.
+      const overridden = Math.max(o.lineColors?.length ?? 0, o.lineWidths?.length ?? 0, o.lineStyles?.length ?? 0);
+      const n = force && lineCount > 0 ? lineCount : hasLines && force !== 'all-lines' ? overridden : lineCount > 0 ? lineCount : defaults.length;
       styles.lines = Array.from({ length: n }, (_, i) => {
         const d = defaults[i % defaults.length]!;
         const style = o.lineStyles?.[i] ?? 'solid';
@@ -461,7 +464,8 @@ export class ChartAdapter {
     if (spec.calcParams) create.calcParams = spec.calcParams;
     if (spec.visible !== undefined) create.visible = spec.visible;
     const overrides = ChartAdapter.overridesOf(spec);
-    // Always written (force): the lines carry the active theme's palette (a template's own colour would stick).
+    // Always written (force), every catalog line: the lines carry the active theme's palette (a template's own
+    // colour would stick), including lines past a partial override array such as lineWidths: [3].
     const styles = this.indicatorStyles(spec.name, overrides, undefined, true);
     if (styles) create.styles = styles;
     create.extendData = this.indicatorExt;
