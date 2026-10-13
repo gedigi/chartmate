@@ -3,14 +3,20 @@ import { createDb } from '../../src/db/connect.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos } from '../../src/db/repos.js';
 import { sql } from 'kysely';
+import type { WatchlistEntry } from '@altv/shared';
 
+const sym = (id: string): WatchlistEntry => ({ type: 'symbol', id });
+const SEC_A = '0b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f60';
+const SEC_B = '1b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f61';
+const SEC_C = '2b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f62';
+
+const TABLES = ['basket_versions','baskets','bars','coverage','symbols','watchlist','watchlist_entries','layouts','drawings','kysely_migration','kysely_migration_lock'];
 const urls = ['sqlite::memory:', ...(process.env.TEST_PG_URL ? [process.env.TEST_PG_URL] : [])];
 describe.each(urls)('repos on %s', (url) => {
   const h = createDb(url);
   const r = createRepos(h.db);
   beforeEach(async () => {
-    for (const t of ['basket_versions','baskets','bars','coverage','symbols','watchlist','layouts','drawings','kysely_migration','kysely_migration_lock'])
-      await sql`drop table if exists ${sql.table(t)}`.execute(h.db);
+    for (const t of TABLES) await sql`drop table if exists ${sql.table(t)}`.execute(h.db);
     await migrate(h.db);
   });
   afterAll(() => h.close());
@@ -56,8 +62,8 @@ describe.each(urls)('repos on %s', (url) => {
     expect(await r.baskets.update('nope', { name: 'x' })).toBeNull();
   });
   it('watchlist, layouts, drawings', async () => {
-    await r.watchlist.replace(['stock:A', 'crypto:BTC']);
-    expect(await r.watchlist.list()).toEqual(['stock:A', 'crypto:BTC']);
+    await r.watchlist.replace([sym('stock:A'), sym('crypto:BTC')]);
+    expect(await r.watchlist.list()).toEqual([sym('stock:A'), sym('crypto:BTC')]);
     const l = { symbol: 'stock:A', tf: '1D', session: 'rth', chartType: 'candle', indicators: [] } as const;
     await r.layouts.put('default', l as any);
     expect(await r.layouts.get('default')).toEqual(l);
@@ -143,8 +149,43 @@ describe.each(urls)('repos on %s', (url) => {
     expect(rows[1202]!.close).toBe(1202);
   });
   it('watchlist replace with duplicates keeps first-occurrence order', async () => {
-    await r.watchlist.replace(['stock:B', 'stock:A', 'stock:B', 'crypto:C', 'stock:A']);
-    expect(await r.watchlist.list()).toEqual(['stock:B', 'stock:A', 'crypto:C']);
+    await r.watchlist.replace(['stock:B', 'stock:A', 'stock:B', 'crypto:C', 'stock:A'].map(sym));
+    expect(await r.watchlist.list()).toEqual(['stock:B', 'stock:A', 'crypto:C'].map(sym));
+  });
+  it('watchlist sections round-trip (order, titles, collapsed); replace overwrites', async () => {
+    const list: WatchlistEntry[] = [
+      sym('stock:SPY'),
+      { type: 'section', id: SEC_A, title: 'Tech — “big”', collapsed: true },
+      sym('stock:AAPL'),
+      { type: 'section', id: SEC_B, title: 'Empty', collapsed: false },
+      { type: 'section', id: SEC_C, title: 'Crypto', collapsed: false },
+      sym('crypto:BTC'),
+    ];
+    await r.watchlist.replace(list);
+    expect(await r.watchlist.list()).toEqual(list);
+    await r.watchlist.replace([sym('crypto:ETH')]);
+    expect(await r.watchlist.list()).toEqual([sym('crypto:ETH')]);
+    await r.watchlist.replace([]);
+    expect(await r.watchlist.list()).toEqual([]);
+  });
+  it('migration 003 copies the legacy watchlist (in order) and is idempotent', async () => {
+    for (const t of TABLES) await sql`drop table if exists ${sql.table(t)}`.execute(h.db);
+    await migrate(h.db, '002_symbol_splits');
+    await h.db.insertInto('watchlist').values([
+      { symbol: 'crypto:BTC', position: 2 }, { symbol: 'stock:SPY', position: 0 }, { symbol: 'stock:AAPL', position: 1 },
+    ]).execute();
+    await migrate(h.db);
+    const expected = ['stock:SPY', 'stock:AAPL', 'crypto:BTC'].map(sym);
+    expect(await r.watchlist.list()).toEqual(expected);
+    // A re-run (e.g. after a partially recorded run) neither fails nor duplicates rows.
+    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '=', '003_watchlist_sections').execute();
+    await migrate(h.db);
+    expect(await r.watchlist.list()).toEqual(expected);
+    // Once migrated, the new table is authoritative: edits are not overwritten by a later re-run.
+    await r.watchlist.replace([sym('crypto:ETH')]);
+    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '=', '003_watchlist_sections').execute();
+    await migrate(h.db);
+    expect(await r.watchlist.list()).toEqual([sym('crypto:ETH')]);
   });
   it('corrupt JSON rows raise a descriptive error', async () => {
     await h.db.insertInto('layouts').values({ key: 'bad', json: '{nope', updated_at: 1 }).execute();
@@ -167,7 +208,8 @@ describe.each(urls)('repos on %s', (url) => {
     await expect(r.coverage.add('e', '1D', 0, Infinity)).rejects.toThrow(RangeError);
   });
   it('migration 002 is idempotent when its columns already exist', async () => {
-    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '=', '002_symbol_splits').execute();
+    // Kysely re-runs migrations in order only, so the later ones are re-run (idempotently) too.
+    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, 'in', ['002_symbol_splits', '003_watchlist_sections']).execute();
     await expect(migrate(h.db)).resolves.toBeUndefined();
     const row = { id: 'stock:M', name: 'M', exchange: null, pricePrecision: 2, firstTs: null, updatedAt: 5, ticker: 'M' };
     await r.symbols.upsert(row);

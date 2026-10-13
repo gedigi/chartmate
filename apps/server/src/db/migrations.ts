@@ -75,14 +75,39 @@ const m002: Migration = {
   },
 };
 
-const provider: MigrationProvider = {
-  async getMigrations() {
-    return { '001_init': m001, '002_symbol_splits': m002 };
+/**
+ * Watchlist sections: an ordered entry table (symbols and section headers). Existing watchlist rows are copied in
+ * order. Idempotent: the table is created only if missing and filled only while empty. The legacy `watchlist`
+ * table is kept (and mirrored by the repo) so rolling back to an older version keeps the symbols.
+ */
+const m003: Migration = {
+  async up(db: Kysely<any>) {
+    await db.schema.createTable('watchlist_entries').ifNotExists()
+      .addColumn('position', 'integer', c => c.primaryKey())
+      .addColumn('kind', 'text', c => c.notNull())
+      .addColumn('symbol', 'text')
+      .addColumn('section_id', 'text')
+      .addColumn('title', 'text')
+      .addColumn('collapsed', 'integer')
+      .execute();
+    const existing = await db.selectFrom('watchlist_entries').select('position').limit(1).execute();
+    if (existing.length > 0) return;
+    const legacy = await db.selectFrom('watchlist').select('symbol').orderBy('position', 'asc').execute();
+    if (legacy.length === 0) return;
+    await db.insertInto('watchlist_entries').values(legacy.map((r: { symbol: string }, position: number) =>
+      ({ position, kind: 'symbol', symbol: r.symbol, section_id: null, title: null, collapsed: null }))).execute();
   },
 };
 
-export async function migrate(db: Kysely<Database>): Promise<void> {
-  const { error, results } = await new Migrator({ db, provider }).migrateToLatest();
+const migrations: Record<string, Migration> = { '001_init': m001, '002_symbol_splits': m002, '003_watchlist_sections': m003 };
+const provider: MigrationProvider = {
+  async getMigrations() { return migrations; },
+};
+
+/** Migrates to the latest version (or up to and including `target`, for tests). */
+export async function migrate(db: Kysely<Database>, target?: string): Promise<void> {
+  const migrator = new Migrator({ db, provider });
+  const { error, results } = target === undefined ? await migrator.migrateToLatest() : await migrator.migrateTo(target);
   const failed = results?.find(r => r.status === 'Error');
   if (error || failed) throw error instanceof Error ? error : new Error(`migration failed: ${failed?.migrationName ?? String(error)}`);
 }

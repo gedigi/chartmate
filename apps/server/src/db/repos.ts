@@ -1,5 +1,5 @@
 import { PostgresAdapter, sql, type Kysely } from 'kysely';
-import type { Bar, Basket, BasketVersion, DrawingState, Layout, NativeTimeframe, SymbolId } from '@altv/shared';
+import { watchlistSymbols, type Bar, type Basket, type BasketVersion, type DrawingState, type Layout, type NativeTimeframe, type SymbolId, type WatchlistEntry } from '@altv/shared';
 import type { Database } from './schema.js';
 import type { Dialect } from './connect.js';
 
@@ -264,16 +264,38 @@ function toBasket(r: Database['baskets'], versions: BasketVersion[]): Basket {
 export class WatchlistRepo {
   constructor(private db: Kysely<Database>) {}
 
-  async list(): Promise<SymbolId[]> {
-    const rows = await this.db.selectFrom('watchlist').select('symbol').orderBy('position', 'asc').execute();
-    return rows.map(r => r.symbol);
+  async list(): Promise<WatchlistEntry[]> {
+    const rows = await this.db.selectFrom('watchlist_entries').selectAll().orderBy('position', 'asc').execute();
+    const out: WatchlistEntry[] = [];
+    for (const r of rows) {
+      if (r.kind === 'symbol' && r.symbol !== null) out.push({ type: 'symbol', id: r.symbol });
+      else if (r.kind === 'section' && r.section_id !== null) {
+        out.push({ type: 'section', id: r.section_id, title: r.title ?? '', collapsed: Number(r.collapsed) === 1 });
+      }
+    }
+    return out;
   }
 
-  async replace(ids: SymbolId[]): Promise<void> {
-    const unique = [...new Set(ids)];
+  /** Replaces the whole list; a repeated symbol or section id keeps its first occurrence. */
+  async replace(entries: WatchlistEntry[]): Promise<void> {
+    const symbols = new Set<string>();
+    const sections = new Set<string>();
+    const unique = entries.filter(e => {
+      const seen = e.type === 'symbol' ? symbols : sections;
+      if (seen.has(e.id)) return false;
+      seen.add(e.id);
+      return true;
+    });
+    const rows = unique.map((e, position) => e.type === 'symbol'
+      ? { position, kind: 'symbol', symbol: e.id, section_id: null, title: null, collapsed: null }
+      : { position, kind: 'section', symbol: null, section_id: e.id, title: e.title, collapsed: e.collapsed ? 1 : 0 });
+    const legacy = watchlistSymbols(unique).map((symbol, position) => ({ symbol, position }));
     await this.db.transaction().execute(async trx => {
+      await trx.deleteFrom('watchlist_entries').execute();
+      if (rows.length > 0) await trx.insertInto('watchlist_entries').values(rows).execute();
+      // Mirror the symbols into the legacy table (rollback safety).
       await trx.deleteFrom('watchlist').execute();
-      if (unique.length > 0) await trx.insertInto('watchlist').values(unique.map((symbol, position) => ({ symbol, position }))).execute();
+      if (legacy.length > 0) await trx.insertInto('watchlist').values(legacy).execute();
     });
   }
 }

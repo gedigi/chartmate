@@ -9,7 +9,15 @@ export interface SymbolsTable {
 }
 export interface BasketsTable { id: string; name: string; base_value: number; created_at: number; updated_at: number }
 export interface BasketVersionsTable { basket_id: string; idx: number; effective_from: string; weights_json: string }
+/** Legacy (pre-sections) watchlist; still mirrored with the symbols so an older server version keeps working. */
 export interface WatchlistTable { symbol: string; position: number }
+/**
+ * Watchlist rows in order (migration 003): `kind` 'symbol' (with `symbol`) or 'section' (with `section_id`, `title`,
+ * `collapsed` 0/1). A symbol belongs to the closest section header above it.
+ */
+export interface WatchlistEntriesTable {
+  position: number; kind: string; symbol: string | null; section_id: string | null; title: string | null; collapsed: number | null;
+}
 export interface LayoutsTable { key: string; json: string; updated_at: number } // 'default' = last-used layout; per-symbol keys 'sym:<id>'
 export interface DrawingsTable { symbol: string; json: string; updated_at: number }
 
@@ -20,6 +28,7 @@ export interface Database {
   baskets: BasketsTable;
   basket_versions: BasketVersionsTable;
   watchlist: WatchlistTable;
+  watchlist_entries: WatchlistEntriesTable;
   layouts: LayoutsTable;
   drawings: DrawingsTable;
 }

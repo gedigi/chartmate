@@ -165,7 +165,7 @@ describe('auth guard: encoded-path bypass regression', () => {
     expect(post.statusCode).toBe(401);
 
     const wl = await t.app.inject({ method: 'GET', url: '/api/watchlist', headers: { cookie } });
-    expect(wl.json()).toEqual(['stock:AAPL']);
+    expect(wl.json()).toEqual([{ type: 'symbol', id: 'stock:AAPL' }]);
     expect((await t.app.inject({ method: 'GET', url: '/api/baskets', headers: { cookie } })).json()).toEqual([]);
   });
 

@@ -1,6 +1,7 @@
 import {
-  HEX_COLOR_RE, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_TEXT_SIZE, MIN_LINE_WIDTH, MIN_TEXT_SIZE, migrateAppearance, TIMEFRAMES,
-  type DrawingState, type Layout, type SymbolId, type Timeframe,
+  HEX_COLOR_RE, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_SECTION_TITLE, MAX_TEXT_SIZE, MAX_WATCHLIST_SECTIONS, MAX_WATCHLIST_SYMBOLS,
+  MIN_LINE_WIDTH, MIN_TEXT_SIZE, migrateAppearance, TIMEFRAMES, watchlistProblem,
+  type DrawingState, type Layout, type Timeframe, type WatchlistEntry,
 } from '@altv/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -74,7 +75,27 @@ const DrawingSchema = z.object({
   styles: DrawingStylesSchema.optional().catch(undefined),
 }) satisfies z.ZodType<DrawingState>;
 
-const WatchlistBody = z.array(SymbolIdSchema).max(200);
+const WatchlistEntrySchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('symbol'), id: SymbolIdSchema }).strict(),
+  z.object({
+    type: z.literal('section'),
+    id: z.uuid(),
+    title: z.string().max(MAX_SECTION_TITLE).refine((t) => t.trim().length > 0, { message: 'section title must not be empty' }),
+    collapsed: z.boolean(),
+  }).strict(),
+]);
+/**
+ * The watchlist: an entry array (symbols and section headers), or the legacy symbol id array (duplicates dropped),
+ * which becomes a list of symbol entries.
+ */
+const WatchlistBody = z.union([
+  z.array(SymbolIdSchema).max(MAX_WATCHLIST_SYMBOLS)
+    .transform((ids): WatchlistEntry[] => [...new Set(ids)].map((id) => ({ type: 'symbol', id }))),
+  z.array(WatchlistEntrySchema).max(MAX_WATCHLIST_SYMBOLS + MAX_WATCHLIST_SECTIONS).superRefine((entries, ctx) => {
+    const problem = watchlistProblem(entries);
+    if (problem) ctx.addIssue({ code: 'custom', message: problem });
+  }),
+]);
 const DrawingsBody = z.array(DrawingSchema).max(500);
 const LayoutKey = z.object({
   key: z.string().max(110).refine((k) => k === 'default' || (k.startsWith('sym:') && isSymbolId(k.slice(4))), {
@@ -86,10 +107,9 @@ const SymbolParams = z.object({ symbol: SymbolIdSchema });
 export async function userRoutes(app: FastifyInstance, deps: { repos: Repos }): Promise<void> {
   const { repos } = deps;
 
-  app.get('/api/watchlist', async (): Promise<SymbolId[]> => repos.watchlist.list());
-  app.put('/api/watchlist', async (request): Promise<SymbolId[]> => {
-    const ids = [...new Set(parse(WatchlistBody, request.body))];
-    await repos.watchlist.replace(ids);
+  app.get('/api/watchlist', async (): Promise<WatchlistEntry[]> => repos.watchlist.list());
+  app.put('/api/watchlist', async (request): Promise<WatchlistEntry[]> => {
+    await repos.watchlist.replace(parse(WatchlistBody, request.body));
     return repos.watchlist.list();
   });
 

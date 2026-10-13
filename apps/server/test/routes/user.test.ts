@@ -7,6 +7,10 @@ const layout: Layout = {
   indicators: [{ name: 'MA', pane: 'main', calcParams: [5, 10], visible: true, lineColors: ['#ff0000'] }],
 };
 
+const SEC_A = '0b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f60';
+const SEC_B = '1b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f61';
+const entries = (ids: string[]) => ids.map((id) => ({ type: 'symbol', id }));
+
 describe('user routes', () => {
   let t: TestApp;
   beforeEach(async () => { t = await makeApp(); });
@@ -17,8 +21,55 @@ describe('user routes', () => {
     const ids = ['stock:AAPL', 'crypto:BTC'];
     const put = await t.app.inject({ method: 'PUT', url: '/api/watchlist', payload: ids });
     expect(put.statusCode).toBe(200);
-    expect(put.json()).toEqual(ids);
-    expect((await t.app.inject({ method: 'GET', url: '/api/watchlist' })).json()).toEqual(ids);
+    expect(put.json()).toEqual(entries(ids));
+    expect((await t.app.inject({ method: 'GET', url: '/api/watchlist' })).json()).toEqual(entries(ids));
+  });
+
+  it('legacy watchlist PUT (symbol id array) is stored as symbol entries; duplicates dropped', async () => {
+    const put = await t.app.inject({ method: 'PUT', url: '/api/watchlist', payload: ['stock:AAPL', 'crypto:BTC', 'stock:AAPL'] });
+    expect(put.statusCode).toBe(200);
+    expect(put.json()).toEqual(entries(['stock:AAPL', 'crypto:BTC']));
+  });
+
+  it('watchlist entries with sections round-trip in order', async () => {
+    const body = [
+      { type: 'symbol', id: 'stock:SPY' },
+      { type: 'section', id: SEC_A, title: 'Tech', collapsed: false },
+      { type: 'symbol', id: 'stock:AAPL' },
+      { type: 'section', id: SEC_B, title: 'Crypto', collapsed: true },
+      { type: 'symbol', id: 'crypto:BTC' },
+    ];
+    const put = await t.app.inject({ method: 'PUT', url: '/api/watchlist', payload: body });
+    expect(put.statusCode).toBe(200);
+    expect(put.json()).toEqual(body);
+    expect((await t.app.inject({ method: 'GET', url: '/api/watchlist' })).json()).toEqual(body);
+  });
+
+  it('watchlist entries are validated (titles, ids, duplicates, limits, unknown keys)', async () => {
+    const bad = async (payload: unknown) => {
+      const r = await t.app.inject({ method: 'PUT', url: '/api/watchlist', payload: payload as object });
+      expect(r.statusCode, JSON.stringify(payload).slice(0, 120)).toBe(400);
+      expect(r.json()).toMatchObject({ code: 'invalid_request' });
+    };
+    const section = (id: string, title = 'S') => ({ type: 'section', id, title, collapsed: false });
+    await bad([section(SEC_A, '')]);
+    await bad([section(SEC_A, '   ')]);
+    await bad([section(SEC_A, 'x'.repeat(41))]);
+    await bad([section('not-a-uuid')]);
+    await bad([section(SEC_A), section(SEC_A)]);
+    await bad([{ type: 'symbol', id: 'stock:A' }, { type: 'symbol', id: 'stock:A' }]);
+    await bad([{ type: 'symbol', id: 'bogus' }]);
+    await bad([{ type: 'section', id: SEC_A, title: 'S' }]);
+    await bad([{ type: 'symbol', id: 'stock:A', extra: 1 }]);
+    await bad([{ type: 'folder', id: SEC_A }]);
+    await bad(Array.from({ length: 201 }, (_, i) => ({ type: 'symbol', id: `stock:S${i}` })));
+    await bad(Array.from({ length: 51 }, (_, i) => section(`${String(i).padStart(8, '0')}-3f1a-4c1e-9a7b-2a1d3c4e5f60`)));
+    await bad({ not: 'an array' });
+    const ok = await t.app.inject({ method: 'PUT', url: '/api/watchlist', payload: [
+      ...Array.from({ length: 200 }, (_, i) => ({ type: 'symbol', id: `stock:S${i}` })),
+      ...Array.from({ length: 50 }, (_, i) => section(`${String(i).padStart(8, '0')}-3f1a-4c1e-9a7b-2a1d3c4e5f60`, 'x'.repeat(40))),
+    ] });
+    expect(ok.statusCode).toBe(200);
   });
 
   it('watchlist rejects invalid ids', async () => {
