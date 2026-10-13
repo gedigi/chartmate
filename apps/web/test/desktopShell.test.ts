@@ -91,7 +91,7 @@ describe('desktop shell styles (styles.css)', () => {
     document.documentElement.dataset['shell'] = 'mac';
     const { q, region } = mount();
     expect(region(q('.top-bar'))).toBe('drag');
-    expect(region(q('.symbol-label'))).toBe(''); // plain text: part of the drag area
+    expect(region(q('.symbol-label'))).toBe('no-drag'); // keeps the full-name tooltip on hover
     for (const s of ['.tabs', '.tabs button', '.symbol-search', '.symbol-search input', '.top-bar-end', '.icon-button', '.modal-backdrop', '.modal', '.search-dropdown']) {
       expect(region(q(s)), s).toBe('no-drag');
     }

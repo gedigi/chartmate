@@ -203,7 +203,11 @@ input[type='checkbox']:focus-visible, input[type='color']:focus-visible { outlin
 :root[data-shell] .top-bar { -webkit-app-region: drag; }
 :root[data-shell] .top-bar :is(button, input, select, textarea, a, label, [role='button'], [role='group'], [tabindex]),
 :root[data-shell] .top-bar :is(.tabs, .symbol-search, .timeframe-bar, .top-bar-end),
+:root[data-shell] .top-bar .symbol-label,
 :root[data-shell] :is(.modal-backdrop, .modal, .search-dropdown) { -webkit-app-region: no-drag; }
+/* Loading / connection-error screens have no top bar: the whole message area moves the window (button excepted). */
+:root[data-shell] .center-message { -webkit-app-region: drag; }
+:root[data-shell] .center-message :is(button, a, input) { -webkit-app-region: no-drag; }
 :root[data-shell='mac'] .top-bar { padding-left: 80px; }
 :root[data-shell='windows'] .top-bar {
   padding-right: calc(10px + 100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 138px)));
