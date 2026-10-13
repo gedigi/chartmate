@@ -1,6 +1,6 @@
 /*
  * Watchlist ("ticker rail"): flat rows on the panel, hairline separators. Each row: symbol | sparkline | price | change
- * pill, then the pre / post line (or the name) | the 30-day range gauge. The open symbol is marked by a bracket.
+ * pill, then the pre / post line (or the name) | the 30-day range gauge. The open symbol has a quiet fill.
  */
 .watchlist { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 0 8px; gap: 0; }
 .watchlist .panel-title { margin: 0; }
@@ -31,12 +31,8 @@
 .watchlist-row:hover { background: var(--bg-hover); }
 .watchlist-row:hover::before, .watchlist-row:hover + .watchlist-row::before { border-color: transparent; }
 .wl-select:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--focus-ring); }
-/* The open symbol: a quiet fill and a bracket on the left edge (flat, no glow). */
+/* The open symbol: a quiet fill (flat, no glow, no marker). */
 .watchlist-row.current { background: var(--bg-selected); }
-.watchlist-row.current::after {
-  content: ''; position: absolute; left: 3px; top: 10px; bottom: 10px; width: 5px;
-  border: 2px solid var(--accent); border-right: 0; border-radius: 2px 0 0 2px; pointer-events: none;
-}
 .watchlist-row.current::before, .watchlist-row.current + .watchlist-row::before { border-color: transparent; }
 .watchlist-row.dragging { opacity: 0.4; }
 .watchlist-row.drag-over, .watchlist-section.drag-over { box-shadow: inset 0 2px 0 var(--accent); }

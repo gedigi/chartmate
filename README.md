@@ -282,7 +282,7 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
 
 The right sidebar lists symbols with live quotes (every 15 s) and a 30-day sparkline. Click a row (or Enter) to
 open its chart; Delete removes the focused row; drag rows or press **Alt+↑/↓** to reorder. The open symbol's row
-is marked with a bracket.
+has a quiet highlight.
 The row always shows the regular-session price and day change (a tinted pill); during pre/post-market a second
 line ("Pre 231.40 +0.82%") shows the extended price and its change vs the last regular close (`Quote.ext`),
 otherwise the name. A small gauge under the price places the price in its 30-day closing range (the sparkline's daily
