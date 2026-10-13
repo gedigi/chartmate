@@ -156,7 +156,7 @@ describe('DrawingStyleBar: long / short positions', () => {
     render(<DrawingStyleBar controls={c} />);
     emit({ ...position(), locked: true, ownLock: false });
     expect(field('Entry')).toBeDisabled();
-    expect(screen.getByText('All drawings locked')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('All drawings locked');
     fireEvent.click(screen.getByRole('button', { name: 'Lock drawing' }));
     expect(c.setSelectedLock).toHaveBeenLastCalledWith(true);
   });

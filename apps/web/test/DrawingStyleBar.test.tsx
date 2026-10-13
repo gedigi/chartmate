@@ -73,9 +73,8 @@ describe('DrawingStyleBar', () => {
     const { c, emit } = makeControls();
     render(<DrawingStyleBar controls={c} />);
     emit({ id: 'a', kind: 'line', style: { color: '#123456', size: 1, style: 'solid' }, locked: true, ownLock: false });
-    expect(bar()).toHaveAttribute('data-locked', 'true');
     expect(bar()).not.toHaveAttribute('aria-disabled'); // the lock toggle inside stays operable
-    expect(screen.getByText('All drawings locked')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('All drawings locked');
     for (const label of ['Drawing color', 'Line width', 'Line style']) expect(screen.getByLabelText(label)).toBeDisabled();
     const lock = screen.getByRole('button', { name: 'Lock drawing' });
     expect(lock).toBeEnabled();
@@ -93,7 +92,6 @@ describe('DrawingStyleBar', () => {
     fireEvent.click(lock);
     expect(c.setSelectedLock).toHaveBeenLastCalledWith(true);
     emit({ ...line, locked: true, ownLock: true });
-    expect(bar()).toHaveAttribute('data-locked', 'true');
     expect(bar()).not.toHaveAttribute('aria-disabled'); // the lock toggle inside stays operable
     for (const label of ['Drawing color', 'Line width', 'Line style']) expect(screen.getByLabelText(label)).toBeDisabled();
     expect(screen.queryByText('All drawings locked')).toBeNull();

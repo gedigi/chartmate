@@ -20,7 +20,7 @@ export function DrawingLockToggle({ locked, ownLock, onToggle }: {
 }): JSX.Element {
   return (
     <>
-      {locked && !ownLock && <span className="drawing-style-locked">All drawings locked</span>}
+      {locked && !ownLock && <span className="drawing-style-locked" role="status">All drawings locked</span>}
       <button
         type="button" className="drawing-style-lock" aria-label="Lock drawing" aria-pressed={ownLock}
         title={ownLock ? 'Unlock drawing' : 'Lock drawing'} onClick={() => onToggle(!ownLock)}

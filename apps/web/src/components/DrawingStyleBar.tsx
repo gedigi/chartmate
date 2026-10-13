@@ -114,7 +114,7 @@ export function DrawingStyleBar({ controls, onUsePositionDefaults }: {
   const locked = sel.locked;
   const sizes = sel.kind === 'text' && !FONT_SIZES.includes(sel.style.size) ? [...FONT_SIZES, sel.style.size].sort((a, b) => a - b) : FONT_SIZES;
   return (
-    <div className="drawing-style-bar" role="toolbar" aria-label="Drawing style" data-locked={locked || undefined}>
+    <div className="drawing-style-bar" role="toolbar" aria-label="Drawing style">
       <input
         type="color" aria-label="Drawing color" title="Color" value={sel.style.color} disabled={locked}
         onChange={(e) => controls.setSelectedStyle({ color: e.target.value })}
