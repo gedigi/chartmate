@@ -21,8 +21,7 @@ http://localhost:5173 (Vite's default port); Vite proxies `/api/*` to `http://lo
 (see `apps/web/vite.config.ts`). If you change the server's `PORT`, update that proxy target too.
 
 The SQLite default `sqlite:./data/chartmate.db` is resolved against the **server's working directory**, which
-for `pnpm dev` is `apps/server/`, so dev data ends up in `apps/server/data/chartmate.db` (an existing
-`altv.db` there keeps being used, see [Upgrading from altv](#upgrading-from-altv)).
+for `pnpm dev` is `apps/server/`, so dev data ends up in `apps/server/data/chartmate.db`.
 
 ## Production, locally
 
@@ -47,7 +46,7 @@ docker run -p 8787:8787 -v chartmate-data:/data chartmate
 ```
 
 The image sets `HOST=0.0.0.0` so the published port is reachable. It runs as the non-root `node` user (uid/gid 1000), stores SQLite at `/data/chartmate.db` (mount a
-volume on `/data`; a volume that already holds an `altv.db` keeps using it) and has a built-in healthcheck on
+volume on `/data`) and has a built-in healthcheck on
 `/api/health` (it honors `PORT`).
 
 A named volume (as above) just works. If you bind-mount a host directory instead, it must be writable by
@@ -96,28 +95,6 @@ Put it behind an HTTPS reverse proxy. Notes on login security:
 | `BINANCE_BASE_URL` | `https://data-api.binance.vision` | Alternate Binance-compatible endpoint. |
 | `CHARTMATE_PROVIDERS` | `live` | `fixture` serves deterministic synthetic data (tests/demos, no network). |
 | `CHARTMATE_WEB_DIST` | `apps/web/dist` (Docker: `/app/web`) | Directory of the built web app. |
-
-The older `ALTV_*` names (e.g. `ALTV_PASSWORD`) are still accepted when the `CHARTMATE_*` variable is not set.
-
-## Upgrading from altv
-
-The project used to be called altv. Upgrading keeps existing installs working without any change:
-
-- **Environment variables**: every `ALTV_<NAME>` is still read when `CHARTMATE_<NAME>` is not set at all. When
-  both are set, `CHARTMATE_<NAME>` wins (even when it is empty, which for `CHARTMATE_PASSWORD` turns auth off)
-  and the server logs a warning naming the ignored `ALTV_<NAME>`. In Docker the image sets
-  `CHARTMATE_WEB_DIST` itself, so a custom web directory must use the new name.
-- **Database file**: when a `sqlite:` URL names `chartmate.db` (the new default, also in Docker) and that file
-  does not exist but an `altv.db` does in the same directory, the server keeps using `altv.db`. Rename the file
-  (with the server stopped, together with its `-wal`/`-shm` files) or set `DATABASE_URL` if you want the new
-  name. Explicit `DATABASE_URL`s pointing at `altv.db` keep working as they are.
-- **Login sessions**: the cookie is now `chartmate_session`; an existing `altv_session` cookie is still
-  accepted (and replaced on the next login or logout), so nobody is logged out by the upgrade.
-- **Browser settings**: `localStorage` keys moved from `altv.*` to `chartmate.*` (theme, watchlist seeding
-  flag); old values are migrated on first load.
-- **Packages**: the workspace packages are now `@chartmate/*` (e.g. `pnpm --filter @chartmate/server …`).
-- **Unchanged on purpose**: the desktop app keeps its `app://altv` origin and its `altv.db` file name (renaming either would orphan existing
-  data), and the default session secret derivation is unchanged (existing sessions stay valid).
 
 ## Data sources and caveats
 
@@ -364,7 +341,7 @@ DELETE FROM bars WHERE symbol = 'stock:NVDA';
 DELETE FROM coverage WHERE symbol = 'stock:NVDA';
 ```
 
-For SQLite stop the server first and run these with `sqlite3 <path-to-chartmate.db>` (or `altv.db` for older installs); for Postgres use `psql`
+For SQLite stop the server first and run these with `sqlite3 <path-to-chartmate.db>`; for Postgres use `psql`
 against `DATABASE_URL`. Restart the server afterwards so baskets recompute their (cached) units from the
 corrected history.
 
@@ -448,7 +425,7 @@ Windows, built with Electron 44. The self-hosted server is unchanged; the deskto
   case only, the guard is armed once the download has **completed**, right as electron-updater starts that
   hand-over. The window lasts 60 s and allows a single listener, which must be on `127.0.0.1`/`::1` with an
   ephemeral port. Every allowed or refused listener is written to the log.
-- **The app:// scheme.** The window loads `app://altv/`, a privileged custom scheme:
+- **The app:// scheme.** The window loads `app://chartmate/`, a privileged custom scheme:
   - `/api/*` goes to `fastify.inject`, with the same 1 MB body limit as the server;
   - everything else is a read-only static file from the built web UI, with an SPA fallback for HTML navigations.
 
@@ -506,7 +483,7 @@ The functional tests (`app.spec.ts`) drive that copy over CDP. `packaged-hardeni
   in an error box, with no CDP or debugger endpoint and no listener at all;
 - it refuses the forbidden environment variables in the same way;
 - `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` have no effect;
-- it ignores `CHARTMATE_USER_DATA_DIR` (and the legacy `ALTV_USER_DATA_DIR`);
+- it ignores `CHARTMATE_USER_DATA_DIR`;
 - a tampered `app.asar` refuses to start (macOS);
 - the updater is present only in signed builds (`SMOKE_EXPECT_UNSIGNED`).
 
@@ -548,7 +525,7 @@ updates manually.
 
 The directory holds:
 
-- `altv.db` (SQLite with WAL; the name predates the Chartmate rename and is kept), created with mode 0600 inside a
+- `chartmate.db` (SQLite with WAL), created with mode 0600 inside a
   0700 directory;
 - `window-state.json`;
 - `logs/main.log`, which rotates at 1 MB and keeps 2 old files.
@@ -571,8 +548,6 @@ Environment overrides the desktop app honors:
 - `BINANCE_BASE_URL` (https only);
 - `CHARTMATE_DISABLE_UPDATES=1`.
 
-The legacy `ALTV_*` names of these variables are still accepted.
-
 A packaged build **refuses to start** if `NODE_USE_ENV_PROXY`, `NODE_USE_SYSTEM_CA` or `SSLKEYLOGFILE` is set.
 Node applies the first two during pre-execution, before any app code runs, so the app cannot undo them, and the
 last one would let TLS session keys be logged.
@@ -593,7 +568,7 @@ Everything else that concerns the network surface or storage is fixed.
 
 ### Security model
 
-The renderer is treated as untrusted web content, and the main process exposes nothing to it except `app://altv`.
+The renderer is treated as untrusted web content, and the main process exposes nothing to it except `app://chartmate`.
 
 - **Auth is disabled** on desktop. No port is listening, and the only client is the app's own sandboxed
   renderer. A password would only put a login screen in front of a single-user local app.
@@ -638,12 +613,12 @@ The renderer is treated as untrusted web content, and the main process exposes n
   the chart, the baskets view and the search render without a violation. Responses also carry `nosniff`,
   `X-Frame-Options: DENY`, `no-referrer`, COOP/CORP `same-origin` and a deny-all `Permissions-Policy`.
 - **Navigation**: `will-navigate`, `will-frame-navigate` and `will-redirect` are canceled unless the target is
-  `app://altv`. Every `window.open` is denied, and webviews cannot attach. These rules are applied to every
+  `app://chartmate`. Every `window.open` is denied, and webviews cannot attach. These rules are applied to every
   `WebContents` through `web-contents-created`.
 - **Permissions and devices** (permission request and check handlers, device permissions, display capture, the
   HID/serial/USB pickers): all denied, and downloads are blocked. These rules apply to **every** session, including
   ones created later, through `session-created`.
-- **Renderer network**: `webRequest.onBeforeRequest` cancels every request that is not `app://altv`. `devtools:`
+- **Renderer network**: `webRequest.onBeforeRequest` cancels every request that is not `app://chartmate`. `devtools:`
   is also allowed in development.
 - **Main-process network**: `globalThis.fetch` is wrapped by an allowlist on top of the direct, CA-pinned undici
   transport described above. It allows HTTPS only, exact hosts and
@@ -702,7 +677,7 @@ Edit `apps/desktop/product.json` and nothing else:
 - `executableName` names the Windows and Linux executable.
 
 The data directory follows `productName`. To carry users' data over, add the old name to `previousProductNames`.
-On first start the app then moves `altv.db` (and its WAL/SHM files) and `window-state.json` from the old directory.
+On first start the app then moves `chartmate.db` (and its WAL/SHM files) and `window-state.json` from the old directory.
 It never overwrites existing data.
 
 ## Tests
