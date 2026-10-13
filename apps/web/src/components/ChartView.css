@@ -130,6 +130,8 @@
   flex-direction: column;
   align-items: stretch;
   gap: 4px;
+  /* Sized to its rows (an absolutely positioned box at left: 50% would otherwise shrink to half the chart). */
+  width: max-content;
   max-width: calc(100% - 16px);
   font-size: 12px;
 }
