@@ -14,12 +14,12 @@ export type ThemeName = 'dark' | 'light';
 export const THEME_TOKENS = {
   dark: {
     bg: '#0c0f18', panel: '#07090f', elevated: '#141826', border: '#1c202c', grid: '#121620', text: '#e9ecf4', muted: '#8f97ab', accent: '#7cc4ff',
-    up: '#3ccfd0', down: '#d91e5b', upSoft: '#007e7f', downSoft: '#8e0036', upFg: '#3ccfd0', downFg: '#f84473',
+    up: '#3ccfd0', down: '#e76a88', upSoft: '#009293', downSoft: '#ae3e5c', upFg: '#3ccfd0', downFg: '#e76a88',
     crossBg: '#e9ecf4', crosshair: '#5b6171', level: '#474e60', lastPrice: '#e9ecf4',
   },
   light: {
     bg: '#fafbfd', panel: '#e7eaf1', elevated: '#ffffff', border: '#e1e4eb', grid: '#eef0f4', text: '#131726', muted: '#545c6f', accent: '#1f6fc8',
-    up: '#0b9da0', down: '#b3124d', upSoft: '#65c8ca', downSoft: '#f06988', upFg: '#006c6e', downFg: '#b3124d',
+    up: '#0b9da0', down: '#c43d68', upSoft: '#4fbec0', downSoft: '#ec6b8e', upFg: '#006c6e', downFg: '#ae2757',
     crossBg: '#131726', crosshair: '#a6abb8', level: '#b9bdc9', lastPrice: '#131726',
   },
 } as const;
@@ -30,7 +30,7 @@ export const THEME_TOKENS = {
  *
  * Up / down (candles, volume / MACD / AO bars, position zones, watchlist and basket changes): aqua and ruby,
  * vivid. Besides the hue they differ in LIGHTNESS so they stay apart for red-green color-blind readers: the up color is
- * the light one in both themes (OKLCH L dark 0.78 vs 0.58, light 0.63 vs 0.50). Small TEXT uses the --up-fg
+ * the light one in both themes (OKLCH L dark 0.78 vs 0.68, light 0.63 vs 0.57). Small TEXT uses the --up-fg
  * / --down-fg CSS tokens instead (≥ 4.5:1 on every surface they are drawn on, including a tinted pill), hue-locked to
  * the strong color.
  *
@@ -53,13 +53,14 @@ export const COLOR_DEFAULTS_REV = 4;
 
 /**
  * Default colors of earlier revisions (rev 0: the original release; rev 1: an unreleased intermediate set; rev 2: the
- * "Graphite & Signal" set; rev 3: the "Luminous" teal / rose; the accent did not change in rev 3). A stored appearance
- * / bar color exactly equal to one of them was (almost certainly) never picked by the user — the dialogs write the shown
- * defaults along with the edited field — so the one-time migration unsets it.
+ * "Graphite & Signal" set; rev 3: the "Luminous" teal / rose; the accent did not change in rev 3). The last down entries
+ * (#d91e5b / #b3124d) were an unreleased interim of rev 4, listed only as a courtesy to development layouts. A stored
+ * appearance / bar color exactly equal to one of them was (almost certainly) never picked by the user — the dialogs
+ * write the shown defaults along with the edited field — so the one-time migration unsets it.
  */
 export const LEGACY_DEFAULTS = {
-  dark: { up: ['#26a69a', '#34d399', '#00d68f', '#34e0b8'], down: ['#ef5350', '#f23c50', '#ff3b5c', '#ff4d73'], accent: ['#2962ff', '#3d6af5', '#2b66ff'] },
-  light: { up: ['#089981', '#10a37a', '#00a870', '#12b996'], down: ['#f23645', '#c41d3d', '#d4113b', '#d92855'], accent: ['#2962ff', '#3d6af5', '#2b66ff'] },
+  dark: { up: ['#26a69a', '#34d399', '#00d68f', '#34e0b8'], down: ['#ef5350', '#f23c50', '#ff3b5c', '#ff4d73', '#d91e5b'], accent: ['#2962ff', '#3d6af5', '#2b66ff'] },
+  light: { up: ['#089981', '#10a37a', '#00a870', '#12b996'], down: ['#f23645', '#c41d3d', '#d4113b', '#d92855', '#b3124d'], accent: ['#2962ff', '#3d6af5', '#2b66ff'] },
 } as const satisfies Record<ThemeName, Record<'up' | 'down' | 'accent', readonly string[]>>;
 
 /**

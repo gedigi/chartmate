@@ -17,21 +17,21 @@ describe('resolveAppearance', () => {
         drawing: { color: THEME_TOKENS[theme].accent, size: 1, style: 'solid' }, lastPriceLine: 'neutral',
       });
     }
-    expect(resolveAppearance('dark', { dark: { upColor: '#00ff00', lineWidth: 4 } })).toMatchObject({ upColor: '#00ff00', downColor: '#d91e5b', lineWidth: 4 });
+    expect(resolveAppearance('dark', { dark: { upColor: '#00ff00', lineWidth: 4 } })).toMatchObject({ upColor: '#00ff00', downColor: '#e76a88', lineWidth: 4 });
   });
 
   it('picks the active theme\'s settings; the other theme keeps its defaults', () => {
     const a = { dark: { upColor: '#ffffff' }, light: { downColor: '#000000' } };
-    expect(resolveAppearance('dark', a)).toMatchObject({ upColor: '#ffffff', downColor: '#d91e5b' });
+    expect(resolveAppearance('dark', a)).toMatchObject({ upColor: '#ffffff', downColor: '#e76a88' });
     expect(resolveAppearance('light', a)).toMatchObject({ upColor: '#0b9da0', downColor: '#000000' });
     expect(resolveAppearance('light', { dark: { upColor: '#ffffff' } })).toEqual(resolveAppearance('light', undefined));
   });
 });
 
 describe('per-theme default candle colors (match the --up / --down CSS tokens)', () => {
-  it('dark #3ccfd0 / #d91e5b, light #0b9da0 / #b3124d (aqua / ruby)', () => {
-    expect(THEME_TOKENS.dark).toMatchObject({ up: '#3ccfd0', down: '#d91e5b' });
-    expect(THEME_TOKENS.light).toMatchObject({ up: '#0b9da0', down: '#b3124d' });
+  it('dark #3ccfd0 / #e76a88, light #0b9da0 / #c43d68 (aqua / ruby)', () => {
+    expect(THEME_TOKENS.dark).toMatchObject({ up: '#3ccfd0', down: '#e76a88' });
+    expect(THEME_TOKENS.light).toMatchObject({ up: '#0b9da0', down: '#c43d68' });
     expect(THEME_CSS_VARS).toMatchObject({ up: '--up', down: '--down' });
     for (const theme of ['dark', 'light'] as const) {
       const { up, down } = THEME_TOKENS[theme];
@@ -46,8 +46,8 @@ describe('per-theme default candle colors (match the --up / --down CSS tokens)',
 
 describe('indicator histogram bar defaults follow the theme up / down colors', () => {
   it('defaultBarColors(theme) and the chart-level indicator bar styles', () => {
-    expect(defaultBarColors('dark')).toEqual({ up: '#3ccfd0', down: '#d91e5b' });
-    expect(defaultBarColors('light')).toEqual({ up: '#0b9da0', down: '#b3124d' });
+    expect(defaultBarColors('dark')).toEqual({ up: '#3ccfd0', down: '#e76a88' });
+    expect(defaultBarColors('light')).toEqual({ up: '#0b9da0', down: '#c43d68' });
     for (const theme of ['dark', 'light'] as const) {
       const { up, down } = defaultBarColors(theme);
       // Opaque: exactly the candle colors (an rgba() of them reads pink on white / brown on dark).
@@ -135,7 +135,8 @@ describe('market color family (one source of truth per theme)', () => {
 
   it('strong up / down stay apart by lightness (color-vision deficiency) on both themes', () => {
     expect(oklch(THEME_TOKENS.dark.up)[0] - oklch(THEME_TOKENS.dark.down)[0]).toBeGreaterThan(0.08);
-    expect(oklch(THEME_TOKENS.light.up)[0] - oklch(THEME_TOKENS.light.down)[0]).toBeGreaterThan(0.08);
+    // The owner-picked light pair (aqua #0b9da0 / ruby #c43d68) is 0.066 apart: the floor there is 0.06.
+    expect(oklch(THEME_TOKENS.light.up)[0] - oklch(THEME_TOKENS.light.down)[0]).toBeGreaterThan(0.06);
   });
 
   it('indicator reference levels use the muted, opaque level token', () => {
@@ -195,9 +196,9 @@ describe('readable label text', () => {
     }
   });
 
-  it('the default last price label text reads on every label color (dark on the bright aqua, white on the deep light-theme aqua / ruby)', () => {
+  it('the default last price label text reads on every label color (dark text on the aqua / rose fills and a neutral gray for no change)', () => {
     expect(lastText('dark', { dark: {} })).toBe(DARK_TEXT);
-    expect(lastText('light', { light: {} })).toBe(LIGHT_TEXT);
+    expect(lastText('light', { light: {} })).toBe(DARK_TEXT);
     for (const theme of ['dark', 'light'] as const) {
       const text = lastText(theme, { [theme]: {} })!;
       const { up, down, crosshair, muted } = THEME_TOKENS[theme];

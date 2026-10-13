@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { fromOklch, oklch, parseColor, softTone, tintFill } from '../../src/chart/color';
+import { colorDistance, fromOklch, oklch, parseColor, softTone, tintFill, zoneTint } from '../../src/chart/color';
+import { contrastRatio } from '../../src/chart/contrast';
 import { THEME_TOKENS } from '../../src/chart/theme';
 
 const hueDiff = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180);
@@ -77,7 +78,7 @@ describe('tintFill', () => {
   });
 
   it('on an off-white background (little headroom above it) the tint still keeps the hue: the darkening channels set the opacity', () => {
-    for (const strong of ['#b3124d', '#0b9da0']) {
+    for (const strong of ['#c43d68', '#0b9da0']) {
       const fill = tintFill(strong, '#fafbfd', 0.8, 0.2);
       expect(parseColor(fill)!.alpha).toBeLessThan(0.6);
       const on = `#${composite(fill, '#fafbfd').map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
@@ -89,5 +90,51 @@ describe('tintFill', () => {
     const { bg, up } = THEME_TOKENS.dark;
     expect(tintFill(up, bg, 0.8, 0.2)).toBe('rgba(60,207,208,0.2)');
     expect(tintFill('red', bg, 0.8, 0.2)).toBe('red');
+  });
+});
+
+describe('soft tone legibility', () => {
+  it('reads as a bar of the same hue on both themes: ≥ 3:1 on the dark chart, clearly apart from the strong color', () => {
+    for (const theme of ['dark', 'light'] as const) {
+      const { bg, up, down } = THEME_TOKENS[theme];
+      for (const strong of [up, down]) {
+        const soft = softTone(strong, bg);
+        expect(contrastRatio(soft, bg), `${theme} ${soft} on bg`).toBeGreaterThanOrEqual(theme === 'dark' ? 3 : 2);
+        expect(contrastRatio(soft, strong), `${theme} ${soft} vs ${strong}`).toBeGreaterThanOrEqual(1.4);
+        expect(oklch(soft)[1], `${theme} ${soft} chroma`).toBeGreaterThan(0.8 * oklch(strong)[1]);
+      }
+    }
+  });
+});
+
+describe('zoneTint', () => {
+  const hex = (rgb: number[]) => `#${rgb.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
+  const dist = (a: string, b: string) => colorDistance(parseColor(a)!.rgb, parseColor(b)!.rgb);
+
+  it('one perceived weight for up and down on both themes, never above the maximum opacity', () => {
+    for (const theme of ['dark', 'light'] as const) {
+      const { bg, up, down } = THEME_TOKENS[theme];
+      for (const strong of [up, down]) {
+        const fill = zoneTint(strong, bg, 0.05, 0.12);
+        expect(parseColor(fill)!.alpha).toBeLessThanOrEqual(0.12);
+        expect(dist(hex(composite(fill, bg)), bg), `${theme} ${strong}`).toBeCloseTo(0.05, 2);
+      }
+    }
+  });
+
+  it('candles under a zone keep their color (the other direction\'s candle moves < 0.05 in OKLab, < 7° in hue)', () => {
+    for (const theme of ['dark', 'light'] as const) {
+      const { bg, up, down } = THEME_TOKENS[theme];
+      for (const [zone, candle] of [[up, down], [down, up]] as const) {
+        const under = hex(composite(zoneTint(zone, bg, 0.05, 0.12), candle));
+        expect(dist(under, candle), `${theme} ${candle} under ${zone}`).toBeLessThan(0.05);
+        expect(hueDiff(oklch(under)[2], oklch(candle)[2])).toBeLessThan(7);
+      }
+    }
+  });
+
+  it('caps the opacity when the weight needs more; unparseable input is returned as is', () => {
+    expect(parseColor(zoneTint('#0b9da0', '#ffffff', 0.5, 0.1))!.alpha).toBeLessThanOrEqual(0.1);
+    expect(zoneTint('red', '#ffffff', 0.05, 0.12)).toBe('red');
   });
 });

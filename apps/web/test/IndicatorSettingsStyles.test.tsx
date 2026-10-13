@@ -69,7 +69,7 @@ describe('IndicatorSettings line width / style and bar colors', () => {
     const onSave = vi.fn();
     const { unmount } = render(<IndicatorSettings state={VOL} theme="light" onSave={onSave} onClose={() => {}} />);
     expect(screen.getByLabelText('Up bar color')).toHaveValue('#0b9da0');
-    expect(screen.getByLabelText('Down bar color')).toHaveValue('#b3124d');
+    expect(screen.getByLabelText('Down bar color')).toHaveValue('#c43d68');
     await userEvent.click(save());
     expect(onSave).toHaveBeenLastCalledWith(VOL);
     unmount();

@@ -163,9 +163,10 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   ratio below 1.5) gets an inline "Low contrast on the … background" warning. Layouts saved before
   appearance was per theme (one flat appearance) still load: their settings become the dark theme's.
 - **Default market colors**: one up and one down color per theme (the `--up` / `--down` CSS tokens; dark
-  `#3ccfd0` / `#d91e5b`, light `#0b9da0` / `#b3124d`), used by candles, volume, MACD and AO bars, positions,
+  `#3ccfd0` / `#e76a88`, light `#0b9da0` / `#c43d68`), used by candles, volume, MACD and AO bars, positions,
   the watchlist, baskets and sparklines. Volume / MACD / AO bars without their own colors follow the active
-  theme's candle colors, custom ones included. Rising MACD / AO bars use an opaque soft tone of the same hue.
+  theme's candle colors, custom ones included. Rising MACD / AO bars use an opaque soft tone of the same hue;
+  the legend shows histogram values in the readable up / down text colors.
   Stored colors equal to the defaults of earlier versions are reset once, so they follow the current
   defaults (indicator line colors that are all the old palette too); colors you picked yourself are kept.
 - **Readable labels**: labels drawn on a color (crosshair, text annotations, the last price label in candle
@@ -216,7 +217,8 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
     default" (long: target above, stop below; short inverted), and
     the box is about 20 bars wide (counted on the loaded bars, extrapolated with the timeframe past the last bar).
   - **Chart**: a profit zone (entry → target) and a loss zone (entry → stop) as translucent tints of the
-    candle up / down colors (hue-locked where the background allows it, else 20 % opacity), the entry line,
+    candle up / down colors, light enough that candles inside keep their colors (both zones equally strong on
+    either theme, at most 12 % opacity; hue-locked where the background allows it), the entry line,
     and labels `Target: <price> (<±%>)`, `Stop: <price> (<±%>)` and `<Long|Short> · R:R <ratio>` (the % is the position's gain / loss at that level, in % of the entry; label
     text is white or dark, whichever reads on its color). Labels
     are centered on the visible part of the box and stay inside the chart (a box wider than the screen still shows

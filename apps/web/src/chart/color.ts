@@ -90,8 +90,12 @@ export function fromOklch(L: number, C: number, H: number): string {
   return toHex(lin.map((x) => fromLinear(Math.min(1, Math.max(0, x)))) as Rgb);
 }
 
-/** How far a soft tone moves toward the background (OKLCH lightness), and how much of that it gives up in chroma. */
-export const SOFT_TONE = { lightness: 0.4, chromaLoss: 0.3 } as const;
+/**
+ * How far a soft tone moves toward the background (OKLCH lightness), and how much of that it gives up in chroma. Kept
+ * short of the background so the soft tone still reads as the same hue (and as a bar) on both themes: ≥ 3:1 against
+ * the dark chart, clearly apart from the strong color.
+ */
+export const SOFT_TONE = { lightness: 0.3, chromaLoss: 0.2 } as const;
 
 const softCache = new Map<string, string>();
 
@@ -122,26 +126,29 @@ function computeSoftTone(color: string, bg: string): string {
   return fromOklch(L + (Lb - L) * t, C * (1 - SOFT_TONE.chromaLoss * t), H);
 }
 
-/**
- * A translucent fill (e.g. a position's profit / loss zone, drawn over candles) of `color` on `bg`: the least opaque
- * rgba() that composites EXACTLY onto the hue-locked tint of `color` on `bg` (OKLCH lightness `amount` of the way
- * toward bg, chroma scaled by 1 − 0.75 × amount). On white that is a coral / mint tint of the candle's own hue, where a
- * plain rgba() of a crimson turns pink. When no such rgba exists below 0.6 opacity (typically on a dark background,
- * where the tint would need a channel darker than the background's), `color` at `fallbackAlpha`.
- */
-export function tintFill(color: string, bg: string, amount: number, fallbackAlpha: number): string {
-  const c = parseColor(color);
-  const b = parseColor(bg);
-  if (!c || !b) return color;
-  const rgba = (rgb: readonly number[], a: number) => `rgba(${rgb.map((v) => Math.round(v)).join(',')},${Number(a.toFixed(3))})`;
-  const [L, C, H] = oklch(toHex(c.rgb));
-  const [Lb] = oklch(toHex(b.rgb));
-  const target = parseColor(fromOklch(L + (Lb - L) * amount, C * (1 - amount * 0.75), H))!.rgb;
+/** Perceptual (OKLab) distance of two sRGB colors. */
+export function colorDistance(a: Rgb, b: Rgb): number {
+  const x = rgbToOklab(a);
+  const y = rgbToOklab(b);
+  return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]);
+}
+
+const rgbaText = (rgb: readonly number[], a: number) => `rgba(${rgb.map((v) => Math.round(v)).join(',')},${Number(a.toFixed(3))})`;
+
+/** The hue-locked tint of `color` `amount` of the way toward `bg` (OKLCH lightness; chroma scaled by 1 − 0.75 × amount). */
+function tintAt(color: Rgb, bg: Rgb, amount: number): Rgb {
+  const [L, C, H] = oklch(toHex(color));
+  const [Lb] = oklch(toHex(bg));
+  return parseColor(fromOklch(L + (Lb - L) * amount, C * (1 - amount * 0.75), H))!.rgb;
+}
+
+/** The least opaque rgba() over `bg` that composites onto the opaque `target`; null when none exists below 0.6 opacity. */
+function rgbaOnto(target: Rgb, bg: Rgb): { rgb: Rgb; alpha: number } | null {
   let up = 0;
   let down = 0;
   for (let i = 0; i < 3; i++) {
     const t = target[i]!;
-    const g = b.rgb[i]!;
+    const g = bg[i]!;
     if (t > g) up = Math.max(up, (t - g) / (255 - g));
     else if (t < g) down = Math.max(down, (g - t) / g);
   }
@@ -150,6 +157,56 @@ export function tintFill(color: string, bg: string, amount: number, fallbackAlph
   // ABOVE the background can need an almost opaque fill. Then the darkening channels set the opacity and the others
   // saturate at 255: the composite lands within a hair of the tint, same hue.
   if (alpha >= 0.6 && down > 0 && down < 0.6) alpha = down;
-  if (!(alpha > 0) || alpha >= 0.6) return rgba(c.rgb, fallbackAlpha);
-  return rgba(target.map((t, i) => Math.min(255, Math.max(0, b.rgb[i]! + (t - b.rgb[i]!) / alpha))), alpha);
+  if (!(alpha > 0) || alpha >= 0.6) return null;
+  return { rgb: target.map((t, i) => Math.min(255, Math.max(0, bg[i]! + (t - bg[i]!) / alpha))) as Rgb, alpha };
+}
+
+/**
+ * A translucent fill of `color` on `bg`: the least opaque rgba() that composites EXACTLY onto the hue-locked tint of
+ * `color` on `bg` (OKLCH lightness `amount` of the way toward bg, chroma scaled by 1 − 0.75 × amount). On white that
+ * is a coral / mint tint of the color's own hue, where a plain rgba() of a crimson turns pink. When no such rgba
+ * exists below 0.6 opacity (typically on a dark background, where the tint would need a channel darker than the
+ * background's), `color` at `fallbackAlpha`.
+ */
+export function tintFill(color: string, bg: string, amount: number, fallbackAlpha: number): string {
+  const c = parseColor(color);
+  const b = parseColor(bg);
+  if (!c || !b) return color;
+  const fill = rgbaOnto(tintAt(c.rgb, b.rgb, amount), b.rgb);
+  return fill ? rgbaText(fill.rgb, fill.alpha) : rgbaText(c.rgb, fallbackAlpha);
+}
+
+/**
+ * A translucent zone fill (a position's profit / loss zone, drawn over candles) of `color` on `bg` with a set
+ * perceived WEIGHT: its composite sits `weight` (OKLab distance) away from `bg`, so an up and a down zone read equally
+ * strong on either theme. Preferably the hue-locked tint (see tintFill) when an rgba() of at most `maxAlpha` lands on
+ * it, else `color` itself at the opacity that reaches the weight. Never above `maxAlpha`, so the candles under the
+ * zone keep their own color. Unparseable input is returned as is.
+ */
+export function zoneTint(color: string, bg: string, weight: number, maxAlpha: number): string {
+  const c = parseColor(color);
+  const b = parseColor(bg);
+  if (!c || !b) return color;
+  // The tint's distance from bg falls as `amount` grows (1 = bg itself).
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 30; i++) {
+    const mid = (lo + hi) / 2;
+    if (colorDistance(tintAt(c.rgb, b.rgb, mid), b.rgb) > weight) lo = mid;
+    else hi = mid;
+  }
+  const exact = rgbaOnto(tintAt(c.rgb, b.rgb, hi), b.rgb);
+  const mix = (a: number) => c.rgb.map((v, i) => v * a + b.rgb[i]! * (1 - a)) as Rgb;
+  lo = 0;
+  hi = maxAlpha;
+  if (colorDistance(mix(maxAlpha), b.rgb) > weight) {
+    for (let i = 0; i < 30; i++) {
+      const mid = (lo + hi) / 2;
+      if (colorDistance(mix(mid), b.rgb) < weight) lo = mid;
+      else hi = mid;
+    }
+  }
+  // Both reach the weight: the less opaque one changes the candles under the zone less.
+  if (exact && exact.alpha <= Math.min(hi, maxAlpha)) return rgbaText(exact.rgb, exact.alpha);
+  return rgbaText(c.rgb, hi);
 }

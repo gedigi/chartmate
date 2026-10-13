@@ -30,6 +30,7 @@ import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
 import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
 import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS } from './sessionShade';
+import { textColoredLegends } from './barLegends';
 import { solidBarFigures } from './solidBars';
 import { axisTickLabels, countdownText, crosshairDate, hasCountdown } from './timeLabels';
 import {
@@ -539,11 +540,19 @@ export class ChartAdapter {
     if (!id) throw new Error(`Cannot create indicator ${spec.name}`);
     if (levels) this.drawnLevels.set(id, JSON.stringify(effectiveLevels(spec)));
     // Histogram bars are always filled (MACD / AO outline rising bars by default): rising ones in the soft tone.
-    const figures = solidBarFigures(this.chart.getIndicators().find((i) => i.id === id)?.figures, (c) => themeSoftTone(this.theme, c));
-    if (figures) this.chart.overrideIndicator({ id, name: spec.name, figures });
+    const created = this.chart.getIndicators().find((i) => i.id === id);
+    const figures = solidBarFigures(created?.figures, (c) => themeSoftTone(this.theme, c));
+    // Bar values in the legend take the up / down TEXT tones (never the faint soft tone of a rising bar).
+    const legends = created?.figures?.some((f) => f.type === 'bar') ? { createTooltipDataSource: this.barLegends } : {};
+    if (figures || 'createTooltipDataSource' in legends) this.chart.overrideIndicator({ id, name: spec.name, ...(figures ? { figures } : {}), ...legends });
     if (hasOverrides(overrides)) this.overrides.set(id, overrides);
     return id;
   }
+
+  private readonly barLegends = textColoredLegends(() => {
+    const t = themeTokens(this.theme);
+    return { up: t.up, down: t.down, upFg: t.upFg, downFg: t.downFg, soften: (c: string) => themeSoftTone(this.theme, c) };
+  });
 
   /** Absent style fields in `spec` remove that override (the defaults are written back). */
   updateIndicator(id: string, spec: Partial<IndicatorSpec>): void {

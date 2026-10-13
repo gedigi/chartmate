@@ -9,6 +9,7 @@ vi.mock('klinecharts', async () => {
 const P = await import('../../src/chart/positionOverlay');
 const { drawingConstraint } = await import('../../src/chart/drawingTemplates');
 const { evaluateOutcome, positionMetrics, toPositionPoints } = await import('../../src/chart/position');
+const { parseColor } = await import('../../src/chart/color');
 type PositionOutcome = import('../../src/chart/position').PositionOutcome;
 const { positionContext, positionFigures, positionState, registerPositionOverlays } = P;
 
@@ -38,18 +39,18 @@ describe('positionFigures', () => {
   it('profit zone (entry→target, up color 20 %) and loss zone (entry→stop, down color 20 %) from entry to end time', () => {
     const f = positionFigures(base) as Fig[];
     const rects = f.filter((x) => x.type === 'rect');
-    expect(rects[0]).toMatchObject({ attrs: { x: 10, y: 80, width: 200, height: 20 }, styles: { style: 'fill', color: 'rgba(38,166,154,0.2)' } });
-    expect(rects[1]).toMatchObject({ attrs: { x: 10, y: 100, width: 200, height: 20 }, styles: { style: 'fill', color: 'rgba(239,83,80,0.2)' } });
+    expect(rects[0]).toMatchObject({ attrs: { x: 10, y: 80, width: 200, height: 20 }, styles: { style: 'fill', color: 'rgba(38,166,154,0.12)' } });
+    expect(rects[1]).toMatchObject({ attrs: { x: 10, y: 100, width: 200, height: 20 }, styles: { style: 'fill', color: 'rgba(239,83,80,0.12)' } });
     expect(f.find((x) => x.type === 'line')).toMatchObject({ attrs: { coordinates: [{ x: 10, y: 100 }, { x: 210, y: 100 }] } });
   });
 
-  it('with the chart background known, zones are hue-locked tints where an rgba() can produce one (color.ts tintFill)', async () => {
-    const { tintFill } = await import('../../src/chart/color');
-    const light = { up: '#0b9da0', down: '#b3124d', neutral: '#545c6f', bg: '#ffffff' };
+  it('with the chart background known, zones are light fills of one perceived weight (color.ts zoneTint)', async () => {
+    const { zoneTint } = await import('../../src/chart/color');
+    const light = { up: '#0b9da0', down: '#c43d68', neutral: '#545c6f', bg: '#ffffff' };
     const rects = (positionFigures({ ...base, colors: light }) as Fig[]).filter((x) => x.type === 'rect');
-    expect(rects[0]!.styles.color).toBe(tintFill('#0b9da0', '#ffffff', P.ZONE_TINT, P.ZONE_ALPHA));
-    expect(rects[1]!.styles.color).toBe(tintFill('#b3124d', '#ffffff', P.ZONE_TINT, P.ZONE_ALPHA));
-    expect(rects[1]!.styles.color).not.toBe('rgba(212,17,59,0.2)'); // not the plain (pink on white) rgba
+    expect(rects[0]!.styles.color).toBe(zoneTint('#0b9da0', '#ffffff', P.ZONE_WEIGHT, P.ZONE_ALPHA));
+    expect(rects[1]!.styles.color).toBe(zoneTint('#c43d68', '#ffffff', P.ZONE_WEIGHT, P.ZONE_ALPHA));
+    for (const r of rects) expect(parseColor(r.styles.color)!.alpha).toBeLessThanOrEqual(P.ZONE_ALPHA);
   });
 
   it('labels: target, stop, center (contrast-aware text, theme font) and the waiting state in a neutral style', () => {
@@ -81,13 +82,13 @@ describe('positionFigures', () => {
     const f = withBars([bar(1, 100, 100.5, 99.5), bar(3, 101, 101.5, 99.5), bar(5, 101, 103, 100.5)]);
     expect(texts(f)).toContain('Target hit · +2.00% · 2024-01-06');
     const strong = f.filter((x) => x.type === 'rect')[2]!;
-    expect(strong).toMatchObject({ attrs: { x: 20, y: 80, width: 40, height: 20 }, styles: { color: 'rgba(38,166,154,0.4)' } });
+    expect(strong).toMatchObject({ attrs: { x: 20, y: 80, width: 40, height: 20 }, styles: { color: 'rgba(38,166,154,0.16)' } });
   });
 
   it('stop hit shades the loss zone; open shades from the entry to the last close', () => {
     const stop = withBars([fill, bar(2, 99, 100, 97)]);
     expect(texts(stop)).toContain('Stop hit · -2.00% · 2024-01-03');
-    expect(stop.filter((x) => x.type === 'rect')[2]).toMatchObject({ attrs: { x: 10, y: 100, width: 20, height: 20 }, styles: { color: 'rgba(239,83,80,0.4)' } });
+    expect(stop.filter((x) => x.type === 'rect')[2]).toMatchObject({ attrs: { x: 10, y: 100, width: 20, height: 20 }, styles: { color: 'rgba(239,83,80,0.16)' } });
     const open = withBars([fill, bar(4, 100, 101.5, 99.5, 101)]);
     expect(texts(open)).toContain('Open · +1.00%');
     expect(open.filter((x) => x.type === 'rect')[2]).toMatchObject({ attrs: { x: 10, y: 90, width: 40, height: 10 } });
