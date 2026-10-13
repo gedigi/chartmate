@@ -1,0 +1,91 @@
+name: Desktop
+
+# Builds the desktop app for macOS (arm64 + x64 dmg/zip) and Windows (NSIS x64 + arm64).
+# Signing/notarization activate only when the corresponding secrets exist; otherwise the builds are unsigned.
+# Tags `v*` also publish the artifacts to a DRAFT GitHub Release.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # draft releases on tags
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      # macOS: Developer ID certificate (.p12, base64) + notarization (all optional).
+      # Scoped to the macOS job: on Windows electron-builder would otherwise try to sign with CSC_LINK too.
+      CSC_LINK: ${{ matrix.os == 'macos-latest' && secrets.CSC_LINK || '' }}
+      CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.CSC_KEY_PASSWORD || '' }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      # Windows: Azure Trusted Signing (optional; all seven must be set) or a classic certificate via WIN_CSC_LINK.
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+      AZURE_TRUSTED_SIGNING_ACCOUNT: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+      AZURE_TRUSTED_SIGNING_PROFILE: ${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}
+      AZURE_PUBLISHER_NAME: ${{ secrets.AZURE_PUBLISHER_NAME }}
+      WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      # Publishing (draft GitHub Release) only for tag builds.
+      ALTV_PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') && 'github' || '' }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm --filter @altv/web build
+      - run: pnpm --filter @altv/desktop bundle
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        working-directory: apps/desktop
+        run: pnpm exec electron-builder --config electron-builder.config.cjs --mac --publish ${{ env.ALTV_PUBLISH == 'github' && 'always' || 'never' }}
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        working-directory: apps/desktop
+        run: pnpm exec electron-builder --config electron-builder.config.cjs --win --publish ${{ env.ALTV_PUBLISH == 'github' && 'always' || 'never' }}
+
+      - name: Smoke test (macOS, packaged arm64 app)
+        if: runner.os == 'macOS'
+        working-directory: apps/desktop
+        env:
+          SMOKE_APP: ${{ github.workspace }}/apps/desktop/release/mac-arm64/Chartmate.app
+          SMOKE_HARDENED_APP: ${{ github.workspace }}/apps/desktop/release/mac-arm64/Chartmate.app
+        run: pnpm smoke
+      - name: Smoke test (Windows, packaged x64 app)
+        if: runner.os == 'Windows'
+        working-directory: apps/desktop
+        env:
+          SMOKE_APP: ${{ github.workspace }}\apps\desktop\release\win-unpacked\chartmate.exe
+        run: pnpm smoke
+
+      - name: Artifact sizes
+        shell: bash
+        run: ls -la apps/desktop/release | grep -E '\.(dmg|zip|exe)$' || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ runner.os }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest*.yml
+          if-no-files-found: error
+          retention-days: 14
