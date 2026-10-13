@@ -280,7 +280,7 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
         <DrawingToolbar controls={adapter} disabled={!drawingReady} ticker={info?.ticker ?? symbol} />
       </div>
       <div className="chart-area">
-        <IndicatorChips layout={layout} setLayout={setLayout} />
+        <IndicatorChips layout={layout} setLayout={setLayout} theme={theme} />
         <div className="chart-stage">
           <div className="chart-host" ref={hostRef} data-testid="chart-host" />
           <DrawingStyleBar controls={adapter} />

@@ -5,7 +5,7 @@ import { contrastRatio, DARK_TEXT, LIGHT_TEXT } from '../../src/chart/contrast';
 import { textToOverlay } from '../../src/chart/drawingStyles';
 import { markerStyles } from '../../src/chart/markers';
 import {
-  candleStyles, chartStyles, defaultAppearance, overlayStyles, refreshThemeTokens, resolveAppearance, THEME_CSS_VARS, THEME_TOKENS, themeTokens,
+  candleStyles, chartStyles, defaultAppearance, defaultBarColors, hexToRgba, overlayStyles, refreshThemeTokens, resolveAppearance, THEME_CSS_VARS, THEME_TOKENS, themeTokens,
 } from '../../src/chart/theme';
 
 describe('resolveAppearance', () => {
@@ -39,6 +39,18 @@ describe('per-theme default candle colours (match the --up / --down CSS tokens)'
       expect(chartStyles(theme).candle?.priceMark?.last).toMatchObject({ upColor: up, downColor: down });
       expect(candleStyles('candle', theme, undefined).bar).toMatchObject({ upColor: up, downColor: down });
       expect(candleStyles('candle', theme, undefined).priceMark?.last).toMatchObject({ upColor: up, downColor: down });
+    }
+  });
+});
+
+describe('indicator histogram bar defaults follow the theme up / down colours', () => {
+  it('defaultBarColors(theme) and the chart-level indicator bar styles', () => {
+    expect(defaultBarColors('dark')).toEqual({ up: '#26a69a', down: '#ef5350' });
+    expect(defaultBarColors('light')).toEqual({ up: '#089981', down: '#f23645' });
+    for (const theme of ['dark', 'light'] as const) {
+      const { up, down } = defaultBarColors(theme);
+      // Same translucency as KLineChart's own default bars.
+      expect(chartStyles(theme).indicator?.bars).toEqual([{ upColor: hexToRgba(up, 0.7), downColor: hexToRgba(down, 0.7) }]);
     }
   });
 });

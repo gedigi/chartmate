@@ -24,16 +24,14 @@ export function contrastRatio(a: string, b: string): number {
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
-/** Contrast ratio (WCAG large-text / UI level) at which the preferred label text colour is kept. */
-export const MIN_TEXT_CONTRAST = 3;
-
 /**
- * Ratios are compared at two decimals, as they are usually quoted: the dark theme's default up colour
- * #26a69a gives white text 2.9985:1, i.e. "3.00:1", and keeps white text as TradingView does.
+ * Contrast ratio at which the preferred label text colour (white by default) is kept: the WCAG 3:1 level for
+ * UI components / large text, with a deliberate 0.01 tolerance so the dark theme's default up colour #26a69a
+ * (TradingView's teal, 2.9985:1 against white) keeps white text as TradingView does. Compared unrounded.
  */
-const atLeast = (ratio: number, min: number) => Math.round(ratio * 100) / 100 >= min;
+export const WHITE_TEXT_MIN_CONTRAST = 2.99;
 
-/** Label text colour on `bg`: white while it reaches 3:1, else whichever of white / near-black contrasts more. */
+/** Label text colour on `bg`: white at about 3:1 or more, else whichever of white / near-black contrasts more. */
 export function readableTextOn(bg: string): LabelTextColour {
   return readableTextOnAll([bg]);
 }
@@ -41,13 +39,13 @@ export function readableTextOn(bg: string): LabelTextColour {
 /**
  * One text colour for labels whose background varies (e.g. KLineChart's last-price label: up / down /
  * unchanged colour, but a single text colour). `preferred` (white by default) is kept while its worst-case
- * contrast over `bgs` is at least 3:1; otherwise the one of white / near-black with the higher worst case
+ * contrast over `bgs` is at least WHITE_TEXT_MIN_CONTRAST; otherwise the one of white / near-black with the higher worst case
  * (ties keep white).
  */
 export function readableTextOnAll(bgs: readonly string[]): LabelTextColour;
 export function readableTextOnAll(bgs: readonly string[], preferred: string): string;
 export function readableTextOnAll(bgs: readonly string[], preferred: string = LIGHT_TEXT): string {
   const worst = (text: string) => Math.min(...bgs.map((bg) => contrastRatio(text, bg)));
-  if (atLeast(worst(preferred), MIN_TEXT_CONTRAST)) return preferred;
+  if (worst(preferred) >= WHITE_TEXT_MIN_CONTRAST) return preferred;
   return worst(DARK_TEXT) > worst(LIGHT_TEXT) ? DARK_TEXT : LIGHT_TEXT;
 }

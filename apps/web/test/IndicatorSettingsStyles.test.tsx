@@ -2,7 +2,10 @@ import type { IndicatorState } from '@altv/shared';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { catalogEntry, DEFAULT_BAR_COLORS } from '../src/chart/indicators/catalog';
+import { catalogEntry } from '../src/chart/indicators/catalog';
+import { defaultBarColors } from '../src/chart/theme';
+
+const DEFAULT_BAR_COLORS = defaultBarColors('dark');
 import { IndicatorSettings } from '../src/components/IndicatorSettings';
 
 const RSI: IndicatorState = { name: 'RSI', pane: 'sub', calcParams: [6, 12, 24], visible: true };
@@ -60,5 +63,19 @@ describe('IndicatorSettings line width / style and bar colours', () => {
     await userEvent.click(save());
     // Back to the defaults: no width/style/bar overrides are saved (the adapter restores the chart defaults).
     expect(onSave).toHaveBeenLastCalledWith(VOL);
+  });
+
+  it('bar colour defaults follow the active theme; untouched defaults are not saved; overrides win', async () => {
+    const onSave = vi.fn();
+    const { unmount } = render(<IndicatorSettings state={VOL} theme="light" onSave={onSave} onClose={() => {}} />);
+    expect(screen.getByLabelText('Up bar colour')).toHaveValue('#089981');
+    expect(screen.getByLabelText('Down bar colour')).toHaveValue('#f23645');
+    await userEvent.click(save());
+    expect(onSave).toHaveBeenLastCalledWith(VOL);
+    unmount();
+    render(<IndicatorSettings state={{ ...VOL, barColors: { up: '#00ff00', down: '#ff0000' } }} theme="light" onSave={onSave} onClose={() => {}} />);
+    expect(screen.getByLabelText('Up bar colour')).toHaveValue('#00ff00');
+    await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
+    expect(screen.getByLabelText('Up bar colour')).toHaveValue('#089981');
   });
 });

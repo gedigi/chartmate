@@ -66,6 +66,8 @@ const APPEARANCE_THEMES: readonly AppearanceTheme[] = ['dark', 'light'];
 export function migrateAppearance(a: unknown): ThemedAppearance | undefined {
   if (!a || typeof a !== 'object' || Array.isArray(a)) return undefined;
   const keys = Object.keys(a);
+  // Any theme key means the per-theme shape. A mixed object ({ dark: {...}, upColor: ... }) would lose its flat
+  // keys here, but the server rejects mixed shapes, so stored layouts never hold one.
   if (keys.length > 0 && keys.every((k) => !(APPEARANCE_THEMES as readonly string[]).includes(k))) return { dark: a as ChartAppearance };
   return a as ThemedAppearance;
 }

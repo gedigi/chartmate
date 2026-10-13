@@ -151,14 +151,15 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   ratio below 1.5) gets an inline "Low contrast" warning. Layouts saved before appearance was per theme
   (one flat appearance) still load: their settings become the dark theme's.
 - **Default candle colours** follow the theme's `--up` / `--down` CSS tokens (dark `#26a69a` / `#ef5350`,
-  light `#089981` / `#f23645`), so candles and the watchlist agree.
+  light `#089981` / `#f23645`), so candles and the watchlist agree. Histogram indicators (VOL, MACD, AO)
+  default to the same up / down colours.
 - **Readable labels**: the last-price label, text annotations and crosshair labels keep white text while it
-  reaches a 3:1 contrast ratio (WCAG, compared at two decimals) with the label colour; otherwise they use
-  white or near-black, whichever contrasts more. KLineChart draws the last-price text in one colour for up,
-  down and unchanged labels, so the rule uses the worst case over the three colours. Start/version marker
-  labels keep their muted colour on the chart background under the same 3:1 rule.
+  reaches about 3:1 (2.99, so the default teal keeps white text) contrast with the label colour; otherwise
+  they use white or near-black, whichever contrasts more. KLineChart draws the last-price text in one colour
+  for up, down and unchanged labels, so the rule uses the worst case over the three colours. Start/version
+  marker labels keep their muted colour on the chart background under the same rule.
 - **Indicator settings** also set each line's width (1–4 px) and solid/dashed style, and the up/down bar
-  colours of histogram indicators (VOL, MACD, AO).
+  colours of histogram indicators (VOL, MACD, AO); unchanged bar colours follow the theme.
 - **Drawing styles**: selecting a drawing shows a small style bar at the top of the chart (colour, width,
   solid/dashed; text annotations: colour and font size). Styles are saved with the drawing; drawings
   without their own style follow the default drawing style. Legacy drawings with non-hex colours (or other

@@ -579,6 +579,15 @@ describe('ChartAdapter', () => {
       expect(s.candle.area).toMatchObject({ lineColor: '#2962ff', lineSize: 2 });
     });
 
+    it('default indicator bars follow the theme up / down colours', () => {
+      const a = make();
+      expect(chart().setStyles).not.toHaveBeenCalled();
+      a.setTheme('light');
+      expect(chart().setStyles.mock.calls.at(-1)![0].indicator.bars).toEqual([{ upColor: 'rgba(8,153,129,0.7)', downColor: 'rgba(242,54,69,0.7)' }]);
+      a.setTheme('dark');
+      expect(chart().setStyles.mock.calls.at(-1)![0].indicator.bars).toEqual([{ upColor: 'rgba(38,166,154,0.7)', downColor: 'rgba(239,83,80,0.7)' }]);
+    });
+
     it('the reported layout: last price label text is readable; light mode falls back to defaults', () => {
       const a = make();
       a.setAppearance({ dark: { upColor: '#ffffff', downColor: '#e63b7a', drawing: { color: '#ffffff', size: 1, style: 'solid' } } });
