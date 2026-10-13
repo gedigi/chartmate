@@ -1,10 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
-import { migrateLegacyStorage } from './state/storage';
 import './styles.css';
-
-migrateLegacyStorage();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('missing #root');

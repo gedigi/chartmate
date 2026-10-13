@@ -126,8 +126,8 @@ describe('Watchlist', () => {
     await waitFor(() => expect(localStorage.getItem('chartmate.watchlist.initialized')).toBe('1'));
   });
 
-  it.each(['chartmate.watchlist.initialized', 'altv.watchlist.initialized'])('does not seed when flag %s is set (user emptied list)', async (key) => {
-    localStorage.setItem(key, '1');
+  it('does not seed when the chartmate.watchlist.initialized flag is set (user emptied list)', async () => {
+    localStorage.setItem('chartmate.watchlist.initialized', '1');
     setup([]);
     render(<Watchlist currentSymbol="stock:SPY" onSelect={() => {}} />);
     await waitFor(() => expect(api.watchlist.get).toHaveBeenCalled());
