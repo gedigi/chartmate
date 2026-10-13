@@ -10,7 +10,7 @@ export interface WindowState {
 
 export const DEFAULT_SIZE = { width: 1440, height: 900 };
 export const MIN_SIZE = { width: 800, height: 500 };
-export const BACKGROUND: Readonly<Record<WindowState['theme'], string>> = { dark: '#131722', light: '#ffffff' };
+export const BACKGROUND: Readonly<Record<WindowState['theme'], string>> = { dark: '#0f1218', light: '#ffffff' };
 
 const DEFAULT_STATE: WindowState = { bounds: null, maximized: false, theme: 'dark' };
 

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { createRotatingLog, scrub } from '../src/lib/logger.js';
 import { menuTemplate } from '../src/lib/menu.js';
 import { shouldEnableAutoUpdate } from '../src/lib/updatePolicy.js';
-import { loadWindowState, parseWindowState, saveWindowState, visibleBounds } from '../src/lib/windowState.js';
+import { BACKGROUND, loadWindowState, parseWindowState, saveWindowState, visibleBounds } from '../src/lib/windowState.js';
 
 const flatRoles = (items: unknown[]): string[] => items.flatMap((i) => {
   const o = i as { role?: string; submenu?: unknown[] };
@@ -22,6 +22,18 @@ describe('menuTemplate', () => {
   it('macOS has the standard app menu and Edit menu', () => {
     const roles = flatRoles(menuTemplate({ isMac: true, isPackaged: true, appName: 'altv' }));
     expect(roles).toEqual(expect.arrayContaining(['about', 'hide', 'quit', 'editMenu', 'windowMenu']));
+  });
+});
+
+describe('window background', () => {
+  it('matches the web theme --bg tokens (no flash of a different color before first paint)', () => {
+    const css = readFileSync(new URL('../../web/src/styles.css', import.meta.url), 'utf8');
+    const token = (selector: string) => {
+      const block = css.slice(css.indexOf(selector));
+      return /--bg:\s*(#[0-9a-fA-F]{3,8})\s*;/.exec(block)?.[1]?.toLowerCase();
+    };
+    expect(BACKGROUND.dark).toBe(token(":root[data-theme='dark']"));
+    expect(BACKGROUND.light).toBe(token(":root[data-theme='light']"));
   });
 });
 
