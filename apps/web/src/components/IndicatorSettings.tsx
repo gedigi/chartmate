@@ -1,4 +1,4 @@
-import { MAX_LINE_WIDTH, MIN_LINE_WIDTH, type IndicatorState, type LineStyleKind } from '@chartmate/shared';
+import { MAX_LINE_WIDTH, MIN_LINE_WIDTH, type IndicatorState, type LineStyleKind, type ThemedAppearance } from '@chartmate/shared';
 import { useId, useState, type FormEvent, type JSX } from 'react';
 import { catalogEntry, defaultLineColor, migrateCalcParams, validateParam } from '../chart/indicators/catalog';
 import { defaultBarColors, type ThemeName } from '../chart/theme';
@@ -13,6 +13,8 @@ export interface IndicatorSettingsProps {
   onClose: () => void;
   /** Active theme: the default bar colors of histogram indicators follow its up / down colors. */
   theme?: ThemeName;
+  /** Chart appearance: default bar colors are the active theme's (custom) candle colors. */
+  appearance?: ThemedAppearance;
 }
 
 const WIDTHS = Array.from({ length: MAX_LINE_WIDTH - MIN_LINE_WIDTH + 1 }, (_, i) => MIN_LINE_WIDTH + i);
@@ -25,8 +27,8 @@ const WIDTHS = Array.from({ length: MAX_LINE_WIDTH - MIN_LINE_WIDTH + 1 }, (_, i
  * Oscillators with catalog reference levels (RSI 70 / 30, MACD 0, …) get a Levels section: a show toggle and the
  * level values, saved only while they differ from the defaults (hidden → `showLevels: false`).
  */
-export function IndicatorSettings({ state, onSave, onClose, theme = 'dark' }: IndicatorSettingsProps): JSX.Element {
-  const DEFAULT_BAR_COLORS = defaultBarColors(theme);
+export function IndicatorSettings({ state, onSave, onClose, theme = 'dark', appearance }: IndicatorSettingsProps): JSX.Element {
+  const DEFAULT_BAR_COLORS = defaultBarColors(theme, appearance);
   const entry = catalogEntry(state.name);
   const defaults = entry?.defaultParams ?? state.calcParams;
   const labels = entry?.paramLabels ?? state.calcParams.map((_, i) => `Param ${i + 1}`);

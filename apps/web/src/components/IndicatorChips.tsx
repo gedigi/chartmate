@@ -94,6 +94,7 @@ export function IndicatorChips({ layout, setLayout, theme = 'dark' }: IndicatorC
           onSave={(next) => update(editing.index, editing.state, () => next)}
           onClose={() => setEditing(null)}
           theme={theme}
+          appearance={layout.appearance}
         />
       )}
     </>

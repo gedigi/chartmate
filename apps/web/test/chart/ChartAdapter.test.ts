@@ -599,6 +599,32 @@ describe('ChartAdapter', () => {
       ]);
     });
 
+    it('default indicator bars follow the custom candle colors of the active theme (chart styles and reset indicators)', () => {
+      const a = make();
+      const reset = a.addIndicator({ name: 'VOL', pane: 'sub', barColors: { up: '#00ff00', down: '#ff0000' } });
+      const custom = a.addIndicator({ name: 'MACD', pane: 'sub', barColors: { up: '#0000ff', down: '#ffff00' } });
+      a.updateIndicator(reset, { calcParams: [5, 10, 20] }); // override removed → defaults written explicitly
+      chart().overrideIndicator.mockClear();
+      a.setAppearance({ dark: { upColor: '#3366ff', downColor: '#ffaa00' } });
+      expect(chart().setStyles.mock.calls.at(-1)![0].indicator.bars).toEqual([
+        { style: 'fill', borderSize: 0, upColor: '#3366ff', downColor: '#ffaa00', noChangeColor: '#8b93a3' },
+      ]);
+      const calls = chart().overrideIndicator.mock.calls.map((c) => c[0] as { id: string; styles?: { bars?: unknown[] } });
+      expect(calls.filter((c) => c.id === reset && c.styles?.bars)).toEqual([
+        expect.objectContaining({ styles: { bars: [expect.objectContaining({ upColor: '#3366ff', downColor: '#ffaa00' })] } }),
+      ]);
+      expect(calls.filter((c) => c.id === custom && c.styles?.bars)).toEqual([]);
+      // Removing an override later writes the candle colors back, not the theme's.
+      a.updateIndicator(custom, {});
+      const o = chart().overrideIndicator.mock.calls.at(-1)![0] as { styles: { bars: unknown[] } };
+      expect(o.styles.bars).toEqual([expect.objectContaining({ upColor: '#3366ff', downColor: '#ffaa00' })]);
+      // The light theme has no custom colors: its own defaults.
+      a.setTheme('light');
+      expect(chart().setStyles.mock.calls.at(-1)![0].indicator.bars).toEqual([
+        expect.objectContaining({ upColor: THEME_TOKENS.light.up, downColor: THEME_TOKENS.light.down }),
+      ]);
+    });
+
     it('the reported layout: last price label text is readable; light mode falls back to defaults', () => {
       const a = make();
       a.setAppearance({ dark: { upColor: '#ffffff', downColor: '#e63b7a', drawing: { color: '#ffffff', size: 1, style: 'solid' } } });

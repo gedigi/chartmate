@@ -167,20 +167,21 @@ export interface ResolvedAppearance {
 }
 
 /**
- * Default up / down colors of indicator histograms (VOL, MACD, AO): the theme's up / down colors. Per-indicator
- * `barColors` overrides still win.
+ * Default up / down colors of indicator histograms (VOL, MACD, AO): the candle colors of `theme` — the user's
+ * custom ones from `appearance` when set, else the theme's. Per-indicator `barColors` overrides still win; the soft
+ * tone of rising MACD / AO bars is derived from whichever color is drawn (themeSoftTone).
  */
-export function defaultBarColors(theme: ThemeName): { up: string; down: string } {
-  const { up, down } = themeTokens(theme);
-  return { up, down };
+export function defaultBarColors(theme: ThemeName, appearance?: ThemedAppearance): { up: string; down: string } {
+  const a = resolveAppearance(theme, appearance);
+  return { up: a.upColor, down: a.downColor };
 }
 
 /**
- * Chart default histogram bar colors: the theme's up / down, OPAQUE — the exact candle colors (an rgba() of them
- * would read pink on white / brown on dark next to the candles).
+ * Chart default histogram bar colors: the (resolved) candle up / down, OPAQUE — the exact candle colors (an rgba()
+ * of them would read pink on white / brown on dark next to the candles).
  */
-export function defaultIndicatorBars(theme: ThemeName): { upColor: string; downColor: string; noChangeColor: string } {
-  const { up, down } = defaultBarColors(theme);
+export function defaultIndicatorBars(theme: ThemeName, appearance?: ThemedAppearance): { upColor: string; downColor: string; noChangeColor: string } {
+  const { up, down } = defaultBarColors(theme, appearance);
   return { upColor: up, downColor: down, noChangeColor: themeTokens(theme).muted };
 }
 

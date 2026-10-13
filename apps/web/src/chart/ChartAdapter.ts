@@ -209,6 +209,8 @@ export class ChartAdapter {
     return {
       ...base,
       candle: { ...base.candle, ...candle, priceMark: { ...base.candle?.priceMark, ...candle.priceMark } },
+      // Default histogram bars follow the resolved candle colors (custom ones included).
+      indicator: { ...base.indicator, bars: [{ style: 'fill', borderSize: 0, ...defaultIndicatorBars(this.theme, this.appearance) }] },
       // Unstyled drawings follow the appearance's default drawing style (theme accent when unset).
       overlay: overlayStyles(this.defaultDrawing()),
     };
@@ -316,12 +318,18 @@ export class ChartAdapter {
       const styles = this.indicatorStyles(i.name, o, undefined, 'all-lines');
       if (styles?.lines) this.chart.overrideIndicator({ id: i.id, name: i.name, styles: { lines: styles.lines } });
     }
-    // Indicators without a bar-color override follow the chart styles, except those whose override was removed
-    // (their defaults were written explicitly): give them the new theme's default bars.
+    this.refreshThemedBars();
+  }
+
+  /**
+   * Indicators without a bar-color override follow the chart styles, except those whose override was removed
+   * (their defaults were written explicitly): give them the current default bars (theme / candle colors).
+   */
+  private refreshThemedBars(): void {
     if (this.themedBars.size === 0) return;
     const d = this.chart.getStyles().indicator.bars[0]!;
     for (const i of this.chart.getIndicators()) {
-      if (this.themedBars.has(i.id)) this.chart.overrideIndicator({ id: i.id, name: i.name, styles: { bars: [{ ...d, ...defaultIndicatorBars(t) }] } });
+      if (this.themedBars.has(i.id)) this.chart.overrideIndicator({ id: i.id, name: i.name, styles: { bars: [{ ...d, ...defaultIndicatorBars(this.theme, this.appearance) }] } });
     }
   }
 
@@ -338,6 +346,7 @@ export class ChartAdapter {
     this.appearance = a;
     this.updatePositionColors();
     this.chart.setStyles(this.styles());
+    this.refreshThemedBars();
   }
 
   /** Global target / stop distances of new long / short positions (missing / invalid → app defaults); placed positions keep their prices. */
@@ -446,7 +455,7 @@ export class ChartAdapter {
     }
     if (o.barColors || reset?.barColors) {
       const d = this.chart.getStyles().indicator.bars[0]!;
-      styles.bars = [o.barColors ? { ...d, upColor: o.barColors.up, downColor: o.barColors.down } : { ...d, ...defaultIndicatorBars(this.theme) }];
+      styles.bars = [o.barColors ? { ...d, upColor: o.barColors.up, downColor: o.barColors.down } : { ...d, ...defaultIndicatorBars(this.theme, this.appearance) }];
     }
     return styles.lines || styles.bars ? styles : undefined;
   }

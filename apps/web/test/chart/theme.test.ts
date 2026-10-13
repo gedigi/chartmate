@@ -6,7 +6,7 @@ import { contrastRatio, DARK_TEXT, LIGHT_TEXT } from '../../src/chart/contrast';
 import { textToOverlay } from '../../src/chart/drawingStyles';
 import { markerStyles } from '../../src/chart/markers';
 import {
-  candleStyles, CHART_FONT, chartStyles, defaultAppearance, defaultBarColors, hexToRgba, indicatorLevelColor, overlayStyles, themeSoftTone, refreshThemeTokens, resolveAppearance, THEME_CSS_VARS, THEME_TOKENS, themeTokens,
+  candleStyles, CHART_FONT, chartStyles, defaultAppearance, defaultBarColors, defaultIndicatorBars, hexToRgba, indicatorLevelColor, overlayStyles, themeSoftTone, refreshThemeTokens, resolveAppearance, THEME_CSS_VARS, THEME_TOKENS, themeTokens,
 } from '../../src/chart/theme';
 
 describe('resolveAppearance', () => {
@@ -54,6 +54,15 @@ describe('indicator histogram bar defaults follow the theme up / down colors', (
       expect(chartStyles(theme).indicator?.bars).toEqual([{ style: 'fill', borderSize: 0, upColor: up, downColor: down, noChangeColor: THEME_TOKENS[theme].muted }]);
       expect(chartStyles(theme).candle?.bar).toMatchObject({ upColor: up, downColor: down });
     }
+  });
+
+  it('follow the resolved custom candle colors of the active theme when set (soft tones derive from them)', () => {
+    const appearance = { dark: { upColor: '#3366ff', downColor: '#ffaa00' } };
+    expect(defaultBarColors('dark', appearance)).toEqual({ up: '#3366ff', down: '#ffaa00' });
+    // Another theme's custom colors never leak: light keeps its own defaults.
+    expect(defaultBarColors('light', appearance)).toEqual(defaultBarColors('light'));
+    expect(defaultIndicatorBars('dark', appearance)).toEqual({ upColor: '#3366ff', downColor: '#ffaa00', noChangeColor: THEME_TOKENS.dark.muted });
+    expect(themeSoftTone('dark', '#3366ff')).not.toBe('#3366ff');
   });
 });
 

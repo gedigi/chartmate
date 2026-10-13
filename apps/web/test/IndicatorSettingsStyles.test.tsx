@@ -78,6 +78,16 @@ describe('IndicatorSettings line width / style and bar colors', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
     expect(screen.getByLabelText('Up bar color')).toHaveValue('#00a870');
   });
+
+  it('bar color defaults follow the custom candle colors of the active theme', async () => {
+    const onSave = vi.fn();
+    const appearance = { dark: { upColor: '#3366ff', downColor: '#ffaa00' } };
+    render(<IndicatorSettings state={VOL} theme="dark" appearance={appearance} onSave={onSave} onClose={() => {}} />);
+    expect(screen.getByLabelText('Up bar color')).toHaveValue('#3366ff');
+    expect(screen.getByLabelText('Down bar color')).toHaveValue('#ffaa00');
+    await userEvent.click(save());
+    expect(onSave).toHaveBeenLastCalledWith(VOL); // untouched → no override, the bars keep following the candles
+  });
 });
 
 describe('IndicatorSettings default line colors follow the theme palette', () => {
