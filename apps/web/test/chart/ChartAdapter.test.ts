@@ -101,6 +101,10 @@ beforeEach(() => {
 });
 const make = () => new ChartAdapter(el, { theme: 'dark' });
 const chart = () => k.state.chart;
+const MA_DARK = ['#3987e5', '#d95926', '#1a9fb2', '#9085e9'];
+const MA_LIGHT = ['#2a78d6', '#eb6834', '#0097a7', '#4a3aa7'];
+type LineStyles = { styles?: { lines?: Array<{ color: string; size: number }> } };
+const lineColors = (c: unknown) => (c as LineStyles).styles?.lines?.map((l) => l.color);
 
 describe('ChartAdapter', () => {
   it('inits the chart with theme styles and registers SESSION_SHADE once', () => {
@@ -206,7 +210,7 @@ describe('ChartAdapter', () => {
     const id = a.addIndicator({ name: 'MA', pane: 'main', calcParams: [20], lineColors: ['#fff'] });
     a.updateIndicator(id, { calcParams: [30] });
     expect(chart().overrideIndicator).toHaveBeenLastCalledWith(expect.objectContaining({
-      id, calcParams: [30], styles: { lines: ['#d1', '#d2', '#d3'].map((color) => expect.objectContaining({ color, size: 1, style: 'solid' })) },
+      id, calcParams: [30], styles: { lines: MA_DARK.map((color) => expect.objectContaining({ color, size: 1, style: 'solid' })) },
     }));
     expect(a.listIndicators()[0]!.lineColors).toBeUndefined();
     chart().overrideIndicator.mockClear();
@@ -602,14 +606,62 @@ describe('ChartAdapter', () => {
     });
   });
 
+  describe('indicator default line colours follow the theme palette', () => {
+    it('new indicators get the active theme palette by slot (BOLL upper/middle/lower = slots 2/1/3, VWAP = slot 3)', () => {
+      const a = make();
+      a.addIndicator({ name: 'MA', pane: 'main' });
+      expect(lineColors(chart().createIndicator.mock.calls.at(-1)![0])).toEqual(MA_DARK);
+      a.addIndicator({ name: 'BOLL', pane: 'main' });
+      expect(lineColors(chart().createIndicator.mock.calls.at(-1)![0])).toEqual(['#d95926', '#3987e5', '#1a9fb2']);
+      a.addIndicator({ name: 'VWAP', pane: 'main' });
+      expect(lineColors(chart().createIndicator.mock.calls.at(-1)![0])).toEqual(['#1a9fb2']);
+      const light = new ChartAdapter(el, { theme: 'light' });
+      light.addIndicator({ name: 'MA', pane: 'main' });
+      expect(lineColors(chart().createIndicator.mock.calls.at(-1)![0])).toEqual(MA_LIGHT);
+    });
+
+    it('a theme toggle re-applies the palette to indicators without user colours (also with only width overrides); user colours stay exactly', () => {
+      const a = make();
+      const plain = a.addIndicator({ name: 'MA', pane: 'main' });
+      const wide = a.addIndicator({ name: 'EMA', pane: 'main', lineWidths: [3] });
+      const user = a.addIndicator({ name: 'RSI', pane: 'sub', lineColors: ['#111111', '#222222', '#333333'] });
+      chart().overrideIndicator.mockClear();
+      a.setTheme('light');
+      const calls = chart().overrideIndicator.mock.calls.map((c) => c[0] as { id: string } & LineStyles);
+      expect(lineColors(calls.find((c) => c.id === plain))).toEqual(MA_LIGHT);
+      const w = calls.find((c) => c.id === wide)!;
+      expect(lineColors(w)).toEqual(MA_LIGHT.slice(0, 3));
+      expect(w.styles!.lines![0]!.size).toBe(3); // width override survives
+      expect(calls.find((c) => c.id === user)).toBeUndefined();
+      expect(a.listIndicators().find((i) => i.id === user)!.lineColors).toEqual(['#111111', '#222222', '#333333']);
+      chart().overrideIndicator.mockClear();
+      a.setTheme('dark');
+      expect(lineColors(chart().overrideIndicator.mock.calls.map((c) => c[0] as { id: string } & LineStyles).find((c) => c.id === plain))).toEqual(MA_DARK);
+    });
+
+    it('removing a user colour override (Reset) writes the current theme palette', () => {
+      const a = make();
+      a.setTheme('light');
+      const id = a.addIndicator({ name: 'MA', pane: 'main', lineColors: ['#fff'] });
+      a.updateIndicator(id, {});
+      expect(lineColors(chart().overrideIndicator.mock.calls.at(-1)![0])).toEqual(MA_LIGHT);
+    });
+
+    it('MACD lines use slots 1-2', () => {
+      const a = make();
+      a.addIndicator({ name: 'MACD', pane: 'sub' });
+      expect(lineColors(chart().createIndicator.mock.calls.at(-1)![0])).toEqual(['#3987e5', '#d95926']);
+    });
+  });
+
   describe('indicator line widths / styles / bar colours', () => {
     it('addIndicator maps widths, dashed style and bar colours to KLineChart styles', () => {
       const a = make();
       const id = a.addIndicator({ name: 'VOL', pane: 'sub', lineWidths: [3], lineStyles: ['solid', 'dashed'], barColors: { up: '#00ff00', down: '#ff0000' } });
       const create = chart().createIndicator.mock.calls.at(-1)![0] as { styles: { lines: unknown[]; bars: unknown[] } };
       expect(create.styles.lines).toEqual([
-        expect.objectContaining({ color: '#d1', size: 3, style: 'solid' }),
-        expect.objectContaining({ color: '#d2', size: 1, style: 'dashed', dashedValue: [4, 4] }),
+        expect.objectContaining({ color: '#3987e5', size: 3, style: 'solid' }),
+        expect.objectContaining({ color: '#d95926', size: 1, style: 'dashed', dashedValue: [4, 4] }),
       ]);
       expect(create.styles.bars).toEqual([expect.objectContaining({ style: 'fill', upColor: '#00ff00', downColor: '#ff0000', noChangeColor: '#76808F' })]);
       expect(a.listIndicators()[0]).toMatchObject({ id, lineWidths: [3], lineStyles: ['solid', 'dashed'], barColors: { up: '#00ff00', down: '#ff0000' } });
@@ -640,21 +692,22 @@ describe('ChartAdapter', () => {
       chart().overrideIndicator.mockClear();
       a.setTheme('light');
       const calls = chart().overrideIndicator.mock.calls.map((c) => c[0] as { id: string; styles?: { bars?: unknown[] } });
-      expect(calls.filter((c) => c.id === reset)).toEqual([
+      expect(calls.filter((c) => c.id === reset && c.styles?.bars)).toEqual([
         expect.objectContaining({ styles: { bars: [expect.objectContaining({ style: 'fill', upColor: 'rgba(8,153,129,0.7)', downColor: 'rgba(242,54,69,0.7)' })] } }),
       ]);
-      expect(calls.filter((c) => c.id === custom)).toEqual([]); // the user's colours win
+      expect(calls.filter((c) => c.id === custom && c.styles?.bars)).toEqual([]); // the user's bar colours win
       expect(a.listIndicators().find((i) => i.id === reset)).not.toHaveProperty('barColors');
       // Setting an override again stops the theme updates for that indicator; removing it stops them for good.
       a.updateIndicator(reset, { barColors: { up: '#123456', down: '#654321' } });
       chart().overrideIndicator.mockClear();
       a.setTheme('dark');
-      expect(chart().overrideIndicator.mock.calls.filter((c) => (c[0] as { id: string }).id === reset)).toEqual([]);
+      const barCalls = (id?: string) => chart().overrideIndicator.mock.calls.map((c) => c[0] as { id: string; styles?: { bars?: unknown[] } }).filter((c) => c.styles?.bars && (!id || c.id === id));
+      expect(barCalls(reset)).toEqual([]);
       a.updateIndicator(reset, {});
       a.removeIndicator(reset);
       chart().overrideIndicator.mockClear();
       a.setTheme('light');
-      expect(chart().overrideIndicator).not.toHaveBeenCalled();
+      expect(barCalls(reset)).toEqual([]);
     });
 
     it('removing the overrides writes the defaults back explicitly (KLineChart merges styles)', () => {
@@ -662,7 +715,7 @@ describe('ChartAdapter', () => {
       const id = a.addIndicator({ name: 'MACD', pane: 'sub', lineStyles: ['dashed'], barColors: { up: '#00ff00', down: '#ff0000' } });
       a.updateIndicator(id, { calcParams: [12, 26, 9] });
       const o = chart().overrideIndicator.mock.calls.at(-1)![0] as { styles: { lines: unknown[]; bars: unknown[] } };
-      expect(o.styles.lines).toEqual(['#d1', '#d2', '#d3'].map((color) => expect.objectContaining({ color, size: 1, style: 'solid' })));
+      expect(o.styles.lines).toEqual(['#3987e5', '#d95926'].map((color) => expect.objectContaining({ color, size: 1, style: 'solid' })));
       // The theme's default bars (dark), not KLineChart's own green / red.
       expect(o.styles.bars).toEqual([expect.objectContaining({ style: 'fill', upColor: 'rgba(38,166,154,0.7)', downColor: 'rgba(239,83,80,0.7)' })]);
       expect(a.listIndicators()[0]).not.toHaveProperty('lineStyles');

@@ -76,7 +76,7 @@ describe('IndicatorSettings', () => {
 
   it('stored colours that all equal the defaults are dropped on save (clean shape)', async () => {
     const onSave = vi.fn();
-    render(<IndicatorSettings state={{ ...RSI, lineColors: ['#ff9600', '#935ebd', '#1677ff'] }} onSave={onSave} onClose={() => {}} />);
+    render(<IndicatorSettings state={{ ...RSI, lineColors: ['#3987e5', '#d95926', '#1a9fb2'] }} onSave={onSave} onClose={() => {}} />);
     await userEvent.click(save());
     expect(onSave.mock.calls[0]![0]).not.toHaveProperty('lineColors');
   });

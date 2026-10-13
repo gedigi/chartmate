@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CATALOG, catalogEntry, defaultLineColor, indicatorLabel, migrateCalcParams, validateParam } from '../../src/chart/indicators/catalog';
+import { INDICATOR_PALETTE } from '../../src/chart/theme';
+import { CATALOG, catalogEntry, defaultLineColor, defaultLineColors, indicatorLabel, migrateCalcParams, validateParam } from '../../src/chart/indicators/catalog';
 import { CUSTOM_INDICATORS } from '../../src/chart/indicators/extensions';
 
 describe('CATALOG', () => {
@@ -33,13 +34,47 @@ describe('CATALOG', () => {
   });
 });
 
-describe('default line colours', () => {
-  it('VWAP defaults to a colour distinct from the BOLL bands, in its template and in the settings defaults', () => {
-    const vwap = defaultLineColor(0, 'VWAP');
-    expect([0, 1, 2].map((i) => defaultLineColor(i, 'BOLL'))).not.toContain(vwap);
+describe('default line colours (per-theme categorical palette)', () => {
+  const DARK = ['#3987e5', '#d95926', '#1a9fb2', '#9085e9', '#c98500', '#d55181'];
+  const LIGHT = ['#2a78d6', '#eb6834', '#0097a7', '#4a3aa7', '#eda100', '#e87ba4'];
+  // Slot (1-based) of each line, in figure order.
+  const SLOTS: Record<string, number[]> = {
+    MA: [1, 2, 3, 4], EMA: [1, 2, 3], BOLL: [2, 1, 3], SAR: [], BBI: [1], VWAP: [3], VOL: [1, 2, 3], MACD: [1, 2],
+    RSI: [1, 2, 3], KDJ: [1, 2, 3], CCI: [1], ATR: [1], OBV: [1, 2], WR: [1, 2, 3], DMI: [1, 2, 3, 4], ROC: [1, 2],
+    MTM: [1, 2], TRIX: [1, 2], AO: [], SMA: [1], WYCKOFF: [],
+  };
+
+  it('palettes are fixed per theme', () => {
+    expect([...INDICATOR_PALETTE.dark]).toEqual(DARK);
+    expect([...INDICATOR_PALETTE.light]).toEqual(LIGHT);
+  });
+
+  it('every catalog line takes the palette colour of its documented slot, in both themes', () => {
+    for (const e of CATALOG) {
+      expect(SLOTS[e.name], `${e.name} mapping is documented`).toBeDefined();
+      expect(defaultLineColors(e.name, 'dark'), e.name).toEqual(SLOTS[e.name]!.map((s) => DARK[s - 1]));
+      expect(defaultLineColors(e.name, 'light'), e.name).toEqual(SLOTS[e.name]!.map((s) => LIGHT[s - 1]));
+      expect(defaultLineColors(e.name, 'dark')).toHaveLength(e.lines.length);
+    }
+  });
+
+  it('no indicator has more lines than palette slots (no wrapping), and lines within one indicator are distinct', () => {
+    for (const e of CATALOG) {
+      expect(e.lines.length, e.name).toBeLessThanOrEqual(INDICATOR_PALETTE.dark.length);
+      expect(new Set(defaultLineColors(e.name, 'dark')).size, e.name).toBe(e.lines.length);
+    }
+  });
+
+  it('VWAP is slot 3 (distinct from MA / BOLL slots 1-2), and its template carries no fixed colour', () => {
+    expect(defaultLineColor(0, 'VWAP', 'dark')).toBe('#1a9fb2');
+    expect(defaultLineColor(0, 'VWAP', 'light')).toBe('#0097a7');
     const tpl = CUSTOM_INDICATORS.find((c) => c.catalog.name === 'VWAP')!.template;
-    expect(tpl.styles?.lines?.[0]?.color).toBe(vwap);
-    expect(defaultLineColor(0)).toBe('#ff9600');
+    expect(tpl.styles?.lines?.[0]?.color).toBeUndefined();
+  });
+
+  it('unknown indicators fall back to the palette by line index', () => {
+    expect(defaultLineColor(1, undefined, 'light')).toBe('#eb6834');
+    expect(defaultLineColor(0, 'NOPE', 'dark')).toBe('#3987e5');
   });
 });
 

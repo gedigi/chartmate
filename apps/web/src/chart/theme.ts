@@ -21,6 +21,24 @@ export const THEME_TOKENS = {
   },
 } as const;
 
+/**
+ * Categorical palette of indicator LINES, per theme (surface #131722 / #ffffff), validated for colour-vision
+ * deficiency: blue, orange, cyan, violet, amber, magenta, deliberately without green / red so a line never
+ * reads as a candle up / down. Slot n colours the n-th line of an indicator (see `lineSlots` in the catalog);
+ * amber / magenta are below 3:1 on white, which is acceptable because the legend / tooltip names every line.
+ * Histogram bars keep the theme up / down colours (`defaultIndicatorBars`).
+ */
+export const INDICATOR_PALETTE = {
+  dark: ['#3987e5', '#d95926', '#1a9fb2', '#9085e9', '#c98500', '#d55181'],
+  light: ['#2a78d6', '#eb6834', '#0097a7', '#4a3aa7', '#eda100', '#e87ba4'],
+} as const satisfies Record<ThemeName, readonly string[]>;
+
+/** Colour of palette slot `slot` (0-based) in `theme`; wraps only as a safety net (the catalog has <= 6 lines per indicator). */
+export function indicatorPaletteColor(theme: ThemeName, slot: number): string {
+  const p = INDICATOR_PALETTE[theme];
+  return p[((slot % p.length) + p.length) % p.length]!;
+}
+
 type ThemeTokens = { -readonly [K in keyof typeof THEME_TOKENS.dark]: string };
 
 /** Chart token → CSS custom property in styles.css. */
