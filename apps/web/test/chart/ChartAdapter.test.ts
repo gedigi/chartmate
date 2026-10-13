@@ -10,6 +10,13 @@ interface FakeIndicator { id: string; name: string; paneId: string; calcParams: 
 
 const k = vi.hoisted(() => {
   const state = { chart: null as unknown as ReturnType<typeof makeChart>, registered: [] as string[], overlayTemplates: [] as any[] };
+  const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+  function mergeStyles(target: unknown, source: unknown): unknown {
+    if (!isObj(source)) return source;
+    const out: Record<string, unknown> = isObj(target) ? { ...target } : {};
+    for (const [key, v] of Object.entries(source)) out[key] = isObj(v) && isObj(out[key]) ? mergeStyles(out[key], v) : v;
+    return out;
+  }
   function makeChart() {
     let seq = 0;
     const overlays: FakeOverlay[] = [];
@@ -52,7 +59,11 @@ const k = vi.hoisted(() => {
       getOverlays: vi.fn((f?: { groupId?: string }) => overlays.filter((o) => !f?.groupId || o.groupId === f.groupId)),
       overrideOverlay: vi.fn((o: Partial<FakeOverlay>) => {
         const ov = overlays.find((x) => x.id === o.id);
-        if (ov) Object.assign(ov, Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)));
+        if (!ov) return true;
+        const { styles, ...rest } = o;
+        Object.assign(ov, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)));
+        // Like KLineChart (utils merge): styles are deep-merged, a null value replaces the key.
+        if (styles !== undefined) ov.styles = mergeStyles(ov.styles, styles);
         return true;
       }),
       removeOverlay: vi.fn((f: { id?: string; groupId?: string }) => {
@@ -523,6 +534,152 @@ describe('ChartAdapter', () => {
       expect(lock).toHaveBeenLastCalledWith(false);
     });
 
+    describe('per-drawing lock', () => {
+      const seg = (extra: { lock?: boolean; locked?: boolean } = {}) => ({
+        name: 'segment', points: [{ timestamp: DAY, value: 1 }, { timestamp: 2 * DAY, value: 2 }], lock: false, ...extra,
+      });
+      const select = (o: FakeOverlay) => o.onSelected?.({ overlay: o });
+      type RightClick = { onRightClick?: (e: { overlay: FakeOverlay; preventDefault: () => void }) => void };
+      /** Simulates a right click on the overlay: true when KLineChart would remove it (not prevented). */
+      const rightClickRemoves = (o: FakeOverlay) => {
+        let prevented = false;
+        (o as FakeOverlay & RightClick).onRightClick?.({ overlay: o, preventDefault: () => { prevented = true; } });
+        return !prevented;
+      };
+
+      it('setSelectedLock locks only the selected drawing: no delete (key or right click), no style edits; saved', async () => {
+        const a = await loaded();
+        const changed = vi.fn();
+        a.onDrawingsChange(changed);
+        const selection = vi.fn();
+        a.onSelectionChange(selection);
+        a.restoreDrawings([seg(), { ...seg(), name: 'rayLine' }]);
+        const [first, second] = userOverlays();
+        select(first!);
+        expect(a.getSelectedDrawing()).toEqual(expect.objectContaining({ locked: false, ownLock: false }));
+        expect(a.setSelectedLock(true)).toBe(true);
+        expect(first!.lock).toBe(true);
+        expect(second!.lock).toBe(false);
+        expect(changed).toHaveBeenCalledTimes(1);
+        expect(selection).toHaveBeenLastCalledWith(expect.objectContaining({ id: first!.id, locked: true, ownLock: true }));
+        expect(a.serializeDrawings()).toEqual([seg({ lock: true, locked: true }), { ...seg(), name: 'rayLine' }]);
+        // Locked: Delete / Backspace and a right click leave it; style edits are ignored.
+        expect(a.removeSelected()).toBe(false);
+        expect(rightClickRemoves(first!)).toBe(false);
+        expect(rightClickRemoves(second!)).toBe(true);
+        chart().overrideOverlay.mockClear();
+        a.setSelectedStyle({ color: '#00ff00' });
+        expect(chart().overrideOverlay).not.toHaveBeenCalled();
+        // Unlocked again: editable and removable.
+        expect(a.setSelectedLock(false)).toBe(true);
+        expect(first!.lock).toBe(false);
+        expect(a.serializeDrawings()[0]).toEqual(seg());
+        expect(a.removeSelected()).toBe(true);
+        expect(a.setSelectedLock(true)).toBe(false); // nothing selected
+      });
+
+      it('a drawing\'s own lock outlives "Lock all" being turned off; lock all combines with it', async () => {
+        const a = await loaded();
+        const lockAll = vi.fn();
+        a.onLockAllChange(lockAll);
+        a.restoreDrawings([seg(), seg()]);
+        const [first, second] = userOverlays();
+        select(first!);
+        a.setSelectedLock(true);
+        a.setLockAll(true);
+        expect(userOverlays().map((o) => o.lock)).toEqual([true, true]);
+        select(second!);
+        expect(a.getSelectedDrawing()).toEqual(expect.objectContaining({ locked: true, ownLock: false }));
+        expect(a.removeSelected()).toBe(false);
+        expect(a.serializeDrawings()).toEqual([seg({ lock: true, locked: true }), seg({ lock: true })]);
+        a.setLockAll(false);
+        expect(userOverlays().map((o) => o.lock)).toEqual([true, false]);
+        expect(lockAll).toHaveBeenLastCalledWith(false);
+        // Unlocking a drawing's own lock while "Lock all" is on keeps it locked (by lock all).
+        a.setLockAll(true);
+        select(first!);
+        a.setSelectedLock(false);
+        expect(first!.lock).toBe(true);
+        expect(a.getSelectedDrawing()).toEqual(expect.objectContaining({ locked: true, ownLock: false }));
+        a.setLockAll(false);
+        expect(userOverlays().map((o) => o.lock)).toEqual([false, false]);
+      });
+
+      it('restore: own locks come back; lock all is derived; drawings saved before the flag keep their lock', async () => {
+        const a = await loaded();
+        const lockAll = vi.fn();
+        a.onLockAllChange(lockAll);
+        // Own lock only.
+        a.restoreDrawings([seg({ lock: true, locked: true }), seg()]);
+        expect(lockAll).toHaveBeenLastCalledWith(false);
+        expect(userOverlays().map((o) => o.lock)).toEqual([true, false]);
+        expect(a.serializeDrawings()).toEqual([seg({ lock: true, locked: true }), seg()]);
+        // Every drawing locked by its own lock: "Lock all" stays off (turning it off would unlock nothing).
+        a.restoreDrawings([seg({ lock: true, locked: true }), seg({ lock: true, locked: true })]);
+        expect(lockAll).toHaveBeenLastCalledWith(false);
+        // Lock all on, one own lock: turning lock all off keeps that one.
+        a.restoreDrawings([seg({ lock: true, locked: true }), seg({ lock: true })]);
+        expect(lockAll).toHaveBeenLastCalledWith(true);
+        a.setLockAll(false);
+        expect(userOverlays().map((o) => o.lock)).toEqual([true, false]);
+        // Saved before the flag: all locked = "Lock all"; a mix keeps each drawing's lock as its own.
+        a.restoreDrawings([seg({ lock: true }), seg({ lock: true })]);
+        expect(lockAll).toHaveBeenLastCalledWith(true);
+        a.setLockAll(false);
+        expect(userOverlays().map((o) => o.lock)).toEqual([false, false]);
+        a.restoreDrawings([seg({ lock: true }), seg()]);
+        expect(lockAll).toHaveBeenLastCalledWith(false);
+        expect(a.serializeDrawings()).toEqual([seg({ lock: true, locked: true }), seg()]);
+      });
+
+      it('"Lock all" toggled while drawings wait for data applies to them too', async () => {
+        const a = make();
+        a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 15000 }, events());
+        a.restoreDrawings([seg({ lock: true, locked: true }), seg()]);
+        a.setLockAll(true);
+        expect(a.serializeDrawings()).toEqual([seg({ lock: true, locked: true }), seg({ lock: true })]);
+        a.setLockAll(false);
+        expect(a.serializeDrawings()).toEqual([seg({ lock: true, locked: true }), seg()]);
+      });
+
+      it('a locked drawing shows hollow handles (theme background inside); unlocking restores the default handles', async () => {
+        const a = await loaded();
+        a.restoreDrawings([seg({ lock: true, locked: true }), seg()]);
+        const [first, second] = userOverlays();
+        const point = (o: FakeOverlay) => (o.styles as { point?: Record<string, unknown> | null } | null)?.point;
+        expect(point(first!)).toEqual(expect.objectContaining({ color: THEME_TOKENS.dark.bg, activeColor: THEME_TOKENS.dark.bg }));
+        expect(point(second!) ?? null).toBeNull();
+        a.setTheme('light');
+        expect(point(first!)).toEqual(expect.objectContaining({ color: THEME_TOKENS.light.bg }));
+        select(first!);
+        a.setSelectedLock(false);
+        expect(point(first!) ?? null).toBeNull();
+        a.setLockAll(true);
+        expect(point(second!)).toEqual(expect.objectContaining({ color: THEME_TOKENS.light.bg }));
+        a.setLockAll(false);
+        expect(point(second!) ?? null).toBeNull();
+        // The handle look is never saved with the drawing.
+        expect(a.serializeDrawings()).toEqual([seg(), seg()]);
+      });
+
+      it('lockedDrawingCount and clearDrawings({ keepLocked }) keep locked drawings', async () => {
+        const a = await loaded();
+        const changed = vi.fn();
+        a.onDrawingsChange(changed);
+        a.restoreDrawings([seg({ lock: true, locked: true }), seg(), seg()]);
+        expect(a.drawingCount()).toEqual({ total: 3, locked: 1 });
+        a.clearDrawings({ keepLocked: true });
+        expect(changed).toHaveBeenCalledTimes(1);
+        expect(a.serializeDrawings()).toEqual([seg({ lock: true, locked: true })]);
+        expect(a.drawingCount()).toEqual({ total: 1, locked: 1 });
+        changed.mockClear();
+        a.clearDrawings({ keepLocked: true }); // nothing to remove: no change
+        expect(changed).not.toHaveBeenCalled();
+        a.clearDrawings();
+        expect(a.serializeDrawings()).toEqual([]);
+      });
+    });
+
     it('restoring for a new symbol waits for that symbol\'s data, not the previous symbol\'s', async () => {
       const a = await loaded(); // AAPL data is in
       const d = [{ name: 'segment', points: [{ timestamp: DAY, value: 1 }, { timestamp: 2 * DAY, value: 2 }], lock: false }];
@@ -861,7 +1018,7 @@ describe('ChartAdapter', () => {
       const o = userOverlays()[0]!;
       expect(o.styles).toEqual({ line: { color: '#ff0000', size: 3, style: 'dashed', dashedValue: [6, 4], lineCap: 'butt' } });
       o.onSelected?.({ overlay: o });
-      expect(selection).toHaveBeenLastCalledWith({ id: o.id, kind: 'line', style: { color: '#ff0000', size: 3, style: 'dashed' }, locked: false });
+      expect(selection).toHaveBeenLastCalledWith({ id: o.id, kind: 'line', style: { color: '#ff0000', size: 3, style: 'dashed' }, locked: false, ownLock: false });
       a.setSelectedStyle({ color: '#00ff00' });
       expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: o.id, styles: { line: { color: '#00ff00', size: 3, style: 'dashed', dashedValue: [6, 4], lineCap: 'butt' } } });
       expect(changed).toHaveBeenCalledTimes(1);
@@ -905,9 +1062,9 @@ describe('ChartAdapter', () => {
       a.restoreDrawings([seg, { name: 'simpleAnnotation', points: [{ timestamp: DAY, value: 1 }], lock: false, text: 'hi' }]);
       const [line, text] = userOverlays();
       line!.onSelected?.({ overlay: line });
-      expect(selection).toHaveBeenLastCalledWith({ id: line!.id, kind: 'line', style: drawing, locked: false });
+      expect(selection).toHaveBeenLastCalledWith({ id: line!.id, kind: 'line', style: drawing, locked: false, ownLock: false });
       text!.onSelected?.({ overlay: text });
-      expect(selection).toHaveBeenLastCalledWith({ id: text!.id, kind: 'text', style: { color: '#abcdef', size: 12 }, locked: false });
+      expect(selection).toHaveBeenLastCalledWith({ id: text!.id, kind: 'text', style: { color: '#abcdef', size: 12 }, locked: false, ownLock: false });
       a.setSelectedStyle({ size: 18 });
       expect(chart().overrideOverlay).toHaveBeenLastCalledWith(expect.objectContaining({
         id: text!.id, styles: expect.objectContaining({ text: expect.objectContaining({ size: 18, backgroundColor: '#abcdef' }) }),

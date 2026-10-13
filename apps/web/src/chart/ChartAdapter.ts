@@ -63,10 +63,16 @@ export const MAX_HISTORY_PAGES = 40;
 /** Most decimals a typed price keeps (crypto quotes can be finer than the symbol precision). */
 export const MAX_PRICE_DECIMALS = 8;
 
+/**
+ * Lock state of the selected drawing: `locked` is the effective lock ("Lock all drawings" or its own lock: read-only,
+ * not removable), `ownLock` its own lock (the style bar's lock toggle), which outlives "Lock all" being turned off.
+ */
+interface SelectedLock { locked: boolean; ownLock: boolean }
+
 /** Style of the selected drawing, as the floating style bar edits it. */
-export type SelectedDrawing =
+export type SelectedDrawing = SelectedLock & (
   | {
-    id: string; kind: 'line'; style: DrawingLineStyle; locked: boolean;
+    id: string; kind: 'line'; style: DrawingLineStyle;
     /** Horizontal drawings only: their price and the symbol's price precision. */
     price?: { value: number; precision: number };
     /** Price / horizontal lines only: effective price-label options (price text on the line, label on the axis). */
@@ -74,13 +80,13 @@ export type SelectedDrawing =
     /** Parallel channels only: effective extend options (lines extended past the left / right end). */
     extend?: ExtendOptions;
   }
-  | { id: string; kind: 'text'; style: TextStyle; locked: boolean }
+  | { id: string; kind: 'text'; style: TextStyle }
   | {
-    id: string; kind: 'position'; side: PositionSide; locked: boolean;
+    id: string; kind: 'position'; side: PositionSide;
     entry: number; target: number; stop: number; precision: number;
     /** The derived numbers (R:R, % distances) and the outcome so far. */
     metrics: PositionMetrics; outcome: PositionOutcome;
-  };
+  });
 
 const INDICATOR_DASH = [4, 4];
 
@@ -347,6 +353,7 @@ export class ChartAdapter {
     this.updatePositionColors();
     this.chart.setStyles(this.styles());
     for (const o of this.chart.getOverlays({ groupId: MARKERS })) this.chart.overrideOverlay({ id: o.id, styles: markerStyles(t) });
+    this.refreshLockedLook();
     // Indicator lines without a color override carry the palette of the theme they were written in: rewrite
     // them (width / style overrides kept; user colors are never touched).
     for (const i of this.chart.getIndicators()) {
@@ -384,6 +391,7 @@ export class ChartAdapter {
     this.updatePositionColors();
     this.chart.setStyles(this.styles());
     this.refreshThemedBars();
+    this.refreshLockedLook();
   }
 
   /** Global target / stop distances of new long / short positions (missing / invalid → app defaults); placed positions keep their prices. */
@@ -624,7 +632,10 @@ export class ChartAdapter {
   /** Overlay id + completion callback of the drawing being placed interactively. */
   private drawing: { id: string; onEnd?: () => void } | null = null;
   private magnet = false;
+  /** "Lock all drawings": every user drawing is locked, on top of its own lock. */
   private lockAll = false;
+  /** Overlay ids of the drawings locked on their own (style bar lock toggle); they stay locked when "Lock all" goes off. */
+  private readonly ownLocks = new Set<string>();
   /** Symbol of the current load(); dataSymbol becomes it once that load's first data page arrived. */
   private loadSymbol: string | null = null;
   private dataSymbol: string | null = null;
@@ -645,12 +656,12 @@ export class ChartAdapter {
   /** Price precision of the current symbol (horizontal drawings placed with the mouse are rounded to it). */
   private pricePrecision = 2;
 
-  private readonly handlers: Pick<OverlayCreate, 'onDrawEnd' | 'onPressedMoveStart' | 'onPressedMoving' | 'onPressedMoveEnd' | 'onRemoved' | 'onSelected' | 'onDeselected' | 'onDoubleClick'> = {
+  private readonly handlers: Pick<OverlayCreate, 'onDrawEnd' | 'onPressedMoveStart' | 'onPressedMoving' | 'onPressedMoveEnd' | 'onRemoved' | 'onSelected' | 'onDeselected' | 'onDoubleClick' | 'onRightClick'> = {
     onDrawEnd: ({ overlay }) => {
       if (this.drawing?.id === overlay.id) {
         const { onEnd } = this.drawing;
         this.drawing = null;
-        if (this.lockAll) this.chart.overrideOverlay({ id: overlay.id, lock: true });
+        if (this.lockAll) this.applyLock(overlay.id);
         this.revertMode(overlay.id);
         this.anchorAfterEdit(overlay.id);
         this.roundHorizontal(overlay);
@@ -700,11 +711,14 @@ export class ChartAdapter {
       if (this.draggingId === overlay.id) this.draggingId = null;
       if (drawingConstraint.draggingId === overlay.id) drawingConstraint.draggingId = null;
       this.strongIds.delete(overlay.id);
+      this.ownLocks.delete(overlay.id);
       this.anchors.delete(overlay.id);
       this.pressedPoints.delete(overlay.id);
       this.removing.add(overlay.id);
       try { this.emitChange(); } finally { this.removing.delete(overlay.id); }
     },
+    // KLineChart removes an overlay on right click unless prevented (it ignores the lock): locked ones stay.
+    onRightClick: ({ overlay, preventDefault }) => { if (overlay.lock) preventDefault?.(); },
     onSelected: ({ overlay }) => { this.select(overlay.id); },
     onDeselected: ({ overlay }) => { if (this.selectedId === overlay.id) this.select(null); },
     // Double-clicking a horizontal line selects it and asks the style bar to focus its price field.
@@ -949,7 +963,7 @@ export class ChartAdapter {
     const d = this.defaultDrawing();
     if (o.name === TEXT_TOOL) {
       const style = readText(o.styles) ?? { color: d.color, size: DEFAULT_TEXT_SIZE };
-      return { id: o.id, kind: 'text', style, locked: o.lock };
+      return { id: o.id, kind: 'text', style, ...this.lockOf(o) };
     }
     const side = sideOf(o.name);
     if (side) {
@@ -960,12 +974,12 @@ export class ChartAdapter {
         historyComplete: !this.hasOlderData(), barMs: positionContext.barMs,
       });
       return {
-        id: o.id, kind: 'position', side, locked: o.lock, entry: g.entry, target: g.target, stop: g.stop, precision: this.pricePrecision,
+        id: o.id, kind: 'position', side, ...this.lockOf(o), entry: g.entry, target: g.target, stop: g.stop, precision: this.pricePrecision,
         metrics, outcome,
       };
     }
     const style = readLine(o.styles) ?? { ...d };
-    const sel: SelectedDrawing = { id: o.id, kind: 'line', style, locked: o.lock };
+    const sel: SelectedDrawing = { id: o.id, kind: 'line', style, ...this.lockOf(o) };
     const value = o.points[0]?.value;
     if (HORIZONTAL_DRAWINGS.has(o.name) && typeof value === 'number') sel.price = { value, precision: this.pricePrecision };
     const label = labelOptions(o.name, o.styles);
@@ -973,6 +987,55 @@ export class ChartAdapter {
     const extend = extendOptions(o.name, o.styles);
     if (extend) sel.extend = extend;
     return sel;
+  }
+
+  private lockOf(o: Overlay): SelectedLock {
+    return { locked: o.lock, ownLock: this.ownLocks.has(o.id) };
+  }
+
+  /**
+   * Locks / unlocks the selected drawing on its own (it cannot be moved, edited or removed while locked; "Lock all"
+   * locks it too, whatever this says). Saved like any drawing edit. False when nothing is selected.
+   */
+  setSelectedLock(locked: boolean): boolean {
+    const sel = this.getSelectedDrawing();
+    if (!sel) return false;
+    if (locked) this.ownLocks.add(sel.id);
+    else this.ownLocks.delete(sel.id);
+    this.applyLock(sel.id);
+    this.emitChange();
+    this.emitSelection();
+    return true;
+  }
+
+  /**
+   * Handles of a locked drawing: hollow rings (the theme background inside, the default drawing color around) that
+   * do not grow on hover, since they cannot be dragged.
+   */
+  private lockedPoint(): DeepPartial<OverlayStyle['point']> {
+    const bg = themeTokens(this.theme).bg;
+    const ring = this.defaultDrawing().color;
+    return {
+      color: bg, borderColor: ring, borderSize: 1.5, radius: 3.5,
+      activeColor: bg, activeBorderColor: ring, activeBorderSize: 1.5, activeRadius: 3.5,
+    };
+  }
+
+  /** Effective lock of a drawing ("Lock all" or its own lock), with the matching handle look. True when it changed. */
+  private applyLock(id: string, force = false): boolean {
+    const o = this.userOverlays().find((x) => x.id === id);
+    if (!o) return false;
+    const locked = this.lockAll || this.ownLocks.has(id);
+    if (!force && o.lock === locked) return false;
+    // A null point style drops the override (KLineChart merges styles, null replaces the key): default handles again.
+    const point = locked ? this.lockedPoint() : null;
+    this.chart.overrideOverlay({ id, lock: locked, styles: { point } as unknown as DeepPartial<OverlayStyle> });
+    return true;
+  }
+
+  /** Re-applies the locked handle look (the theme or the default drawing color changed). */
+  private refreshLockedLook(): void {
+    for (const o of this.userOverlays()) if (o.lock) this.applyLock(o.id, true);
   }
 
   /** Changes the selected channel's extend options; saved like any drawing edit. */
@@ -1121,12 +1184,23 @@ export class ChartAdapter {
 
   /** Locks/unlocks every user drawing (markers stay locked); fires onDrawingsChange when anything changed. */
   setLockAll(locked: boolean): void {
+    const was = this.lockAll;
     this.lockAll = locked;
     let changed = false;
     for (const o of this.userOverlays()) {
-      if (o.id === this.drawing?.id || o.lock === locked) continue;
-      this.chart.overrideOverlay({ id: o.id, lock: locked });
-      changed = true;
+      if (o.id === this.drawing?.id) continue;
+      if (this.applyLock(o.id)) changed = true;
+    }
+    // Drawings still waiting for data: their effective lock follows too (their own lock is kept).
+    const pending = this.pendingRestore;
+    if (pending) {
+      pending.drawings = pending.drawings.map((d) => {
+        const own = ChartAdapter.ownLock(d, was);
+        const next: DrawingState = { ...d, lock: locked || own };
+        if (own) next.locked = true;
+        else delete next.locked;
+        return next;
+      });
     }
     this.emitLockState();
     if (changed) {
@@ -1137,7 +1211,7 @@ export class ChartAdapter {
 
   /**
    * Fired with the effective "lock all" state: on setLockAll and whenever drawings are restored or cleared
-   * (true iff there are drawings and every one is locked). Returns an unsubscribe function.
+   * (see deriveLockAll). Returns an unsubscribe function.
    */
   onLockAllChange(cb: (locked: boolean) => void): () => void {
     this.lockListeners.add(cb);
@@ -1149,9 +1223,21 @@ export class ChartAdapter {
     for (const cb of this.lockListeners) cb(this.lockAll);
   }
 
+  /**
+   * "Lock all" of restored drawings: on when every drawing is locked and at least one is not locked on its own
+   * (when every one has its own lock, "Lock all" adds nothing and turning it off would unlock nothing).
+   */
   private deriveLockAll(drawings: DrawingState[]): void {
-    this.lockAll = drawings.length > 0 && drawings.every((d) => d.lock);
+    this.lockAll = drawings.length > 0 && drawings.every((d) => d.lock) && drawings.some((d) => d.locked !== true);
     this.emitLockState();
+  }
+
+  /**
+   * A restored drawing's own lock: its `locked` flag. Drawings saved before the flag existed keep, as their own,
+   * a lock that "Lock all" does not explain (no drawing comes back less locked than it was saved).
+   */
+  private static ownLock(d: DrawingState, lockAll: boolean): boolean {
+    return d.locked ?? (d.lock && !lockAll);
   }
 
   serializeDrawings(): DrawingState[] {
@@ -1161,6 +1247,7 @@ export class ChartAdapter {
       const points = completePoints(o); // skips an overlay that is still being drawn
       if (!points || o.id === this.drawing?.id) continue;
       const d: DrawingState = { name: o.name, points, lock: o.lock };
+      if (this.ownLocks.has(o.id)) d.locked = true;
       const anchor = this.anchors.get(o.id);
       if (anchor?.display && anchor.original) {
         // Shown remapped: unmoved → the stored daily points; moved here → plain intraday points.
@@ -1205,11 +1292,15 @@ export class ChartAdapter {
       const remap = this.mapsDailyAnchors();
       for (const d of drawings) {
         const display = d.anchorTf && remap ? d.points.map((p) => ({ ...p, timestamp: toSessionOpen(p.timestamp) })) : d.points;
-        const create: OverlayCreate = { name: d.name, points: display, lock: d.lock, ...this.handlers };
+        const own = ChartAdapter.ownLock(d, this.lockAll);
+        const lock = this.lockAll || own;
+        const create: OverlayCreate = { name: d.name, points: display, lock, ...this.handlers };
         if (d.text !== undefined) create.extendData = d.text;
         const styles = toOverlayStyles(sanitizeDrawingStyles(d.styles));
-        if (styles) create.styles = styles;
+        if (lock) create.styles = { ...styles, point: this.lockedPoint() };
+        else if (styles) create.styles = styles;
         const id = this.chart.createOverlay(create);
+        if (typeof id === 'string' && own) this.ownLocks.add(id);
         if (typeof id === 'string' && d.anchorTf) {
           this.anchors.set(id, display === d.points ? { anchorTf: d.anchorTf } : { anchorTf: d.anchorTf, original: d.points, display });
         }
@@ -1226,7 +1317,36 @@ export class ChartAdapter {
     this.ensurePositionHistory();
   }
 
-  clearDrawings(): void {
+  /** Number of saved user drawings and how many of them are locked (own lock or "Lock all"). */
+  drawingCount(): { total: number; locked: number } {
+    const drawings = this.serializeDrawings();
+    return { total: drawings.length, locked: drawings.filter((d) => d.lock).length };
+  }
+
+  /**
+   * Removes every user drawing (and any in-progress one). With `keepLocked`, locked drawings (own lock or
+   * "Lock all") stay. Fires onDrawingsChange once when anything was removed.
+   */
+  clearDrawings(opts?: { keepLocked?: boolean }): void {
+    if (opts?.keepLocked) {
+      this.endDrawing();
+      let removed = false;
+      const pending = this.pendingRestore;
+      if (pending) {
+        const kept = pending.drawings.filter((d) => d.lock);
+        removed = kept.length !== pending.drawings.length;
+        pending.drawings = kept;
+        if (kept.length === 0) this.pendingRestore = null;
+      }
+      const doomed = this.userOverlays().filter((o) => !o.lock);
+      this.withSilence(() => {
+        for (const o of doomed) this.chart.removeOverlay({ id: o.id });
+      });
+      if (doomed.length > 0) removed = true;
+      if (this.drawingCount().total === 0) this.deriveLockAll([]);
+      if (removed) this.emitChange();
+      return;
+    }
     const had = this.userOverlays().length > 0 || this.pendingRestore !== null;
     this.endDrawing();
     this.pendingRestore = null;
@@ -1238,6 +1358,7 @@ export class ChartAdapter {
   private removeUserOverlays(): void {
     for (const o of this.userOverlays()) this.chart.removeOverlay({ id: o.id });
     this.anchors.clear();
+    this.ownLocks.clear();
   }
 
   /** Fired on draw end, move end and removal of user drawings. Returns an unsubscribe function. */

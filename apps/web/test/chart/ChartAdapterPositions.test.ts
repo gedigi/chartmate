@@ -171,11 +171,11 @@ describe('ChartAdapter long / short positions', () => {
     expect(positionContext.defaults).toEqual({ targetPct: 2, stopPct: 2 });
   });
 
-  it('serialize / restore round-trip (lock, anchorTf)', async () => {
+  it('serialize / restore round-trip (lock, own lock, anchorTf)', async () => {
     const a = await loadAt(AAPL, '1D');
     const saved = [
       { name: 'longPosition', points: position(), lock: false, anchorTf: '1D' as const },
-      { name: 'shortPosition', points: position({ target: 95, stop: 101 }), lock: true },
+      { name: 'shortPosition', points: position({ target: 95, stop: 101 }), lock: true, locked: true },
     ];
     a.restoreDrawings(saved, AAPL.id);
     expect(a.serializeDrawings()).toEqual(saved);
@@ -207,7 +207,7 @@ describe('ChartAdapter long / short positions', () => {
     a.restoreDrawings([{ name: 'longPosition', points: position({ target: 100.5 }), lock: false }]);
     select(userOverlays()[0]!);
     expect(a.getSelectedDrawing()).toEqual({
-      id: userOverlays()[0]!.id, kind: 'position', side: 'long', locked: false, entry: 100, target: 100.5, stop: 98, precision: 2,
+      id: userOverlays()[0]!.id, kind: 'position', side: 'long', locked: false, ownLock: false, entry: 100, target: 100.5, stop: 98, precision: 2,
       metrics: { rr: 0.25, targetPct: 0.5, stopPct: 2 },
       // Filled on the start bar (it touches 100); bar 2 (high 101) then reaches the target.
       outcome: { kind: 'target', fillTs: D1, ts: D1 + DAY, price: 100.5, pnlPct: 0.5 },
@@ -236,6 +236,19 @@ describe('ChartAdapter long / short positions', () => {
     chart().overrideOverlay.mockClear();
     expect(a.setSelectedPositionPrices({ target: 97 })).toMatch(/locked/i);
     expect(chart().overrideOverlay).not.toHaveBeenCalled();
+  });
+
+  it('a position locked on its own is read-only and not removable until unlocked; the lock is saved', async () => {
+    const a = await loadAt(AAPL, '1D');
+    a.restoreDrawings([{ name: 'longPosition', points: position(), lock: false }]);
+    select(userOverlays()[0]!);
+    expect(a.setSelectedLock(true)).toBe(true);
+    expect(a.getSelectedDrawing()).toEqual(expect.objectContaining({ kind: 'position', locked: true, ownLock: true }));
+    expect(a.setSelectedPositionPrices({ target: 103 })).toMatch(/locked/i);
+    expect(a.removeSelected()).toBe(false);
+    expect(a.serializeDrawings()).toEqual([{ name: 'longPosition', points: position(), lock: true, locked: true }]);
+    a.setSelectedLock(false);
+    expect(a.setSelectedPositionPrices({ target: 103 })).toBeNull();
   });
 
   it('a whole-position drag (KLineChart shifts every point) is rounded to the precision at the end', async () => {
