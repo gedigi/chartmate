@@ -153,6 +153,25 @@ describe('channel geometry (finite / extended)', () => {
     expect(both.lines[0]).toEqual({ coordinates: [{ x: 0, y: 0 }, { x: 400, y: 200 }] }); // = the old infinite channel
   });
 
+  it('the third point on the other side of the base: the parallel line lies on that side (fill too)', () => {
+    const g = channelGeometry([C[0]!, C[1]!, { x: 150, y: 25 }], B, none); // base at x=150 is y=75: offset -50
+    expect(g.lines[1]).toEqual({ coordinates: [{ x: 100, y: 0 }, { x: 200, y: 50 }] });
+    expect(g.midline).toEqual({ coordinates: [{ x: 100, y: 25 }, { x: 200, y: 75 }] });
+    expect(g.fill).toEqual([{ x: 100, y: 50 }, { x: 200, y: 100 }, { x: 200, y: 50 }, { x: 100, y: 0 }]);
+  });
+
+  it('a reversed base (drawn right to left) extends by screen side too', () => {
+    const rev = [C[1]!, C[0]!, C[2]!];
+    expect(channelGeometry(rev, B, none).lines[0]).toEqual({ coordinates: [{ x: 100, y: 50 }, { x: 200, y: 100 }] });
+    const l = channelGeometry(rev, B, { left: true, right: false });
+    expect(l.lines).toEqual([
+      { coordinates: [{ x: 0, y: 0 }, { x: 200, y: 100 }] },
+      { coordinates: [{ x: 0, y: 100 }, { x: 200, y: 200 }] },
+    ]);
+    expect(l.midline).toEqual({ coordinates: [{ x: 0, y: 50 }, { x: 200, y: 150 }] });
+    expect(channelGeometry(rev, B, { left: true, right: true }).lines[1]).toEqual({ coordinates: [{ x: 0, y: 100 }, { x: 400, y: 300 }] });
+  });
+
   it('extending never shortens a base reaching past the pane edge', () => {
     const g = channelGeometry([{ x: -50, y: 0 }, { x: 500, y: 0 }, { x: 0, y: 10 }], B, { left: true, right: true });
     expect(g.lines[0]).toEqual({ coordinates: [{ x: -50, y: 0 }, { x: 500, y: 0 }] });
@@ -170,7 +189,16 @@ describe('channel geometry (finite / extended)', () => {
       { coordinates: [{ x: 100, y: 50 }, { x: 100, y: 150 }] },
       { coordinates: [{ x: 160, y: 50 }, { x: 160, y: 150 }] },
     ]);
-    expect(channelGeometry(v, B, { left: true, right: true }).lines[0]).toEqual({ coordinates: [{ x: 100, y: 0 }, { x: 100, y: 300 }] });
+    const both = channelGeometry(v, B, { left: true, right: true });
+    expect(both.lines).toEqual([
+      { coordinates: [{ x: 100, y: 0 }, { x: 100, y: 300 }] },
+      { coordinates: [{ x: 160, y: 0 }, { x: 160, y: 300 }] },
+    ]);
+    expect(both.midline).toEqual({ coordinates: [{ x: 130, y: 0 }, { x: 130, y: 300 }] });
+    // left = past the upper end, right = past the lower end (whichever point was placed first).
+    const rv = [v[1]!, v[0]!, v[2]!];
+    expect(channelGeometry(rv, B, { left: true, right: false }).lines[0]).toEqual({ coordinates: [{ x: 100, y: 0 }, { x: 100, y: 150 }] });
+    expect(channelGeometry(rv, B, { left: false, right: true }).lines[0]).toEqual({ coordinates: [{ x: 100, y: 50 }, { x: 100, y: 300 }] });
   });
 });
 
@@ -244,6 +272,8 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     expect(midOf(two)).toBeUndefined();
     const overlay = { name: 'parallelStraightLine', styles: { line: { color: '#ff0000', size: 2, style: 'dashed', dashedValue: [6, 4], lineCap: 'butt' } } };
     const figs = t.createPointFigures({ chart: chart(), overlay, coordinates: [{ x: 50, y: 10 }, { x: 100, y: 60 }, { x: 50, y: 50 }], bounding });
+    expect(figs.map((f: Fig) => f.type)).not.toContain('polygon'); // exactly as before: no fill
+    expect(figs.map((f: Fig) => f.type)).toEqual(['line', 'line']);
     const [a, b] = linesOf(figs);
     expect(a).toEqual({ coordinates: [{ x: 0, y: -40 }, { x: 200, y: 160 }] });
     expect(b).toEqual({ coordinates: [{ x: 0, y: 0 }, { x: 200, y: 200 }] });
@@ -270,6 +300,7 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     const fill = figs[0];
     expect(fill.attrs.coordinates).toEqual([{ x: 100, y: 50 }, { x: 200, y: 100 }, { x: 200, y: 200 }, { x: 100, y: 150 }]);
     expect(fill.styles).toMatchObject({ style: 'fill', color: 'rgba(255, 0, 0, 0.08)' });
+    expect(fill.ignoreEvent).toEqual(['onRightClick']); // left click selects / drags; right click (remove) is ignored
     // Default (theme) line colour when the channel has none of its own.
     const plain = t.createPointFigures({ chart: chart(), overlay: { name: 'parallelChannel', styles: null }, coordinates: coords, bounding });
     expect(plain[0].styles.color).toBe('rgba(41, 98, 255, 0.08)');
@@ -309,6 +340,41 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     expect(on.map((f: { type: string }) => f.type)).toEqual(['line', 'text']);
     expect(on[1].attrs.text).toBe('5.000');
     expect(t.createYAxisFigures({ ...base, overlay: { points: [{ value: 5 }], styles: null } })[0].attrs).toMatchObject({ text: '5.000', x: 0, align: 'left' });
+  });
+});
+
+describe('channel hit-testing (KLineChart line / polygon figures)', () => {
+  const B = { width: 400, height: 300, left: 0, top: 0, right: 0, bottom: 0 };
+  const coords = [{ x: 100, y: 50 }, { x: 200, y: 100 }, { x: 150, y: 175 }];
+  const chartStub = { getStyles: () => ({ overlay: { line: { color: '#2962ff', size: 1, style: 'solid' } } }) };
+
+  async function hits(styles: unknown) {
+    const actual = await vi.importActual<typeof import('klinecharts')>('klinecharts');
+    T.registerDrawingTemplates();
+    const t = k.templates.get('parallelChannel')!;
+    const figs: Fig[] = t.createPointFigures({ chart: chartStub, overlay: { name: 'parallelChannel', styles }, coordinates: coords, bounding: B });
+    const shapes = figs.map((f) => {
+      const Cls = actual.getFigureClass(f.type)!;
+      return new Cls({ name: f.type, attrs: f.attrs, styles: f.styles ?? {} } as never) as unknown as { checkEventOn: (c: { x: number; y: number }) => boolean };
+    });
+    return (x: number, y: number) => shapes.some((sh) => sh.checkEventOn({ x, y }));
+  }
+
+  it('finite: on a line or inside the fill hits; beyond the ends (where an infinite line would be) does not', async () => {
+    const on = await hits(null);
+    expect(on(150, 75)).toBe(true); // on the base line
+    expect(on(150, 125)).toBe(true); // inside the fill (on the midline too)
+    expect(on(150, 150)).toBe(true); // inside the fill
+    expect(on(300, 150)).toBe(false); // the base line's extension to the right
+    expect(on(50, 25)).toBe(false); // ... and to the left
+    expect(on(350, 275)).toBe(false); // the parallel line's extension
+  });
+
+  it('extended right: the extension hits on the right only', async () => {
+    const on = await hits({ altvExtend: { right: true } });
+    expect(on(300, 150)).toBe(true);
+    expect(on(300, 200)).toBe(true); // inside the extended fill
+    expect(on(50, 25)).toBe(false);
   });
 });
 

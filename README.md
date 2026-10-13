@@ -240,13 +240,14 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   the channel's width. Both lines span exactly from the first to the second point's time, with a dashed midline
   halfway between them (in the channel's colour and width, longer dashes when the channel itself is dashed or
   dotted; not a stored point) and a subtle fill (the channel's colour at 8% opacity). Clicking a line, the
-  midline or the fill selects the channel; clicking beyond its ends does not.
+  midline or the fill selects (and drags) the channel; clicking beyond its ends does not. A right click inside
+  the fill is ignored (a right click on a line removes the channel, as for other drawings).
   - **Extend left / Extend right** (style bar, TradingView-style) extend the lines, midline and fill to the
     chart's left / right edge; both on gives an infinite channel. Both are off for new channels.
   - **Stored** as `parallelChannel` drawings (three points) with optional `styles.extend` (`left` / `right`;
     only the sides that differ from the default are saved).
-  - **Legacy channels** (`parallelStraightLine`, drawn by older versions as infinite channels) still look as
-    before: a missing `extend` means both sides extended. They get the same toggles (turning a side off is
+  - **Legacy channels** (`parallelStraightLine`, drawn by older versions as infinite channels) still look exactly
+    as before (infinite, no fill): a missing `extend` means both sides extended. They get the same toggles (turning a side off is
     saved as `extend: { left: false }`).
 
 ## Watchlist and sections

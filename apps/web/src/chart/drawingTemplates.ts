@@ -8,7 +8,8 @@ import { getOverlayClass, registerOverlay, type OverlayFigure, type OverlayTempl
  *  - parallel channel ('parallelChannel', the toolbar tool): two parallel segments spanning the first to the second
  *    point (the third sets the offset), a dashed midline and a translucent fill between them; "Extend left / right"
  *    (styles) extend all three to the pane edge. Legacy channels ('parallelStraightLine', KLineChart's infinite
- *    channel, saved before) are drawn by the same code with both sides extended by default, so they look as before;
+ *    channel, saved before) are drawn by the same code with both sides extended by default and no fill, so they
+ *    look as before;
  *  - price line / horizontal line: optional price text on the line and a persistent price label on the y-axis.
  */
 
@@ -21,11 +22,11 @@ export function roundPrice(v: number, decimals: number): number {
   return Number((Math.round(v * f) / f).toFixed(decimals));
 }
 
-/** Tools Shift constrains to horizontal. Base points (0 and 1) are constrained; a channel's width point is free. */
 /** The parallel channel the toolbar draws (finite unless extended). */
 export const CHANNEL = 'parallelChannel';
 /** KLineChart's parallel channel, drawn by older versions: kept for saved drawings (extended both ways by default). */
 export const LEGACY_CHANNEL = 'parallelStraightLine';
+/** Tools Shift constrains to horizontal. Base points (0 and 1) are constrained; a channel's width point is free. */
 export const SHIFT_TOOLS: ReadonlySet<string> = new Set(['segment', 'rayLine', 'straightLine', CHANNEL, LEGACY_CHANNEL]);
 
 /**
@@ -243,8 +244,11 @@ function withShift(t: Template): Template {
   } as Template;
 }
 
-/** A parallel channel: finite / extended lines, a dashed midline and a translucent fill (see channelGeometry). */
-function withChannel(t: Template): Template {
+/**
+ * A parallel channel: finite / extended lines, a dashed midline and (when `fill`) a translucent fill between the
+ * lines (see channelGeometry). Legacy channels have no fill: they render exactly as KLineChart drew them.
+ */
+function withChannel(t: Template, fill: boolean): Template {
   const name = t.name;
   return {
     ...t,
@@ -254,10 +258,11 @@ function withChannel(t: Template): Template {
       if (g.lines.length === 0) return [];
       const line = lineStyles(p);
       const figures: OverlayFigure[] = [];
-      // The fill first (under the lines); it is part of the drawing, so clicking inside it selects the channel.
-      if (g.fill) {
+      // The fill first (under the lines); it is part of the drawing, so clicking inside it selects / drags the
+      // channel (TradingView-like), but a right click inside it is ignored (KLineChart's right click removes).
+      if (fill && g.fill) {
         figures.push({
-          type: 'polygon', attrs: { coordinates: g.fill },
+          type: 'polygon', attrs: { coordinates: g.fill }, ignoreEvent: ['onRightClick'],
           styles: { style: 'fill', color: translucent(line.color, CHANNEL_FILL_ALPHA), borderSize: 0 },
         } as OverlayFigure);
       }
@@ -341,8 +346,8 @@ export function registerDrawingTemplates(): void {
   // Both channels are made from KLineChart's (unwrapped) parallel channel: same steps and point handling.
   const channel = original(LEGACY_CHANNEL);
   if (channel) {
-    register(channel, (t) => withChannel(withShift(t)));
-    register(channel, (t) => withChannel(withShift({ ...t, name: CHANNEL })));
+    register(channel, (t) => withChannel(withShift(t), false));
+    register(channel, (t) => withChannel(withShift({ ...t, name: CHANNEL }), true));
   }
   wrap('priceLine', withLabels);
   wrap('horizontalStraightLine', withLabels);
