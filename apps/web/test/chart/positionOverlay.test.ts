@@ -82,13 +82,13 @@ describe('positionFigures', () => {
     const f = withBars([bar(1, 100, 100.5, 99.5), bar(3, 101, 101.5, 99.5), bar(5, 101, 103, 100.5)]);
     expect(texts(f)).toContain('Target hit · +2.00% · 2024-01-06');
     const strong = f.filter((x) => x.type === 'rect')[2]!;
-    expect(strong).toMatchObject({ attrs: { x: 20, y: 80, width: 40, height: 20 }, styles: { color: 'rgba(38,166,154,0.16)' } });
+    expect(strong).toMatchObject({ attrs: { x: 20, y: 80, width: 40, height: 20 }, styles: { color: 'rgba(38,166,154,0.14)' } });
   });
 
   it('stop hit shades the loss zone; open shades from the entry to the last close', () => {
     const stop = withBars([fill, bar(2, 99, 100, 97)]);
     expect(texts(stop)).toContain('Stop hit · -2.00% · 2024-01-03');
-    expect(stop.filter((x) => x.type === 'rect')[2]).toMatchObject({ attrs: { x: 10, y: 100, width: 20, height: 20 }, styles: { color: 'rgba(239,83,80,0.16)' } });
+    expect(stop.filter((x) => x.type === 'rect')[2]).toMatchObject({ attrs: { x: 10, y: 100, width: 20, height: 20 }, styles: { color: 'rgba(239,83,80,0.14)' } });
     const open = withBars([fill, bar(4, 100, 101.5, 99.5, 101)]);
     expect(texts(open)).toContain('Open · +1.00%');
     expect(open.filter((x) => x.type === 'rect')[2]).toMatchObject({ attrs: { x: 10, y: 90, width: 40, height: 10 } });

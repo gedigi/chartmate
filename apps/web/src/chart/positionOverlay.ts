@@ -18,8 +18,8 @@ import { hexToRgba, LABEL_RADIUS, THEME_TOKENS } from './theme';
  */
 export const ZONE_WEIGHT = 0.05;
 export const ZONE_ALPHA = 0.12;
-export const TRAVERSED_WEIGHT = 0.08;
-export const TRAVERSED_ALPHA = 0.16;
+export const TRAVERSED_WEIGHT = 0.07;
+export const TRAVERSED_ALPHA = 0.14;
 const zoneFill = (color: string, bg: string | undefined, weight: number, alpha: number) =>
   bg ? zoneTint(color, bg, weight, alpha) : hexToRgba(color, alpha);
 /** Smallest on-screen distance (px) between the entry handle and a dragged target / stop handle. */
