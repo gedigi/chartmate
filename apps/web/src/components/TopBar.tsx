@@ -1,4 +1,4 @@
-import type { Layout, SymbolId, SymbolInfo } from '@altv/shared';
+import type { ChartAppearance, Layout, SymbolId, SymbolInfo, ThemedAppearance } from '@altv/shared';
 import { useState, type JSX } from 'react';
 import { ChartAppearanceDialog } from './ChartAppearanceDialog';
 import { IndicatorButton } from './IndicatorButton';
@@ -7,6 +7,14 @@ import { TimeframeBar } from './TimeframeBar';
 
 export type View = 'chart' | 'baskets';
 export type Theme = 'dark' | 'light';
+
+/** `l` with `theme`'s appearance replaced (undefined = that theme's defaults); the other theme is kept. */
+function withThemeAppearance(l: Layout, theme: Theme, a: ChartAppearance | undefined): Layout {
+  const { appearance: old, ...rest } = l;
+  const { [theme]: _replaced, ...others } = old ?? {};
+  const next: ThemedAppearance = a ? { ...others, [theme]: a } : others;
+  return Object.keys(next).length > 0 ? { ...rest, appearance: next } : rest;
+}
 
 export interface TopBarProps {
   view: View;
@@ -85,13 +93,10 @@ export function TopBar(p: TopBarProps): JSX.Element {
       </div>
       {appearanceOpen && (
         <ChartAppearanceDialog
-          appearance={layout.appearance}
+          appearance={layout.appearance?.[p.theme]}
           theme={p.theme}
           chartType={layout.chartType}
-          onChange={(a) => setLayout((l) => {
-            const { appearance: _old, ...rest } = l;
-            return a ? { ...rest, appearance: a } : rest;
-          })}
+          onChange={(a) => setLayout((l) => withThemeAppearance(l, p.theme, a))}
           onClose={() => setAppearanceOpen(false)}
         />
       )}

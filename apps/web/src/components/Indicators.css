@@ -37,6 +37,7 @@
 .settings-row.settings-line select { width: 100%; }
 .chart-appearance .settings-row select { width: 100%; }
 .chart-appearance .appearance-preview { align-self: flex-start; }
+.chart-appearance .appearance-warning { margin: 0; padding: 2px 6px; border-radius: 4px; font-size: 12px; background: var(--warn-bg); color: var(--warn-text); }
 .settings-error { grid-column: 2; font-size: 12px; }
 .settings-colors { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); }
 .settings-colors legend { padding: 0 4px; color: var(--text-muted); font-size: 12px; }

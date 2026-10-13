@@ -1,5 +1,5 @@
 import {
-  HEX_COLOR_RE, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_TEXT_SIZE, MIN_LINE_WIDTH, MIN_TEXT_SIZE, TIMEFRAMES,
+  HEX_COLOR_RE, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_TEXT_SIZE, MIN_LINE_WIDTH, MIN_TEXT_SIZE, migrateAppearance, TIMEFRAMES,
   type DrawingState, type Layout, type SymbolId, type Timeframe,
 } from '@altv/shared';
 import type { FastifyInstance } from 'fastify';
@@ -20,6 +20,15 @@ const AppearanceSchema = z.object({
   lineWidth: LineWidth.optional(),
   drawing: LineStyleSchema.strict().optional(),
 }).strict();
+
+/**
+ * Per-theme appearance. The legacy flat shape (one appearance for both themes, saved before appearance was per
+ * theme) is still accepted and migrated to the dark theme, where it was chosen.
+ */
+const ThemedAppearanceSchema = z.union([
+  z.object({ dark: AppearanceSchema.optional(), light: AppearanceSchema.optional() }).strict(),
+  AppearanceSchema.transform((a) => ({ dark: a })),
+]);
 
 /**
  * Normalized drawing styles; unknown keys (e.g. raw KLineChart styles) are stripped. Tolerant per part: an invalid
@@ -51,8 +60,8 @@ const LayoutSchema = z.object({
   session: z.enum(['rth', 'eth']),
   chartType: z.enum(['candle', 'ohlc', 'line', 'area']),
   indicators: z.array(IndicatorSchema).max(MAX_INDICATORS),
-  appearance: AppearanceSchema.optional(),
-}) satisfies z.ZodType<Layout>;
+  appearance: ThemedAppearanceSchema.optional(),
+}) satisfies z.ZodType<Layout, unknown>;
 
 const DrawingSchema = z.object({
   name: z.string().max(40),
@@ -87,7 +96,11 @@ export async function userRoutes(app: FastifyInstance, deps: { repos: Repos }): 
     const { key } = parse(LayoutKey, request.params);
     const layout = await repos.layouts.get(key);
     if (!layout) return reply.type('application/json; charset=utf-8').send('null');
-    return layout;
+    if (layout.appearance === undefined) return layout;
+    // Rows saved before appearance was per theme hold the flat shape.
+    const { appearance, ...rest } = layout;
+    const themed = migrateAppearance(appearance);
+    return themed ? { ...rest, appearance: themed } : rest;
   });
   app.put('/api/layouts/:key', async (request): Promise<Layout> => {
     const { key } = parse(LayoutKey, request.params);

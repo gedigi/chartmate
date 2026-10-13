@@ -3,13 +3,15 @@ import {
   type CandleBodyStyle, type ChartAppearance, type ChartType, type DrawingLineStyle,
 } from '@altv/shared';
 import { useId, type JSX } from 'react';
-import { resolveAppearance, type ThemeName } from '../chart/theme';
+import { contrastRatio } from '../chart/contrast';
+import { resolveThemeAppearance, themeTokens, type ThemeName } from '../chart/theme';
 import { Modal } from './Modal';
 import './Indicators.css';
 
 export interface ChartAppearanceDialogProps {
-  /** Stored appearance (unset fields follow the theme). */
+  /** Stored appearance of `theme` (unset fields follow the theme). */
   appearance: ChartAppearance | undefined;
+  /** The active theme: the one whose settings are edited. */
   theme: ThemeName;
   chartType: ChartType;
   /** Called on every change (applied live); undefined = reset to the theme defaults. */
@@ -43,30 +45,48 @@ function CandlePreview({ up, down, body }: { up: string; down: string; body: Can
   );
 }
 
+/** Below this contrast ratio against the chart background a colour barely shows. */
+export const LOW_CONTRAST_RATIO = 1.5;
+
+const THEME_LABEL: Record<ThemeName, string> = { dark: 'Dark theme', light: 'Light theme' };
+
 /**
- * Global chart appearance: candle colours and body style, line/area colour and width, and the default style of
- * new drawings. Changes apply live; "Reset to defaults" returns to the theme's colours.
+ * Chart appearance of the active theme (each theme keeps its own): candle colours and body style, line/area
+ * colour and width, and the default style of new drawings. Changes apply live; "Reset to defaults" returns this
+ * theme to its default colours. Colours that barely show on the theme background get an inline warning.
  */
 export function ChartAppearanceDialog({ appearance, theme, chartType, onChange, onClose }: ChartAppearanceDialogProps): JSX.Element {
-  const r = resolveAppearance(theme, appearance);
+  const r = resolveThemeAppearance(theme, appearance);
   const idBase = useId();
   const id = (k: string) => `${idBase}-${k}`;
+  const bg = themeTokens(theme).bg;
+  const warningText = `Low contrast on the ${theme} background`;
+  const lowContrast = (c: string) => contrastRatio(c, bg) < LOW_CONTRAST_RATIO;
+  /** Input + inline warning for a colour drawn on the chart background. */
+  const colourInput = (k: string, label: string, value: string, onPick: (v: string) => void, autoFocus = false) => {
+    const low = lowContrast(value);
+    return (
+      <>
+        <div className="settings-row">
+          <label htmlFor={id(k)}>{label}</label>
+          <input id={id(k)} type="color" value={value} onChange={(e) => onPick(e.target.value)}
+            aria-describedby={low ? id(`${k}-warn`) : undefined} {...(autoFocus ? { 'data-autofocus': true } : {})} />
+        </div>
+        {low && <p id={id(`${k}-warn`)} className="appearance-warning">{warningText}</p>}
+      </>
+    );
+  };
   const set = (patch: ChartAppearance) => onChange({ ...appearance, ...patch });
   const setDrawing = (patch: Partial<DrawingLineStyle>) => set({ drawing: { ...r.drawing, ...patch } });
   const widthOptions = WIDTHS.map((w) => <option key={w} value={w}>{w}px</option>);
 
   return (
     <Modal title="Chart appearance" onClose={onClose} className="indicator-settings chart-appearance">
+      <p className="indicator-settings-subtitle appearance-theme">{THEME_LABEL[theme]}</p>
       <fieldset className="settings-colors">
         <legend>Candles</legend>
-        <div className="settings-row">
-          <label htmlFor={id('up')}>Up colour</label>
-          <input id={id('up')} type="color" value={r.upColor} onChange={(e) => set({ upColor: e.target.value })} data-autofocus />
-        </div>
-        <div className="settings-row">
-          <label htmlFor={id('down')}>Down colour</label>
-          <input id={id('down')} type="color" value={r.downColor} onChange={(e) => set({ downColor: e.target.value })} />
-        </div>
+        {colourInput('up', 'Up colour', r.upColor, (v) => set({ upColor: v }), true)}
+        {colourInput('down', 'Down colour', r.downColor, (v) => set({ downColor: v }))}
         <div className="settings-row">
           <label htmlFor={id('body')}>Body style</label>
           <select id={id('body')} value={r.candleBody} onChange={(e) => set({ candleBody: e.target.value as CandleBodyStyle })}>
@@ -78,10 +98,7 @@ export function ChartAppearanceDialog({ appearance, theme, chartType, onChange, 
       </fieldset>
       <fieldset className="settings-colors">
         <legend>Line / area</legend>
-        <div className="settings-row">
-          <label htmlFor={id('line')}>Line colour</label>
-          <input id={id('line')} type="color" value={r.lineColor} onChange={(e) => set({ lineColor: e.target.value })} />
-        </div>
+        {colourInput('line', 'Line colour', r.lineColor, (v) => set({ lineColor: v }))}
         <div className="settings-row">
           <label htmlFor={id('lw')}>Line width</label>
           <select id={id('lw')} value={r.lineWidth} onChange={(e) => set({ lineWidth: Number(e.target.value) })}>{widthOptions}</select>
@@ -89,10 +106,7 @@ export function ChartAppearanceDialog({ appearance, theme, chartType, onChange, 
       </fieldset>
       <fieldset className="settings-colors">
         <legend>Default drawing style</legend>
-        <div className="settings-row">
-          <label htmlFor={id('dc')}>Drawing colour</label>
-          <input id={id('dc')} type="color" value={r.drawing.color} onChange={(e) => setDrawing({ color: e.target.value })} />
-        </div>
+        {colourInput('dc', 'Drawing colour', r.drawing.color, (v) => setDrawing({ color: v }))}
         <div className="settings-row">
           <label htmlFor={id('dw')}>Drawing width</label>
           <select id={id('dw')} value={r.drawing.size} onChange={(e) => setDrawing({ size: Number(e.target.value) })}>{widthOptions}</select>

@@ -5,7 +5,7 @@ import {
 } from 'klinecharts';
 import {
   isIntraday, nyToUtc, tfMs,
-  type ChartAppearance, type ChartType, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker,
+  type ChartType, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker, type ThemedAppearance,
   type SessionMode, type SymbolInfo, type Timeframe,
 } from '@altv/shared';
 import {
@@ -119,7 +119,7 @@ export class ChartAdapter {
   /** Passed to every indicator as `extendData` (VWAP picks its session day from it). */
   private indicatorExt: IndicatorExtendData = {};
   private readonly overrides = new Map<string, IndicatorOverrides>();
-  private appearance: ChartAppearance | undefined;
+  private appearance: ThemedAppearance | undefined;
   private readonly changeListeners = new Set<() => void>();
   private silent = 0;
   private destroyed = false;
@@ -235,8 +235,11 @@ export class ChartAdapter {
     this.chart.setStyles(this.styles());
   }
 
-  /** Global chart appearance (candle colours/body, line colour/width, default drawing style); unset = theme. */
-  setAppearance(a: ChartAppearance | undefined): void {
+  /**
+   * Global chart appearance, per theme (candle colours/body, line colour/width, default drawing style); the
+   * active theme's settings apply (unset = theme defaults), and setTheme switches to the other theme's.
+   */
+  setAppearance(a: ThemedAppearance | undefined): void {
     this.appearance = a;
     this.chart.setStyles(this.styles());
   }

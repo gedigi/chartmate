@@ -203,13 +203,20 @@ test('chart appearance persists; a basket starting today shows simulated history
   await dialog.getByRole('button', { name: 'Done' }).click();
   await expect(dialog).toBeHidden();
   await expect.poll(async () => {
-    const l = (await (await request.get('/api/layouts/default')).json()) as { appearance?: { upColor?: string } };
-    return l.appearance?.upColor;
+    const l = (await (await request.get('/api/layouts/default')).json()) as { appearance?: { dark?: { upColor?: string } } };
+    return l.appearance?.dark?.upColor;
   }, { message: 'default layout saved with appearance' }).toBe('#00ff00');
   await page.reload();
   await page.getByRole('button', { name: 'Chart appearance' }).click();
   await expect(page.getByRole('dialog', { name: 'Chart appearance' }).getByLabel('Up colour')).toHaveValue('#00ff00');
   await page.getByRole('dialog', { name: 'Chart appearance' }).getByRole('button', { name: 'Done' }).click();
+  // Appearance is per theme: the light theme keeps its own (default) colours.
+  await page.getByRole('button', { name: 'Switch to light theme' }).click();
+  await page.getByRole('button', { name: 'Chart appearance' }).click();
+  await expect(dialog.getByText('Light theme')).toBeVisible();
+  await expect(dialog.getByLabel('Up colour')).toHaveValue('#089981');
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  await page.getByRole('button', { name: 'Switch to dark theme' }).click();
 
   // A basket created with the default start date (today) has bars: simulated history before its start.
   await page.getByRole('navigation', { name: 'View' }).getByRole('button', { name: 'Baskets', exact: true }).click();

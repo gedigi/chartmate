@@ -1,4 +1,5 @@
 import { registerOverlay, type DeepPartial, type OverlayStyle } from 'klinecharts';
+import { readableTextOnAll } from './contrast';
 import { themeTokens, type ThemeName } from './theme';
 
 /** Overlay template of chart markers (basket Start, version changes). Never a user drawing. */
@@ -33,13 +34,18 @@ export function registerMarkerOverlay(): void {
   });
 }
 
-/** Fixed, theme-based marker style (muted text colour, thin dashed line): independent of user drawing defaults. */
+/**
+ * Fixed, theme-based marker style (muted colour, thin dashed line): independent of user drawing defaults. The
+ * label sits on the chart background: muted is kept while it reaches 3:1 there, else white / dark text.
+ */
 export function markerStyles(theme: ThemeName): DeepPartial<OverlayStyle> {
-  const color = themeTokens(theme).muted;
+  const t = themeTokens(theme);
+  const color = t.muted;
+  const textColor = readableTextOnAll([t.bg], t.muted);
   return {
     line: { color, size: 1, style: 'dashed', dashedValue: MARKER_DASH },
     text: {
-      color, size: 11, backgroundColor: 'rgba(0,0,0,0)', borderColor: 'rgba(0,0,0,0)', borderSize: 0,
+      color: textColor, size: 11, backgroundColor: 'rgba(0,0,0,0)', borderColor: 'rgba(0,0,0,0)', borderSize: 0,
       paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0,
     },
   };
