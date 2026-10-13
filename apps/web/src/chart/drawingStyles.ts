@@ -4,9 +4,10 @@ import {
 } from '@altv/shared';
 import type { DeepPartial, OverlayStyle } from 'klinecharts';
 import { readableTextOn } from './contrast';
-import { LABEL_DEFAULTS, LABEL_STYLE_KEY, POSITION_STYLE_KEY } from './drawingTemplates';
+import { EXTEND_DEFAULTS, EXTEND_STYLE_KEY, LABEL_DEFAULTS, LABEL_STYLE_KEY, POSITION_STYLE_KEY } from './drawingTemplates';
 
 export type LabelStyle = NonNullable<DrawingStyles['label']>;
+export type ExtendStyle = NonNullable<DrawingStyles['extend']>;
 
 /** Dash pattern of dashed drawings (KLineChart's [2, 2] is barely visible). */
 export const DRAWING_DASH = [6, 4];
@@ -71,9 +72,10 @@ export function textToOverlay(t: TextStyle): DeepPartial<OverlayStyle> {
 
 export function toOverlayStyles(s: DrawingStyles | undefined): DeepPartial<OverlayStyle> | undefined {
   let out: Record<string, unknown> | undefined = s?.text ? textToOverlay(s.text) : s?.line ? lineToOverlay(s.line) : undefined;
-  // Price-label options and position risk settings ride along in the overlay styles (KLineChart ignores the
-  // keys; our templates read them).
+  // Price-label options, channel extend options and position risk settings ride along in the overlay styles
+  // (KLineChart ignores the keys; our templates read them).
   if (s?.label) out = { ...out, [LABEL_STYLE_KEY]: { ...s.label } };
+  if (s?.extend) out = { ...out, [EXTEND_STYLE_KEY]: { ...s.extend } };
   if (s?.position) out = { ...out, [POSITION_STYLE_KEY]: { ...s.position } };
   return out as DeepPartial<OverlayStyle> | undefined;
 }
@@ -86,6 +88,16 @@ function readLabel(l: unknown): LabelStyle | undefined {
   if (typeof onLine === 'boolean') out.onLine = onLine;
   if (typeof onAxis === 'boolean') out.onAxis = onAxis;
   return out.onLine !== undefined || out.onAxis !== undefined ? out : undefined;
+}
+
+/** The valid extend options in `e` (booleans only), or undefined. */
+function readExtend(e: unknown): ExtendStyle | undefined {
+  if (!e || typeof e !== 'object') return undefined;
+  const out: ExtendStyle = {};
+  const { left, right } = e as Record<string, unknown>;
+  if (typeof left === 'boolean') out.left = left;
+  if (typeof right === 'boolean') out.right = right;
+  return out.left !== undefined || out.right !== undefined ? out : undefined;
 }
 
 /** Reads the normalized line style out of KLineChart overlay styles (null when absent/invalid). */
@@ -127,7 +139,16 @@ export function normalizeOverlayStyles(name: string, styles: unknown): DrawingSt
     if (own.onAxis !== undefined && own.onAxis !== defaults.onAxis) label.onAxis = own.onAxis;
     if (label.onLine !== undefined || label.onAxis !== undefined) out.label = label;
   }
-  return out.line || out.label ? out : undefined;
+  // Channel extend options: likewise only the sides that differ from the channel's defaults.
+  const extendDefaults = EXTEND_DEFAULTS[name];
+  const ownExtend = readExtend((styles as Record<string, unknown> | null | undefined)?.[EXTEND_STYLE_KEY]);
+  if (extendDefaults && ownExtend) {
+    const extend: ExtendStyle = {};
+    if (ownExtend.left !== undefined && ownExtend.left !== extendDefaults.left) extend.left = ownExtend.left;
+    if (ownExtend.right !== undefined && ownExtend.right !== extendDefaults.right) extend.right = ownExtend.right;
+    if (extend.left !== undefined || extend.right !== undefined) out.extend = extend;
+  }
+  return out.line || out.label || out.extend ? out : undefined;
 }
 
 /** '#RRGGBB' / '#rgb' → '#rrggbb'; anything else → fallback. */
@@ -147,7 +168,9 @@ export function sanitizeDrawingStyles(s: unknown): DrawingStyles | undefined {
   if (t && isHexColor(t.color) && intIn(t.size, MIN_TEXT_SIZE, MAX_TEXT_SIZE)) out.text = { color: t.color.toLowerCase(), size: t.size };
   const label = readLabel((s as { label?: unknown }).label);
   if (label) out.label = label;
+  const extend = readExtend((s as { extend?: unknown }).extend);
+  if (extend) out.extend = extend;
   const position = sanitizePositionSettings((s as { position?: unknown }).position);
   if (position) out.position = position;
-  return out.line || out.text || out.label || out.position ? out : undefined;
+  return out.line || out.text || out.label || out.extend || out.position ? out : undefined;
 }

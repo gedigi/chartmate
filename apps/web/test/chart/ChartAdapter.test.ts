@@ -1357,6 +1357,63 @@ describe('ChartAdapter Shift constraint and price labels', () => {
     expect(a.serializeDrawings()[0]!.styles).toEqual({ line: { color: '#ff0000', size: 1, style: 'solid' }, label: { onLine: false } });
   });
 
+  it('channels expose extend toggles: new finite by default, legacy extended; persisted only when changed', async () => {
+    const a = await loaded();
+    const changed = vi.fn();
+    a.onDrawingsChange(changed);
+    const pts3 = [{ timestamp: D1, value: 1 }, { timestamp: D2, value: 2 }, { timestamp: D1, value: 3 }];
+    a.restoreDrawings([
+      { name: 'parallelChannel', points: pts3, lock: false },
+      { name: 'parallelStraightLine', points: pts3, lock: false },
+      { name: 'parallelChannel', points: pts3, lock: false, styles: { extend: { right: true } } },
+      { name: 'segment', points: pts3.slice(0, 2), lock: false },
+    ]);
+    const [n, l, r, s] = userOverlays();
+    expect(r!.styles).toEqual({ altvExtend: { right: true } });
+    n!.onSelected?.({ overlay: n });
+    expect(a.getSelectedDrawing()).toMatchObject({ kind: 'line', extend: { left: false, right: false } });
+    l!.onSelected?.({ overlay: l });
+    expect(a.getSelectedDrawing()).toMatchObject({ extend: { left: true, right: true } });
+    r!.onSelected?.({ overlay: r });
+    expect(a.getSelectedDrawing()).toMatchObject({ extend: { left: false, right: true } });
+    s!.onSelected?.({ overlay: s });
+    expect(a.getSelectedDrawing()).not.toHaveProperty('extend');
+
+    n!.onSelected?.({ overlay: n });
+    a.setSelectedExtend({ right: true });
+    expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: n!.id, styles: { altvExtend: { left: false, right: true } } });
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(a.getSelectedDrawing()).toMatchObject({ extend: { left: false, right: true } });
+    expect(a.serializeDrawings()[0]!.styles).toEqual({ extend: { right: true } });
+    a.setSelectedExtend({ right: false }); // back to the default: nothing stored
+    expect(a.serializeDrawings()[0]).not.toHaveProperty('styles');
+    a.setSelectedExtend({ right: true });
+    a.setSelectedStyle({ color: '#ff0000' }); // a style change keeps the extend options
+    const saved = a.serializeDrawings();
+    expect(saved[0]).toMatchObject({ name: 'parallelChannel', styles: { line: { color: '#ff0000', size: 1, style: 'solid' }, extend: { right: true } } });
+    expect(saved[1]).toEqual({ name: 'parallelStraightLine', points: pts3, lock: false }); // legacy: unchanged, no extend stored
+    expect(saved[2]!.styles).toEqual({ extend: { right: true } });
+
+    l!.onSelected?.({ overlay: l });
+    a.setSelectedExtend({ left: false }); // legacy: turning one side off is stored against its (extended) defaults
+    expect(a.serializeDrawings()[1]!.styles).toEqual({ extend: { left: false } });
+
+    // Round trip: what is saved restores to the same drawings.
+    const out = a.serializeDrawings();
+    a.restoreDrawings(out);
+    expect(a.serializeDrawings()).toEqual(out);
+  });
+
+  it('extend toggles are read-only for locked channels', async () => {
+    const a = await loaded();
+    a.restoreDrawings([{ name: 'parallelChannel', points: [{ timestamp: D1, value: 1 }, { timestamp: D2, value: 2 }, { timestamp: D1, value: 3 }], lock: true }]);
+    const c = userOverlays()[0]!;
+    c.onSelected?.({ overlay: c });
+    chart().overrideOverlay.mockClear();
+    a.setSelectedExtend({ left: true });
+    expect(chart().overrideOverlay).not.toHaveBeenCalled();
+  });
+
   it('label toggles are read-only for locked drawings', async () => {
     const a = await loaded();
     a.restoreDrawings([{ name: 'priceLine', points: [{ timestamp: D1, value: 5 }], lock: true }]);

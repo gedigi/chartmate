@@ -146,10 +146,13 @@ export function migrateAppearance(a: unknown): ThemedAppearance | undefined {
 }
 /**
  * Normalized drawing styles: `line` for line tools, `text` (annotation bubble colour + font size) for text,
- * `label` (price text on the line / price label on the y-axis) for price and horizontal lines; missing → defaults.
+ * `label` (price text on the line / price label on the y-axis) for price and horizontal lines; `extend` (lines
+ * extended past the left / right end) for parallel channels; missing → defaults (a new 'parallelChannel' is finite,
+ * a legacy 'parallelStraightLine' is extended both ways).
  */
 export interface DrawingStyles {
   line?: DrawingLineStyle; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean };
+  extend?: { left?: boolean; right?: boolean };
   /** Long / short positions: their own risk settings (over the defaults). */
   position?: PositionSettings;
 }

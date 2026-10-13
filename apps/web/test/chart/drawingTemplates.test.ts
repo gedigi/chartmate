@@ -11,7 +11,12 @@ vi.mock('klinecharts', async () => {
 });
 
 const T = await import('../../src/chart/drawingTemplates');
-const { roundPrice, constrainForDrawing, constrainPointMove, flattenBase, channelMidline, midlineDash, labelOptions, drawingConstraint } = T;
+const { roundPrice, constrainForDrawing, constrainPointMove, flattenBase, channelMidline, midlineDash, labelOptions, drawingConstraint, channelGeometry, extendOptions } = T;
+
+type Fig = { type: string; attrs: any; styles?: any; ignoreEvent?: boolean };
+/** The channel's midline figure (a single line; the channel's own lines are one figure with an array of lines). */
+const midOf = (figs: Fig[]) => figs.find((f) => f.type === 'line' && !Array.isArray(f.attrs));
+const linesOf = (figs: Fig[]) => figs.find((f) => f.type === 'line' && Array.isArray(f.attrs))!.attrs as Array<{ coordinates: Array<{ x: number; y: number }> }>;
 
 type P = { timestamp?: number; value?: number; dataIndex?: number };
 const pts = (...values: number[]): P[] => values.map((value, i) => ({ timestamp: 1000 * (i + 1), dataIndex: i, value }));
@@ -44,7 +49,16 @@ describe('Shift: horizontal constraint (pure functions)', () => {
     expect(fib.map((x) => x.value)).toEqual([1, 2]);
   });
 
-  it('parallel channel: the two base points are constrained, the width (third) point stays free', () => {
+  it('parallel channel (new and legacy): the two base points are constrained, the width (third) point stays free', () => {
+    const n = pts(50, 60, 70);
+    constrainForDrawing('parallelChannel', n, 1, 2);
+    expect(n.map((x) => x.value)).toEqual([50, 50, 70]);
+    const f = pts(10, 20, 30);
+    flattenBase('parallelChannel', f, 2);
+    expect(f.map((x) => x.value)).toEqual([10, 10, 30]);
+    const m = pts(10, 20, 30);
+    constrainPointMove('parallelChannel', m, 1, 2);
+    expect(m.map((x) => x.value)).toEqual([10, 10, 30]);
     const p = pts(50, 60, 70);
     constrainForDrawing('parallelStraightLine', p, 1, 2);
     expect(p.map((x) => x.value)).toEqual([50, 50, 70]);
@@ -102,7 +116,71 @@ describe('channel midline geometry', () => {
     const chart = { getStyles: () => ({ overlay: { line: { color: '#2962ff', size: 1, style: 'solid' } } }) };
     const overlay = { styles: { line: { color: '#ff0000', size: 1, style: 'dashed', dashedValue: [1, 2], lineCap: 'butt' } } };
     const figs = t.createPointFigures({ chart, overlay, coordinates: [{ x: 0, y: 10 }, { x: 100, y: 60 }, { x: 0, y: 50 }], bounding });
-    expect(figs[1].styles.dashedValue).toEqual(midlineDash('dotted', 1));
+    expect(midOf(figs)!.styles.dashedValue).toEqual(midlineDash('dotted', 1));
+  });
+});
+
+describe('channel geometry (finite / extended)', () => {
+  const B = { width: 400, height: 300 };
+  const C = [{ x: 100, y: 50 }, { x: 200, y: 100 }, { x: 150, y: 175 }];
+  const none = { left: false, right: false };
+
+  it('finite: both lines span exactly from the first to the second point; the offset comes from the third point', () => {
+    const g = channelGeometry(C, B, none);
+    expect(g.lines).toEqual([
+      { coordinates: [{ x: 100, y: 50 }, { x: 200, y: 100 }] },
+      { coordinates: [{ x: 100, y: 150 }, { x: 200, y: 200 }] },
+    ]);
+    expect(g.midline).toEqual({ coordinates: [{ x: 100, y: 100 }, { x: 200, y: 150 }] });
+    expect(g.fill).toEqual([{ x: 100, y: 50 }, { x: 200, y: 100 }, { x: 200, y: 200 }, { x: 100, y: 150 }]);
+  });
+
+  it('left / right are screen directions whichever way the base was drawn', () => {
+    const g = channelGeometry([C[1]!, C[0]!, C[2]!], B, { left: false, right: true });
+    expect(g.lines[0]).toEqual({ coordinates: [{ x: 100, y: 50 }, { x: 400, y: 200 }] });
+  });
+
+  it('extend left / right / both', () => {
+    expect(channelGeometry(C, B, { left: true, right: false }).lines).toEqual([
+      { coordinates: [{ x: 0, y: 0 }, { x: 200, y: 100 }] },
+      { coordinates: [{ x: 0, y: 100 }, { x: 200, y: 200 }] },
+    ]);
+    const r = channelGeometry(C, B, { left: false, right: true });
+    expect(r.lines[1]).toEqual({ coordinates: [{ x: 100, y: 150 }, { x: 400, y: 300 }] });
+    expect(r.midline).toEqual({ coordinates: [{ x: 100, y: 100 }, { x: 400, y: 250 }] });
+    expect(r.fill).toEqual([{ x: 100, y: 50 }, { x: 400, y: 200 }, { x: 400, y: 300 }, { x: 100, y: 150 }]);
+    const both = channelGeometry(C, B, { left: true, right: true });
+    expect(both.lines[0]).toEqual({ coordinates: [{ x: 0, y: 0 }, { x: 400, y: 200 }] }); // = the old infinite channel
+  });
+
+  it('extending never shortens a base reaching past the pane edge', () => {
+    const g = channelGeometry([{ x: -50, y: 0 }, { x: 500, y: 0 }, { x: 0, y: 10 }], B, { left: true, right: true });
+    expect(g.lines[0]).toEqual({ coordinates: [{ x: -50, y: 0 }, { x: 500, y: 0 }] });
+  });
+
+  it('only the base line while placing; nothing for a single point', () => {
+    const g = channelGeometry(C.slice(0, 2), B, none);
+    expect(g).toEqual({ lines: [{ coordinates: [{ x: 100, y: 50 }, { x: 200, y: 100 }] }], midline: null, fill: null });
+    expect(channelGeometry(C.slice(0, 1), B, none)).toEqual({ lines: [], midline: null, fill: null });
+  });
+
+  it('a vertical base: finite vertical segments offset horizontally; extend reaches the pane top / bottom', () => {
+    const v = [{ x: 100, y: 50 }, { x: 100, y: 150 }, { x: 160, y: 80 }];
+    expect(channelGeometry(v, B, none).lines).toEqual([
+      { coordinates: [{ x: 100, y: 50 }, { x: 100, y: 150 }] },
+      { coordinates: [{ x: 160, y: 50 }, { x: 160, y: 150 }] },
+    ]);
+    expect(channelGeometry(v, B, { left: true, right: true }).lines[0]).toEqual({ coordinates: [{ x: 100, y: 0 }, { x: 100, y: 300 }] });
+  });
+});
+
+describe('extend options', () => {
+  it('new channels default to finite; legacy channels (no extend) to extended both ways; own options win', () => {
+    expect(extendOptions('parallelChannel', undefined)).toEqual({ left: false, right: false });
+    expect(extendOptions('parallelStraightLine', null)).toEqual({ left: true, right: true });
+    expect(extendOptions('parallelChannel', { altvExtend: { right: true } })).toEqual({ left: false, right: true });
+    expect(extendOptions('parallelStraightLine', { altvExtend: { left: false } })).toEqual({ left: false, right: true });
+    expect(extendOptions('segment', undefined)).toBeNull();
   });
 });
 
@@ -131,9 +209,10 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
 
   it('re-registers the affected built-ins once, keeping their own behaviour', () => {
     T.registerDrawingTemplates();
-    expect([...k.templates.keys()].sort()).toEqual(['horizontalStraightLine', 'parallelStraightLine', 'priceLine', 'rayLine', 'segment', 'straightLine']);
+    expect([...k.templates.keys()].sort()).toEqual(['horizontalStraightLine', 'parallelChannel', 'parallelStraightLine', 'priceLine', 'rayLine', 'segment', 'straightLine']);
     expect(tpl('segment').totalStep).toBe(3);
     expect(tpl('parallelStraightLine').totalStep).toBe(4);
+    expect(tpl('parallelChannel')).toMatchObject({ name: 'parallelChannel', totalStep: 4, needDefaultPointFigure: true });
   });
 
   it('placing with Shift held keeps a trend line horizontal; without Shift it is free', () => {
@@ -157,20 +236,53 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     expect(p.map((x) => x.value)).toEqual([10, 10]);
   });
 
-  it('parallel channel draws a dashed midline through the midpoints, inheriting colour/width; none until the width point', () => {
+  it('legacy channel (no extend): infinite lines across the pane, as KLineChart drew them, plus the midline', () => {
     const t = tpl('parallelStraightLine');
     const bounding = { width: 200, height: 100, left: 0, top: 0, right: 0, bottom: 0 };
-    const two = t.createPointFigures({ chart: chart(), overlay: { styles: null }, coordinates: [{ x: 0, y: 10 }, { x: 100, y: 60 }], bounding });
-    expect(two).toHaveLength(1);
-    const overlay = { styles: { line: { color: '#ff0000', size: 2, style: 'dashed', dashedValue: [6, 4], lineCap: 'butt' } } };
-    const figs = t.createPointFigures({ chart: chart(), overlay, coordinates: [{ x: 0, y: 10 }, { x: 100, y: 60 }, { x: 0, y: 50 }], bounding });
-    expect(figs).toHaveLength(2);
-    const [lines, mid] = figs;
-    const [a, b] = lines.attrs as Array<{ coordinates: Array<{ x: number; y: number }> }>;
-    expect(mid.type).toBe('line');
-    expect(mid.attrs.coordinates).toEqual(a!.coordinates.map((c, i) => ({ x: c.x, y: (c.y + b!.coordinates[i]!.y) / 2 })));
+    const two = t.createPointFigures({ chart: chart(), overlay: { name: 'parallelStraightLine', styles: null }, coordinates: [{ x: 50, y: 10 }, { x: 100, y: 60 }], bounding });
+    expect(linesOf(two)).toEqual([{ coordinates: [{ x: 0, y: -40 }, { x: 200, y: 160 }] }]);
+    expect(midOf(two)).toBeUndefined();
+    const overlay = { name: 'parallelStraightLine', styles: { line: { color: '#ff0000', size: 2, style: 'dashed', dashedValue: [6, 4], lineCap: 'butt' } } };
+    const figs = t.createPointFigures({ chart: chart(), overlay, coordinates: [{ x: 50, y: 10 }, { x: 100, y: 60 }, { x: 50, y: 50 }], bounding });
+    const [a, b] = linesOf(figs);
+    expect(a).toEqual({ coordinates: [{ x: 0, y: -40 }, { x: 200, y: 160 }] });
+    expect(b).toEqual({ coordinates: [{ x: 0, y: 0 }, { x: 200, y: 200 }] });
+    const mid = midOf(figs)!;
+    expect(mid.attrs.coordinates).toEqual([{ x: 0, y: -20 }, { x: 200, y: 180 }]);
     expect(mid.styles).toEqual({ style: 'dashed', dashedValue: midlineDash('dashed', 2), lineCap: 'butt' });
     expect(mid.styles).not.toHaveProperty('color'); // colour and width come from the channel's line style
+  });
+
+  it('new channel: finite by default; lines and midline span the first to the second point, a translucent fill between', () => {
+    const t = tpl('parallelChannel');
+    const bounding = { width: 400, height: 300, left: 0, top: 0, right: 0, bottom: 0 };
+    const coords = [{ x: 100, y: 50 }, { x: 200, y: 100 }, { x: 150, y: 175 }];
+    const two = t.createPointFigures({ chart: chart(), overlay: { name: 'parallelChannel', styles: null }, coordinates: coords.slice(0, 2), bounding });
+    expect(two.map((f: Fig) => f.type)).toEqual(['line']); // the base segment only while placing the width point
+    expect(linesOf(two)).toEqual([{ coordinates: [{ x: 100, y: 50 }, { x: 200, y: 100 }] }]);
+    const figs = t.createPointFigures({ chart: chart(), overlay: { name: 'parallelChannel', styles: { line: { color: '#ff0000', size: 1, style: 'solid' } } }, coordinates: coords, bounding });
+    expect(figs.map((f: Fig) => f.type)).toEqual(['polygon', 'line', 'line']); // fill under the lines
+    expect(linesOf(figs)).toEqual([
+      { coordinates: [{ x: 100, y: 50 }, { x: 200, y: 100 }] },
+      { coordinates: [{ x: 100, y: 150 }, { x: 200, y: 200 }] },
+    ]);
+    expect(midOf(figs)!.attrs.coordinates).toEqual([{ x: 100, y: 100 }, { x: 200, y: 150 }]);
+    const fill = figs[0];
+    expect(fill.attrs.coordinates).toEqual([{ x: 100, y: 50 }, { x: 200, y: 100 }, { x: 200, y: 200 }, { x: 100, y: 150 }]);
+    expect(fill.styles).toMatchObject({ style: 'fill', color: 'rgba(255, 0, 0, 0.08)' });
+    // Default (theme) line colour when the channel has none of its own.
+    const plain = t.createPointFigures({ chart: chart(), overlay: { name: 'parallelChannel', styles: null }, coordinates: coords, bounding });
+    expect(plain[0].styles.color).toBe('rgba(41, 98, 255, 0.08)');
+  });
+
+  it('new channel: extend toggles (styles) extend the lines, the midline and the fill', () => {
+    const t = tpl('parallelChannel');
+    const bounding = { width: 400, height: 300, left: 0, top: 0, right: 0, bottom: 0 };
+    const coords = [{ x: 100, y: 50 }, { x: 200, y: 100 }, { x: 150, y: 175 }];
+    const both = t.createPointFigures({ chart: chart(), overlay: { name: 'parallelChannel', styles: { altvExtend: { left: true, right: true } } }, coordinates: coords, bounding });
+    expect(linesOf(both)[0]).toEqual({ coordinates: [{ x: 0, y: 0 }, { x: 400, y: 200 }] });
+    expect(midOf(both)!.attrs.coordinates).toEqual([{ x: 0, y: 50 }, { x: 400, y: 250 }]);
+    expect(both[0].attrs.coordinates).toEqual([{ x: 0, y: 0 }, { x: 400, y: 200 }, { x: 400, y: 300 }, { x: 0, y: 100 }]);
   });
 
   it('price line: on-line text can be hidden; the axis label shows the exact price at the symbol precision', () => {
@@ -216,7 +328,7 @@ describe('registerDrawingTemplates across module instances (HMR)', () => {
     fresh.registerDrawingTemplates();
     const t = k.templates.get('parallelStraightLine')!;
     const bounding = { width: 200, height: 100, left: 0, top: 0, right: 0, bottom: 0 };
-    const figs = t.createPointFigures({ chart: chart(), overlay: { styles: null }, coordinates: [{ x: 0, y: 10 }, { x: 100, y: 60 }, { x: 0, y: 50 }], bounding });
+    const figs = t.createPointFigures({ chart: chart(), overlay: { name: 'parallelStraightLine', styles: null }, coordinates: [{ x: 0, y: 10 }, { x: 100, y: 60 }, { x: 0, y: 50 }], bounding });
     expect(figs.filter((f: { type: string; attrs: unknown }) => f.type === 'line' && !Array.isArray(f.attrs))).toHaveLength(1); // one midline
     expect(t[fresh.WRAPPED_MARK]).toBe(true);
     vi.doUnmock('klinecharts');

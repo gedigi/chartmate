@@ -3,9 +3,12 @@ import { getOverlayClass, registerOverlay, type OverlayFigure, type OverlayTempl
 
 /**
  * Wrapped KLineChart 10.0.3 built-in drawing templates (re-registered under the same names, once, before any
- * chart creates overlays):
+ * chart creates overlays), plus our own parallel channel:
  *  - Shift held: trend line / ray / extended line / parallel channel stay horizontal (0°) while placed or dragged;
- *  - parallel channel: a dashed midline halfway between the two lines (visual only, no stored point);
+ *  - parallel channel ('parallelChannel', the toolbar tool): two parallel segments spanning the first to the second
+ *    point (the third sets the offset), a dashed midline and a translucent fill between them; "Extend left / right"
+ *    (styles) extend all three to the pane edge. Legacy channels ('parallelStraightLine', KLineChart's infinite
+ *    channel, saved before) are drawn by the same code with both sides extended by default, so they look as before;
  *  - price line / horizontal line: optional price text on the line and a persistent price label on the y-axis.
  */
 
@@ -19,8 +22,11 @@ export function roundPrice(v: number, decimals: number): number {
 }
 
 /** Tools Shift constrains to horizontal. Base points (0 and 1) are constrained; a channel's width point is free. */
-export const SHIFT_TOOLS: ReadonlySet<string> = new Set(['segment', 'rayLine', 'straightLine', 'parallelStraightLine']);
-const CHANNEL = 'parallelStraightLine';
+/** The parallel channel the toolbar draws (finite unless extended). */
+export const CHANNEL = 'parallelChannel';
+/** KLineChart's parallel channel, drawn by older versions: kept for saved drawings (extended both ways by default). */
+export const LEGACY_CHANNEL = 'parallelStraightLine';
+export const SHIFT_TOOLS: ReadonlySet<string> = new Set(['segment', 'rayLine', 'straightLine', CHANNEL, LEGACY_CHANNEL]);
 
 /**
  * Shared constraint state (one chart per page). `shift`: Shift held (set by the toolbar via the adapter);
@@ -66,6 +72,64 @@ export function channelMidline(lines: ReadonlyArray<{ coordinates: Coord[] }>): 
   return { coordinates: a.coordinates.map((c, i) => ({ x: (c.x + b.coordinates[i]!.x) / 2, y: (c.y + b.coordinates[i]!.y) / 2 })) };
 }
 
+type Line = { coordinates: Coord[] };
+export interface ExtendOptions { left: boolean; right: boolean }
+
+/**
+ * Geometry of a parallel channel from its pixel coordinates (base points 0 and 1, offset point 2): the base line
+ * spans the base points, left → right on screen; the parallel line is the base moved by the offset of point 2
+ * (vertically, as KLineChart's channel: point 2 lies on it); the midline is halfway. `extend.left` / `extend.right`
+ * extend all of them to the pane's left / right edge (for a vertical base: its top / bottom edge), never shortening
+ * a base reaching past it. `fill` is the parallelogram between the two lines (null until the offset point exists).
+ */
+export function channelGeometry(
+  coords: ReadonlyArray<Coord>, bounding: { width: number; height: number }, extend: ExtendOptions,
+): { lines: Line[]; midline: Line | null; fill: Coord[] | null } {
+  const [p0, p1, p2] = coords;
+  if (!p0 || !p1) return { lines: [], midline: null, fill: null };
+  let a: Coord;
+  let b: Coord;
+  let offset: Coord | null = null;
+  if (p0.x === p1.x) {
+    const [top, bottom] = p0.y <= p1.y ? [p0, p1] : [p1, p0];
+    a = { x: p0.x, y: extend.left ? Math.min(0, top.y) : top.y };
+    b = { x: p0.x, y: extend.right ? Math.max(bounding.height, bottom.y) : bottom.y };
+    if (p2) offset = { x: p2.x - p0.x, y: 0 };
+  } else {
+    const k = (p1.y - p0.y) / (p1.x - p0.x);
+    const [l, r] = p0.x < p1.x ? [p0, p1] : [p1, p0];
+    const xl = extend.left ? Math.min(0, l.x) : l.x;
+    const xr = extend.right ? Math.max(bounding.width, r.x) : r.x;
+    a = { x: xl, y: l.y + k * (xl - l.x) };
+    b = { x: xr, y: r.y + k * (xr - r.x) };
+    if (p2) offset = { x: 0, y: p2.y - (p0.y + k * (p2.x - p0.x)) };
+  }
+  const base: Line = { coordinates: [a, b] };
+  if (!offset) return { lines: [base], midline: null, fill: null };
+  const d = offset;
+  const parallel: Line = { coordinates: [{ x: a.x + d.x, y: a.y + d.y }, { x: b.x + d.x, y: b.y + d.y }] };
+  return {
+    lines: [base, parallel],
+    midline: channelMidline([base, parallel]),
+    fill: [a, b, parallel.coordinates[1]!, parallel.coordinates[0]!],
+  };
+}
+
+/** Opacity of a channel's fill (its line colour). */
+export const CHANNEL_FILL_ALPHA = 0.08;
+
+/** `color` ('#rrggbb' / '#rgb', else the default accent) at `alpha`, as an rgba() string. */
+export function translucent(color: unknown, alpha: number): string {
+  let hex = typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color.slice(1) : null;
+  if (!hex && typeof color === 'string' && /^#[0-9a-fA-F]{3}$/.test(color)) hex = [...color.slice(1)].map((c) => c + c).join('');
+  if (!hex) {
+    const m = typeof color === 'string' ? /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(color) : null;
+    return m ? `rgba(${m[1]}, ${m[2]}, ${m[3]}, ${alpha})` : `rgba(41, 98, 255, ${alpha})`;
+  }
+  const n = parseInt(hex, 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
 /** Dash pattern of a channel midline: always dashed, longer when the channel itself is dashed / dotted. */
 export function midlineDash(channel: LineStyleKind, size: number): number[] {
   const f = Math.max(1, size / 2);
@@ -90,6 +154,25 @@ export const LABEL_DEFAULTS: Readonly<Record<string, LabelOptions>> = {
   priceLine: { onLine: true, onAxis: true },
   horizontalStraightLine: { onLine: false, onAxis: true },
 };
+
+/** Key of a channel's extend options inside its KLineChart styles (ignored by KLineChart itself). */
+export const EXTEND_STYLE_KEY = 'altvExtend';
+/** Channels and their default extend options: new channels are finite, legacy ones were always infinite. */
+export const EXTEND_DEFAULTS: Readonly<Record<string, ExtendOptions>> = {
+  [CHANNEL]: { left: false, right: false },
+  [LEGACY_CHANNEL]: { left: true, right: true },
+};
+
+/** Effective extend options of a drawing (null when it has none): its own (from styles) over the defaults. */
+export function extendOptions(name: string, styles: unknown): ExtendOptions | null {
+  const d = EXTEND_DEFAULTS[name];
+  if (!d) return null;
+  const own = (styles as Record<string, unknown> | null | undefined)?.[EXTEND_STYLE_KEY] as Partial<ExtendOptions> | undefined;
+  return {
+    left: typeof own?.left === 'boolean' ? own.left : d.left,
+    right: typeof own?.right === 'boolean' ? own.right : d.right,
+  };
+}
 
 /** Effective label options of a drawing (null when it has none): its own (from styles) over the defaults. */
 export function labelOptions(name: string, styles: unknown): LabelOptions | null {
@@ -160,19 +243,31 @@ function withShift(t: Template): Template {
   } as Template;
 }
 
-function withMidline(t: Template): Template {
-  const create = t.createPointFigures!;
+/** A parallel channel: finite / extended lines, a dashed midline and a translucent fill (see channelGeometry). */
+function withChannel(t: Template): Template {
+  const name = t.name;
   return {
     ...t,
     createPointFigures(p: FigureParams) {
-      const figures = asArray(create(p));
-      const lines = figures[0]?.attrs as unknown as Array<{ coordinates: Coord[] }> | undefined;
-      const mid = Array.isArray(lines) ? channelMidline(lines) : null;
-      if (!mid) return figures;
+      const extend = extendOptions(name, p.overlay.styles)!;
+      const g = channelGeometry(p.coordinates, p.bounding, extend);
+      if (g.lines.length === 0) return [];
       const line = lineStyles(p);
-      const size = typeof line.size === 'number' ? line.size : 1;
-      // Colour and width are inherited from the channel's line style (KLineChart merges figure styles over it).
-      return [...figures, { type: 'line', attrs: mid, styles: { style: 'dashed', dashedValue: midlineDash(kindOf(line), size), lineCap: 'butt' } } as OverlayFigure];
+      const figures: OverlayFigure[] = [];
+      // The fill first (under the lines); it is part of the drawing, so clicking inside it selects the channel.
+      if (g.fill) {
+        figures.push({
+          type: 'polygon', attrs: { coordinates: g.fill },
+          styles: { style: 'fill', color: translucent(line.color, CHANNEL_FILL_ALPHA), borderSize: 0 },
+        } as OverlayFigure);
+      }
+      figures.push({ type: 'line', attrs: g.lines } as unknown as OverlayFigure);
+      if (g.midline) {
+        const size = typeof line.size === 'number' ? line.size : 1;
+        // Colour and width are inherited from the channel's line style (KLineChart merges figure styles over it).
+        figures.push({ type: 'line', attrs: g.midline, styles: { style: 'dashed', dashedValue: midlineDash(kindOf(line), size), lineCap: 'butt' } } as OverlayFigure);
+      }
+      return figures;
     },
   } as Template;
 }
@@ -229,16 +324,26 @@ let registered = false;
 export function registerDrawingTemplates(): void {
   if (registered) return;
   registered = true;
-  const wrap = (name: string, f: (t: Template) => Template) => {
+  const original = (name: string): Template | null => {
     const t = builtinTemplate(name);
-    if (!t) return;
-    const base = t[WRAPPED_MARK] === true && t[ORIGINAL_KEY] ? (t[ORIGINAL_KEY] as Template) : t;
+    return t && t[WRAPPED_MARK] === true && t[ORIGINAL_KEY] ? (t[ORIGINAL_KEY] as Template) : t;
+  };
+  const register = (base: Template, f: (t: Template) => Template) => {
     registerOverlay({ ...f(base), [WRAPPED_MARK]: true, [ORIGINAL_KEY]: base } as Template);
+  };
+  const wrap = (name: string, f: (t: Template) => Template) => {
+    const base = original(name);
+    if (base) register(base, f);
   };
   wrap('segment', withShift);
   wrap('rayLine', withShift);
   wrap('straightLine', withShift);
-  wrap(CHANNEL, (t) => withMidline(withShift(t)));
+  // Both channels are made from KLineChart's (unwrapped) parallel channel: same steps and point handling.
+  const channel = original(LEGACY_CHANNEL);
+  if (channel) {
+    register(channel, (t) => withChannel(withShift(t)));
+    register(channel, (t) => withChannel(withShift({ ...t, name: CHANNEL })));
+  }
   wrap('priceLine', withLabels);
   wrap('horizontalStraightLine', withLabels);
 }

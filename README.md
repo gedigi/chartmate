@@ -236,8 +236,18 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
     price), `[1]` (start time, target), `[2]` (start time, stop), `[3]` (end time, entry price), plus optional
     `styles.position` (`accountSize`, `riskMode`, `riskValue`, `currency`). Daily anchoring works as for
     other drawings.
-- **Parallel channels** show a dashed midline halfway between the two lines, in the channel's colour and width
-  (longer dashes when the channel itself is dashed or dotted); it is not a stored point.
+- **Parallel channels** are finite by default: click the start and end of the base line, then a third point for
+  the channel's width. Both lines span exactly from the first to the second point's time, with a dashed midline
+  halfway between them (in the channel's colour and width, longer dashes when the channel itself is dashed or
+  dotted; not a stored point) and a subtle fill (the channel's colour at 8% opacity). Clicking a line, the
+  midline or the fill selects the channel; clicking beyond its ends does not.
+  - **Extend left / Extend right** (style bar, TradingView-style) extend the lines, midline and fill to the
+    chart's left / right edge; both on gives an infinite channel. Both are off for new channels.
+  - **Stored** as `parallelChannel` drawings (three points) with optional `styles.extend` (`left` / `right`;
+    only the sides that differ from the default are saved).
+  - **Legacy channels** (`parallelStraightLine`, drawn by older versions as infinite channels) still look as
+    before: a missing `extend` means both sides extended. They get the same toggles (turning a side off is
+    saved as `extend: { left: false }`).
 
 ## Watchlist and sections
 

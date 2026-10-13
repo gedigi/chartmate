@@ -13,8 +13,8 @@ import {
   type TextStyle,
 } from './drawingStyles';
 import {
-  drawingConstraint, flattenBase, LABEL_STYLE_KEY, labelOptions, POSITION_STYLE_KEY, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
-  type LabelOptions,
+  drawingConstraint, EXTEND_STYLE_KEY, extendOptions, flattenBase, LABEL_STYLE_KEY, labelOptions, POSITION_STYLE_KEY, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
+  type ExtendOptions, type LabelOptions,
 } from './drawingTemplates';
 import {
   DEFAULT_WIDTH_BARS, defaultGeometry, endAfterBars, fromPositionPoints, nextBarTime, qtyDecimals, shiftByBars, sideOf,
@@ -36,7 +36,7 @@ import {
 
 export type DrawingTool =
   | 'segment' | 'rayLine' | 'straightLine' | 'horizontalStraightLine' | 'verticalStraightLine'
-  | 'priceLine' | 'parallelStraightLine' | 'fibonacciLine' | 'simpleAnnotation' | 'longPosition' | 'shortPosition';
+  | 'priceLine' | 'parallelChannel' | 'fibonacciLine' | 'simpleAnnotation' | 'longPosition' | 'shortPosition';
 
 export interface IndicatorSpec extends Pick<IndicatorState, 'lineColors' | 'lineWidths' | 'lineStyles' | 'barColors'> {
   name: string; pane: 'main' | 'sub'; calcParams?: number[]; visible?: boolean;
@@ -66,6 +66,8 @@ export type SelectedDrawing =
     price?: { value: number; precision: number };
     /** Price / horizontal lines only: effective price-label options (price text on the line, label on the axis). */
     label?: LabelOptions;
+    /** Parallel channels only: effective extend options (lines extended past the left / right end). */
+    extend?: ExtendOptions;
   }
   | { id: string; kind: 'text'; style: TextStyle; locked: boolean }
   | {
@@ -892,7 +894,19 @@ export class ChartAdapter {
     if (HORIZONTAL_DRAWINGS.has(o.name) && typeof value === 'number') sel.price = { value, precision: this.pricePrecision };
     const label = labelOptions(o.name, o.styles);
     if (label) sel.label = label;
+    const extend = extendOptions(o.name, o.styles);
+    if (extend) sel.extend = extend;
     return sel;
+  }
+
+  /** Changes the selected channel's extend options; saved like any drawing edit. */
+  setSelectedExtend(patch: Partial<ExtendOptions>): void {
+    const sel = this.getSelectedDrawing();
+    if (!sel || sel.kind !== 'line' || !sel.extend || sel.locked) return;
+    const next = { ...sel.extend, ...patch };
+    this.chart.overrideOverlay({ id: sel.id, styles: { [EXTEND_STYLE_KEY]: next } as DeepPartial<OverlayStyle> });
+    this.emitChange();
+    this.emitSelection();
   }
 
   /** Changes the selected price / horizontal line's label options; saved like any drawing edit. */
@@ -961,6 +975,7 @@ export class ChartAdapter {
       : lineToOverlay({ ...sel.style, ...(patch as Partial<DrawingLineStyle>) });
     // Label options are re-sent with the style (never lost, whatever KLineChart's style merging does).
     if (sel.kind === 'line' && sel.label) (styles as Record<string, unknown>)[LABEL_STYLE_KEY] = { ...sel.label };
+    if (sel.kind === 'line' && sel.extend) (styles as Record<string, unknown>)[EXTEND_STYLE_KEY] = { ...sel.extend };
     this.chart.overrideOverlay({ id: sel.id, styles });
     this.emitChange();
     this.emitSelection();

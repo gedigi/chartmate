@@ -11,6 +11,7 @@ function makeControls() {
     setSelectedStyle: vi.fn(),
     setSelectedPrice: vi.fn((_v: number) => true),
     setSelectedLabel: vi.fn(),
+    setSelectedExtend: vi.fn(),
     onPriceEditRequest: vi.fn((f: (id: string) => void) => { editCb = f; return () => { editCb = null; }; }),
   };
   return {
@@ -230,6 +231,33 @@ describe('DrawingStyleBar', () => {
       emit({ ...LINE, locked: true, label: { onLine: true, onAxis: true } });
       expect(screen.getByLabelText('Price on line')).toBeDisabled();
       expect(screen.getByLabelText('Price on axis')).toBeDisabled();
+    });
+  });
+
+  describe('channel extend toggles', () => {
+    const CH = { id: 'c', kind: 'line' as const, style: { color: '#123456', size: 1, style: 'solid' as const }, locked: false };
+
+    it('shows "Extend left" / "Extend right" only for channels, reflecting them', () => {
+      const { c, emit } = makeControls();
+      render(<DrawingStyleBar controls={c} />);
+      emit(CH);
+      expect(screen.queryByLabelText('Extend left')).toBeNull();
+      expect(screen.queryByLabelText('Extend right')).toBeNull();
+      emit({ ...CH, extend: { left: false, right: true } });
+      expect(screen.getByLabelText('Extend left')).not.toBeChecked();
+      expect(screen.getByLabelText('Extend right')).toBeChecked();
+      fireEvent.click(screen.getByLabelText('Extend left'));
+      expect(c.setSelectedExtend).toHaveBeenLastCalledWith({ left: true });
+      fireEvent.click(screen.getByLabelText('Extend right'));
+      expect(c.setSelectedExtend).toHaveBeenLastCalledWith({ right: false });
+    });
+
+    it('are disabled for locked channels', () => {
+      const { c, emit } = makeControls();
+      render(<DrawingStyleBar controls={c} />);
+      emit({ ...CH, locked: true, extend: { left: false, right: false } });
+      expect(screen.getByLabelText('Extend left')).toBeDisabled();
+      expect(screen.getByLabelText('Extend right')).toBeDisabled();
     });
   });
 });
