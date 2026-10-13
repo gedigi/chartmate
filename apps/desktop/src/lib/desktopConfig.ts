@@ -30,7 +30,8 @@ function binanceBaseUrl(raw: string | undefined): string {
 /**
  * Server configuration for the desktop app. Only provider choices may come from the environment; everything that
  * concerns the network surface or storage is fixed:
- * - no listener (the Fastify app is only reached through app:// + inject), so host/port are inert placeholders;
+ * - no listener (the Fastify app is only reached through app:// + inject; listenGuard.ts), so host/port are
+ *   inert placeholders;
  * - auth disabled: there is no network surface to protect, and the renderer is the only client (a password would
  *   only add a login screen in front of a single-user local app);
  * - SQLite in the per-user data directory; the web UI is served by the protocol handler, not @fastify/static.

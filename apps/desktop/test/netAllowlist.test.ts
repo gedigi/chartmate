@@ -106,6 +106,23 @@ describe('createGuardedFetch', () => {
     await expect(f(res.headers.get('location')!)).rejects.toBeInstanceOf(BlockedRequestError);
   });
 
+  it('strips Authorization/Cookie/Proxy-Authorization on cross-origin redirects, keeps them same-origin', async () => {
+    const { fn, calls } = fakeFetch({
+      'https://query1.finance.yahoo.com/a': redirect(302, '/b'),
+      'https://query1.finance.yahoo.com/b': redirect(302, 'https://data-api.binance.vision/c'),
+      'https://data-api.binance.vision/c': () => new Response('ok'),
+    });
+    const headers = { authorization: 'Bearer t', cookie: 'a=1', 'proxy-authorization': 'Basic x', 'x-keep': '1' };
+    await createGuardedFetch(fn, HOSTS)('https://query1.finance.yahoo.com/a', { headers });
+    const h = (i: number) => new Headers(calls[i]!.init?.headers);
+    expect(h(1).get('authorization')).toBe('Bearer t'); // same origin
+    expect(h(1).get('cookie')).toBe('a=1');
+    expect(h(2).get('authorization')).toBeNull(); // cross origin
+    expect(h(2).get('cookie')).toBeNull();
+    expect(h(2).get('proxy-authorization')).toBeNull();
+    expect(h(2).get('x-keep')).toBe('1');
+  });
+
   it('switches to GET without a body on 303', async () => {
     const { fn, calls } = fakeFetch({
       'https://query1.finance.yahoo.com/a': redirect(303, '/b'),

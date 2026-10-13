@@ -141,6 +141,23 @@ export function hardenSession(session: Session, opts: HardenOptions): void {
   });
 }
 
+/**
+ * Applies `hardenSession` to `existing` sessions (the default one) and to every session created later
+ * (`session-created`: partitions, the updater's session …), once per session. A session that needs other
+ * network rules (the updater's) installs its own `onBeforeRequest` afterwards, which replaces this one; the
+ * permission/device/download denials stay.
+ */
+export function hardenAllSessions(app: App, existing: readonly Session[], opts: HardenOptions): void {
+  const done = new WeakSet<Session>();
+  const apply = (s: Session) => {
+    if (done.has(s)) return;
+    done.add(s);
+    hardenSession(s, opts);
+  };
+  app.on('session-created', apply);
+  for (const s of existing) apply(s);
+}
+
 /** Applies `hardenWebContents` to every WebContents the app ever creates (windows, frames, devtools, …). */
 export function hardenApp(app: App, opts: HardenOptions): void {
   app.on('web-contents-created', (_event, contents) => hardenWebContents(contents, opts));

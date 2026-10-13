@@ -2,9 +2,10 @@ import { EventEmitter } from 'node:events';
 import type { App, Session, WebContents } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  APP_ORIGIN, hardenApp, hardenSession, hardenWebContents, isAppUrl, isRendererRequestAllowed, PRIVILEGED_SCHEMES,
+  APP_ORIGIN, hardenAllSessions, hardenApp, hardenSession, hardenWebContents, isAppUrl, isRendererRequestAllowed, PRIVILEGED_SCHEMES,
   secureWebPreferences,
 } from '../src/lib/hardening.js';
+import { CONTENT_SECURITY_POLICY } from '../src/lib/securityHeaders.js';
 
 describe('webPreferences (security configuration snapshot)', () => {
   it('packaged: sandboxed, isolated, no Node, no webviews, no DevTools', () => {
@@ -189,6 +190,34 @@ describe('hardenSession', () => {
   });
 });
 
+describe('hardenAllSessions', () => {
+  const fake = () => {
+    const s = Object.assign(new EventEmitter(), {
+      calls: 0,
+      setPermissionRequestHandler() { s.calls++; },
+      setPermissionCheckHandler() {},
+      setDevicePermissionHandler() {},
+      setDisplayMediaRequestHandler() {},
+      setSpellCheckerEnabled() {},
+      webRequest: { onBeforeRequest() {} },
+    });
+    return s;
+  };
+
+  it('hardens the existing sessions and every session created later, once each', () => {
+    const app = new EventEmitter();
+    const def = fake();
+    hardenAllSessions(app as unknown as App, [def as unknown as Session], { isPackaged: true });
+    expect(def.calls).toBe(1);
+    const partition = fake();
+    app.emit('session-created', partition);
+    app.emit('session-created', partition);
+    app.emit('session-created', def);
+    expect(partition.calls).toBe(1);
+    expect(def.calls).toBe(1);
+  });
+});
+
 describe('hardenApp', () => {
   it('hardens every WebContents created later', () => {
     const app = new EventEmitter();
@@ -199,5 +228,17 @@ describe('hardenApp', () => {
     const e = ev();
     c.emit('will-navigate', e, 'https://example.com');
     expect(e.preventDefault).toHaveBeenCalled();
+  });
+});
+
+describe('Content Security Policy', () => {
+  it('is strict: no unsafe-*, no remote sources, Trusted Types enforced', () => {
+    expect(CONTENT_SECURITY_POLICY).toBe([
+      "default-src 'self'", "script-src 'self'", "style-src 'self'", "img-src 'self' data:", "font-src 'self'",
+      "connect-src 'self'", "media-src 'none'", "worker-src 'none'", "frame-src 'none'", "child-src 'none'",
+      "manifest-src 'none'", "object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'", "form-action 'none'",
+      "require-trusted-types-for 'script'", "trusted-types 'none'",
+    ].join('; '));
+    expect(CONTENT_SECURITY_POLICY).not.toMatch(/unsafe-|https?:|\*/);
   });
 });

@@ -1,7 +1,9 @@
-// Electron main process: the altv server (Fastify, in-process, never listening) + one hardened window that talks
+// Electron main process: the altv server (Fastify, in-process, no listener; see listenGuard.ts for the single
+// macOS update-install exception) + one hardened window that talks
 // to it only through the privileged app:// scheme. Bundled by scripts/bundle.mjs into dist/main.cjs.
+import './boot.js'; // MUST stay first: command-line switch guard + environment sanitizing
 import net from 'node:net';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, Menu, protocol, screen, session } from 'electron';
 import product from '../product.json' with { type: 'json' };
@@ -13,8 +15,11 @@ import { MarketDataService } from '../../server/src/market/service.js';
 import { createRegistry } from '../../server/src/providers/registry.js';
 import { DB_FILE_NAME, desktopConfig, resolveUserDataDir } from './lib/desktopConfig.js';
 import {
-  APP_ENTRY_URL, APP_HOST, APP_SCHEME, hardenApp, hardenSession, PRIVILEGED_SCHEMES, secureWebPreferences,
+  APP_ENTRY_URL, APP_HOST, APP_SCHEME, hardenAllSessions, hardenApp, PRIVILEGED_SCHEMES, secureWebPreferences,
 } from './lib/hardening.js';
+import { createCrashLimiter } from './lib/crashLimiter.js';
+import { installListenGuard } from './lib/listenGuard.js';
+import { serverLoggerOptions } from './lib/serverLog.js';
 import { createRotatingLog } from './lib/logger.js';
 import { menuTemplate } from './lib/menu.js';
 import { createGuardedFetch, installFetchAllowlist, providerHosts } from './lib/netAllowlist.js';
@@ -27,6 +32,7 @@ import {
 } from './lib/windowState.js';
 
 declare const __WEB_ROOT_REL__: string;
+/** Build signed for THIS platform (build/signing.cjs, decided at bundle time). False → updater not even bundled. */
 declare const __BUILD_SIGNED__: boolean;
 
 const t0 = Date.now() - Math.round(process.uptime() * 1000);
@@ -35,11 +41,6 @@ const isPackaged = app.isPackaged;
 // Everything the main process creates (DB, WAL/SHM, logs, state) is owner-only.
 process.umask(0o077);
 
-// No listening sockets, ever: the server is reached only via fastify.inject from the app:// handler.
-net.Server.prototype.listen = function listenDisabled(): never {
-  throw new Error('listening sockets are disabled in the desktop app');
-};
-
 app.setName(product.productName);
 const userData = resolveUserDataDir(join(app.getPath('appData'), product.productName), process.env);
 app.setPath('userData', userData);
@@ -47,9 +48,14 @@ app.setPath('sessionData', userData);
 app.setAppLogsPath(join(userData, 'logs'));
 const log = createRotatingLog({ dir: join(userData, 'logs'), name: 'main', maxBytes: 1024 * 1024, keep: 2 });
 
+// No listening sockets: the server is reached only via fastify.inject from the app:// handler. The single,
+// audited exception is the macOS update install (loopback, ephemeral port, armed by the updater only).
+const listenGuard = installListenGuard(net.Server.prototype, { audit: (m) => log.warn(`listener guard: ${m}`) });
+
 app.enableSandbox();
 protocol.registerSchemesAsPrivileged([...PRIVILEGED_SCHEMES]);
-hardenApp(app, { isPackaged, onBlocked: (what, url) => log.warn(`blocked ${what} ${url}`) });
+const hardenOpts = { isPackaged, onBlocked: (what: string, url: string) => log.warn(`blocked ${what} ${url}`) };
+hardenApp(app, hardenOpts);
 
 const { config } = desktopConfig({ userData, env: process.env });
 // Outbound network: providers only, HTTPS only, exact hosts, every redirect hop checked.
@@ -98,11 +104,8 @@ async function start(): Promise<void> {
   const baskets = new BasketService({ repos, market });
   const server = await buildApp({
     config, repos, market, baskets,
-    logger: {
-      level: 'warn',
-      stream: { write: (line: string) => log.write(line) },
-      redact: ['req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'],
-    },
+    // Warnings and errors only; no stacks, headers, query strings or absolute paths (see serverLog.ts).
+    logger: serverLoggerOptions((line) => log.write(line)) as unknown as NonNullable<Parameters<typeof buildApp>[0]['logger']>,
   });
   await server.ready();
   shutdown = async () => {
@@ -125,7 +128,8 @@ async function start(): Promise<void> {
     },
     onError: (err, where) => log.error(`app:// handler failed for ${where}`, err),
   }));
-  hardenSession(session.defaultSession, { isPackaged, onBlocked: (what, url) => log.warn(`blocked ${what} ${url}`) });
+  // Every session, present and future (partitions, the updater's), gets the permission/device/network lockdown.
+  hardenAllSessions(app, [session.defaultSession], hardenOpts);
 
   if (!isPackaged && process.platform === 'darwin') app.dock?.setIcon(join(__dirname, 'icon.png'));
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({ isMac: process.platform === 'darwin', isPackaged, appName: product.productName })));
@@ -157,9 +161,13 @@ function createWindow(): void {
     win.show();
     log.info(`startup: window shown ${Date.now() - t0} ms after process start`);
   });
+  const crashes = createCrashLimiter({ max: 3, windowMs: 60_000 });
   win.webContents.on('render-process-gone', (_e, details) => {
     log.error(`renderer gone: ${details.reason}`);
-    if (details.reason !== 'clean-exit' && !win.isDestroyed()) win.reload();
+    if (details.reason === 'clean-exit' || win.isDestroyed()) return;
+    // Reload at most 3 times a minute; after that show a static error page instead of looping.
+    if (crashes.shouldReload()) win.reload();
+    else void win.loadURL(`${APP_ENTRY_URL}crashed.html`);
   });
 
   let saved = false;
@@ -184,12 +192,18 @@ function createWindow(): void {
 }
 
 function maybeStartUpdater(): void {
-  const hasUpdateConfig = isPackaged && existsSync(join(process.resourcesPath, 'app-update.yml'));
-  if (!shouldEnableAutoUpdate({ isPackaged, productAutoUpdate: product.autoUpdate === true, hasUpdateConfig, isSigned: __BUILD_SIGNED__, env: process.env })) return;
+  // Unsigned builds: this whole function body is compiled out (and dist/updater.cjs is not even produced).
+  if (!__BUILD_SIGNED__) return;
+  const ymlPath = join(process.resourcesPath, 'app-update.yml');
+  const updateConfig = isPackaged && existsSync(ymlPath) ? readFileSync(ymlPath, 'utf8') : null;
+  if (!shouldEnableAutoUpdate({
+    isPackaged, productAutoUpdate: product.autoUpdate === true, isSigned: __BUILD_SIGNED__, platform: process.platform,
+    updateConfig, env: process.env,
+  })) return;
   // Loaded only when enabled: electron-updater is a separate bundle that costs nothing otherwise.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { startAutoUpdate } = require('./updater.cjs') as typeof import('./updater.js');
-  startAutoUpdate(log);
+  startAutoUpdate(log, listenGuard);
 }
 
 app.on('window-all-closed', () => {

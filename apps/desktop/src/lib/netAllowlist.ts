@@ -76,6 +76,7 @@ export interface GuardOptions {
 }
 
 const REDIRECT = new Set([301, 302, 303, 307, 308]);
+const CREDENTIAL_HEADERS = ['authorization', 'cookie', 'proxy-authorization'] as const;
 
 export function createGuardedFetch(base: typeof fetch, allowed: Iterable<string>, opts: GuardOptions = {}): typeof fetch {
   const hosts: ReadonlySet<string> = new Set([...allowed].map((h) => h.toLowerCase()));
@@ -105,10 +106,13 @@ export function createGuardedFetch(base: typeof fetch, allowed: Iterable<string>
       if (!REDIRECT.has(res.status) || location === null) return res;
       if (hop >= maxRedirects) throw new TypeError(`fetch failed: too many redirects (${maxRedirects})`);
       await res.body?.cancel().catch(() => {});
+      const previousOrigin = url.origin;
       url = guard(new URL(location, url));
       const method = (reqInit.method ?? (req instanceof Request ? req.method : 'GET')).toUpperCase();
       const toGet = res.status === 303 || ((res.status === 301 || res.status === 302) && method === 'POST');
       const headers = new Headers(reqInit.headers ?? (req instanceof Request ? req.headers : undefined));
+      // Like browsers (and the Fetch spec for Authorization): credentials never follow a redirect to another origin.
+      if (url.origin !== previousOrigin) for (const h of CREDENTIAL_HEADERS) headers.delete(h);
       if (toGet) {
         headers.delete('content-type');
         headers.delete('content-length');

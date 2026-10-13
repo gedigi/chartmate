@@ -6,6 +6,8 @@
  *   through the CSSOM (element.style.x = …), which CSP does not govern, so style-src 'self' suffices.
  * - 'self' is the app://altv origin; nothing else (no http/https/ws, no blob:, no eval).
  * - img-src allows data: for small inline images only.
+ * - Trusted Types are required for every DOM-XSS sink, with no policy allowed (the smoke test asserts zero
+ *   violations while the chart, the baskets view and dialogs render).
  */
 export const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
@@ -23,6 +25,10 @@ export const CONTENT_SECURITY_POLICY = [
   "base-uri 'none'",
   "frame-ancestors 'none'",
   "form-action 'none'",
+  // DOM-XSS sinks (innerHTML, script.src, eval-like) only accept Trusted Types, and no policy may be created:
+  // the app never uses those sinks (no dangerouslySetInnerHTML; KLineChart draws on canvas).
+  "require-trusted-types-for 'script'",
+  "trusted-types 'none'",
 ].join('; ');
 
 export const PERMISSIONS_POLICY = [

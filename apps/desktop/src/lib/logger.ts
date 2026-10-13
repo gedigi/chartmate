@@ -9,9 +9,21 @@ export interface RotatingLog {
   error(msg: string, err?: unknown): void;
 }
 
-/** Strips things that must never reach a log file: URL query strings/credentials and obvious secrets. */
+const POSIX_PATH = /\/(?:Users|home|private|var|tmp|Applications|Volumes|opt|root|Library|System|usr)\/[^'"\n\r\t,;)]*/g;
+const WINDOWS_PATH = /\b[A-Za-z]:\\{1,2}[^'"\n\r\t,;)]*/g;
+const JSON_STACK = /,?"stack":"(?:[^"\\]|\\.)*"/g;
+
+/** Replaces absolute file-system paths (user names, install locations) with `<path>`. */
+export function scrubPaths(text: string): string {
+  return text.replace(POSIX_PATH, '<path>').replace(WINDOWS_PATH, '<path>');
+}
+
+/**
+ * Strips things that must never reach a log file: stack traces in JSON lines, absolute paths, URL credentials and
+ * obvious secrets.
+ */
 export function scrub(text: string): string {
-  return text
+  return scrubPaths(text.replace(JSON_STACK, ''))
     .replace(/([a-z][a-z0-9+.-]*:\/\/)[^/\s:@]+:[^/\s@]+@/gi, '$1***@')
     .replace(/((?:password|passwd|secret|token|api[_-]?key|authorization|cookie|crumb)["']?\s*[:=]\s*["']?)[^"'\s,;&}]+/gi, '$1***');
 }
