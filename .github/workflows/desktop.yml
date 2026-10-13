@@ -75,8 +75,11 @@ jobs:
           echo "signing=$(node -p "require('./build/signing.cjs').signingFor(process.env, 'darwin').method")" >> "$GITHUB_OUTPUT"
       - name: Smoke test (shipped arm64 app + TEST-ONLY inspectable copy)
         working-directory: apps/desktop
+        env:
+          SIGNING: ${{ steps.package.outputs.signing }}
         run: |
           node smoke/prepare-inspectable.mjs release/mac-arm64/Chartmate.app release/test-only
+          if [ "$SIGNING" = unsigned ]; then export SMOKE_EXPECT_UNSIGNED=1; else export SMOKE_EXPECT_UNSIGNED=0; fi
           SMOKE_APP="$PWD/release/test-only/Chartmate TEST-ONLY.app" SMOKE_HARDENED_APP="$PWD/release/mac-arm64/Chartmate.app" pnpm smoke
       - name: Artifact sizes
         run: ls -la apps/desktop/release | grep -E '\.(dmg|zip)$'
@@ -127,12 +130,15 @@ jobs:
           node scripts/bundle.mjs --platform=win32
           pnpm exec electron-builder --config electron-builder.config.cjs --win --publish never
           echo "signing=$(node -p "require('./build/signing.cjs').signingFor(process.env, 'win32').method")" >> "$GITHUB_OUTPUT"
-      - name: Smoke test (TEST-ONLY inspectable copy of the x64 app)
+      - name: Smoke test (shipped x64 exe + TEST-ONLY inspectable copy)
         working-directory: apps/desktop
         shell: bash
+        env:
+          SIGNING: ${{ steps.package.outputs.signing }}
         run: |
           EXE="$(node smoke/prepare-inspectable.mjs release/win-unpacked release/test-only | tail -n 1)"
-          SMOKE_APP="$EXE" pnpm smoke
+          if [ "$SIGNING" = unsigned ]; then export SMOKE_EXPECT_UNSIGNED=1; else export SMOKE_EXPECT_UNSIGNED=0; fi
+          SMOKE_APP="$EXE" SMOKE_HARDENED_APP="$PWD/release/win-unpacked/chartmate.exe" pnpm smoke
       - name: Artifact sizes
         shell: bash
         run: ls -la apps/desktop/release | grep -E '\.(exe|zip)$'

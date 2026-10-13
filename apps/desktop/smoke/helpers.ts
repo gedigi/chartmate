@@ -1,5 +1,6 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 /** Path of the executable inside a packaged app (macOS .app bundle or a Windows/Linux executable). */
@@ -17,7 +18,14 @@ export function executableOf(app: string): string {
 /** The process and all its descendants (Electron helpers: renderer, GPU, network/utility processes). */
 export function processTree(pid: number): number[] {
   const out = [pid];
-  if (process.platform === 'win32') return out;
+  if (process.platform === 'win32') {
+    // ParentProcessId pairs from CIM (wmic is gone on current Windows).
+    const json = execFileSync('powershell', ['-NoProfile', '-Command',
+      'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress'], { encoding: 'utf8' });
+    const rows = JSON.parse(json) as { ProcessId: number; ParentProcessId: number }[];
+    for (let i = 0; i < out.length; i++) for (const r of rows) if (r.ParentProcessId === out[i] && !out.includes(r.ProcessId)) out.push(r.ProcessId);
+    return out;
+  }
   for (let i = 0; i < out.length; i++) {
     let children = '';
     try {
@@ -30,8 +38,22 @@ export function processTree(pid: number): number[] {
 
 export interface Listener { pid: number; port: number; name: string }
 
-/** TCP sockets in LISTEN state owned by any of `pids` (lsof; macOS/Linux). */
+/** TCP sockets in LISTEN state owned by any of `pids` (lsof on macOS/Linux, netstat on Windows). */
 export function listeningSockets(pids: number[]): Listener[] {
+  if (process.platform === 'win32') {
+    const res: Listener[] = [];
+    const out = execFileSync('netstat', ['-ano', '-p', 'TCP'], { encoding: 'utf8' });
+    for (const line of out.split(/\r?\n/)) {
+      const m = /^\s*TCP\s+(\S+):(\d+)\s+\S+\s+LISTENING\s+(\d+)/.exec(line);
+      if (m && pids.includes(Number(m[3]))) res.push({ pid: Number(m[3]), port: Number(m[2]), name: `${m[1]}:${m[2]}` });
+    }
+    const out6 = execFileSync('netstat', ['-ano', '-p', 'TCPv6'], { encoding: 'utf8' });
+    for (const line of out6.split(/\r?\n/)) {
+      const m = /^\s*TCP\s+(\S+):(\d+)\s+\S+\s+LISTENING\s+(\d+)/.exec(line);
+      if (m && pids.includes(Number(m[3]))) res.push({ pid: Number(m[3]), port: Number(m[2]), name: `${m[1]}:${m[2]}` });
+    }
+    return res;
+  }
   let out = '';
   try {
     out = execFileSync('lsof', ['-nP', '-a', '-p', pids.join(','), '-iTCP', '-sTCP:LISTEN', '-F', 'pn'], { encoding: 'utf8' });
@@ -93,4 +115,26 @@ export async function spawnWithCdp(exe: string, env: Record<string, string>): Pr
     });
   });
   return { child, wsUrl };
+}
+
+/** The per-user data directory a packaged build always uses (packaged builds ignore ALTV_USER_DATA_DIR). */
+export function defaultUserDataDir(productName = 'Chartmate'): string {
+  if (process.platform === 'darwin') return join(homedir(), 'Library', 'Application Support', productName);
+  if (process.platform === 'win32') return join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), productName);
+  return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), productName);
+}
+
+/**
+ * Moves an existing per-user data directory aside for the duration of a test run and restores it afterwards, so
+ * smoke tests of the shipped build never touch a developer's real data. Refuses to run over a leftover backup.
+ */
+export function isolateDefaultUserData(dir = defaultUserDataDir()): () => void {
+  const backup = `${dir}.smoke-backup`;
+  if (existsSync(backup)) throw new Error(`leftover backup ${backup}: restore or remove it first`);
+  const had = existsSync(dir);
+  if (had) renameSync(dir, backup);
+  return () => {
+    rmSync(dir, { recursive: true, force: true });
+    if (had) renameSync(backup, dir);
+  };
 }
