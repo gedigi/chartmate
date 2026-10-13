@@ -588,12 +588,14 @@ locally with `SMOKE_ALLOW_REAL_USERDATA=1`.
 
 ### CI and releases
 
-`.github/workflows/ci.yml` runs typecheck, tests, the web build, e2e and the Docker build on pull requests and
-on pushes to `main`.
+`.github/workflows/ci.yml` runs `pnpm audit` (any known vulnerability, in a runtime or build-time dependency,
+fails the build), typecheck, tests, the web build, e2e and the Docker build on pull requests and on pushes to
+`main`. Dependabot opens weekly update pull requests for npm packages and the pinned actions.
 `.github/workflows/desktop.yml` runs on tags `v*` and on manual dispatch:
 
 - **Permissions**: the workflows default to a read-only token, and every action is pinned to a commit SHA.
-- **Installs**: dependencies are installed with `--ignore-scripts`; no install script is needed.
+- **Installs**: dependencies are installed with `--ignore-scripts`; no install script is needed. The test job
+  runs `pnpm audit` before anything is built.
 - **`test` job**: runs without any secrets.
 - **`package-mac` and `package-win` jobs**: build, sign and smoke-test on each OS. Signing secrets are visible only
   to the packaging step of their own OS.

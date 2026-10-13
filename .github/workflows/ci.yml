@@ -27,6 +27,8 @@ jobs:
           cache: pnpm
       # Dependency install scripts never run (see desktop.yml for why nothing needs them).
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      # Any known vulnerability in any dependency (prod or dev, shipped or build-time) fails the build.
+      - run: pnpm audit
       - run: pnpm typecheck
       # Includes the desktop unit/security tests and the server suites re-run on the node:sqlite dialect.
       - run: pnpm test

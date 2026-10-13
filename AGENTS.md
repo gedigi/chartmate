@@ -60,6 +60,7 @@ or an unpackaged smoke run, fetch it once with `node apps/desktop/node_modules/e
 | Dev (API on 8787 + Vite on 5173, `/api` proxied) | `pnpm dev` |
 | Build shared, server, web | `pnpm build` |
 | Run the built server (serves the web build) | `pnpm --filter @chartmate/server start` |
+| Dependency vulnerabilities (prod and dev; CI fails on any) | `pnpm audit` |
 | Typecheck everything (incl. e2e) | `pnpm typecheck` |
 | All unit tests | `pnpm test` |
 | One package | `pnpm --filter @chartmate/<shared\|server\|web\|desktop> test` (or `typecheck`) |
@@ -89,7 +90,9 @@ and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by defa
 
 - TDD: write the failing test first, then the code. Bugs get a regression test.
 - Run `pnpm typecheck` and `pnpm test` (and `pnpm e2e` when the UI flow changes) before every commit; all must
-  pass.
+  pass. After any dependency change run `pnpm audit`: it must report no known vulnerabilities (CI and the
+  release workflow fail otherwise). An unpatched advisory in a build-only dependency is removed (see
+  `.pnpmfile.cjs`) or replaced, never ignored.
 - Unit tests never touch the network; providers are tested against recorded fixtures.
 - e2e uses its own database per port (`test-results/e2e-<port>.db`), so parallel worktrees just pick different
   `E2E_PORT`s.
@@ -146,8 +149,9 @@ The renderer is untrusted web content. Read the README's "Security model" before
   Windows x64/arm64 (NSIS + zip), smoke-tests both, and publishes a full GitHub Release with the binaries.
 - A suffixed tag (`vX.Y.Z-beta.1`) publishes a pre-release instead.
 - Builds are unsigned unless the signing secrets are configured; unsigned builds contain no auto-updater.
-- `.github/workflows/ci.yml` runs typecheck, tests, the web build, e2e and the Docker build on pull requests
-  and pushes to `main`.
+- `.github/workflows/ci.yml` runs `pnpm audit`, typecheck, tests, the web build, e2e and the Docker build on
+  pull requests and pushes to `main`; the release workflow audits too. Dependabot (`.github/dependabot.yml`)
+  opens weekly update PRs for npm packages and the pinned actions.
 
 ## Specs and plans
 

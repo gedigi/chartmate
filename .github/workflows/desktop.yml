@@ -38,6 +38,8 @@ jobs:
       # better-sqlite3 ships prebuilds, the Electron binary is not needed for tests, and electron-builder
       # downloads its own Electron distribution when packaging.
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      # A release never ships with a known vulnerability in any dependency (prod or dev).
+      - run: pnpm audit
       - run: pnpm typecheck
       - run: pnpm test
 
@@ -111,8 +113,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm --filter @chartmate/web build
+        timeout-minutes: 10
       - name: Bundle, package, sign (Windows)
         id: package
+        timeout-minutes: 20
         working-directory: apps/desktop
         shell: bash
         env:
@@ -131,6 +135,7 @@ jobs:
           pnpm exec electron-builder --config electron-builder.config.cjs --win --publish never
           echo "signing=$(node -p "require('./build/signing.cjs').signingFor(process.env, 'win32').method")" >> "$GITHUB_OUTPUT"
       - name: Smoke test (shipped x64 exe + TEST-ONLY inspectable copy)
+        timeout-minutes: 15
         working-directory: apps/desktop
         shell: bash
         env:
