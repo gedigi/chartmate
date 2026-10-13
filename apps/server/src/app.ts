@@ -1,5 +1,7 @@
 import fastifyStatic from '@fastify/static';
-import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
+import Fastify, {
+  type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest, type FastifyServerOptions,
+} from 'fastify';
 import { ZodError } from 'zod';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -18,7 +20,9 @@ import { userRoutes } from './routes/user.js';
 const BODY_LIMIT = 1024 * 1024;
 
 export interface AppDeps {
-  config: Config; repos: Repos; market: MarketDataService; baskets: BasketService; logger?: boolean;
+  config: Config; repos: Repos; market: MarketDataService; baskets: BasketService;
+  /** Fastify logger: true/false, or pino options (the desktop app passes a level + file stream). */
+  logger?: FastifyServerOptions['logger'];
   /** Clock for session expiry and login rate limiting. */
   now?: () => number;
 }
