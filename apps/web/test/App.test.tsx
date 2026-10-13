@@ -44,7 +44,7 @@ describe('App', () => {
     render(<App />);
     expect(await screen.findByTestId('chart-view')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('button', { name: '1h' })).toHaveAttribute('aria-pressed', 'true'));
-    expect(await screen.findByText('stock:AAPL name')).toBeInTheDocument();
+    expect(await within(await screen.findByRole('banner')).findByText('stock:AAPL name')).toBeInTheDocument();
     // AAPL is a stock → session toggle visible.
     expect(screen.getByRole('button', { name: 'ETH' })).toHaveAttribute('aria-pressed', 'true');
   });
@@ -53,7 +53,7 @@ describe('App', () => {
     vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
     render(<App />);
     await screen.findByTestId('chart-view');
-    await screen.findByText('crypto:BTC name');
+    await within(await screen.findByRole('banner')).findByText('crypto:BTC name');
     expect(screen.queryByRole('button', { name: 'RTH' })).not.toBeInTheDocument();
     // View switcher: nav buttons with aria-current="page" (not an incomplete tabs pattern).
     const nav = screen.getByRole('navigation', { name: 'View' });
@@ -146,7 +146,7 @@ describe('App', () => {
     const row = await screen.findByRole('button', { name: /^BTC/ });
     await userEvent.click(row);
     await waitFor(() => expect(screen.queryByTestId('symbol-error')).not.toBeInTheDocument());
-    expect(await screen.findByText('crypto:BTC name')).toBeInTheDocument();
+    expect(await within(await screen.findByRole('banner')).findByText('crypto:BTC name')).toBeInTheDocument();
   });
 
   it('retries a failed symbol info load automatically with backoff', async () => {
@@ -175,7 +175,7 @@ describe('App', () => {
     render(<App />);
     await userEvent.click(await screen.findByRole('button', { name: /^MSFT/ }));
     resolveDefault({ symbol: 'stock:AAPL', tf: '1h', session: 'rth', chartType: 'candle', indicators: [] });
-    expect(await screen.findByText('stock:MSFT name')).toBeInTheDocument();
+    expect(await within(await screen.findByRole('banner')).findByText('stock:MSFT name')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '1h' })).toHaveAttribute('aria-pressed', 'true');
   });
 

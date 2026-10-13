@@ -5,6 +5,7 @@ import { BasketsPage } from './components/BasketsPage';
 import { ChartView } from './components/ChartView';
 import { Login } from './components/Login';
 import { TopBar, type Theme, type View } from './components/TopBar';
+import { SymbolDetails } from './components/SymbolDetails';
 import { Watchlist } from './components/Watchlist';
 import { syncShellThemeColor } from './desktopShell';
 import { onBasketChanged } from './state/useBaskets';
@@ -175,6 +176,7 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
           {sidebarOpen && !layoutBlocked && (
             <aside className="right-sidebar">
               <Watchlist currentSymbol={layout.symbol} onSelect={selectSymbol} />
+              {loaded && <SymbolDetails symbol={layout.symbol} info={symbolInfo} />}
             </aside>
           )}
         </>

@@ -6,6 +6,7 @@ import { useWatchlist } from '../state/useWatchlist';
 import {
   deleteSection, dropEntry, insertSection, moveByKey, newSectionId, renameSection, setCollapsed, visibleRows, type WatchlistRow,
 } from '../state/watchlistModel';
+import { RangeGauge } from './RangeGauge';
 import { Sparkline } from './Sparkline';
 import { SymbolSearch } from './SymbolSearch';
 import './Watchlist.css';
@@ -357,7 +358,10 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
                 onClick={() => update((cur) => setCollapsed(cur, s.id, !s.collapsed))}
                 onKeyDown={(e) => onHeaderKeyDown(e, s, row)}
               >
-                <span className="wl-chevron" aria-hidden="true">{s.collapsed ? '▸' : '▾'}</span>
+                <svg className="wl-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"
+                  strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+                  <path d={s.collapsed ? 'M5.5 3.5 9 7l-3.5 3.5' : 'M3.5 5.5 7 9l3.5-3.5'} />
+                </svg>
               </button>
               <span
                 id={titleId}
@@ -367,12 +371,9 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
               >
                 {s.title}
               </span>
-              {s.collapsed && (
-                <>
-                  <span className="wl-section-count" aria-hidden="true">{row.count}</span>
-                  <span id={countId} hidden>{`${row.count} symbols`}</span>
-                </>
-              )}
+              {/* The count always shows; screen readers hear it in the toggle's name while the section is collapsed. */}
+              <span className="wl-section-count" aria-hidden="true">{row.count}</span>
+              {s.collapsed && <span id={countId} hidden>{`${row.count} symbols`}</span>}
             </>
           )}
         </div>
@@ -425,6 +426,11 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
     const q = quotes[id];
     const label = info ? (info.assetClass === 'basket' ? info.name : info.ticker) : fallbackTicker(id);
     const chg = q?.changePct == null ? null : fmtChange(q.changePct);
+    const spark = sparks[id] ?? [];
+    // 30-day range: the daily closes of the sparkline and the live price.
+    const range = q && spark.length > 1 ? { lo: Math.min(q.price, ...spark), hi: Math.max(q.price, ...spark) } : null;
+    // Second line when there is no pre / post price: the full name (a basket's name is already its label).
+    const name = info && info.assetClass !== 'basket' && info.name !== info.ticker ? info.name : info?.assetClass === 'basket' ? 'Basket' : null;
     const classes = ['watchlist-row'];
     if (row.sectionId !== null) classes.push('in-section');
     if (id === currentSymbol) classes.push('current');
@@ -443,17 +449,22 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
           onKeyDown={(e) => onSymbolKeyDown(e, id, row, pos)}
         >
           <span className="wl-symbol" title={info?.name}>{label}</span>
-          <span className="wl-spark"><Sparkline values={sparks[id] ?? []} /></span>
-          <span className="wl-quote">
-            <span className="wl-price">{q && info ? fmtPrice(q.price, info.pricePrecision) : '—'}</span>
-            <span className={`wl-change ${chg?.dir ?? ''}`}>{chg ? chg.text : '—'}</span>
-          </span>
+          <span className="wl-spark"><Sparkline values={spark} width={52} height={20} /></span>
+          <span className="wl-price">{q && info ? fmtPrice(q.price, info.pricePrecision) : '—'}</span>
+          <span className={`wl-change ${chg?.dir ?? ''}`}>{chg ? chg.text : '—'}</span>
           {/* Always present, so rows keep their height when the extended line comes and goes at 09:30/16:00. */}
           {q?.ext && info ? (
             <span className="wl-ext-slot"><ExtLine ext={q.ext} precision={info.pricePrecision} /></span>
           ) : (
             <span className="wl-ext-slot" aria-hidden="true" />
           )}
+          {!(q?.ext && info) && name && <span className="wl-name">{name}</span>}
+          <span className="wl-gauge">
+            {range && info && (
+              <RangeGauge value={q!.price} low={range.lo} high={range.hi} dir={chg?.dir ?? ''}
+                label={`30-day range ${fmtPrice(range.lo, info.pricePrecision)} – ${fmtPrice(range.hi, info.pricePrecision)}`} />
+            )}
+          </span>
         </div>
         <button
           type="button"
@@ -479,7 +490,10 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
           disabled={!loaded || sectionCount >= MAX_WATCHLIST_SECTIONS}
           onClick={() => addSection()}
         >
-          + Section
+          <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true" focusable="false">
+            <path d="M7 2v10M2 7h10" />
+          </svg>
+          Section
         </button>
       </div>
       <SymbolSearch onSelect={(id) => add(id, activeSection)} placeholder="Add symbol…" />
