@@ -205,6 +205,95 @@ describe('BinanceProvider', () => {
     expect(td).toEqual([null, 'WALUSDT', 'NOPEUSDT', 'SUIUSDT']);
   });
 
+  it('quotes: a failing previous-close kline falls back to openPrice for that symbol only, negative-cached for 60 s', async () => {
+    const tick = fixture<any[]>('binance/ticker-tradingday.json');
+    const h = tradingDayHandler(tick);
+    let t = NOW;
+    let klineCalls = 0;
+    const { p } = make((url) => {
+      if (url.pathname === '/api/v3/klines') {
+        klineCalls++;
+        if (url.searchParams.get('symbol') === 'WALUSDT') return jsonResponse({ code: -1003, msg: 'Too many requests' }, 429);
+      }
+      return h(url);
+    }, () => t);
+    const wal = tick.find((x) => x.symbol === 'WALUSDT');
+    const sui = tick.find((x) => x.symbol === 'SUIUSDT');
+    const res = await p.quotes(['WAL', 'SUI']);
+    expect(res.map((q) => q.id)).toEqual(['crypto:WAL', 'crypto:SUI']);
+    expect(res[0]!.changePct).toBeCloseTo(((+wal.lastPrice / +wal.openPrice) - 1) * 100, 9);
+    expect(res[1]!.changePct).toBeCloseTo(((+sui.lastPrice / SUI_PREV) - 1) * 100, 9);
+    expect(klineCalls).toBe(2);
+    t += 30_000;
+    await p.quotes(['WAL', 'SUI']);
+    expect(klineCalls).toBe(2); // negative cache holds, SUI cached for the day
+    t += 31_000;
+    await p.quotes(['WAL', 'SUI']);
+    expect(klineCalls).toBe(3); // WAL retried after 60 s
+  });
+
+  it('quotes: an empty kline response (new listing) caches the openPrice fallback for the day', async () => {
+    const tick = fixture<any[]>('binance/ticker-tradingday.json');
+    const h = tradingDayHandler(tick);
+    let klineCalls = 0;
+    const { p } = make((url) => {
+      if (url.pathname === '/api/v3/klines') { klineCalls++; return jsonResponse([]); }
+      return h(url);
+    });
+    const [a] = await p.quotes(['WAL']);
+    const [b] = await p.quotes(['WAL']);
+    expect(klineCalls).toBe(1);
+    expect(b!.changePct).toBe(a!.changePct);
+    expect(a!.changePct).not.toBeNull();
+  });
+
+  it('quotes: refetches the previous close exactly once when the UTC day rolls over between polls', async () => {
+    const tick = fixture<any[]>('binance/ticker-tradingday.json');
+    let day = DAY_OPEN;
+    let klineCalls = 0;
+    const { p, calls } = make((url) => {
+      if (url.pathname === '/api/v3/klines') { klineCalls++; return jsonResponse([prevKline(WAL_PREV)]); }
+      return jsonResponse([{ ...tick.find((x) => x.symbol === 'WALUSDT'), openTime: day }]);
+    });
+    await p.quotes(['WAL']);
+    await p.quotes(['WAL']);
+    expect(klineCalls).toBe(1);
+    day += 86_400_000;
+    await p.quotes(['WAL']);
+    await p.quotes(['WAL']);
+    expect(klineCalls).toBe(2);
+    const ks = calls.filter((c) => c.pathname === '/api/v3/klines');
+    expect(ks[1]!.searchParams.get('endTime')).toBe(String(day - 1));
+  });
+
+  it('quotes: skips rows with a non-positive price', async () => {
+    const tick = fixture<any[]>('binance/ticker-tradingday.json');
+    const h = tradingDayHandler(tick);
+    const { p } = make((url) => (url.pathname === '/api/v3/ticker/tradingDay'
+      ? jsonResponse([{ ...tick[0], lastPrice: '0.00000000' }, tick[1]]) : h(url)));
+    expect((await p.quotes(['SUI', 'WAL'])).map((q) => q.id)).toEqual(['crypto:WAL']);
+  });
+
+  it('quotes: previous closes are fetched concurrently (batches of 5)', async () => {
+    const codes = Array.from({ length: 12 }, (_, i) => `C${i}`);
+    let inFlight = 0;
+    let peak = 0;
+    const { p } = make(async (url) => {
+      if (url.pathname === '/api/v3/klines') {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 5));
+        inFlight--;
+        return jsonResponse([prevKline(1)]);
+      }
+      const syms: string[] = JSON.parse(url.searchParams.get('symbols')!);
+      return jsonResponse(syms.map((symbol) => ({ symbol, lastPrice: '2', openPrice: '1', openTime: DAY_OPEN, closeTime: DAY_OPEN + 5 })));
+    });
+    const res = await p.quotes(codes);
+    expect(res.map((q) => q.id)).toEqual(codes.map((c) => `crypto:${c}`));
+    expect(peak).toBe(5);
+  });
+
   it('quotes: falls back to openPrice when the previous kline is unavailable', async () => {
     const tick = fixture<any[]>('binance/ticker-tradingday.json');
     const h = tradingDayHandler(tick);

@@ -165,6 +165,41 @@ describe('CoinbaseProvider', () => {
     expect((await p.quotes(['BTC']))[0]!.changePct).toBeNull();
   });
 
+  it('quotes: the previous daily close is cached per UTC day and refetched after midnight', async () => {
+    const stats = fixture('coinbase/stats-btc.json');
+    let t = QNOW;
+    const { p, calls } = make(quoteHandler(stats), () => t);
+    const candleCalls = () => calls.filter((c) => c.pathname.endsWith('/candles')).length;
+    await p.quotes(['BTC']);
+    await p.quotes(['BTC']);
+    expect(candleCalls()).toBe(1);
+    t = Date.parse('2026-10-13T23:59:00Z');
+    await p.quotes(['BTC']);
+    expect(candleCalls()).toBe(1);
+    t = Date.parse('2026-10-14T00:01:00Z');
+    await p.quotes(['BTC']);
+    expect(candleCalls()).toBe(2);
+  });
+
+  it('quotes: a /candles failure yields changePct null for that code, is not cached, and does not abort the rest', async () => {
+    const stats = fixture('coinbase/stats-btc.json');
+    let fail = true;
+    const { p, calls } = mk((url) => {
+      if (url.pathname === '/products/BTC-USD/candles' && fail) return jsonResponse({ message: 'slow down' }, 429);
+      if (url.pathname === '/products/XRP-USD/candles') return jsonResponse({ message: 'NotFound' }, 404);
+      return quoteHandler(stats)(url);
+    });
+    const res = await p.quotes(['BTC', 'XRP', 'ETH']);
+    expect(res.map((q) => q.id)).toEqual(['crypto:BTC', 'crypto:XRP', 'crypto:ETH']);
+    expect(res[0]!.changePct).toBeNull();
+    expect(res[1]!.changePct).toBeNull();
+    expect(res[2]!.changePct).not.toBeNull();
+    fail = false;
+    const again = await p.quotes(['BTC']);
+    expect(again[0]!.changePct).not.toBeNull();
+    expect(calls.filter((c) => c.pathname === '/products/BTC-USD/candles')).toHaveLength(2);
+  });
+
   it('quotes skip per-code 404s and non-finite prices instead of aborting', async () => {
     const stats = fixture('coinbase/stats-btc.json');
     const { p } = mk((url) => {

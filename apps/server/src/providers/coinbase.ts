@@ -1,5 +1,5 @@
 import { resample, tfMs, type Bar, type NativeTimeframe, type Quote, type SymbolInfo } from '@altv/shared';
-import { NotFoundError } from '../errors.js';
+import { NotFoundError, ProviderError } from '../errors.js';
 import { getJson } from './http.js';
 import { decimalsOf, num, rankMatches } from './util.js';
 import type { FetchBarsResult, MarketDataProvider, ProviderLimits } from './types.js';
@@ -39,6 +39,8 @@ export class CoinbaseProvider implements MarketDataProvider {
   private readonly now: () => number;
   private readonly baseUrl: string;
   private products: { at: number; symbols: SymbolInfo[] } | null = null;
+  /** Previous daily close per code for the UTC day `day` (floor(now / DAY)). */
+  private readonly prevDaily = new Map<string, { day: number; close: number | null }>();
 
   constructor(opts: CoinbaseOptions = {}) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
@@ -74,7 +76,7 @@ export class CoinbaseProvider implements MarketDataProvider {
       }
       const last = num(s.last);
       if (!Number.isFinite(last)) continue;
-      const prev = await this.previousDailyClose(code);
+      const prev = await this.cachedPreviousDailyClose(code);
       out.push({
         id: `crypto:${code.toUpperCase()}`,
         price: last,
@@ -89,6 +91,22 @@ export class CoinbaseProvider implements MarketDataProvider {
    * Close of the latest daily candle before the current UTC day (stats.open is a rolling 24h open, not the
    * daily-bar convention). Candles come newest-first; today's may be absent just after 00:00 UTC.
    */
+  private async cachedPreviousDailyClose(code: string): Promise<number | null> {
+    const day = Math.floor(this.now() / DAY);
+    const key = code.toUpperCase();
+    const hit = this.prevDaily.get(key);
+    if (hit && hit.day === day) return hit.close;
+    try {
+      const close = await this.previousDailyClose(code);
+      this.prevDaily.set(key, { day, close });
+      return close;
+    } catch (err) {
+      // /candles failing must not drop the quote (nor the other codes); not cached, so the next poll retries.
+      if (err instanceof NotFoundError || err instanceof ProviderError) return null;
+      throw err;
+    }
+  }
+
   private async previousDailyClose(code: string): Promise<number | null> {
     const dayStart = Math.floor(this.now() / DAY) * DAY;
     const params = new URLSearchParams({

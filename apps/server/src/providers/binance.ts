@@ -9,6 +9,10 @@ const PAGE = 1000;
 const INFO_TTL_MS = 3_600_000;
 /** `ticker/tradingDay` accepts at most 100 symbols per request. */
 const TICKER_BATCH = 100;
+/** Concurrent previous-close kline requests. */
+const KLINE_CONCURRENCY = 5;
+/** How long a failed previous-close lookup (fallback to openPrice) is not retried. */
+const PREV_FAILURE_TTL_MS = 60_000;
 
 type Kline = [number, string, string, string, string, string, ...unknown[]];
 interface ExchangeSymbol {
@@ -33,7 +37,7 @@ export class BinanceProvider implements MarketDataProvider {
   private readonly now: () => number;
   private info: { at: number; symbols: SymbolInfo[] } | null = null;
   /** Previous UTC daily close per pair, valid for the UTC day starting at `dayOpen`. */
-  private readonly prevClose = new Map<string, { dayOpen: number; close: number }>();
+  private readonly prevClose = new Map<string, { dayOpen: number; close: number; until?: number }>();
 
   constructor(opts: BinanceOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, '');
@@ -80,19 +84,27 @@ export class BinanceProvider implements MarketDataProvider {
     const rows: TickerDay[] = [];
     for (let i = 0; i < pairs.length; i += TICKER_BATCH) rows.push(...(await this.tradingDay(pairs.slice(i, i + TICKER_BATCH))));
     const bySymbol = new Map(rows.map((r) => [r.symbol, r]));
-    const out: Quote[] = [];
+    const live: { p: string; r: TickerDay; price: number; ts: number }[] = [];
     for (const p of pairs) {
       const r = bySymbol.get(p);
       if (!r) continue;
       const price = num(r.lastPrice);
       const ts = num(r.closeTime);
-      if (!Number.isFinite(price) || !Number.isFinite(ts)) continue;
-      const prev = await this.previousClose(p, r);
-      out.push({
-        id: `crypto:${p.slice(0, -'USDT'.length)}`,
-        price,
-        changePct: Number.isFinite(prev) && prev > 0 ? (price / prev - 1) * 100 : null,
-        ts,
+      if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(ts)) continue; // price 0 = no trade yet today
+      live.push({ p, r, price, ts });
+    }
+    const out: Quote[] = [];
+    for (let i = 0; i < live.length; i += KLINE_CONCURRENCY) {
+      const batch = live.slice(i, i + KLINE_CONCURRENCY);
+      const prevs = await Promise.all(batch.map((x) => this.previousClose(x.p, x.r)));
+      batch.forEach((x, j) => {
+        const prev = prevs[j]!;
+        out.push({
+          id: `crypto:${x.p.slice(0, -'USDT'.length)}`,
+          price: x.price,
+          changePct: Number.isFinite(prev) && prev > 0 ? (x.price / prev - 1) * 100 : null,
+          ts: x.ts,
+        });
       });
     }
     return out;
@@ -116,17 +128,25 @@ export class BinanceProvider implements MarketDataProvider {
     }
   }
 
+  /** Never throws: any lookup failure falls back to the day's openPrice (negative-cached for 60 s). */
   private async previousClose(pairName: string, r: TickerDay): Promise<number> {
     const dayOpen = num(r.openTime);
-    const cached = this.prevClose.get(pairName);
-    if (cached && cached.dayOpen === dayOpen) return cached.close;
     const fallback = num(r.openPrice);
     if (!Number.isFinite(dayOpen)) return fallback;
-    const k = await this.get<Kline[]>('/api/v3/klines', { symbol: pairName, interval: '1d', endTime: String(dayOpen - 1), limit: '1' });
-    const close = k[0] ? num(k[0][4]) : NaN;
-    if (!Number.isFinite(close)) return fallback; // brand-new listing: the day's open is the best reference
-    this.prevClose.set(pairName, { dayOpen, close });
-    return close;
+    const now = this.now();
+    const cached = this.prevClose.get(pairName);
+    if (cached && cached.dayOpen === dayOpen && (cached.until === undefined || now < cached.until)) return cached.close;
+    try {
+      const k = await this.get<Kline[]>('/api/v3/klines', { symbol: pairName, interval: '1d', endTime: String(dayOpen - 1), limit: '1' });
+      const kc = k[0] ? num(k[0][4]) : NaN;
+      // No previous kline (new listing): the day's open is the best reference, stable for the whole day.
+      const close = Number.isFinite(kc) ? kc : fallback;
+      this.prevClose.set(pairName, { dayOpen, close });
+      return close;
+    } catch {
+      this.prevClose.set(pairName, { dayOpen, close: fallback, until: now + PREV_FAILURE_TTL_MS });
+      return fallback;
+    }
   }
 
   async firstBarTs(code: string): Promise<number | null> {
