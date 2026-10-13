@@ -41,6 +41,8 @@ export interface IndicatorState {
 }
 /** Most reference levels an indicator may hold (enforced by the server's layout schema and the settings dialog). */
 export const MAX_INDICATOR_LEVELS = 5;
+/** Largest magnitude of a reference level. */
+export const MAX_INDICATOR_LEVEL = 1e12;
 export type ChartType = 'candle'|'ohlc'|'line'|'area';
 /** Most indicators a layout may hold (enforced by the server's layout schema and the indicator picker). */
 export const MAX_INDICATORS = 30;
