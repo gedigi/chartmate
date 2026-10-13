@@ -116,7 +116,7 @@ export function PositionStyleBar({ controls, sel, onUseAsDefault }: {
   const validDefaults = isValidPositionDefaults(defaults);
 
   return (
-    <div className="drawing-style-bar position-bar" role="toolbar" aria-label="Position settings" aria-disabled={locked || undefined}>
+    <div className="drawing-style-bar position-bar" role="toolbar" aria-label="Position settings" data-locked={locked || undefined}>
       <div className="position-row">
         <span className="position-side">{side === 'long' ? 'Long' : 'Short'}</span>
         {price('Entry')}
