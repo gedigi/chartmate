@@ -70,17 +70,24 @@ export type PositionDefaults = Required<PositionSettings>;
 export const DEFAULT_POSITION_SETTINGS: Readonly<PositionDefaults> = { accountSize: 10000, riskMode: 'percent', riskValue: 1, currency: 'USD' };
 /** Longest account currency label. */
 export const MAX_CURRENCY_LENGTH = 8;
+/** Largest account size / risk amount (the server enforces the same limits). */
+export const MAX_POSITION_AMOUNT = 1e15;
+/** Largest risk in 'percent' mode. */
+export const MAX_RISK_PERCENT = 100;
 
-const positiveFinite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
+const positiveFinite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= MAX_POSITION_AMOUNT;
 
-/** The valid position settings in `s` (positive finite numbers, known risk mode, 1–8 character currency), or undefined. */
+/**
+ * The valid position settings in `s`, or undefined: positive finite numbers up to MAX_POSITION_AMOUNT, a known risk
+ * mode, a 1–8 character currency; a risk value over 100 is dropped when the mode in `s` is 'percent'.
+ */
 export function sanitizePositionSettings(s: unknown): PositionSettings | undefined {
   if (!s || typeof s !== 'object' || Array.isArray(s)) return undefined;
   const { accountSize, riskMode, riskValue, currency } = s as Record<string, unknown>;
   const out: PositionSettings = {};
   if (positiveFinite(accountSize)) out.accountSize = accountSize;
   if (riskMode === 'percent' || riskMode === 'amount') out.riskMode = riskMode;
-  if (positiveFinite(riskValue)) out.riskValue = riskValue;
+  if (positiveFinite(riskValue) && !(out.riskMode === 'percent' && riskValue > MAX_RISK_PERCENT)) out.riskValue = riskValue;
   if (typeof currency === 'string') {
     const c = currency.trim();
     if (c.length > 0 && c.length <= MAX_CURRENCY_LENGTH) out.currency = c;
@@ -88,9 +95,32 @@ export function sanitizePositionSettings(s: unknown): PositionSettings | undefin
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** Settings over defaults, with a percentage risk capped at 100 (e.g. an own amount over percent defaults). */
+export function mergePositionSettings(base: PositionDefaults, own: PositionSettings | undefined): PositionDefaults {
+  const out = { ...base, ...sanitizePositionSettings(own) };
+  if (out.riskMode === 'percent' && out.riskValue > MAX_RISK_PERCENT) out.riskValue = MAX_RISK_PERCENT;
+  return out;
+}
+
 /** Stored position defaults with missing / invalid fields filled from DEFAULT_POSITION_SETTINGS. */
 export function resolvePositionDefaults(d: PositionSettings | undefined): PositionDefaults {
-  return { ...DEFAULT_POSITION_SETTINGS, ...sanitizePositionSettings(d) };
+  return mergePositionSettings({ ...DEFAULT_POSITION_SETTINGS }, d);
+}
+
+/** True when every field of `d` is within the limits the server accepts for layout position defaults. */
+export function isValidPositionDefaults(d: PositionDefaults): boolean {
+  const s = sanitizePositionSettings(d);
+  return s?.accountSize === d.accountSize && s.riskMode === d.riskMode && s.riskValue === d.riskValue && s.currency === d.currency;
+}
+
+/**
+ * The risk value for `mode` that keeps the money at risk of `s` (percent ↔ amount): a percentage is capped at 100
+ * and rounded to 4 decimals, an amount to 2 decimals.
+ */
+export function convertRiskValue(s: PositionDefaults, mode: PositionRiskMode): number {
+  if (mode === s.riskMode) return s.riskValue;
+  if (mode === 'percent') return Math.min(MAX_RISK_PERCENT, Math.round((s.riskValue / s.accountSize) * 100 * 1e4) / 1e4);
+  return Math.round(s.accountSize * s.riskValue) / 100;
 }
 
 const APPEARANCE_THEMES: readonly AppearanceTheme[] = ['dark', 'light'];

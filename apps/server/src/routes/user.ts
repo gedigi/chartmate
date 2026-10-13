@@ -1,5 +1,5 @@
 import {
-  HEX_COLOR_RE, MAX_CURRENCY_LENGTH, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_TEXT_SIZE, MIN_LINE_WIDTH, MIN_TEXT_SIZE, migrateAppearance, TIMEFRAMES,
+  HEX_COLOR_RE, MAX_CURRENCY_LENGTH, MAX_INDICATORS, MAX_POSITION_AMOUNT, MAX_RISK_PERCENT, MAX_LINE_WIDTH, MAX_TEXT_SIZE, MIN_LINE_WIDTH, MIN_TEXT_SIZE, migrateAppearance, TIMEFRAMES,
   type DrawingState, type Layout, type PositionSettings, type SymbolId, type Timeframe,
 } from '@altv/shared';
 import type { FastifyInstance } from 'fastify';
@@ -30,18 +30,19 @@ const ThemedAppearanceSchema = z.union([
   AppearanceSchema.transform((a) => ({ dark: a })),
 ]);
 
-/** Money amounts of positions: positive, finite and below an absurd bound. */
-const Amount = z.number().positive().max(1e15);
+/** Money amounts of positions: positive, finite, at most MAX_POSITION_AMOUNT (same limits as the client sanitizer). */
+const Amount = z.number().positive().max(MAX_POSITION_AMOUNT);
 const Currency = z.string().trim().min(1).max(MAX_CURRENCY_LENGTH);
 const RiskMode = z.enum(['percent', 'amount']);
 /** A position's own risk settings (each field optional; unknown keys rejected). */
+const percentOk = (d: { riskMode?: string; riskValue?: number }) => d.riskMode !== 'percent' || d.riskValue === undefined || d.riskValue <= MAX_RISK_PERCENT;
 const PositionSettingsSchema = z.object({
   accountSize: Amount.optional(), riskMode: RiskMode.optional(), riskValue: Amount.optional(), currency: Currency.optional(),
-}).strict();
+}).strict().refine(percentOk, { message: 'risk percentage must be at most 100' });
 /** Global defaults of new positions: every field required; a percentage risk is at most 100 %. */
 const PositionDefaultsSchema = z.object({ accountSize: Amount, riskMode: RiskMode, riskValue: Amount, currency: Currency })
   .strict()
-  .refine((d) => d.riskMode !== 'percent' || d.riskValue <= 100, { message: 'risk percentage must be at most 100' });
+  .refine(percentOk, { message: 'risk percentage must be at most 100' });
 
 /**
  * Normalized drawing styles; unknown keys (e.g. raw KLineChart styles) are stripped. Tolerant per part: an invalid
@@ -81,7 +82,8 @@ const LayoutSchema = z.object({
   chartType: z.enum(['candle', 'ohlc', 'line', 'area']),
   indicators: z.array(IndicatorSchema).max(MAX_INDICATORS),
   appearance: ThemedAppearanceSchema.optional(),
-  positionDefaults: PositionDefaultsSchema.optional(),
+  // Tolerant: invalid defaults are dropped on their own, so they can never block saving the rest of the layout.
+  positionDefaults: PositionDefaultsSchema.optional().catch(undefined),
 }) satisfies z.ZodType<Layout, unknown>;
 
 const DrawingSchema = z.object({

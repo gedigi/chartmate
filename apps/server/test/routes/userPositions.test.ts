@@ -31,7 +31,8 @@ describe('long / short positions: drawing styles and layout position defaults', 
   it('drops an invalid position part on its own (strict: positive finite numbers, risk mode enum, currency ≤ 8 chars)', async () => {
     for (const position of [
       { accountSize: 0 }, { accountSize: -5 }, { riskValue: 0 }, { riskMode: 'shares' }, { currency: 'TOOLONGXY' }, { currency: '' },
-      { accountSize: 1000, bogus: true }, { accountSize: '1000' }, 'x',
+      { accountSize: 1000, bogus: true }, { accountSize: '1000' }, 'x', { accountSize: 2e15 }, { riskValue: 2e15 },
+      { riskMode: 'percent', riskValue: 150 },
     ]) {
       const res = await putDrawings([{ name: 'longPosition', points, lock: false, styles: { position, line: { color: '#123456', size: 1, style: 'solid' } } }]);
       expect(res.statusCode, JSON.stringify(position)).toBe(200);
@@ -49,13 +50,17 @@ describe('long / short positions: drawing styles and layout position defaults', 
     expect((await t.app.inject({ method: 'GET', url: '/api/layouts/default' })).json()).toEqual(layout);
   });
 
-  it('rejects invalid positionDefaults', async () => {
+  it('drops invalid positionDefaults on their own: the rest of the layout is still saved', async () => {
     const ok = { accountSize: 1000, riskMode: 'amount', riskValue: 10, currency: 'USD' };
     for (const positionDefaults of [
-      { ...ok, accountSize: 0 }, { ...ok, accountSize: Number.MAX_VALUE * 0 - 1 }, { ...ok, riskMode: 'shares' }, { ...ok, riskValue: -1 },
+      { ...ok, accountSize: 0 }, { ...ok, accountSize: -1 }, { ...ok, accountSize: 2e15 }, { ...ok, riskMode: 'shares' }, { ...ok, riskValue: -1 },
       { ...ok, currency: '' }, { ...ok, currency: 'NINECHARS' }, { ...ok, extra: 1 }, { accountSize: 1000 }, { ...ok, riskMode: 'percent', riskValue: 101 },
+      'x',
     ]) {
-      expect((await putLayout({ ...layout, positionDefaults })).statusCode, JSON.stringify(positionDefaults)).toBe(400);
+      const res = await putLayout({ ...layout, tf: '4h', positionDefaults });
+      expect(res.statusCode, JSON.stringify(positionDefaults)).toBe(200);
+      const saved = (await t.app.inject({ method: 'GET', url: '/api/layouts/default' })).json();
+      expect(saved, JSON.stringify(positionDefaults)).toEqual({ ...layout, tf: '4h' });
     }
   });
 });
