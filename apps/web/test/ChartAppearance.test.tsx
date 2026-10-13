@@ -7,10 +7,12 @@ import { DOWN, THEME_TOKENS, UP } from '../src/chart/theme';
 import { ChartAppearanceDialog } from '../src/components/ChartAppearanceDialog';
 import { TopBar } from '../src/components/TopBar';
 
-function Harness({ initial, onChange }: { initial?: ChartAppearance; onChange: (a: ChartAppearance | undefined) => void }) {
+function Harness({ initial, onChange, theme = 'dark' }: {
+  initial?: ChartAppearance; onChange: (a: ChartAppearance | undefined) => void; theme?: 'dark' | 'light';
+}) {
   const [a, setA] = useState<ChartAppearance | undefined>(initial);
   return (
-    <ChartAppearanceDialog appearance={a} theme="dark" chartType="candle"
+    <ChartAppearanceDialog appearance={a} theme={theme} chartType="candle"
       onChange={(n) => { setA(n); onChange(n); }} onClose={() => {}} />
   );
 }
@@ -50,6 +52,33 @@ describe('ChartAppearanceDialog', () => {
     expect(onChange).toHaveBeenLastCalledWith(undefined);
     expect(screen.getByLabelText('Up colour')).toHaveValue(UP);
   });
+
+  it('names the theme being edited', () => {
+    const { unmount } = render(<Harness onChange={() => {}} />);
+    expect(screen.getByText('Dark theme')).toBeInTheDocument();
+    unmount();
+    render(<Harness onChange={() => {}} theme="light" />);
+    expect(screen.getByText('Light theme')).toBeInTheDocument();
+    expect(screen.getByLabelText('Line colour')).toHaveValue(THEME_TOKENS.light.accent);
+  });
+
+  it('warns inline about colours that barely show on the theme background', () => {
+    const { unmount } = render(<Harness onChange={() => {}} theme="light" />);
+    expect(screen.queryByText(/Low contrast/)).not.toBeInTheDocument(); // defaults are fine
+    fireEvent.input(screen.getByLabelText('Up colour'), { target: { value: '#ffffff' } });
+    expect(screen.getByText('Low contrast on the light background')).toBeInTheDocument();
+    expect(screen.getByLabelText('Up colour')).toHaveAccessibleDescription('Low contrast on the light background');
+    fireEvent.input(screen.getByLabelText('Drawing colour'), { target: { value: '#fafafa' } });
+    expect(screen.getAllByText('Low contrast on the light background')).toHaveLength(2);
+    fireEvent.input(screen.getByLabelText('Up colour'), { target: { value: '#00aa00' } });
+    expect(screen.getAllByText('Low contrast on the light background')).toHaveLength(1);
+    unmount();
+    // The reported colours are fine on the dark background; near-black ones are not.
+    render(<Harness onChange={() => {}} initial={{ upColor: '#ffffff', downColor: '#e63b7a', drawing: { color: '#ffffff', size: 1, style: 'solid' } }} />);
+    expect(screen.queryByText(/Low contrast/)).not.toBeInTheDocument();
+    fireEvent.input(screen.getByLabelText('Line colour'), { target: { value: '#1a1e2a' } });
+    expect(screen.getByText('Low contrast on the dark background')).toBeInTheDocument();
+  });
 });
 
 describe('TopBar chart appearance button', () => {
@@ -59,13 +88,31 @@ describe('TopBar chart appearance button', () => {
     theme: 'dark' as const, onToggleTheme: () => {}, sidebarOpen: true, onToggleSidebar: () => {},
   };
 
-  it('opens the dialog and writes changes / reset into the layout', async () => {
+  it('in light mode edits and resets only the light theme settings', async () => {
+    let current: Layout = { ...layout, appearance: { dark: { upColor: '#ffffff' } } };
+    const setLayout = vi.fn((fn: (l: Layout) => Layout) => { current = fn(current); });
+    const { rerender } = render(<TopBar {...props} layout={current} theme="light" setLayout={setLayout} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Chart appearance' }));
+    expect(screen.getByText('Light theme')).toBeInTheDocument();
+    expect(screen.getByLabelText('Up colour')).toHaveValue(UP); // the dark theme's white is not used here
+    fireEvent.input(screen.getByLabelText('Down colour'), { target: { value: '#ff00ff' } });
+    expect(current.appearance).toEqual({ dark: { upColor: '#ffffff' }, light: { downColor: '#ff00ff' } });
+    rerender(<TopBar {...props} layout={current} theme="light" setLayout={setLayout} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Reset to defaults' }));
+    expect(current.appearance).toEqual({ dark: { upColor: '#ffffff' } });
+    // Toggling the theme while open switches the dialog to the other theme's settings.
+    rerender(<TopBar {...props} layout={current} theme="dark" setLayout={setLayout} />);
+    expect(screen.getByText('Dark theme')).toBeInTheDocument();
+    expect(screen.getByLabelText('Up colour')).toHaveValue('#ffffff');
+  });
+
+  it('opens the dialog and writes changes / reset into the active theme of the layout', async () => {
     let current: Layout = layout;
     const setLayout = vi.fn((fn: (l: Layout) => Layout) => { current = fn(current); });
     render(<TopBar {...props} setLayout={setLayout} />);
     await userEvent.click(screen.getByRole('button', { name: 'Chart appearance' }));
     fireEvent.input(screen.getByLabelText('Down colour'), { target: { value: '#ff00ff' } });
-    expect(current.appearance).toEqual({ downColor: '#ff00ff' });
+    expect(current.appearance).toEqual({ dark: { downColor: '#ff00ff' } });
     await userEvent.click(screen.getByRole('button', { name: 'Reset to defaults' }));
     expect(current).not.toHaveProperty('appearance');
     await userEvent.click(screen.getByRole('button', { name: 'Done' }));

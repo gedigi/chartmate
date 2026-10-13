@@ -1,5 +1,6 @@
-import type { CandleBodyStyle, ChartAppearance, ChartType, DrawingLineStyle } from '@altv/shared';
+import type { CandleBodyStyle, ChartAppearance, ChartType, DrawingLineStyle, ThemedAppearance } from '@altv/shared';
 import type { DeepPartial, Styles } from 'klinecharts';
+import { readableTextOn, readableTextOnAll } from './contrast';
 import { DRAWING_DASH } from './drawingStyles';
 
 export type ThemeName = 'dark' | 'light';
@@ -67,7 +68,13 @@ export function defaultAppearance(theme: ThemeName): ResolvedAppearance {
   return { upColor: UP, downColor: DOWN, candleBody: 'solid', lineColor: accent, lineWidth: 2, drawing: { color: accent, size: 1, style: 'solid' } };
 }
 
-export function resolveAppearance(theme: ThemeName, a: ChartAppearance | undefined): ResolvedAppearance {
+/** The active theme's appearance with every unset field filled from that theme's defaults. */
+export function resolveAppearance(theme: ThemeName, appearance: ThemedAppearance | undefined): ResolvedAppearance {
+  return resolveThemeAppearance(theme, appearance?.[theme]);
+}
+
+/** One theme's appearance (e.g. what the dialog edits) with unset fields filled from the theme's defaults. */
+export function resolveThemeAppearance(theme: ThemeName, a: ChartAppearance | undefined): ResolvedAppearance {
   const d = defaultAppearance(theme);
   return {
     upColor: a?.upColor ?? d.upColor,
@@ -101,7 +108,8 @@ export function overlayStyles(d: DrawingLineStyle): DeepPartial<Styles['overlay'
   return {
     line: { color: d.color, size: d.size, style: d.style, dashedValue: DRAWING_DASH },
     point: { color: d.color, borderColor: soft, activeColor: d.color, activeBorderColor: soft },
-    text: { backgroundColor: d.color, borderColor: d.color, size: DEFAULT_TEXT_SIZE },
+    // Annotation bubbles are filled with the drawing colour: the glyphs take whichever of white / dark reads on it.
+    text: { color: readableTextOn(d.color), backgroundColor: d.color, borderColor: d.color, size: DEFAULT_TEXT_SIZE },
     polygon: { color: d.color, borderColor: d.color },
     rect: { color: hexToRgba(d.color, 0.25), borderColor: d.color },
     circle: { color: hexToRgba(d.color, 0.25), borderColor: d.color },
@@ -110,7 +118,7 @@ export function overlayStyles(d: DrawingLineStyle): DeepPartial<Styles['overlay'
 }
 
 /** Candle-series styles for a chart type with the (theme-resolved) appearance applied. */
-export function candleStyles(type: ChartType, theme: ThemeName, appearance: ChartAppearance | undefined): DeepPartial<Styles['candle']> {
+export function candleStyles(type: ChartType, theme: ThemeName, appearance: ThemedAppearance | undefined): DeepPartial<Styles['candle']> {
   const a = resolveAppearance(theme, appearance);
   const muted = themeTokens(theme).muted;
   const colours: DeepPartial<Styles['candle']> = {
@@ -119,7 +127,7 @@ export function candleStyles(type: ChartType, theme: ThemeName, appearance: Char
       upBorderColor: a.upColor, downBorderColor: a.downColor, noChangeBorderColor: muted,
       upWickColor: a.upColor, downWickColor: a.downColor, noChangeWickColor: muted,
     },
-    priceMark: { last: { upColor: a.upColor, downColor: a.downColor, noChangeColor: muted } },
+    priceMark: { last: { upColor: a.upColor, downColor: a.downColor, noChangeColor: muted, text: { color: lastPriceTextColour(a.upColor, a.downColor, muted) } } },
   };
   switch (type) {
     case 'candle': return { ...colours, type: BODY_TYPE[a.candleBody] };
@@ -134,6 +142,15 @@ export function candleStyles(type: ChartType, theme: ThemeName, appearance: Char
   }
 }
 
+/**
+ * KLineChart fills the last-price label with the up / down / no-change colour but draws its text in a single
+ * colour, so the text cannot follow the bar direction: take the one (white or dark) whose worst-case contrast
+ * over the three label colours is highest.
+ */
+export function lastPriceTextColour(up: string, down: string, noChange: string): string {
+  return readableTextOnAll([up, down, noChange]);
+}
+
 export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
   const t = themeTokens(theme);
   const axis = {
@@ -141,7 +158,7 @@ export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
     tickLine: { color: t.border },
     tickText: { color: t.muted },
   };
-  const crossText = { color: '#ffffff', backgroundColor: t.crossBg, borderColor: t.border };
+  const crossText = { color: readableTextOn(t.crossBg), backgroundColor: t.crossBg, borderColor: t.border };
   return {
     grid: {
       horizontal: { color: t.grid },
@@ -156,7 +173,7 @@ export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
       priceMark: {
         high: { color: t.muted },
         low: { color: t.muted },
-        last: { upColor: UP, downColor: DOWN, noChangeColor: t.muted },
+        last: { upColor: UP, downColor: DOWN, noChangeColor: t.muted, text: { color: lastPriceTextColour(UP, DOWN, t.muted) } },
       },
       tooltip: { title: { color: t.text, template: '{displayName} · {tf}' }, legend: { color: t.muted } },
     },

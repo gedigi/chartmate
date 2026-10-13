@@ -274,11 +274,11 @@ describe('ChartAdapter', () => {
   it('markers have a fixed theme style (muted, dashed) independent of the default drawing style; follow the theme', () => {
     const a = make();
     chart().data.push({ timestamp: 1000, high: 10 });
-    a.setAppearance({ drawing: { color: '#ff0000', size: 4, style: 'solid' } });
+    a.setAppearance({ dark: { drawing: { color: '#ff0000', size: 4, style: 'solid' } } });
     a.setMarkers([{ ts: 1000, label: 'Start' }]);
     const marker = () => chart().overlays.find((o) => o.groupId === 'markers')!;
     expect(marker().styles).toMatchObject({ line: { color: '#868b98', style: 'dashed', size: 1 }, text: { color: '#868b98' } });
-    a.setAppearance({ drawing: { color: '#00ff00', size: 2, style: 'dashed' } });
+    a.setAppearance({ dark: { drawing: { color: '#00ff00', size: 2, style: 'dashed' } } });
     expect(marker().styles).toMatchObject({ line: { color: '#868b98' } });
     a.setTheme('light');
     expect(marker().styles).toMatchObject({ line: { color: '#6a6d78' }, text: { color: '#6a6d78' } });
@@ -558,22 +558,37 @@ describe('ChartAdapter', () => {
   });
 
   describe('appearance', () => {
-    it('setAppearance merges candle colours / body style into the theme styles and survives theme toggles', () => {
+    it('setAppearance merges the active theme\'s candle colours / body style into the theme styles', () => {
       const a = make();
-      a.setAppearance({ upColor: '#00ff00', downColor: '#ff00ff', candleBody: 'hollow' });
+      a.setAppearance({ dark: { upColor: '#00ff00', downColor: '#ff00ff', candleBody: 'hollow' }, light: { upColor: '#010203', candleBody: 'hollow' } });
       let s = chart().setStyles.mock.calls.at(-1)![0];
       expect(s.candle).toMatchObject({ type: 'candle_stroke', bar: { upColor: '#00ff00', downWickColor: '#ff00ff' } });
       expect(s.grid).toBeDefined(); // theme styles are kept
-      a.setTheme('light');
+      a.setTheme('light'); // the light theme's own settings apply live
       s = chart().setStyles.mock.calls.at(-1)![0];
-      expect(s.candle).toMatchObject({ type: 'candle_stroke', bar: { upColor: '#00ff00' } });
+      expect(s.candle).toMatchObject({ type: 'candle_stroke', bar: { upColor: '#010203', downColor: '#ef5350' } });
+      a.setTheme('dark');
+      s = chart().setStyles.mock.calls.at(-1)![0];
+      expect(s.candle).toMatchObject({ bar: { upColor: '#00ff00' } });
       a.setChartType('line');
-      a.setAppearance({ lineColor: '#123456', lineWidth: 4 });
+      a.setAppearance({ dark: { lineColor: '#123456', lineWidth: 4 } });
       s = chart().setStyles.mock.calls.at(-1)![0];
       expect(s.candle.area).toMatchObject({ lineColor: '#123456', lineSize: 4 });
       a.setAppearance(undefined);
       s = chart().setStyles.mock.calls.at(-1)![0];
       expect(s.candle.area).toMatchObject({ lineColor: '#2962ff', lineSize: 2 });
+    });
+
+    it('the reported layout: last price label text is readable; light mode falls back to defaults', () => {
+      const a = make();
+      a.setAppearance({ dark: { upColor: '#ffffff', downColor: '#e63b7a', drawing: { color: '#ffffff', size: 1, style: 'solid' } } });
+      let s = chart().setStyles.mock.calls.at(-1)![0];
+      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#ffffff', downColor: '#e63b7a', text: { color: '#131722' } });
+      expect(s.overlay.text).toMatchObject({ backgroundColor: '#ffffff', color: '#131722' });
+      a.setTheme('light');
+      s = chart().setStyles.mock.calls.at(-1)![0];
+      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#26a69a', downColor: '#ef5350' });
+      expect(s.overlay.line).toMatchObject({ color: '#2962ff' });
     });
   });
 
@@ -646,11 +661,11 @@ describe('ChartAdapter', () => {
       a.setTheme('dark');
       expect(lastStyles().overlay.line).toMatchObject({ color: '#2962ff', size: 1, style: 'solid' });
       const drawing = { color: '#abcdef', size: 2, style: 'dashed' as const };
-      a.setAppearance({ drawing });
+      a.setAppearance({ dark: { drawing }, light: { drawing } });
       expect(lastStyles().overlay.line).toMatchObject(drawing);
       expect(lastStyles().overlay.text).toMatchObject({ backgroundColor: '#abcdef', size: 12 });
       expect(lastStyles().overlay.point).toMatchObject({ color: '#abcdef' });
-      a.setTheme('light'); // survives a theme toggle
+      a.setTheme('light'); // the light theme has the same setting here
       expect(lastStyles().overlay.line).toMatchObject(drawing);
 
       const selection = vi.fn();
@@ -672,7 +687,7 @@ describe('ChartAdapter', () => {
 
     it('new drawings carry no styles of their own (they follow the default drawing style)', () => {
       const a = make();
-      a.setAppearance({ drawing: { color: '#abcdef', size: 2, style: 'dashed' } });
+      a.setAppearance({ dark: { drawing: { color: '#abcdef', size: 2, style: 'dashed' } } });
       a.startDrawing('rayLine');
       expect(chart().createOverlay.mock.calls.at(-1)![0]).not.toHaveProperty('styles');
     });

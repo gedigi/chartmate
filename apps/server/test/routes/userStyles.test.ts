@@ -15,14 +15,29 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
   const putLayout = (body: unknown) => t.app.inject({ method: 'PUT', url: '/api/layouts/default', payload: body as object });
   const putDrawings = (body: unknown) => t.app.inject({ method: 'PUT', url: '/api/drawings/stock:AAPL', payload: body as object });
 
-  it('accepts and round-trips a full appearance', async () => {
-    const appearance = {
-      upColor: '#00ff00', downColor: '#FF0000', candleBody: 'hollow_up', lineColor: '#123456', lineWidth: 3,
-      drawing: { color: '#abcdef', size: 2, style: 'dashed' },
-    } as const;
+  const full = {
+    upColor: '#00ff00', downColor: '#FF0000', candleBody: 'hollow_up', lineColor: '#123456', lineWidth: 3,
+    drawing: { color: '#abcdef', size: 2, style: 'dashed' },
+  } as const;
+
+  it('accepts and round-trips a per-theme appearance', async () => {
+    const appearance = { dark: full, light: { upColor: '#000000' } };
     expect((await putLayout({ ...layout, appearance })).statusCode).toBe(200);
     expect((await t.app.inject({ method: 'GET', url: '/api/layouts/default' })).json()).toEqual({ ...layout, appearance });
-    expect((await putLayout({ ...layout, appearance: {} })).statusCode).toBe(200);
+    for (const a of [{}, { dark: {} }, { light: full }]) expect((await putLayout({ ...layout, appearance: a })).statusCode).toBe(200);
+  });
+
+  it('accepts the legacy flat appearance and migrates it to the dark theme', async () => {
+    const res = await putLayout({ ...layout, appearance: full });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().appearance).toEqual({ dark: full });
+    expect((await t.app.inject({ method: 'GET', url: '/api/layouts/default' })).json().appearance).toEqual({ dark: full });
+  });
+
+  it('migrates a legacy flat appearance stored before the per-theme change when it is read', async () => {
+    const userFlat = { upColor: '#ffffff', downColor: '#e63b7a', drawing: { color: '#ffffff', size: 1, style: 'solid' } };
+    await t.repos.layouts.put('default', { ...layout, appearance: userFlat } as unknown as Layout);
+    expect((await t.app.inject({ method: 'GET', url: '/api/layouts/default' })).json()).toEqual({ ...layout, appearance: { dark: userFlat } });
   });
 
   it('rejects invalid appearance values and unknown keys', async () => {
@@ -30,6 +45,12 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
       { upColor: 'red' }, { downColor: '#fff' }, { candleBody: 'filled' }, { lineWidth: 0 }, { lineWidth: 5 }, { lineWidth: 1.5 },
       { drawing: { color: '#000000', size: 2 } }, { drawing: { color: '#000000', size: 2, style: 'dotted' } }, { bogus: 1 },
     ]) {
+      expect((await putLayout({ ...layout, appearance })).statusCode, JSON.stringify(appearance)).toBe(400);
+      expect((await putLayout({ ...layout, appearance: { dark: appearance } })).statusCode, JSON.stringify(appearance)).toBe(400);
+      expect((await putLayout({ ...layout, appearance: { light: appearance } })).statusCode, JSON.stringify(appearance)).toBe(400);
+    }
+    // Mixing the shapes, or unknown theme keys, is rejected.
+    for (const appearance of [{ dark: {}, upColor: '#000000' }, { sepia: {} }]) {
       expect((await putLayout({ ...layout, appearance })).statusCode, JSON.stringify(appearance)).toBe(400);
     }
   });

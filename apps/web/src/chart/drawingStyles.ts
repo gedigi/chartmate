@@ -3,6 +3,7 @@ import {
   type DrawingLineStyle, type DrawingStyles,
 } from '@altv/shared';
 import type { DeepPartial, OverlayStyle } from 'klinecharts';
+import { readableTextOn } from './contrast';
 
 /** Dash pattern of dashed drawings (KLineChart's [2, 2] is barely visible). */
 export const DRAWING_DASH = [6, 4];
@@ -16,10 +17,10 @@ export function lineToOverlay(l: DrawingLineStyle): DeepPartial<OverlayStyle> {
   return { line: { color: l.color, size: l.size, style: l.style, dashedValue: DRAWING_DASH } };
 }
 
-/** A text annotation's colour is its bubble (background, border, pointer); the glyphs stay white. */
+/** A text annotation's colour is its bubble (background, border, pointer); the glyphs are white or dark, whichever reads on it. */
 export function textToOverlay(t: TextStyle): DeepPartial<OverlayStyle> {
   return {
-    text: { size: t.size, backgroundColor: t.color, borderColor: t.color },
+    text: { size: t.size, color: readableTextOn(t.color), backgroundColor: t.color, borderColor: t.color },
     line: { color: t.color },
     polygon: { color: t.color, borderColor: t.color },
   };
