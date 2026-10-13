@@ -236,6 +236,15 @@ The files are picked up at build time with `import.meta.glob` (eager), registere
 listed in the picker; no other file needs editing. `custom/vwap.ts` and `custom/atr.ts` are the built-in
 examples. Restart `pnpm dev` (or rebuild) after adding a file.
 
+`catalog.paramMin` / `catalog.paramMax` (optional, one entry per param) set the accepted range of integer
+params in the settings dialog (default 1…1000).
+
+`custom/wyckoff.ts` (with its calculation in `wyckoffCalc.ts`) is a port of the TradingView script
+'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colours in a `draw`
+callback. **Licence:** these two files (and their tests) are covered by the
+[Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/), not by the rest of the project's terms; keep
+their MPL-2.0 headers and attribution when modifying or redistributing them.
+
 Example: `apps/web/src/chart/indicators/custom/range.ts`
 
 ```ts
