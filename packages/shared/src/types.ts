@@ -54,6 +54,43 @@ export interface ThemedAppearance { dark?: ChartAppearance; light?: ChartAppeara
 export interface Layout {
   symbol: SymbolId; tf: Timeframe; session: SessionMode; chartType: ChartType; indicators: IndicatorState[];
   appearance?: ThemedAppearance;
+  /** Risk settings new long / short positions start with (missing → DEFAULT_POSITION_SETTINGS). */
+  positionDefaults?: PositionDefaults;
+}
+
+/** Long / short position drawing tools. */
+export const POSITION_TOOLS = ['longPosition', 'shortPosition'] as const;
+export type PositionTool = typeof POSITION_TOOLS[number];
+export const isPositionTool = (name: string): name is PositionTool => (POSITION_TOOLS as readonly string[]).includes(name);
+/** How a position's risk is given: a percentage of the account size or a fixed amount. */
+export type PositionRiskMode = 'percent' | 'amount';
+/** Risk settings of a long / short position (every field optional: unset → the defaults). */
+export interface PositionSettings { accountSize?: number; riskMode?: PositionRiskMode; riskValue?: number; currency?: string }
+export type PositionDefaults = Required<PositionSettings>;
+export const DEFAULT_POSITION_SETTINGS: Readonly<PositionDefaults> = { accountSize: 10000, riskMode: 'percent', riskValue: 1, currency: 'USD' };
+/** Longest account currency label. */
+export const MAX_CURRENCY_LENGTH = 8;
+
+const positiveFinite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
+
+/** The valid position settings in `s` (positive finite numbers, known risk mode, 1–8 character currency), or undefined. */
+export function sanitizePositionSettings(s: unknown): PositionSettings | undefined {
+  if (!s || typeof s !== 'object' || Array.isArray(s)) return undefined;
+  const { accountSize, riskMode, riskValue, currency } = s as Record<string, unknown>;
+  const out: PositionSettings = {};
+  if (positiveFinite(accountSize)) out.accountSize = accountSize;
+  if (riskMode === 'percent' || riskMode === 'amount') out.riskMode = riskMode;
+  if (positiveFinite(riskValue)) out.riskValue = riskValue;
+  if (typeof currency === 'string') {
+    const c = currency.trim();
+    if (c.length > 0 && c.length <= MAX_CURRENCY_LENGTH) out.currency = c;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Stored position defaults with missing / invalid fields filled from DEFAULT_POSITION_SETTINGS. */
+export function resolvePositionDefaults(d: PositionSettings | undefined): PositionDefaults {
+  return { ...DEFAULT_POSITION_SETTINGS, ...sanitizePositionSettings(d) };
 }
 
 const APPEARANCE_THEMES: readonly AppearanceTheme[] = ['dark', 'light'];
@@ -75,7 +112,16 @@ export function migrateAppearance(a: unknown): ThemedAppearance | undefined {
  * Normalized drawing styles: `line` for line tools, `text` (annotation bubble colour + font size) for text,
  * `label` (price text on the line / price label on the y-axis) for price and horizontal lines; missing → defaults.
  */
-export interface DrawingStyles { line?: DrawingLineStyle; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean } }
+export interface DrawingStyles {
+  line?: DrawingLineStyle; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean };
+  /** Long / short positions: their own risk settings (over the defaults). */
+  position?: PositionSettings;
+}
+/**
+ * A saved drawing. Long / short positions ('longPosition' / 'shortPosition') have four points:
+ * [0] entry { start time, entry price }, [1] { start time, target price }, [2] { start time, stop price },
+ * [3] { end time, entry price } (points 1–2 repeat the start time and point 3 the entry price).
+ */
 export interface DrawingState { name: string; points: { timestamp: number; value: number }[]; lock: boolean; text?: string; styles?: DrawingStyles; anchorTf?: '1D'|'1W'|'1M' }
 export interface WatchlistItem { id: SymbolId; position: number }
 

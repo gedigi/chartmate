@@ -1,6 +1,6 @@
 import {
-  HEX_COLOR_RE, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_TEXT_SIZE, MIN_LINE_WIDTH, MIN_TEXT_SIZE, migrateAppearance, TIMEFRAMES,
-  type DrawingState, type Layout, type SymbolId, type Timeframe,
+  HEX_COLOR_RE, MAX_CURRENCY_LENGTH, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_TEXT_SIZE, MIN_LINE_WIDTH, MIN_TEXT_SIZE, migrateAppearance, TIMEFRAMES,
+  type DrawingState, type Layout, type PositionSettings, type SymbolId, type Timeframe,
 } from '@altv/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -30,20 +30,38 @@ const ThemedAppearanceSchema = z.union([
   AppearanceSchema.transform((a) => ({ dark: a })),
 ]);
 
+/** Money amounts of positions: positive, finite and below an absurd bound. */
+const Amount = z.number().positive().max(1e15);
+const Currency = z.string().trim().min(1).max(MAX_CURRENCY_LENGTH);
+const RiskMode = z.enum(['percent', 'amount']);
+/** A position's own risk settings (each field optional; unknown keys rejected). */
+const PositionSettingsSchema = z.object({
+  accountSize: Amount.optional(), riskMode: RiskMode.optional(), riskValue: Amount.optional(), currency: Currency.optional(),
+}).strict();
+/** Global defaults of new positions: every field required; a percentage risk is at most 100 %. */
+const PositionDefaultsSchema = z.object({ accountSize: Amount, riskMode: RiskMode, riskValue: Amount, currency: Currency })
+  .strict()
+  .refine((d) => d.riskMode !== 'percent' || d.riskValue <= 100, { message: 'risk percentage must be at most 100' });
+
 /**
  * Normalized drawing styles; unknown keys (e.g. raw KLineChart styles) are stripped. Tolerant per part: an invalid
- * `line`, `text` or `label` part is dropped on its own so valid parts survive; if no valid part remains, styles are dropped.
+ * `line`, `text`, `label` or `position` part is dropped on its own so valid parts survive; if no valid part remains, styles are dropped.
  */
 const DrawingStylesSchema = z.object({
   line: LineStyleSchema.optional().catch(undefined),
   text: z.object({ color: Hex, size: z.number().int().min(MIN_TEXT_SIZE).max(MAX_TEXT_SIZE) }).optional().catch(undefined),
   label: z.object({ onLine: z.boolean().optional(), onAxis: z.boolean().optional() }).optional().catch(undefined),
+  position: PositionSettingsSchema.optional().catch(undefined),
 }).transform((s) => {
-  const out: { line?: z.infer<typeof LineStyleSchema>; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean } } = {};
+  const out: {
+    line?: z.infer<typeof LineStyleSchema>; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean };
+    position?: PositionSettings;
+  } = {};
   if (s.line) out.line = s.line;
   if (s.text) out.text = s.text;
   if (s.label && (s.label.onLine !== undefined || s.label.onAxis !== undefined)) out.label = s.label;
-  return out.line || out.text || out.label ? out : undefined;
+  if (s.position && Object.keys(s.position).length > 0) out.position = s.position as PositionSettings;
+  return out.line || out.text || out.label || out.position ? out : undefined;
 });
 
 const IndicatorSchema = z.object({
@@ -63,6 +81,7 @@ const LayoutSchema = z.object({
   chartType: z.enum(['candle', 'ohlc', 'line', 'area']),
   indicators: z.array(IndicatorSchema).max(MAX_INDICATORS),
   appearance: ThemedAppearanceSchema.optional(),
+  positionDefaults: PositionDefaultsSchema.optional(),
 }) satisfies z.ZodType<Layout, unknown>;
 
 const DrawingSchema = z.object({
