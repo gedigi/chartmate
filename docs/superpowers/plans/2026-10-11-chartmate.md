@@ -1,14 +1,14 @@
-# altv Implementation Plan
+# Chartmate Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build altv — a self-hosted TradingView alternative with charts, indicators, drawings, watchlist and custom chained baskets — for US stocks/ETFs (incl. extended hours) and crypto.
+**Goal:** Build Chartmate — a self-hosted TradingView alternative with charts, indicators, drawings, watchlist and custom chained baskets — for US stocks/ETFs (incl. extended hours) and crypto.
 
 **Architecture:** pnpm TypeScript monorepo. `packages/shared` holds types and pure, heavily-tested math (time/session helpers, resampling, basket engine). `apps/server` (Fastify + Kysely over SQLite/Postgres) wraps market-data providers behind one interface, caches bars with coverage tracking, and serves baskets as ordinary symbols. `apps/web` (React + Vite) renders charts through a single `ChartAdapter` module around KLineChart v10.
 
 **Tech Stack:** Node 22, pnpm 8, TypeScript 5.9, Vitest 5, Fastify 5, Kysely 0.29 (better-sqlite3 13 / pg 8), zod 4, yahoo-finance2 4, React 19, Vite 8, klinecharts 10, Playwright 1.64.
 
-**Spec:** `docs/superpowers/specs/2026-10-11-altv-design.md`
+**Spec:** `docs/superpowers/specs/2026-10-11-chartmate-design.md`
 
 ## Global Constraints
 
@@ -23,7 +23,7 @@
 - API error body: `{ "code": string, "message": string }` with appropriate HTTP status.
 - Only `apps/web/src/chart/ChartAdapter.ts` (and files under `apps/web/src/chart/`) may import `klinecharts`.
 - No live network in automated tests. Provider tests use recorded fixtures in `apps/server/test/fixtures/`.
-- Env vars: `PORT` (default 8787), `DATABASE_URL` (default `sqlite:./data/altv.db`; `postgres://…` selects Postgres), `ALTV_PASSWORD` (optional), `ALTV_SESSION_SECRET` (optional; derived from password if unset), `CRYPTO_PROVIDER` (`binance` default | `coinbase`), `BINANCE_BASE_URL` (default `https://data-api.binance.vision`), `ALTV_PROVIDERS` (`live` default | `fixture` — fixture mode serves deterministic synthetic data for e2e).
+- Env vars: `PORT` (default 8787), `DATABASE_URL` (default `sqlite:./data/chartmate.db`; `postgres://…` selects Postgres), `CHARTMATE_PASSWORD` (optional), `CHARTMATE_SESSION_SECRET` (optional; derived from password if unset), `CRYPTO_PROVIDER` (`binance` default | `coinbase`), `BINANCE_BASE_URL` (default `https://data-api.binance.vision`), `CHARTMATE_PROVIDERS` (`live` default | `fixture` — fixture mode serves deterministic synthetic data for e2e).
 - Commit after every task with a conventional message and the trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
 ### Deliberate deviations from the spec (documented)
@@ -148,7 +148,7 @@ export function parseDateString(s: string): number; // 'YYYY-MM-DD' → Date.UTC
 
 ```json
 {
-  "name": "altv", "private": true, "type": "module",
+  "name": "chartmate", "private": true, "type": "module",
   "engines": { "node": ">=22" },
   "packageManager": "pnpm@8.15.9",
   "scripts": {
@@ -164,7 +164,7 @@ export function parseDateString(s: string): number; // 'YYYY-MM-DD' → Date.UTC
 
 `pnpm-workspace.yaml`: `packages: ['packages/*', 'apps/*']`. `tsconfig.base.json`: target ES2023, module/moduleResolution `NodeNext` for shared+server (web overrides to `Bundler`), `strict`, `noUncheckedIndexedAccess`, `skipLibCheck`, `declaration`. `.gitignore`: `node_modules dist data *.db test-results playwright-report .env`. `.nvmrc`: `22`.
 
-`packages/shared/package.json`: name `@altv/shared`, `"exports": { ".": { "types": "./src/index.ts", "default": "./dist/index.js" } }` plus `"development"`-free setup: to keep it simple, server and web consume shared **source** via the TS path (`"main": "./src/index.ts"` is not runnable by node). Use this approach: shared builds to `dist/` with `tsc`; `exports["."]` = `{ "types": "./dist/index.d.ts", "import": "./dist/index.js" }`; root `build` builds shared first (pnpm -r respects dependency order); Vitest in server/web aliases `@altv/shared` → `packages/shared/src/index.ts` so tests never need a prior build; server `dev` uses `tsx` with the same alias via `tsconfig` `paths`. Scripts: `build: tsc -p tsconfig.json`, `test: vitest run`, `typecheck: tsc --noEmit -p tsconfig.json`.
+`packages/shared/package.json`: name `@chartmate/shared`, `"exports": { ".": { "types": "./src/index.ts", "default": "./dist/index.js" } }` plus `"development"`-free setup: to keep it simple, server and web consume shared **source** via the TS path (`"main": "./src/index.ts"` is not runnable by node). Use this approach: shared builds to `dist/` with `tsc`; `exports["."]` = `{ "types": "./dist/index.d.ts", "import": "./dist/index.js" }`; root `build` builds shared first (pnpm -r respects dependency order); Vitest in server/web aliases `@chartmate/shared` → `packages/shared/src/index.ts` so tests never need a prior build; server `dev` uses `tsx` with the same alias via `tsconfig` `paths`. Scripts: `build: tsc -p tsconfig.json`, `test: vitest run`, `typecheck: tsc --noEmit -p tsconfig.json`.
 
 - [ ] **Step 2: Write failing tests** `packages/shared/test/timeframes.test.ts`:
 
@@ -244,9 +244,9 @@ describe('nytime', () => {
 });
 ```
 
-- [ ] **Step 3: Run** `pnpm install && pnpm --filter @altv/shared test` → FAIL (modules missing).
+- [ ] **Step 3: Run** `pnpm install && pnpm --filter @chartmate/shared test` → FAIL (modules missing).
 - [ ] **Step 4: Implement.** `nyParts` uses a cached `Intl.DateTimeFormat('en-US', { timeZone: NY_TZ, hourCycle: 'h23', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', weekday:'short' })` and `formatToParts`. `nyToUtc`: guess = `Date.UTC(y,m-1,d,hh,mm)`; offset1 = guess − wallclock(guess) where wallclock(t) = `Date.UTC(nyParts(t)…)`; candidate = guess + offset1; recompute offset at candidate and return `guess + offset2` (two-pass handles transitions). `parseDateString` validates with regex `^\d{4}-\d{2}-\d{2}$` and round-trip through `utcDateString`.
-- [ ] **Step 5: Run tests** → PASS. Run `pnpm --filter @altv/shared typecheck` → clean.
+- [ ] **Step 5: Run tests** → PASS. Run `pnpm --filter @chartmate/shared typecheck` → clean.
 - [ ] **Step 6: Commit** `chore: scaffold monorepo and shared time/timeframe primitives`.
 
 ---
@@ -377,7 +377,7 @@ describe('resample', () => {
 
 - [ ] **Step 2: Run** → FAIL.
 - [ ] **Step 3: Implement** per the rules above.
-- [ ] **Step 4: Run** `pnpm --filter @altv/shared test && pnpm --filter @altv/shared typecheck` → PASS.
+- [ ] **Step 4: Run** `pnpm --filter @chartmate/shared test && pnpm --filter @chartmate/shared typecheck` → PASS.
 - [ ] **Step 5: Commit** `feat(shared): session tagging and calendar-aware resampling`.
 
 ---
@@ -571,7 +571,7 @@ export class DrawingRepo { get(symbol: SymbolId): Promise<DrawingState[]>; put(s
 export function createRepos(db): Repos; // { bars, coverage, symbols, baskets, watchlist, layouts, drawings }
 ```
 
-`apps/server/package.json` deps: `fastify@^5.12`, `@fastify/static@^10`, `@fastify/cookie@^11`, `kysely@^0.29.6`, `better-sqlite3@^13`, `pg@^8.23`, `zod@^4`, `yahoo-finance2@4.0.3`, `@altv/shared: workspace:*`; dev: `tsx`, `@types/better-sqlite3`, `@types/pg`. Scripts: `dev: tsx watch src/main.ts`, `build: tsc -p tsconfig.build.json`, `start: node dist/main.js`, `test: vitest run`, `typecheck: tsc --noEmit`. `vitest.config.ts` aliases `@altv/shared` → `../../packages/shared/src/index.ts`. tsconfig `paths` same alias for tsx/tsc typecheck; build config compiles server to `dist/` and resolves `@altv/shared` from the built workspace package (`packages/shared/dist`).
+`apps/server/package.json` deps: `fastify@^5.12`, `@fastify/static@^10`, `@fastify/cookie@^11`, `kysely@^0.29.6`, `better-sqlite3@^13`, `pg@^8.23`, `zod@^4`, `yahoo-finance2@4.0.3`, `@chartmate/shared: workspace:*`; dev: `tsx`, `@types/better-sqlite3`, `@types/pg`. Scripts: `dev: tsx watch src/main.ts`, `build: tsc -p tsconfig.build.json`, `start: node dist/main.js`, `test: vitest run`, `typecheck: tsc --noEmit`. `vitest.config.ts` aliases `@chartmate/shared` → `../../packages/shared/src/index.ts`. tsconfig `paths` same alias for tsx/tsc typecheck; build config compiles server to `dist/` and resolves `@chartmate/shared` from the built workspace package (`packages/shared/dist`).
 
 - [ ] **Step 1: Write failing tests** `apps/server/test/db/repos.test.ts` — run the whole suite against SQLite in-memory, and again against Postgres when `TEST_PG_URL` is set (`describe.each(dialects)`), migrating a fresh schema per test file (for pg: create a random schema name and set `search_path` — simpler: drop all tables before `migrate`):
 
@@ -644,10 +644,10 @@ describe.each(urls)('repos on %s', (url) => {
 });
 ```
 
-- [ ] **Step 2: Run** `pnpm --filter @altv/server test` → FAIL.
+- [ ] **Step 2: Run** `pnpm --filter @chartmate/server test` → FAIL.
 - [ ] **Step 3: Implement** schema, connect, migrations, repos as specified.
 - [ ] **Step 4: Run** tests → PASS on SQLite. Then start Postgres and run with `TEST_PG_URL`:
-  `docker run -d --rm --name altv-pg -e POSTGRES_PASSWORD=pg -p 55432:5432 postgres:17-alpine` then `TEST_PG_URL=postgres://postgres:pg@localhost:55432/postgres pnpm --filter @altv/server test` → PASS; `docker stop altv-pg`.
+  `docker run -d --rm --name chartmate-pg -e POSTGRES_PASSWORD=pg -p 55432:5432 postgres:17-alpine` then `TEST_PG_URL=postgres://postgres:pg@localhost:55432/postgres pnpm --filter @chartmate/server test` → PASS; `docker stop chartmate-pg`.
 - [ ] **Step 5: Commit** `feat(server): portable Kysely persistence for SQLite and Postgres`.
 
 ---
@@ -708,11 +708,11 @@ export function createRegistry(cfg: { mode: 'live'|'fixture'; cryptoProvider: 'b
 
 **Binance adapter**: base URL from config; `code` `BTC` → pair `BTCUSDT`. `GET /api/v3/klines?symbol&interval&startTime&endTime&limit=1000` paging forward until `to`; interval map `1m 5m 15m 30m 1h 1d`; row → `{ ts: row[0], open: +row[1], high: +row[2], low: +row[3], close: +row[4], volume: +row[5] }`; drop bars with `ts ≥ to`. Search: cache `GET /api/v3/exchangeInfo?permissions=SPOT` for 1 h; symbols with `quoteAsset === 'USDT' && status === 'TRADING'`; match `baseAsset` prefix (case-insensitive) first, then contains; id `crypto:<base>`, name `<base>/USD`, `pricePrecision` from `PRICE_FILTER.tickSize` decimals (cap 8). Quotes: `GET /api/v3/ticker/24hr?symbols=["BTCUSDT",...]` → `lastPrice`, `priceChangePercent`, `closeTime`. `firstBarTs`: klines `interval=1d&startTime=0&limit=1` → `row[0]`. HTTP 429/418 → `ProviderError(retryable, status)`; 400 with code -1121 (invalid symbol) → `NotFoundError`. Limits: none.
 
-**Coinbase adapter**: `https://api.exchange.coinbase.com/products/<BASE>-USD/candles?granularity&start&end` (ISO), max 300 candles per request (page by `300 × granularity`); rows `[time(s), low, high, open, close, volume]` returned **newest-first** → sort ascending, ts×1000. Native granularities: 60, 300, 900, 3600, 86400. **30m is not native** — the adapter fetches 5m and resamples with `calendar='utc'` (via shared `resample`). Search via `/products` (quote_currency USD, status online, not trading_disabled). Quotes via `/products/<id>/stats` (`last`, `open` → changePct = (last−open)/open×100) sequentially. Send `User-Agent: altv`.
+**Coinbase adapter**: `https://api.exchange.coinbase.com/products/<BASE>-USD/candles?granularity&start&end` (ISO), max 300 candles per request (page by `300 × granularity`); rows `[time(s), low, high, open, close, volume]` returned **newest-first** → sort ascending, ts×1000. Native granularities: 60, 300, 900, 3600, 86400. **30m is not native** — the adapter fetches 5m and resamples with `calendar='utc'` (via shared `resample`). Search via `/products` (quote_currency USD, status online, not trading_disabled). Quotes via `/products/<id>/stats` (`last`, `open` → changePct = (last−open)/open×100) sequentially. Send `User-Agent: chartmate`.
 
-**Fixture provider** (`fixture.ts`, used when `ALTV_PROVIDERS=fixture`): deterministic synthetic data — stocks `AAPL, MSFT, SPY` and crypto `BTC, ETH`; price path = seeded sine+drift function of ts (e.g. `base × (1 + 0.1·sin(ts/(7d)) + 0.02·sin(ts/(3h)))`), bars generated on the native grid; stocks only within session hours (fixed-hours tagging), weekdays only; crypto 24/7; `firstBarTs` = `Date.UTC(2015,0,1)` (BTC 2014-01-01). No limits. `quotes` from the latest generated bar.
+**Fixture provider** (`fixture.ts`, used when `CHARTMATE_PROVIDERS=fixture`): deterministic synthetic data — stocks `AAPL, MSFT, SPY` and crypto `BTC, ETH`; price path = seeded sine+drift function of ts (e.g. `base × (1 + 0.1·sin(ts/(7d)) + 0.02·sin(ts/(3h)))`), bars generated on the native grid; stocks only within session hours (fixed-hours tagging), weekdays only; crypto 24/7; `firstBarTs` = `Date.UTC(2015,0,1)` (BTC 2014-01-01). No limits. `quotes` from the latest generated bar.
 
-- [ ] **Step 1: Record fixtures** with `apps/server/scripts/record-fixtures.ts` (run once with `pnpm --filter @altv/server exec tsx scripts/record-fixtures.ts`): Yahoo `chart` AAPL 15m includePrePost 3 days (trim to 200 quotes + full meta), AAPL 1d 60 days, search 'apple', quote ['AAPL','SPY']; Binance klines BTCUSDT 1h limit 50, exchangeInfo trimmed to 5 symbols (BTC, ETH, SOL, plus one non-USDT and one BREAK status), ticker/24hr for BTCUSDT,ETHUSDT; Coinbase candles BTC-USD 3600 (50 rows), products trimmed to 5. Also hand-write `yahoo/halfday-15m.json`: a synthetic chart response for 2026-11-27 with `tradingPeriods.regular` ending 18:00Z and quotes at 17:45Z and 18:15Z.
+- [ ] **Step 1: Record fixtures** with `apps/server/scripts/record-fixtures.ts` (run once with `pnpm --filter @chartmate/server exec tsx scripts/record-fixtures.ts`): Yahoo `chart` AAPL 15m includePrePost 3 days (trim to 200 quotes + full meta), AAPL 1d 60 days, search 'apple', quote ['AAPL','SPY']; Binance klines BTCUSDT 1h limit 50, exchangeInfo trimmed to 5 symbols (BTC, ETH, SOL, plus one non-USDT and one BREAK status), ticker/24hr for BTCUSDT,ETHUSDT; Coinbase candles BTC-USD 3600 (50 rows), products trimmed to 5. Also hand-write `yahoo/halfday-15m.json`: a synthetic chart response for 2026-11-27 with `tradingPeriods.regular` ending 18:00Z and quotes at 17:45Z and 18:15Z.
 - [ ] **Step 2: Write failing tests.** Key cases (write each as an explicit `it`):
   - queue: concurrency 1 serializes; same-key concurrent calls invoke `fn` once; `minIntervalMs` spacing respected using fake `now/sleep`; after `backoff(1000)` `run` rejects with retryable `ProviderError` until time advances.
   - yahoo (fake `YahooLike` returning fixture JSON): intraday bars sorted, all have `session`, sessions follow `tradingPeriods`; half-day fixture tags 18:15Z as `post`; daily ts are UTC midnights and dedupe keeps last; `from` older than 29 d for 1m is clamped (assert the fake received `period1 ≥ now − 29d`); 1m request spanning 20 days issues 3 chart calls (7-day chunks) and concatenates without duplicates; search filters out futures/foreign/`isYahooFinance:false`; `No data found` → `NotFoundError`; quote picks postMarketPrice when `marketState: 'POST'`.
@@ -850,12 +850,12 @@ POST /api/login { password } → 204 + cookie | 401 ;  POST /api/logout → 204
 ```ts
 // config.ts
 export interface Config { port: number; databaseUrl: string; password: string | null; sessionSecret: string; cryptoProvider: 'binance'|'coinbase'; binanceBaseUrl: string; providers: 'live'|'fixture'; webDist: string | null }
-export function loadConfig(env: NodeJS.ProcessEnv): Config; // sessionSecret = env.ALTV_SESSION_SECRET ?? sha256('altv:' + password) ; webDist = env.ALTV_WEB_DIST ?? resolve(__dirname, '../../web/dist') if exists
+export function loadConfig(env: NodeJS.ProcessEnv): Config; // sessionSecret = env.CHARTMATE_SESSION_SECRET ?? sha256('chartmate:' + password) ; webDist = env.CHARTMATE_WEB_DIST ?? resolve(__dirname, '../../web/dist') if exists
 // app.ts
 export async function buildApp(deps: { config: Config; repos: Repos; market: MarketDataService; baskets: BasketService; logger?: boolean }): Promise<FastifyInstance>;
 ```
 
-- Auth: when `password` set, `@fastify/cookie` with `secret = sessionSecret`; login compares with `crypto.timingSafeEqual` on sha256 digests; sets signed cookie `altv_session=1` (`httpOnly`, `sameSite: 'lax'`, `path: '/'`, `secure` when request is https, `maxAge` 30 days). `onRequest` hook rejects `/api/*` except `/api/health`, `/api/session`, `/api/login` with 401 `{code:'unauthorized'}` when the cookie is missing/invalid. When no password: everything open, `/api/session` → `{authRequired:false, authenticated:true}`.
+- Auth: when `password` set, `@fastify/cookie` with `secret = sessionSecret`; login compares with `crypto.timingSafeEqual` on sha256 digests; sets signed cookie `chartmate_session=1` (`httpOnly`, `sameSite: 'lax'`, `path: '/'`, `secure` when request is https, `maxAge` 30 days). `onRequest` hook rejects `/api/*` except `/api/health`, `/api/session`, `/api/login` with 401 `{code:'unauthorized'}` when the cookie is missing/invalid. When no password: everything open, `/api/session` → `{authRequired:false, authenticated:true}`.
 - Static: when `webDist` exists, register `@fastify/static` at `/`, and `setNotFoundHandler` returns `index.html` for non-`/api` GETs (SPA), JSON 404 for `/api/*`.
 - `/api/bars` dispatch: `basket:` → BasketService, else MarketDataService; `markers: []` for non-baskets.
 - `main.ts`: `loadConfig(process.env)`, `createDb`, `migrate`, `createRegistry`, services, `buildApp`, `listen({ host: '0.0.0.0', port })`, graceful shutdown on SIGINT/SIGTERM.
@@ -871,7 +871,7 @@ export async function buildApp(deps: { config: Config; repos: Repos; market: Mar
   - auth: with password → `/api/bars` 401; `/api/login` wrong → 401; right → cookie; with cookie → 200; `/api/health` open; logout clears.
   - unknown `/api/x` → 404 JSON; unknown non-api path with webDist set (point to a temp dir with index.html) → index.html.
 - [ ] **Step 2–4:** FAIL → implement → PASS + typecheck.
-- [ ] **Step 5: Smoke test live** (not part of automated suite): `ALTV_PROVIDERS=live pnpm --filter @altv/server dev`, then `curl 'localhost:8787/api/bars?symbol=stock:AAPL&tf=5m&session=eth&from=<now-2d>&to=<now>'` and the same for `crypto:BTC` 4h; confirm non-empty bars. Record the result in the task report.
+- [ ] **Step 5: Smoke test live** (not part of automated suite): `CHARTMATE_PROVIDERS=live pnpm --filter @chartmate/server dev`, then `curl 'localhost:8787/api/bars?symbol=stock:AAPL&tf=5m&session=eth&from=<now-2d>&to=<now>'` and the same for `crypto:BTC` 4h; confirm non-empty bars. Record the result in the task report.
 - [ ] **Step 6: Commit** `feat(server): HTTP API with validation, optional auth and SPA serving`.
 
 ---
@@ -916,10 +916,10 @@ UI requirements:
 - `StaleBadge`: renders "Data delayed — source unavailable" pill when `stale`.
 - `Login`: rendered by `App` when `authRequired && !authenticated`; on success reloads session.
 - App routing: simple state `view: 'chart' | 'baskets'` toggled by TopBar tabs, synced to `location.hash` (`#/baskets`).
-- `vite.config.ts`: React plugin; dev proxy `/api` → `http://localhost:8787`; alias `@altv/shared` → `../../packages/shared/src/index.ts`. Vitest env `jsdom`, setup file imports `@testing-library/jest-dom/vitest`.
+- `vite.config.ts`: React plugin; dev proxy `/api` → `http://localhost:8787`; alias `@chartmate/shared` → `../../packages/shared/src/index.ts`. Vitest env `jsdom`, setup file imports `@testing-library/jest-dom/vitest`.
 
 - [ ] **Step 1: Write failing tests**: client maps non-2xx JSON to `ApiError` with code; `layouts.get` 404 → null. SymbolSearch: typing triggers one debounced call, results render, ↓+Enter selects (calls `onSelect` with id), Escape closes, error message shown on rejection. TimeframeBar: clicking `4h` calls `onTf('4h')`; session toggle hidden when `showSession=false`. useDebouncedSave (fake timers): multiple changes within 1 s → one save with last value; unmount flushes. App: when session says authRequired & not authenticated → Login rendered.
-- [ ] **Step 2–4:** FAIL → implement → PASS; `pnpm --filter @altv/web typecheck`.
+- [ ] **Step 2–4:** FAIL → implement → PASS; `pnpm --filter @chartmate/web typecheck`.
 - [ ] **Step 5: Commit** `feat(web): app shell, API client, search and timeframe controls`.
 
 ---
@@ -977,7 +977,7 @@ export class ChartAdapter {
 
 - [ ] **Step 1: Write failing tests**: `periods` mapping for all 10 tfs. `dataLoader` (fake fetchers, fake timers): init requests `[now−window, now)` and maps fields; `more.forward` mirrors `hasMoreBefore`; forward uses `timestamp` as `to`; empty forward with hasMore retries once with 4× window; subscribe polls at `pollMs` and calls back; stale meta propagated; fetch error → `onError` and polling continues; unsubscribe stops polling; session getter read at call time. `ChartAdapter` with `vi.mock('klinecharts')` stub capturing calls: `addIndicator({pane:'main'})` passes `paneId: 'candle_pane'` and `isStack=true`; `setChartType('line')` sets candle type `area`; `serializeDrawings` excludes markers and maps `{name, points, lock, extendData→text}`; `restoreDrawings` recreates overlays with same points.
 - [ ] **Step 2–4:** FAIL → implement → PASS; typecheck.
-- [ ] **Step 5: Manual browser check** — run server (`ALTV_PROVIDERS=fixture`) + web dev; load `stock:AAPL` 5m ETH: shading visible; switch to 1D; scroll left loads older data; take a screenshot for the report.
+- [ ] **Step 5: Manual browser check** — run server (`CHARTMATE_PROVIDERS=fixture`) + web dev; load `stock:AAPL` 5m ETH: shading visible; switch to 1D; scroll left loads older data; take a screenshot for the report.
 - [ ] **Step 6: Commit** `feat(web): KLineChart adapter, data loader with polling, session shading`.
 
 ---
@@ -1086,14 +1086,14 @@ Requirements:
 - Modify: root `package.json` (add `@playwright/test@1.64.0` devDependency, `e2e` script)
 
 Requirements:
-- **Dockerfile** multi-stage on `node:22-bookworm-slim`: stage `build` — `corepack enable`, `pnpm install --frozen-lockfile`, `pnpm build`; stage `runtime` — copy `node_modules` (pruned via `pnpm deploy --filter @altv/server --prod /out`), `apps/server/dist`, `packages/shared/dist`, `apps/web/dist`; `ENV NODE_ENV=production DATABASE_URL=sqlite:/data/altv.db ALTV_WEB_DIST=/app/web`; `VOLUME /data`; `EXPOSE 8787`; non-root user; `CMD ["node","dist/main.js"]`. Healthcheck `curl`-free: `node -e "fetch('http://localhost:8787/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"`.
-- **README**: what it is; quick start local (`pnpm i && pnpm dev`, open http://localhost:5173); production local (`pnpm build && pnpm --filter @altv/server start` → http://localhost:8787); Docker (`docker build -t altv . && docker run -p 8787:8787 -v altv-data:/data altv`); hosted with Postgres + `ALTV_PASSWORD`; all env vars; data source caveats (free Yahoo limits table; Binance geo note → `CRYPTO_PROVIDER=coinbase` or `BINANCE_BASE_URL`); basket math explanation (versions, prior-close sizing, chaining, high/low approximation); adding a custom indicator (example file); v2 backlog.
-- **Playwright** config: `webServer` starts the built server in fixture mode with a temp SQLite file: command `pnpm build && ALTV_PROVIDERS=fixture DATABASE_URL=sqlite:./test-results/e2e.db PORT=8799 node apps/server/dist/main.js`, `url: http://localhost:8799/api/health`, `baseURL: http://localhost:8799`; Chromium only.
+- **Dockerfile** multi-stage on `node:22-bookworm-slim`: stage `build` — `corepack enable`, `pnpm install --frozen-lockfile`, `pnpm build`; stage `runtime` — copy `node_modules` (pruned via `pnpm deploy --filter @chartmate/server --prod /out`), `apps/server/dist`, `packages/shared/dist`, `apps/web/dist`; `ENV NODE_ENV=production DATABASE_URL=sqlite:/data/chartmate.db CHARTMATE_WEB_DIST=/app/web`; `VOLUME /data`; `EXPOSE 8787`; non-root user; `CMD ["node","dist/main.js"]`. Healthcheck `curl`-free: `node -e "fetch('http://localhost:8787/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"`.
+- **README**: what it is; quick start local (`pnpm i && pnpm dev`, open http://localhost:5173); production local (`pnpm build && pnpm --filter @chartmate/server start` → http://localhost:8787); Docker (`docker build -t chartmate . && docker run -p 8787:8787 -v chartmate-data:/data chartmate`); hosted with Postgres + `CHARTMATE_PASSWORD`; all env vars; data source caveats (free Yahoo limits table; Binance geo note → `CRYPTO_PROVIDER=coinbase` or `BINANCE_BASE_URL`); basket math explanation (versions, prior-close sizing, chaining, high/low approximation); adding a custom indicator (example file); v2 backlog.
+- **Playwright** config: `webServer` starts the built server in fixture mode with a temp SQLite file: command `pnpm build && CHARTMATE_PROVIDERS=fixture DATABASE_URL=sqlite:./test-results/e2e.db PORT=8799 node apps/server/dist/main.js`, `url: http://localhost:8799/api/health`, `baseURL: http://localhost:8799`; Chromium only.
 - **happy-path.spec.ts** (one test, serial steps):
   1. Open `/`, search "AAPL", select → canvas visible; header shows AAPL.
   2. Click `1h`, toggle ETH → no error toast.
   3. Open indicator picker, add RSI → indicator chip "RSI" visible.
-  4. Select Horizontal line tool, click on chart → drawing created (assert via `window.__altv.drawingsCount()` debug hook exposed only when `import.meta.env.MODE !== 'production'` **or** via API: wait for `PUT /api/drawings/stock:AAPL` response and check body length 1 — use the API approach, no debug hook).
+  4. Select Horizontal line tool, click on chart → drawing created (assert via `window.__chartmate.drawingsCount()` debug hook exposed only when `import.meta.env.MODE !== 'production'` **or** via API: wait for `PUT /api/drawings/stock:AAPL` response and check body length 1 — use the API approach, no debug hook).
   5. Reload → RSI chip still visible; `GET /api/drawings/stock:AAPL` returns 1 drawing.
   6. Go to Baskets, create "E2E Basket" 50% AAPL / 50% BTC, T0 2024-01-02, save → appears in list; Open chart → `/api/bars?symbol=basket:` response has bars > 0.
   7. Edit → change weights 100% BTC effective today−1… (must be > T0 and ≤ today) → save; chart reload shows marker request (`/api/bars` response `markers.length ≥ 1`).
@@ -1101,7 +1101,7 @@ Requirements:
 
 - [ ] **Step 1:** Write Dockerfile, README, Playwright config + spec.
 - [ ] **Step 2:** Run `pnpm e2e` → PASS (fix app bugs found, with unit tests for each fix).
-- [ ] **Step 3:** `docker build -t altv .` → success; `docker run -d --rm -p 8788:8787 --name altv-smoke altv`; `curl localhost:8788/api/health` → `{"ok":true}`; `curl localhost:8788/` returns HTML; `docker stop altv-smoke`.
+- [ ] **Step 3:** `docker build -t chartmate .` → success; `docker run -d --rm -p 8788:8787 --name chartmate-smoke chartmate`; `curl localhost:8788/api/health` → `{"ok":true}`; `curl localhost:8788/` returns HTML; `docker stop chartmate-smoke`.
 - [ ] **Step 4: Commit** `chore: docker image, README and e2e happy path`.
 
 ---
@@ -1109,7 +1109,7 @@ Requirements:
 ### Task 16: Final verification (live data + Postgres)
 
 - [ ] **Step 1:** `pnpm -r typecheck && pnpm test` → all green. Record counts.
-- [ ] **Step 2:** Postgres: start `postgres:17-alpine` in Docker; `TEST_PG_URL=… pnpm --filter @altv/server test` → green; run the server against it (`DATABASE_URL=postgres://…`) in fixture mode and hit `/api/bars` + create a basket.
-- [ ] **Step 3: Live providers smoke** (`ALTV_PROVIDERS=live`, built server): via browser — AAPL 5m ETH (pre/post shaded), SPY 1W, BTC 4h, ETH 1m; create basket "Live Mix" 40% SPY / 30% QQQ / 30% BTC from 2023-01-03, open on 1D and 1h; add a version effective yesterday; verify marker and continuity; watchlist quotes update. Screenshots.
+- [ ] **Step 2:** Postgres: start `postgres:17-alpine` in Docker; `TEST_PG_URL=… pnpm --filter @chartmate/server test` → green; run the server against it (`DATABASE_URL=postgres://…`) in fixture mode and hit `/api/bars` + create a basket.
+- [ ] **Step 3: Live providers smoke** (`CHARTMATE_PROVIDERS=live`, built server): via browser — AAPL 5m ETH (pre/post shaded), SPY 1W, BTC 4h, ETH 1m; create basket "Live Mix" 40% SPY / 30% QQQ / 30% BTC from 2023-01-03, open on 1D and 1h; add a version effective yesterday; verify marker and continuity; watchlist quotes update. Screenshots.
 - [ ] **Step 4:** Whole-branch code review (subagent), fix findings, re-run all tests.
 - [ ] **Step 5: Commit** any fixes; final `git log` summary.

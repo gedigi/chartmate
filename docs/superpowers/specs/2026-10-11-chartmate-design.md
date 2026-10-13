@@ -1,4 +1,4 @@
-# altv — Design Spec
+# Chartmate — Design Spec
 
 Date: 2026-10-11
 Status: Draft, awaiting review
@@ -117,7 +117,7 @@ GET/PUT /api/drawings/:symbol
 Baskets are served from `/api/bars` with `symbol=basket:<id>`; the client does not special-case them for
 charting. Errors use a uniform `{ code, message }` body. Responses for stale data include a `stale: true` flag.
 
-Hosted auth: if `ALTV_PASSWORD` is set, a login page issues an HTTP-only session cookie; all `/api` routes require
+Hosted auth: if `CHARTMATE_PASSWORD` is set, a login page issues an HTTP-only session cookie; all `/api` routes require
 it. Unset → no auth (local mode).
 
 ## 4. Basket engine
