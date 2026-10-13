@@ -3,9 +3,9 @@ import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8'); // vitest runs with apps/web as cwd
-const inline = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
-// Executes the (trusted, repo-owned) inline script under test.
-const run = () => { new Function(inline)(); };
+const script = readFileSync(resolve(process.cwd(), 'public/theme-init.js'), 'utf8');
+// Executes the (trusted, repo-owned) pre-paint script under test.
+const run = () => { new Function(script)(); };
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -14,9 +14,18 @@ afterEach(() => {
 });
 
 describe('index.html pre-paint theme script', () => {
-  it('lives in <head>, before the app module', () => {
-    expect(inline).toContain("localStorage.getItem('altv.theme')");
-    expect(html.indexOf('<script>')).toBeLessThan(html.indexOf('</head>'));
+  it('is a classic (blocking) external script in <head>, before the app module', () => {
+    expect(script).toContain("localStorage.getItem('altv.theme')");
+    const tag = html.indexOf('<script src="/theme-init.js"></script>');
+    expect(tag).toBeGreaterThan(-1);
+    expect(tag).toBeLessThan(html.indexOf('</head>'));
+    expect(tag).toBeLessThan(html.indexOf('type="module"'));
+  });
+
+  it('has no inline scripts or inline styles (strict CSP: no unsafe-inline)', () => {
+    expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/);
+    expect(html).not.toMatch(/<style[\s>]/);
+    expect(html).not.toMatch(/\sstyle=/);
   });
 
   it('applies the saved light theme', () => {
