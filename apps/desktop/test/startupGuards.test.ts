@@ -60,11 +60,11 @@ describe('findForbiddenSwitches', () => {
 
 describe('findForbiddenEnv', () => {
   it('reports proxy/CA/key-log variables that are set (non-empty)', () => {
-    expect(FORBIDDEN_ENV_VARS).toEqual(['NODE_USE_ENV_PROXY', 'NODE_USE_SYSTEM_CA', 'NODE_EXTRA_CA_CERTS', 'SSLKEYLOGFILE']);
+    expect(FORBIDDEN_ENV_VARS).toEqual(['NODE_USE_ENV_PROXY', 'NODE_EXTRA_CA_CERTS', 'SSLKEYLOGFILE']);
     expect(findForbiddenEnv({ HOME: '/x', HTTPS_PROXY: 'http://p' })).toEqual([]);
     expect(findForbiddenEnv({ NODE_USE_ENV_PROXY: '1', SSLKEYLOGFILE: '/tmp/k', NODE_EXTRA_CA_CERTS: ' ' }))
       .toEqual(['NODE_USE_ENV_PROXY', 'SSLKEYLOGFILE']);
-    expect(findForbiddenEnv({ NODE_USE_SYSTEM_CA: '1', NODE_EXTRA_CA_CERTS: '/tmp/ca.pem' })).toEqual(['NODE_USE_SYSTEM_CA', 'NODE_EXTRA_CA_CERTS']);
+    expect(findForbiddenEnv({ NODE_USE_SYSTEM_CA: '1', NODE_EXTRA_CA_CERTS: '/tmp/ca.pem' })).toEqual(['NODE_EXTRA_CA_CERTS']);
   });
 });
 

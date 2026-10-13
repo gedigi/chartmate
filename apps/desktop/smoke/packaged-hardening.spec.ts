@@ -178,7 +178,7 @@ test('switch guard (Windows): /switch syntax is refused too', async () => {
 });
 
 test('environment guard: proxy/system-CA/TLS-key-log variables are refused', async () => {
-  for (const [k, v] of [['NODE_USE_ENV_PROXY', '1'], ['NODE_USE_SYSTEM_CA', '1'], ['SSLKEYLOGFILE', join(tmpdir(), 'keys.log')]] as const) {
+  for (const [k, v] of [['NODE_USE_ENV_PROXY', '1'], ['SSLKEYLOGFILE', join(tmpdir(), 'keys.log')]] as const) {
     await expectRefused([], { [k]: v }, new RegExp(`forbidden environment variable\\(s\\): ${k}`));
   }
 });

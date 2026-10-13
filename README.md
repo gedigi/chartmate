@@ -548,9 +548,9 @@ Environment overrides the desktop app honors:
 - `BINANCE_BASE_URL` (https only);
 - `CHARTMATE_DISABLE_UPDATES=1`.
 
-A packaged build **refuses to start** if `NODE_USE_ENV_PROXY`, `NODE_USE_SYSTEM_CA` or `SSLKEYLOGFILE` is set.
-Node applies the first two during pre-execution, before any app code runs, so the app cannot undo them, and the
-last one would let TLS session keys be logged.
+A packaged build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY` or `SSLKEYLOGFILE` is set.
+Node applies the first during pre-execution, before any app code runs, so the app cannot undo it, and the second
+would let TLS session keys be logged. `NODE_USE_SYSTEM_CA` is allowed: provider requests ignore it (see below).
 
 `NODE_EXTRA_CA_CERTS` is dropped by Electron itself: the `EnableNodeOptionsEnvironmentVariable` fuse covers it
 along with `NODE_OPTIONS`. The guard still refuses it if it ever got through.
