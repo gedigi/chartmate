@@ -299,6 +299,11 @@ pnpm e2e         # Playwright end-to-end test (Chromium)
 no network) with a fresh SQLite file under `test-results/`, and runs `e2e/tests/`. The first time, install
 the browser with `pnpm exec playwright install chromium`.
 
+Set `E2E_PORT` to run on another port, e.g. `E2E_PORT=8873 pnpm e2e`. The database
+(`test-results/e2e-<port>.db`) and the results folder (`test-results/e2e-<port>/`) are named after the port.
+Runs that happen at the same time (several worktrees or checkouts) therefore cannot collide as long as each
+uses its own port. The run fails if the port is already in use.
+
 ## Roadmap (v2 backlog)
 
 - Compare/overlay another symbol on the same chart
