@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contrastRatio, DARK_TEXT, LIGHT_TEXT, readableTextOn, readableTextOnAll, relativeLuminance } from '../../src/chart/contrast';
+import { contrastRatio, DARK_TEXT, LIGHT_TEXT, MIN_TEXT_CONTRAST, readableTextOn, readableTextOnAll, relativeLuminance } from '../../src/chart/contrast';
 
 describe('contrast helpers', () => {
   it('relative luminance follows WCAG (black 0, white 1)', () => {
@@ -14,26 +14,40 @@ describe('contrast helpers', () => {
     expect(contrastRatio('#e63b7a', '#e63b7a')).toBe(1);
   });
 
-  it('readableTextOn picks the text colour with the higher contrast', () => {
+  it('readableTextOn keeps white while it reaches 3:1, else picks the higher-contrast colour', () => {
     expect(LIGHT_TEXT).toBe('#ffffff');
     expect(DARK_TEXT).toBe('#131722');
+    expect(MIN_TEXT_CONTRAST).toBe(3);
     expect(readableTextOn('#ffffff')).toBe(DARK_TEXT);
     expect(readableTextOn('#000000')).toBe(LIGHT_TEXT);
     expect(readableTextOn('#ffff00')).toBe(DARK_TEXT); // bright yellow
     expect(readableTextOn('#2962ff')).toBe(LIGHT_TEXT); // accent blue
-    expect(readableTextOn('#26a69a')).toBe(DARK_TEXT); // default up green: dark text reads better
-    expect(readableTextOn('#ef5350')).toBe(DARK_TEXT);
     expect(readableTextOn('#363a45')).toBe(LIGHT_TEXT); // dark crosshair background
-    expect(readableTextOn('#808080')).toBe(DARK_TEXT); // mid grey
-    expect(readableTextOn('#595959')).toBe(LIGHT_TEXT);
+    // White reaches 3:1 here although dark contrasts more: white is kept (TradingView-style labels).
+    expect(readableTextOn('#808080')).toBe(LIGHT_TEXT); // mid grey: white 3.95, dark 4.53
+    expect(readableTextOn('#ef5350')).toBe(LIGHT_TEXT); // white 3.49, dark 5.13
+    expect(readableTextOn('#26a69a')).toBe(LIGHT_TEXT); // white 2.9985 → 3.00 at two decimals
+    // Below 3:1 for white: the better of the two.
+    expect(readableTextOn('#2ba89c')).toBe(DARK_TEXT); // white 2.92
+    expect(readableTextOn('#a0a0a0')).toBe(DARK_TEXT); // white 2.62
     expect(readableTextOn('#FFFFFF')).toBe(DARK_TEXT); // case-insensitive
   });
 
-  it('readableTextOnAll maximises the worst-case contrast over several backgrounds', () => {
+  it('readableTextOnAll applies the rule to the worst case over several backgrounds', () => {
+    // Default last-price label colours (up / down / unchanged) of each theme: white text.
+    expect(readableTextOnAll(['#26a69a', '#ef5350', '#868b98'])).toBe(LIGHT_TEXT);
+    expect(readableTextOnAll(['#089981', '#f23645', '#6a6d78'])).toBe(LIGHT_TEXT);
     // The user's colours: white up, pink down. White text would vanish on the up label.
     expect(readableTextOnAll(['#ffffff', '#e63b7a'])).toBe(DARK_TEXT);
     expect(readableTextOnAll(['#000000', '#1a237e'])).toBe(LIGHT_TEXT);
     expect(readableTextOnAll(['#ffffff'])).toBe(readableTextOn('#ffffff'));
+  });
+
+  it('a preferred colour other than white is kept while it reaches 3:1 (e.g. muted marker text)', () => {
+    expect(readableTextOnAll(['#131722'], '#868b98')).toBe('#868b98');
+    expect(readableTextOnAll(['#ffffff'], '#6a6d78')).toBe('#6a6d78');
+    expect(readableTextOnAll(['#131722'], '#1a1e2a')).toBe(LIGHT_TEXT);
+    expect(readableTextOnAll(['#ffffff'], '#eeeeee')).toBe(DARK_TEXT);
   });
 
   it('non-hex inputs fall back to light text without throwing', () => {

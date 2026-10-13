@@ -11,8 +11,14 @@ export type ThemeName = 'dark' | 'light';
  * keeps them equal to styles.css. `grid` and `crossBg` are chart-only.
  */
 export const THEME_TOKENS = {
-  dark: { bg: '#131722', panel: '#1e222d', elevated: '#2a2e39', border: '#363a45', grid: '#1f2330', text: '#d1d4dc', muted: '#868b98', accent: '#2962ff', crossBg: '#363a45' },
-  light: { bg: '#ffffff', panel: '#f8f9fd', elevated: '#ffffff', border: '#e0e3eb', grid: '#f0f3fa', text: '#131722', muted: '#6a6d78', accent: '#2962ff', crossBg: '#131722' },
+  dark: {
+    bg: '#131722', panel: '#1e222d', elevated: '#2a2e39', border: '#363a45', grid: '#1f2330', text: '#d1d4dc', muted: '#868b98', accent: '#2962ff',
+    up: '#26a69a', down: '#ef5350', crossBg: '#363a45',
+  },
+  light: {
+    bg: '#ffffff', panel: '#f8f9fd', elevated: '#ffffff', border: '#e0e3eb', grid: '#f0f3fa', text: '#131722', muted: '#6a6d78', accent: '#2962ff',
+    up: '#089981', down: '#f23645', crossBg: '#131722',
+  },
 } as const;
 
 type ThemeTokens = { -readonly [K in keyof typeof THEME_TOKENS.dark]: string };
@@ -20,6 +26,7 @@ type ThemeTokens = { -readonly [K in keyof typeof THEME_TOKENS.dark]: string };
 /** Chart token → CSS custom property in styles.css. */
 export const THEME_CSS_VARS: Readonly<Partial<Record<keyof ThemeTokens, string>>> = {
   bg: '--bg', panel: '--bg-panel', elevated: '--bg-elevated', border: '--border', text: '--text', muted: '--text-muted', accent: '--accent',
+  up: '--up', down: '--down',
 };
 
 const live: Partial<Record<ThemeName, ThemeTokens>> = {};
@@ -55,17 +62,14 @@ export function refreshThemeTokens(theme: ThemeName): void {
   live[theme] = next;
 }
 
-export const UP = '#26a69a';
-export const DOWN = '#ef5350';
-
 /** Every appearance field resolved (unset fields follow the theme). */
 export interface ResolvedAppearance {
   upColor: string; downColor: string; candleBody: CandleBodyStyle; lineColor: string; lineWidth: number; drawing: DrawingLineStyle;
 }
 
 export function defaultAppearance(theme: ThemeName): ResolvedAppearance {
-  const accent = themeTokens(theme).accent;
-  return { upColor: UP, downColor: DOWN, candleBody: 'solid', lineColor: accent, lineWidth: 2, drawing: { color: accent, size: 1, style: 'solid' } };
+  const { accent, up, down } = themeTokens(theme);
+  return { upColor: up, downColor: down, candleBody: 'solid', lineColor: accent, lineWidth: 2, drawing: { color: accent, size: 1, style: 'solid' } };
 }
 
 /** The active theme's appearance with every unset field filled from that theme's defaults. */
@@ -144,8 +148,8 @@ export function candleStyles(type: ChartType, theme: ThemeName, appearance: Them
 
 /**
  * KLineChart fills the last-price label with the up / down / no-change colour but draws its text in a single
- * colour, so the text cannot follow the bar direction: take the one (white or dark) whose worst-case contrast
- * over the three label colours is highest.
+ * colour, so the text cannot follow the bar direction: white while its worst-case contrast over the three
+ * label colours is at least 3:1, else whichever of white / dark has the higher worst case.
  */
 export function lastPriceTextColour(up: string, down: string, noChange: string): string {
   return readableTextOnAll([up, down, noChange]);
@@ -166,14 +170,14 @@ export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
     },
     candle: {
       bar: {
-        upColor: UP, downColor: DOWN, noChangeColor: t.muted,
-        upBorderColor: UP, downBorderColor: DOWN, noChangeBorderColor: t.muted,
-        upWickColor: UP, downWickColor: DOWN, noChangeWickColor: t.muted,
+        upColor: t.up, downColor: t.down, noChangeColor: t.muted,
+        upBorderColor: t.up, downBorderColor: t.down, noChangeBorderColor: t.muted,
+        upWickColor: t.up, downWickColor: t.down, noChangeWickColor: t.muted,
       },
       priceMark: {
         high: { color: t.muted },
         low: { color: t.muted },
-        last: { upColor: UP, downColor: DOWN, noChangeColor: t.muted, text: { color: lastPriceTextColour(UP, DOWN, t.muted) } },
+        last: { upColor: t.up, downColor: t.down, noChangeColor: t.muted, text: { color: lastPriceTextColour(t.up, t.down, t.muted) } },
       },
       tooltip: { title: { color: t.text, template: '{displayName} · {tf}' }, legend: { color: t.muted } },
     },

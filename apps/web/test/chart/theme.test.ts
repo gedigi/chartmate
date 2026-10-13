@@ -5,25 +5,41 @@ import { contrastRatio, DARK_TEXT, LIGHT_TEXT } from '../../src/chart/contrast';
 import { textToOverlay } from '../../src/chart/drawingStyles';
 import { markerStyles } from '../../src/chart/markers';
 import {
-  candleStyles, chartStyles, DOWN, overlayStyles, refreshThemeTokens, resolveAppearance, THEME_CSS_VARS, THEME_TOKENS, themeTokens, UP,
+  candleStyles, chartStyles, defaultAppearance, overlayStyles, refreshThemeTokens, resolveAppearance, THEME_CSS_VARS, THEME_TOKENS, themeTokens,
 } from '../../src/chart/theme';
 
 describe('resolveAppearance', () => {
   it('fills unset fields with theme defaults', () => {
     for (const theme of ['dark', 'light'] as const) {
       expect(resolveAppearance(theme, undefined)).toEqual({
-        upColor: UP, downColor: DOWN, candleBody: 'solid', lineColor: THEME_TOKENS[theme].accent, lineWidth: 2,
+        upColor: THEME_TOKENS[theme].up, downColor: THEME_TOKENS[theme].down, candleBody: 'solid', lineColor: THEME_TOKENS[theme].accent, lineWidth: 2,
         drawing: { color: THEME_TOKENS[theme].accent, size: 1, style: 'solid' },
       });
     }
-    expect(resolveAppearance('dark', { dark: { upColor: '#00ff00', lineWidth: 4 } })).toMatchObject({ upColor: '#00ff00', downColor: DOWN, lineWidth: 4 });
+    expect(resolveAppearance('dark', { dark: { upColor: '#00ff00', lineWidth: 4 } })).toMatchObject({ upColor: '#00ff00', downColor: '#ef5350', lineWidth: 4 });
   });
 
   it('picks the active theme\'s settings; the other theme keeps its defaults', () => {
     const a = { dark: { upColor: '#ffffff' }, light: { downColor: '#000000' } };
-    expect(resolveAppearance('dark', a)).toMatchObject({ upColor: '#ffffff', downColor: DOWN });
-    expect(resolveAppearance('light', a)).toMatchObject({ upColor: UP, downColor: '#000000' });
+    expect(resolveAppearance('dark', a)).toMatchObject({ upColor: '#ffffff', downColor: '#ef5350' });
+    expect(resolveAppearance('light', a)).toMatchObject({ upColor: '#089981', downColor: '#000000' });
     expect(resolveAppearance('light', { dark: { upColor: '#ffffff' } })).toEqual(resolveAppearance('light', undefined));
+  });
+});
+
+describe('per-theme default candle colours (match the --up / --down CSS tokens)', () => {
+  it('dark #26a69a / #ef5350, light #089981 / #f23645', () => {
+    expect(THEME_TOKENS.dark).toMatchObject({ up: '#26a69a', down: '#ef5350' });
+    expect(THEME_TOKENS.light).toMatchObject({ up: '#089981', down: '#f23645' });
+    expect(THEME_CSS_VARS).toMatchObject({ up: '--up', down: '--down' });
+    for (const theme of ['dark', 'light'] as const) {
+      const { up, down } = THEME_TOKENS[theme];
+      expect(defaultAppearance(theme)).toMatchObject({ upColor: up, downColor: down });
+      expect(chartStyles(theme).candle?.bar).toMatchObject({ upColor: up, downColor: down, upWickColor: up, downBorderColor: down });
+      expect(chartStyles(theme).candle?.priceMark?.last).toMatchObject({ upColor: up, downColor: down });
+      expect(candleStyles('candle', theme, undefined).bar).toMatchObject({ upColor: up, downColor: down });
+      expect(candleStyles('candle', theme, undefined).priceMark?.last).toMatchObject({ upColor: up, downColor: down });
+    }
   });
 });
 
@@ -72,6 +88,13 @@ describe('readable label text', () => {
     }
   });
 
+  it('the default last price label keeps white text in both themes (TradingView-style)', () => {
+    for (const theme of ['dark', 'light'] as const) {
+      expect(lastText(theme, undefined)).toBe(LIGHT_TEXT);
+      expect(chartStyles(theme).candle?.priceMark?.last?.text?.color).toBe(LIGHT_TEXT);
+    }
+  });
+
   it('the last price label text is light on dark label colours', () => {
     expect(lastText('dark', { dark: { upColor: '#000000', downColor: '#1a237e' } })).toBe(LIGHT_TEXT);
   });
@@ -96,6 +119,22 @@ describe('readable label text', () => {
       const m = markerStyles(theme).text!;
       expect(m.backgroundColor).toBe('rgba(0,0,0,0)');
       expect(contrastRatio(m.color!, t.bg)).toBeGreaterThanOrEqual(3);
+      expect(m.color).toBe(t.muted); // muted is kept while it reads
+      expect(cross.color).toBe(LIGHT_TEXT);
+    }
+  });
+
+  it('marker text falls back to white / dark when the muted colour would not read on the background', () => {
+    const root = document.documentElement;
+    root.dataset['theme'] = 'dark';
+    root.style.setProperty('--text-muted', '#1a1e2a');
+    try {
+      refreshThemeTokens('dark');
+      expect(markerStyles('dark').text?.color).toBe(LIGHT_TEXT);
+    } finally {
+      root.style.removeProperty('--text-muted');
+      delete root.dataset['theme'];
+      refreshThemeTokens('dark');
     }
   });
 });

@@ -566,7 +566,7 @@ describe('ChartAdapter', () => {
       expect(s.grid).toBeDefined(); // theme styles are kept
       a.setTheme('light'); // the light theme's own settings apply live
       s = chart().setStyles.mock.calls.at(-1)![0];
-      expect(s.candle).toMatchObject({ type: 'candle_stroke', bar: { upColor: '#010203', downColor: '#ef5350' } });
+      expect(s.candle).toMatchObject({ type: 'candle_stroke', bar: { upColor: '#010203', downColor: '#f23645' } }); // light default down
       a.setTheme('dark');
       s = chart().setStyles.mock.calls.at(-1)![0];
       expect(s.candle).toMatchObject({ bar: { upColor: '#00ff00' } });
@@ -587,7 +587,7 @@ describe('ChartAdapter', () => {
       expect(s.overlay.text).toMatchObject({ backgroundColor: '#ffffff', color: '#131722' });
       a.setTheme('light');
       s = chart().setStyles.mock.calls.at(-1)![0];
-      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#26a69a', downColor: '#ef5350' });
+      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#089981', downColor: '#f23645', text: { color: '#ffffff' } });
       expect(s.overlay.line).toMatchObject({ color: '#2962ff' });
     });
   });

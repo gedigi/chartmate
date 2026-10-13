@@ -3,7 +3,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { DOWN, THEME_TOKENS, UP } from '../src/chart/theme';
+import { THEME_TOKENS } from '../src/chart/theme';
+
+const UP = THEME_TOKENS.dark.up;
+const DOWN = THEME_TOKENS.dark.down;
 import { ChartAppearanceDialog } from '../src/components/ChartAppearanceDialog';
 import { TopBar } from '../src/components/TopBar';
 
@@ -94,7 +97,7 @@ describe('TopBar chart appearance button', () => {
     const { rerender } = render(<TopBar {...props} layout={current} theme="light" setLayout={setLayout} />);
     await userEvent.click(screen.getByRole('button', { name: 'Chart appearance' }));
     expect(screen.getByText('Light theme')).toBeInTheDocument();
-    expect(screen.getByLabelText('Up colour')).toHaveValue(UP); // the dark theme's white is not used here
+    expect(screen.getByLabelText('Up colour')).toHaveValue('#089981'); // light default; the dark theme's white is not used here
     fireEvent.input(screen.getByLabelText('Down colour'), { target: { value: '#ff00ff' } });
     expect(current.appearance).toEqual({ dark: { upColor: '#ffffff' }, light: { downColor: '#ff00ff' } });
     rerender(<TopBar {...props} layout={current} theme="light" setLayout={setLayout} />);
