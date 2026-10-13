@@ -190,7 +190,8 @@ describe('ChartAdapter long / short positions', () => {
       id: userOverlays()[0]!.id, kind: 'position', side: 'long', locked: false, entry: 100, target: 100.5, stop: 98, precision: 2,
       settings: defaults, metrics: { qty: 50, riskAmount: 100, rewardAmount: 25, rr: 0.25, targetPct: 0.5, stopPct: 2 },
       // Bar 2 (high 101) reaches the target.
-      outcome: { kind: 'target', ts: D1 + DAY, price: 100.5, pnl: 25, pnlPct: 0.5 },
+      // Filled on the start bar (it touches 100); bar 2 (high 101) then reaches the target.
+      outcome: { kind: 'target', fillTs: D1, ts: D1 + DAY, price: 100.5, pnl: 25, pnlPct: 0.5 },
     });
   });
 
@@ -269,5 +270,61 @@ describe('ChartAdapter long / short positions', () => {
     expect(positionContext.colors.up).toBe('#089981');
     a.setPositionDefaults(undefined);
     expect(positionContext.defaults).toEqual({ accountSize: 10000, riskMode: 'percent', riskValue: 1, currency: 'USD' });
+  });
+
+  it('a position starting before the loaded bars: "needs earlier data" while older pages exist, which are requested', async () => {
+    const a = await loadAt(BTC, '1D');
+    const store = { _dataLoadMore: { forward: true }, _processDataLoad: vi.fn() };
+    (chart() as unknown as { getChartStore: () => typeof store }).getChartStore = () => store;
+    a.restoreDrawings([{ name: 'longPosition', points: position({ start: D1 - 10 * DAY, end: D1 + 2 * DAY }), lock: false }]);
+    select(userOverlays()[0]!);
+    expect(a.getSelectedDrawing()).toMatchObject({ outcome: { kind: 'needsData' } });
+    expect(store._processDataLoad).toHaveBeenCalledWith('forward');
+    // The older page arrives (KLineChart prepends it): recomputed, and no further page is needed.
+    vi.spyOn(api, 'bars').mockResolvedValue({
+      symbol: BTC.id, tf: '1D', session: 'rth', hasMoreBefore: false, stale: false, notices: [], markers: [],
+      bars: [{ ts: D1 - 10 * DAY, open: 100, high: 100.5, low: 99.5, close: 100, volume: 1 }],
+    });
+    const selection = vi.fn();
+    a.onSelectionChange(selection);
+    store._processDataLoad.mockClear();
+    const loader = chart().setDataLoader.mock.calls.at(-1)![0] as { getBars: (p: unknown) => Promise<void> };
+    await loader.getBars({
+      type: 'forward', timestamp: D1, symbol: { ticker: BTC.id }, period: { type: 'day', span: 1 },
+      callback: (d: Array<{ timestamp: number; high: number }>) => { chart().data.unshift(...(d as never[])); store._dataLoadMore.forward = false; },
+    });
+    expect(selection).toHaveBeenLastCalledWith(expect.objectContaining({ outcome: expect.objectContaining({ kind: 'ended', fillTs: D1 - 10 * DAY }) }));
+    expect(store._processDataLoad).not.toHaveBeenCalled();
+  });
+
+  it('older pages are requested a bounded number of times per load', async () => {
+    const a = await loadAt(BTC, '1D');
+    const store = { _dataLoadMore: { forward: true }, _processDataLoad: vi.fn() };
+    (chart() as unknown as { getChartStore: () => typeof store }).getChartStore = () => store;
+    a.restoreDrawings([{ name: 'longPosition', points: position({ start: D1 - 1000 * DAY }), lock: false }]);
+    const loader = chart().setDataLoader.mock.calls.at(-1)![0] as { getBars: (p: unknown) => Promise<void> };
+    vi.spyOn(api, 'bars').mockResolvedValue({ symbol: BTC.id, tf: '1D', session: 'rth', hasMoreBefore: true, stale: false, notices: [], markers: [], bars: [] });
+    for (let i = 0; i < 100; i++) {
+      await loader.getBars({ type: 'forward', timestamp: D1, symbol: { ticker: BTC.id }, period: { type: 'day', span: 1 }, callback: () => {} });
+    }
+    expect(store._processDataLoad.mock.calls.length).toBeLessThanOrEqual(40);
+  });
+
+  it('bar helpers in the overlay context use the loaded bars: next bar, shift by bars, default end', async () => {
+    await loadAt(AAPL, '1D');
+    expect(positionContext.minEnd(D1 + 4 * DAY)).toBe(D1 + 5 * DAY);
+    expect(positionContext.minEnd(D1)).toBe(D1 + DAY);
+    expect(positionContext.shiftEnd(D1 + 3 * DAY, D1, D1 + DAY)).toBe(D1 + 4 * DAY);
+    expect(positionContext.endFor(D1)).toBe(D1 + 20 * DAY);
+  });
+
+  it('a whole-position drag that takes a price to zero or below is undone', async () => {
+    const a = await loadAt(AAPL, '1D');
+    a.restoreDrawings([{ name: 'longPosition', points: position(), lock: false }]);
+    const o = userOverlays()[0]! as Pressable;
+    o.onPressedMoveStart?.({ overlay: o });
+    o.points = position({ entry: 1, target: 3, stop: -1 });
+    o.onPressedMoveEnd?.({ overlay: o });
+    expect(a.serializeDrawings()[0]!.points).toEqual(position());
   });
 });

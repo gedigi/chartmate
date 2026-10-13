@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  centreLabel, defaultGeometry, distancePct, distanceTicks, endAfterBars, evaluateOutcome, formatAmount, fromPositionPoints,
-  outcomeLabel, positionMetrics, pressedMove, priceFromPct, priceFromTicks, qtyDecimals, riskAmount, sideOf, stopLabel, targetLabel,
+  centreLabel, defaultGeometry, distancePct, distanceTicks, endAfterBars, evaluateOutcome, formatAmount, formatPct, fromPositionPoints,
+  nextBarTime, outcomeLabel, positionMetrics, pressedMove, shiftByBars, priceFromPct, priceFromTicks, qtyDecimals, riskAmount, sideOf, stopLabel, targetLabel,
   toPositionPoints, validatePrices, type PositionGeometry,
 } from '../../src/chart/position';
 
@@ -99,124 +99,206 @@ describe('labels', () => {
 
   it('amounts keep two decimals with thousands separators', () => {
     expect(formatAmount(1234.5, 'EUR')).toBe('+1,234.50 EUR');
-    expect(formatAmount(-0.004, 'USD')).toBe('-0.00 USD');
+    expect(formatAmount(-0.004, 'USD')).toBe('+0.00 USD'); // no "-0.00"
+    expect(formatAmount(-0, 'USD')).toBe('+0.00 USD');
+    expect(formatPct(-0)).toBe('+0.00%');
+    expect(formatPct(-0.001)).toBe('+0.00%');
   });
 });
 
-describe('outcome (bars of the displayed timeframe after the entry, up to the end)', () => {
-  const bar = (i: number, high: number, low: number, close = (high + low) / 2) => ({ timestamp: T0 + i * DAY, high, low, close });
+describe('outcome: fill on entry touch, then target / stop on the following bars', () => {
+  // bar(i, open, high, low, close): bar i days after T0.
+  const bar = (i: number, open: number, high: number, low: number, close = (high + low) / 2) => ({ timestamp: T0 + i * DAY, open, high, low, close });
+  const opts = { historyComplete: true };
 
-  it('target hit (long): first bar whose high reaches the target', () => {
-    const bars = [bar(0, 103, 90), bar(1, 101, 99), bar(2, 102.5, 99.5), bar(3, 90, 80)];
-    expect(evaluateOutcome(bars, 'long', g, 50)).toEqual({ kind: 'target', ts: T0 + 2 * DAY, price: 102, pnl: 100, pnlPct: 2 });
+  it('fills on the first bar at or after the start whose range touches the entry; hits are checked from the next bar', () => {
+    // Bar 0 touches 100 and also reaches the target: intrabar order unknown, the target counts on later bars only.
+    const bars = [bar(0, 99, 103, 99.5), bar(1, 101, 101.5, 99.5), bar(2, 101, 102.5, 100.5), bar(3, 90, 91, 80)];
+    expect(evaluateOutcome(bars, 'long', g, 50, opts)).toEqual({ kind: 'target', fillTs: T0, ts: T0 + 2 * DAY, price: 102, pnl: 100, pnlPct: 2 });
   });
 
-  it('stop hit (long), and the entry bar itself is not evaluated', () => {
-    const bars = [bar(0, 120, 50), bar(1, 101, 97.5)];
-    expect(evaluateOutcome(bars, 'long', g, 50)).toEqual({ kind: 'stop', ts: T0 + DAY, price: 98, pnl: -100, pnlPct: -2 });
+  it('waits for the entry: bars that never touch it, and a bar that only contains the start (began before it), do not fill', () => {
+    const mid = { ...g, start: T0 + DAY / 2 };
+    // Bar 0 began before the start → excluded; bar 1 does not touch 100.
+    const bars = [bar(0, 100, 101, 99), bar(1, 105, 106, 104)];
+    expect(evaluateOutcome(bars, 'long', mid, 50, opts)).toEqual({ kind: 'waiting' });
+    expect(evaluateOutcome([], 'long', g, 50, opts)).toEqual({ kind: 'waiting' });
+    expect(evaluateOutcome([bar(-1, 100, 101, 99)], 'long', g, 50, opts)).toEqual({ kind: 'waiting' }); // future start
   });
 
-  it('both levels inside the same bar → stop first (conservative)', () => {
-    expect(evaluateOutcome([bar(1, 103, 97)], 'long', g, 50)).toMatchObject({ kind: 'stop' });
-    expect(evaluateOutcome([bar(1, 103, 97)], 'short', short, 50)).toMatchObject({ kind: 'stop', pnl: -100 });
+  it('range over without touching the entry: unfilled', () => {
+    expect(evaluateOutcome([bar(1, 105, 106, 104), bar(21, 100, 101, 99)], 'long', g, 50, opts)).toEqual({ kind: 'unfilled' });
   });
 
-  it('short side: target when the low reaches it, stop when the high does', () => {
-    expect(evaluateOutcome([bar(1, 100.5, 97.9)], 'short', short, 50)).toEqual({ kind: 'target', ts: T0 + DAY, price: 98, pnl: 100, pnlPct: 2 });
-    expect(evaluateOutcome([bar(1, 102, 99)], 'short', short, 50)).toMatchObject({ kind: 'stop', price: 102, pnl: -100, pnlPct: -2 });
+  it('needs earlier data when the start lies before the first loaded bar and older bars exist', () => {
+    const bars = [bar(5, 100, 101, 99), bar(6, 100, 103, 99.5)];
+    expect(evaluateOutcome(bars, 'long', g, 50, { historyComplete: false })).toEqual({ kind: 'needsData' });
+    expect(evaluateOutcome(bars, 'long', g, 50)).toEqual({ kind: 'needsData' }); // unknown → assume more exists
+    // No older data at all (provider limit): evaluated on what exists.
+    expect(evaluateOutcome(bars, 'long', g, 50, opts)).toMatchObject({ kind: 'target', fillTs: T0 + 5 * DAY });
   });
 
-  it('no hit while the last bar is inside the range: open with the P&L at the last close', () => {
-    const o = evaluateOutcome([bar(1, 101, 99, 100.5), bar(2, 101.5, 99.5, 101)], 'long', g, 50);
-    expect(o).toEqual({ kind: 'open', ts: T0 + 2 * DAY, price: 101, pnl: 50, pnlPct: 1 });
-    expect(evaluateOutcome([bar(1, 101, 99, 99)], 'short', short, 50)).toMatchObject({ kind: 'open', pnl: 50, pnlPct: 1 });
+  it('stop hit (long); both levels in the same later bar → stop first (conservative)', () => {
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 99, 101, 97.5)], 'long', g, 50, opts))
+      .toEqual({ kind: 'stop', fillTs: T0, ts: T0 + DAY, price: 98, pnl: -100, pnlPct: -2 });
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 100, 103, 97)], 'long', g, 50, opts)).toMatchObject({ kind: 'stop' });
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 100, 103, 97)], 'short', short, 50, opts)).toMatchObject({ kind: 'stop', pnl: -100 });
   });
 
-  it('no hit up to the end time and later bars exist: ended with the P&L at the last close in range', () => {
-    const o = evaluateOutcome([bar(1, 101, 99, 100.2), bar(20, 101, 99, 99), bar(21, 200, 1)], 'long', g, 50);
+  it('short: target when the low reaches it, stop when the high does', () => {
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 100, 100.5, 97.9)], 'short', short, 50, opts))
+      .toEqual({ kind: 'target', fillTs: T0, ts: T0 + DAY, price: 98, pnl: 100, pnlPct: 2 });
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 101, 102, 99)], 'short', short, 50, opts)).toMatchObject({ kind: 'stop', price: 102, pnl: -100 });
+  });
+
+  it('gaps: a bar opening beyond the stop books the loss at the open; beyond the target the gain stays at the target', () => {
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 96, 97, 95)], 'long', g, 50, opts))
+      .toMatchObject({ kind: 'stop', price: 96, pnl: -200, pnlPct: -4 });
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 105, 106, 104)], 'long', g, 50, opts))
+      .toMatchObject({ kind: 'target', price: 102, pnl: 100 });
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 104, 105, 103)], 'short', short, 50, opts))
+      .toMatchObject({ kind: 'stop', price: 104, pnl: -200 });
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 95, 96, 94)], 'short', short, 50, opts))
+      .toMatchObject({ kind: 'target', price: 98, pnl: 100 });
+  });
+
+  it('filled, no hit, last bar inside the range: open at the last close (also on the fill bar itself)', () => {
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(2, 101, 101.5, 99.5, 101)], 'long', g, 50, opts))
+      .toEqual({ kind: 'open', fillTs: T0, ts: T0 + 2 * DAY, price: 101, pnl: 50, pnlPct: 1 });
+    expect(evaluateOutcome([bar(0, 100, 103, 99, 99)], 'short', short, 50, opts)).toMatchObject({ kind: 'open', pnl: 50, pnlPct: 1 });
+  });
+
+  it('filled, no hit up to the end time, later bars exist: ended at the last close in range', () => {
+    const o = evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(20, 100, 101, 99, 99), bar(21, 150, 200, 1)], 'long', g, 50, opts);
     expect(o).toMatchObject({ kind: 'ended', ts: T0 + 20 * DAY, price: 99, pnl: -50 });
-  });
-
-  it('pending without any bar after the entry', () => {
-    expect(evaluateOutcome([bar(0, 200, 1)], 'long', g, 50)).toEqual({ kind: 'pending' });
-    expect(evaluateOutcome([], 'long', g, 50)).toEqual({ kind: 'pending' });
   });
 
   it('outcome labels', () => {
     const date = (ts: number) => new Date(ts).toISOString().slice(0, 10);
-    expect(outcomeLabel({ kind: 'target', ts: T0 + DAY, price: 102, pnl: 100, pnlPct: 2 }, 'USD', date)).toBe('Target hit · +100.00 USD (+2.00%) · 2024-01-02');
-    expect(outcomeLabel({ kind: 'stop', ts: T0 + DAY, price: 98, pnl: -100, pnlPct: -2 }, 'USD', date)).toBe('Stop hit · -100.00 USD (-2.00%) · 2024-01-02');
-    expect(outcomeLabel({ kind: 'open', ts: T0 + DAY, price: 101, pnl: 50, pnlPct: 1 }, 'USD', date)).toBe('Open · +50.00 USD (+1.00%)');
-    expect(outcomeLabel({ kind: 'ended', ts: T0 + DAY, price: 99, pnl: -50, pnlPct: -1 }, 'USD', date)).toBe('Ended, no hit · -50.00 USD (-1.00%) · 2024-01-02');
-    expect(outcomeLabel({ kind: 'pending' }, 'USD', date)).toBeNull();
+    const base = { fillTs: T0 };
+    expect(outcomeLabel({ ...base, kind: 'target', ts: T0 + DAY, price: 102, pnl: 100, pnlPct: 2 }, 'USD', date)).toBe('Target hit · +100.00 USD (+2.00%) · 2024-01-02');
+    expect(outcomeLabel({ ...base, kind: 'stop', ts: T0 + DAY, price: 98, pnl: -100, pnlPct: -2 }, 'USD', date)).toBe('Stop hit · -100.00 USD (-2.00%) · 2024-01-02');
+    expect(outcomeLabel({ ...base, kind: 'open', ts: T0 + DAY, price: 101, pnl: 50, pnlPct: 1 }, 'USD', date)).toBe('Open · +50.00 USD (+1.00%)');
+    expect(outcomeLabel({ ...base, kind: 'ended', ts: T0 + DAY, price: 99, pnl: -50, pnlPct: -1 }, 'USD', date)).toBe('Ended, no hit · -50.00 USD (-1.00%) · 2024-01-02');
+    expect(outcomeLabel({ kind: 'waiting' }, 'USD', date)).toBe('Waiting for entry');
+    expect(outcomeLabel({ kind: 'unfilled' }, 'USD', date)).toBe('Entry not reached');
+    expect(outcomeLabel({ kind: 'needsData' }, 'USD', date)).toBe('Outcome needs earlier data');
   });
 });
 
 describe('drag semantics (performEventPressedMove)', () => {
   const pts = () => toPositionPoints(g) as Array<{ timestamp?: number; value?: number }>;
+  // Daily bars T0 … T0 + 4 days, then a weekend gap to T0 + 7 days.
+  const days = [0, 1, 2, 3, 4, 7, 8].map((d) => ({ timestamp: T0 + d * DAY }));
+  const opts = {
+    minEnd: (start: number) => nextBarTime(days, start, DAY),
+    shiftEnd: (end: number, from: number, to: number) => shiftByBars(days, end, from, to, DAY),
+    minGap: 0,
+  };
 
   it('target edge: only the target changes (rounded, start time kept, never across the entry)', () => {
     const p = pts();
     p[1] = { timestamp: T0 + 3 * DAY, value: 105.678 };
-    pressedMove('long', p, 1, 2, DAY);
+    pressedMove('long', p, 1, 2, opts);
     expect(fromPositionPoints(p)).toEqual({ ...g, target: 105.68 });
     p[1]!.value = 90;
-    pressedMove('long', p, 1, 2, DAY);
+    pressedMove('long', p, 1, 2, opts);
     expect(p[1]!.value).toBe(100.01);
     const s = toPositionPoints(short) as typeof p;
     s[1]!.value = 101;
-    pressedMove('short', s, 1, 2, DAY);
+    pressedMove('short', s, 1, 2, opts);
     expect(s[1]!.value).toBe(99.99);
+  });
+
+  it('target / stop keep a minimum on-screen gap from the entry so the entry handle stays reachable, and stay positive', () => {
+    const p = pts();
+    p[1]!.value = 100.02;
+    pressedMove('long', p, 1, 2, { ...opts, minGap: 0.5 });
+    expect(p[1]!.value).toBe(100.5);
+    const s = toPositionPoints(short) as typeof p;
+    s[1]!.value = -5;
+    pressedMove('short', s, 1, 2, opts);
+    expect(s[1]!.value).toBe(0.01);
+    const l = pts();
+    l[2]!.value = -3;
+    pressedMove('long', l, 2, 2, opts);
+    expect(l[2]!.value).toBe(0.01);
   });
 
   it('stop edge: only the stop changes (clamped on its side of the entry)', () => {
     const p = pts();
     p[2] = { timestamp: T0 + DAY, value: 95.001 };
-    pressedMove('long', p, 2, 2, DAY);
+    pressedMove('long', p, 2, 2, opts);
     expect(fromPositionPoints(p)).toEqual({ ...g, stop: 95 });
     p[2]!.value = 120;
-    pressedMove('long', p, 2, 2, DAY);
+    pressedMove('long', p, 2, 2, opts);
     expect(p[2]!.value).toBe(99.99);
     const s = toPositionPoints(short) as typeof p;
     s[2]!.value = 50;
-    pressedMove('short', s, 2, 2, DAY);
+    pressedMove('short', s, 2, 2, opts);
     expect(s[2]!.value).toBe(100.01);
   });
 
-  it('entry handle: the whole position moves (prices and times together)', () => {
-    const p = pts();
+  it('entry handle: the whole position moves; the end shifts by the same number of bars', () => {
+    const p = toPositionPoints({ ...g, end: T0 + 3 * DAY }) as Array<{ timestamp?: number; value?: number }>;
     p[0] = { timestamp: T0 + 2 * DAY, value: 110.004 };
-    pressedMove('long', p, 0, 2, DAY);
-    expect(fromPositionPoints(p)).toEqual({ start: T0 + 2 * DAY, end: T0 + 22 * DAY, entry: 110, target: 112, stop: 108 });
+    pressedMove('long', p, 0, 2, opts);
+    // 2 bars later: the end moves from bar 3 (T0+3d) to bar 5 (T0+7d, after the weekend).
+    expect(fromPositionPoints(p)).toEqual({ start: T0 + 2 * DAY, end: T0 + 7 * DAY, entry: 110, target: 112, stop: 108 });
   });
 
-  it('right edge: only the end time changes, never before start + one bar', () => {
+  it('entry handle: a move that would take a price to zero or below keeps the prices (time still moves)', () => {
+    const p = pts();
+    p[0] = { timestamp: T0 + DAY, value: 1.5 };
+    pressedMove('long', p, 0, 2, opts); // stop would be -0.5
+    expect(fromPositionPoints(p)).toMatchObject({ start: T0 + DAY, entry: 100, target: 102, stop: 98 });
+  });
+
+  it('right edge: only the end time changes, never before the next bar after the start', () => {
     const p = pts();
     p[3] = { timestamp: T0 + 30 * DAY, value: 120 };
-    pressedMove('long', p, 3, 2, DAY);
+    pressedMove('long', p, 3, 2, opts);
     expect(fromPositionPoints(p)).toEqual({ ...g, end: T0 + 30 * DAY });
     p[3]!.timestamp = T0 - 5 * DAY;
-    pressedMove('long', p, 3, 2, DAY);
+    pressedMove('long', p, 3, 2, opts);
     expect(p[3]!.timestamp).toBe(T0 + DAY);
+    // Start on the last bar before a weekend: the next bar is after it.
+    const w = toPositionPoints({ ...g, start: T0 + 4 * DAY, end: T0 + 4 * DAY }) as typeof p;
+    pressedMove('long', w, 3, 2, opts);
+    expect(w[3]!.timestamp).toBe(T0 + 7 * DAY);
   });
 
   it('is a no-op on valid points (KLineChart runs it when points are set programmatically) and on incomplete ones', () => {
     const p = pts();
-    pressedMove('long', p, 3, 2, DAY);
+    pressedMove('long', p, 3, 2, opts);
     expect(p).toEqual(toPositionPoints(g));
     const few = [{ timestamp: 1, value: 1 }];
-    pressedMove('long', few, 0, 2, DAY);
+    pressedMove('long', few, 0, 2, opts);
     expect(few).toEqual([{ timestamp: 1, value: 1 }]);
   });
 });
 
-describe('endAfterBars (default width ≈ 20 bars)', () => {
-  const ts = [0, 10, 20, 30, 40];
-  it('counts bars in the data, extrapolating with the bar duration past the last bar', () => {
+describe('bar helpers', () => {
+  const ts = [0, 10, 20, 30, 40].map((timestamp) => ({ timestamp }));
+  it('endAfterBars counts bars in the data, extrapolating with the bar duration past the last bar', () => {
     expect(endAfterBars(ts, 10, 2, 10)).toBe(30);
     expect(endAfterBars(ts, 20, 5, 10)).toBe(70);
     expect(endAfterBars(ts, 15, 1, 10)).toBe(20); // inside bar 10 → one bar later
     expect(endAfterBars([], 100, 20, 5)).toBe(200);
     expect(endAfterBars(ts, 100, 3, 10)).toBe(130); // after the data
+  });
+
+  it('nextBarTime: the first bar after a time, extrapolated past the data', () => {
+    expect(nextBarTime(ts, 10, 10)).toBe(20);
+    expect(nextBarTime(ts, 15, 10)).toBe(20);
+    expect(nextBarTime(ts, 40, 10)).toBe(50);
+    expect(nextBarTime([], 7, 10)).toBe(17);
+  });
+
+  it('shiftByBars moves a time by the bar distance between two times (extrapolated outside the data)', () => {
+    expect(shiftByBars(ts, 30, 10, 20, 10)).toBe(40);
+    expect(shiftByBars(ts, 30, 20, 0, 10)).toBe(10);
+    expect(shiftByBars(ts, 40, 10, 30, 10)).toBe(60);
+    expect(shiftByBars([], 100, 0, 30, 10)).toBe(130);
   });
 });

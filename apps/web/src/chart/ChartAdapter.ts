@@ -17,10 +17,10 @@ import {
   type LabelOptions,
 } from './drawingTemplates';
 import {
-  DEFAULT_WIDTH_BARS, defaultGeometry, endAfterBars, evaluateOutcome, fromPositionPoints, positionMetrics, qtyDecimals, sideOf,
+  DEFAULT_WIDTH_BARS, defaultGeometry, endAfterBars, fromPositionPoints, nextBarTime, qtyDecimals, shiftByBars, sideOf,
   toPositionPoints, validatePrices, type OutcomeBar, type PositionMetrics, type PositionOutcome, type PositionSide,
 } from './position';
-import { positionContext, positionSettingsOf, registerPositionOverlays } from './positionOverlay';
+import { positionContext, positionSettingsOf, positionState, registerPositionOverlays } from './positionOverlay';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
 import { catalogEntry } from './indicators/catalog';
 import { PRICE_PRECISION_INDICATORS } from './indicators/extensions';
@@ -51,6 +51,9 @@ const OVERRIDE_KEYS = ['lineColors', 'lineWidths', 'lineStyles', 'barColors'] as
  * Only those the toolbar offers matter, the others are listed for drawings restored from elsewhere.
  */
 export const HORIZONTAL_DRAWINGS: ReadonlySet<string> = new Set(['horizontalStraightLine', 'priceLine', 'horizontalRayLine', 'horizontalSegment']);
+
+/** Most older-data pages requested per load so positions starting before the loaded bars can be evaluated. */
+export const MAX_HISTORY_PAGES = 40;
 
 /** Most decimals a typed price keeps (crypto quotes can be finer than the symbol precision). */
 export const MAX_PRICE_DECIMALS = 8;
@@ -183,6 +186,9 @@ export class ChartAdapter {
     this.updatePositionColors();
     positionContext.defaults = resolvePositionDefaults(undefined);
     positionContext.endFor = (start) => this.positionEnd(start);
+    positionContext.minEnd = (start) => nextBarTime(this.chart.getDataList(), start, positionContext.barMs);
+    positionContext.shiftEnd = (end, from, to) => shiftByBars(this.chart.getDataList(), end, from, to, positionContext.barMs);
+    positionContext.historyComplete = () => !this.hasOlderData();
     const chart = init(el, { styles: this.styles() });
     if (!chart) throw new Error('Failed to initialise the chart');
     this.chart = chart;
@@ -219,6 +225,7 @@ export class ChartAdapter {
     this.loader?.dispose(); // its pending results and polling become no-ops while the chart resets below
     this.dataSymbol = null;
     this.loadSymbol = p.symbol.id;
+    this.historyPages = 0;
     // Blank the chart at once: KLineChart keeps the previous series until the new init page arrives, which
     // could take several retries (old data must never sit under the new symbol / timeframe).
     this.installEmptyLoader();
@@ -377,6 +384,7 @@ export class ChartAdapter {
 
   private onBarsAdded(): void {
     if (this.destroyed) return;
+    this.ensurePositionHistory();
     // The selected position's outcome follows new bars (polling / backfill).
     if (this.selectedId && this.userOverlays().some((o) => o.id === this.selectedId && isPositionTool(o.name))) this.emitSelection();
     if (this.markers.length === 0) return;
@@ -567,9 +575,17 @@ export class ChartAdapter {
       if (before && after && samePoints(before, after)) return;
       this.anchorAfterEdit(overlay.id);
       this.roundHorizontal(overlay);
+      if (isPositionTool(overlay.name) && before && after && after.some((p) => p.value <= 0)) {
+        // A whole-position drag (KLineChart shifts the prices freely) never takes a price to zero or below.
+        this.chart.overrideOverlay({ id: overlay.id, points: before });
+        return;
+      }
       this.roundPosition(overlay);
       this.emitChange();
-      if (isPositionTool(overlay.name) && this.selectedId === overlay.id) this.emitSelection();
+      if (isPositionTool(overlay.name)) {
+        this.ensurePositionHistory();
+        if (this.selectedId === overlay.id) this.emitSelection();
+      }
     },
     onRemoved: ({ overlay }) => {
       if (this.selectedId === overlay.id) this.select(null);
@@ -606,8 +622,47 @@ export class ChartAdapter {
 
   /** Default end of a position starting at `start`: ≈ 20 bars later (the loaded bars, then the timeframe). */
   private positionEnd(start: number): number {
-    const ts = this.chart ? this.chart.getDataList().map((d) => d.timestamp) : [];
-    return endAfterBars(ts, start, DEFAULT_WIDTH_BARS, positionContext.barMs);
+    return endAfterBars(this.chart ? this.chart.getDataList() : [], start, DEFAULT_WIDTH_BARS, positionContext.barMs);
+  }
+
+  /** Older-data pages requested for positions since the current load (bounded by MAX_HISTORY_PAGES). */
+  private historyPages = 0;
+
+  /** KLineChart's internal store (10.0.3): whether older data exists, and the loader of older pages. */
+  private dataStore(): { _dataLoadMore?: { forward?: boolean }; _processDataLoad?: (type: string) => void } | null {
+    const c = this.chart as unknown as { getChartStore?: () => unknown };
+    try {
+      return (c.getChartStore?.() as ReturnType<ChartAdapter['dataStore']>) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** True while KLineChart may load older bars (unknown → false: the loaded bars are taken as complete). */
+  private hasOlderData(): boolean {
+    return this.dataStore()?._dataLoadMore?.forward === true;
+  }
+
+  /**
+   * Requests an older page while a position starts before the first loaded bar and older data exists, so its
+   * outcome can be evaluated (each page arriving calls this again; at most MAX_HISTORY_PAGES per load, then the
+   * position shows "Outcome needs earlier data").
+   */
+  private ensurePositionHistory(): void {
+    if (this.historyPages >= MAX_HISTORY_PAGES || !this.hasOlderData()) return;
+    const first = this.chart.getDataList()[0];
+    if (!first) return;
+    let earliest = Infinity;
+    for (const o of this.userOverlays()) {
+      if (!isPositionTool(o.name)) continue;
+      const t = o.points[0]?.timestamp;
+      if (typeof t === 'number' && t < earliest) earliest = t;
+    }
+    if (!(earliest < first.timestamp)) return;
+    const load = this.dataStore()?._processDataLoad;
+    if (typeof load !== 'function') return;
+    this.historyPages++;
+    try { load.call(this.dataStore(), 'forward'); } catch { /* internal API changed: the outcome shows it needs data */ }
   }
 
   /**
@@ -806,8 +861,10 @@ export class ChartAdapter {
       const g = fromPositionPoints(o.points);
       if (!g) return null;
       const settings = positionSettingsOf(o.styles);
-      const metrics = positionMetrics(side, g, settings, positionContext.qtyDecimals);
-      const outcome = evaluateOutcome(this.chart.getDataList() as OutcomeBar[], side, g, metrics.qty);
+      const { metrics, outcome } = positionState({
+        id: o.id, side, g, settings, qtyDecimals: positionContext.qtyDecimals, bars: this.chart.getDataList() as OutcomeBar[],
+        historyComplete: !this.hasOlderData(), barMs: positionContext.barMs,
+      });
       return {
         id: o.id, kind: 'position', side, locked: o.lock, entry: g.entry, target: g.target, stop: g.stop, precision: this.pricePrecision,
         settings, metrics, outcome,
@@ -1033,6 +1090,7 @@ export class ChartAdapter {
       return;
     }
     this.createDrawings(drawings);
+    this.ensurePositionHistory();
   }
 
   private createDrawings(drawings: DrawingState[]): void {
@@ -1058,6 +1116,7 @@ export class ChartAdapter {
     if (!pending || (pending.symbol !== undefined && pending.symbol !== this.dataSymbol)) return;
     this.pendingRestore = null;
     this.createDrawings(pending.drawings);
+    this.ensurePositionHistory();
   }
 
   clearDrawings(): void {

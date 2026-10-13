@@ -24,7 +24,7 @@ function position(over: Partial<{ side: 'long' | 'short'; entry: number; target:
   const g = { start: 0, end: 1, entry: over.entry ?? 100, target: over.target ?? (side === 'long' ? 102 : 98), stop: over.stop ?? (side === 'long' ? 98 : 102) };
   return {
     id: 'p', kind: 'position', side, locked: over.locked ?? false, entry: g.entry, target: g.target, stop: g.stop, precision: 2,
-    settings, metrics: positionMetrics(side, g, settings, 0), outcome: { kind: 'pending' },
+    settings, metrics: positionMetrics(side, g, settings, 0), outcome: { kind: 'waiting' },
   };
 }
 const field = (name: string) => screen.getByLabelText(name) as HTMLInputElement;
@@ -127,7 +127,7 @@ describe('DrawingStyleBar: long / short positions', () => {
     type('Account size', '25000');
     expect(c.setSelectedPositionSettings).toHaveBeenLastCalledWith({ accountSize: 25000 });
     fireEvent.change(screen.getByLabelText('Risk mode'), { target: { value: 'amount' } });
-    expect(c.setSelectedPositionSettings).toHaveBeenLastCalledWith({ riskMode: 'amount' });
+    expect(c.setSelectedPositionSettings).toHaveBeenLastCalledWith({ riskMode: 'amount', riskValue: 100 }); // 1 % of 10 000
     type('Risk', '2.5', 'blur');
     expect(c.setSelectedPositionSettings).toHaveBeenLastCalledWith({ riskValue: 2.5 });
     type('Currency', 'EUR');
@@ -166,5 +166,48 @@ describe('DrawingStyleBar: long / short positions', () => {
     }
     expect(screen.getByLabelText('Risk mode')).toBeDisabled();
     expect(screen.getByText('Locked')).toBeInTheDocument();
+  });
+
+  it('changing the risk mode converts the value so the money at risk stays the same (percentage at most 100)', () => {
+    const { c, emit } = makeControls();
+    render(<DrawingStyleBar controls={c} />);
+    emit({ ...position(), settings: { ...settings, riskMode: 'amount', riskValue: 500 } } as SelectedDrawing);
+    fireEvent.change(screen.getByLabelText('Risk mode'), { target: { value: 'percent' } });
+    expect(c.setSelectedPositionSettings).toHaveBeenLastCalledWith({ riskMode: 'percent', riskValue: 5 });
+    emit({ ...position(), settings: { ...settings, riskMode: 'amount', riskValue: 50000 } } as SelectedDrawing);
+    fireEvent.change(screen.getByLabelText('Risk mode'), { target: { value: 'percent' } });
+    expect(c.setSelectedPositionSettings).toHaveBeenLastCalledWith({ riskMode: 'percent', riskValue: 100 });
+    emit({ ...position(), settings: { ...settings, riskValue: 2 } } as SelectedDrawing);
+    fireEvent.change(screen.getByLabelText('Risk mode'), { target: { value: 'amount' } });
+    expect(c.setSelectedPositionSettings).toHaveBeenLastCalledWith({ riskMode: 'amount', riskValue: 200 });
+  });
+
+  it('"Use as default" is disabled while the risk settings are invalid', () => {
+    const { c, emit } = makeControls();
+    const onUse = vi.fn();
+    render(<DrawingStyleBar controls={c} onUsePositionDefaults={onUse} />);
+    emit({ ...position(), settings: { ...settings, riskValue: 500 } } as SelectedDrawing);
+    const btn = screen.getByRole('button', { name: 'Use as default' });
+    expect(btn).toBeDisabled();
+    fireEvent.click(btn);
+    expect(onUse).not.toHaveBeenCalled();
+  });
+
+  it('a quantity of 0 explains that the risk is below one unit', () => {
+    const { c, emit } = makeControls();
+    render(<DrawingStyleBar controls={c} />);
+    const sel = position();
+    emit({ ...sel, metrics: { ...(sel as { metrics: object }).metrics, qty: 0, riskAmount: 0, rewardAmount: 0 } } as SelectedDrawing);
+    expect(screen.getByTestId('position-summary')).toHaveTextContent('Qty 0 (Risk is below 1 unit)');
+    expect(screen.getByTestId('position-summary')).toHaveTextContent('Risk 0.00 USD');
+  });
+
+  it('shows waiting / needs-data states without P&L', () => {
+    const { c, emit } = makeControls();
+    render(<DrawingStyleBar controls={c} />);
+    emit(position());
+    expect(screen.getByTestId('position-outcome')).toHaveTextContent('Waiting for entry');
+    emit({ ...position(), outcome: { kind: 'needsData' } } as SelectedDrawing);
+    expect(screen.getByTestId('position-outcome')).toHaveTextContent('Outcome needs earlier data');
   });
 });
