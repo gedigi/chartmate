@@ -50,7 +50,12 @@ export interface ChartAppearance {
   lineWidth?: number;
   /** Style of new drawings. */
   drawing?: DrawingLineStyle;
+  /** Current (last) price line and its y-axis label: 'neutral' (default: white on dark, near-black on light) or the candle up / down color. */
+  lastPriceLine?: LastPriceLineStyle;
 }
+/** Last price line color mode (see ChartAppearance.lastPriceLine). */
+export type LastPriceLineStyle = 'neutral' | 'candle';
+export const LAST_PRICE_LINE_STYLES: readonly LastPriceLineStyle[] = ['neutral', 'candle'];
 export type AppearanceTheme = 'dark' | 'light';
 /**
  * Global chart appearance, one set per theme (stored in the 'default' layout only): colors that read well on

@@ -1,4 +1,4 @@
-import type { CandleBodyStyle, ChartAppearance, ChartType, DrawingLineStyle, ThemedAppearance } from '@chartmate/shared';
+import type { CandleBodyStyle, ChartAppearance, ChartType, DrawingLineStyle, LastPriceLineStyle, ThemedAppearance } from '@chartmate/shared';
 import type { DeepPartial, Styles } from 'klinecharts';
 import { readableTextOn, readableTextOnAll } from './contrast';
 import { klineLine } from './drawingStyles';
@@ -149,6 +149,7 @@ export function refreshThemeTokens(theme: ThemeName): void {
 /** Every appearance field resolved (unset fields follow the theme). */
 export interface ResolvedAppearance {
   upColor: string; downColor: string; candleBody: CandleBodyStyle; lineColor: string; lineWidth: number; drawing: DrawingLineStyle;
+  lastPriceLine: LastPriceLineStyle;
 }
 
 /**
@@ -168,7 +169,10 @@ export function defaultIndicatorBars(theme: ThemeName): { upColor: string; downC
 
 export function defaultAppearance(theme: ThemeName): ResolvedAppearance {
   const { accent, up, down } = themeTokens(theme);
-  return { upColor: up, downColor: down, candleBody: 'solid', lineColor: accent, lineWidth: 2, drawing: { color: accent, size: 1, style: 'solid' } };
+  return {
+    upColor: up, downColor: down, candleBody: 'solid', lineColor: accent, lineWidth: 2, drawing: { color: accent, size: 1, style: 'solid' },
+    lastPriceLine: 'neutral',
+  };
 }
 
 /** The active theme's appearance with every unset field filled from that theme's defaults. */
@@ -186,6 +190,8 @@ export function resolveThemeAppearance(theme: ThemeName, a: ChartAppearance | un
     lineColor: a?.lineColor ?? d.lineColor,
     lineWidth: a?.lineWidth ?? d.lineWidth,
     drawing: a?.drawing ?? d.drawing,
+    // Anything but 'candle' (missing, or an unknown value from an older / newer client) is the neutral default.
+    lastPriceLine: a?.lastPriceLine === 'candle' ? 'candle' : d.lastPriceLine,
   };
 }
 
@@ -230,7 +236,7 @@ export function candleStyles(type: ChartType, theme: ThemeName, appearance: Them
       upBorderColor: a.upColor, downBorderColor: a.downColor, noChangeBorderColor: muted,
       upWickColor: a.upColor, downWickColor: a.downColor, noChangeWickColor: muted,
     },
-    priceMark: { last: { upColor: a.upColor, downColor: a.downColor, noChangeColor: muted, text: { color: lastPriceTextColor(a.upColor, a.downColor, muted) } } },
+    priceMark: { last: lastPriceMark(theme, a.lastPriceLine, a.upColor, a.downColor) },
   };
   switch (type) {
     case 'candle': return { ...colors, type: BODY_TYPE[a.candleBody] };
@@ -250,6 +256,30 @@ export function candleStyles(type: ChartType, theme: ThemeName, appearance: Them
  * color, so the text cannot follow the bar direction: white while its worst-case contrast over the three
  * label colors is at least 3:1, else whichever of white / dark has the higher worst case.
  */
+/**
+ * Color of the neutral last price line (the default): white on the dark theme, the theme's primary text color
+ * (near-black) on the light one, where white would not show.
+ */
+export function neutralLastPriceColor(theme: ThemeName): string {
+  return theme === 'dark' ? '#ffffff' : themeTokens(theme).text;
+}
+
+/**
+ * KLineChart's last price mark (line + y-axis label): one neutral color whatever the bar direction, or the candle
+ * up / down (/ no-change) colors. The label text contrasts with the label fill (dark on the white label, white on
+ * the near-black one).
+ */
+export function lastPriceMark(theme: ThemeName, mode: LastPriceLineStyle, up: string, down: string): {
+  upColor: string; downColor: string; noChangeColor: string; text: { color: string };
+} {
+  if (mode === 'candle') {
+    const muted = themeTokens(theme).muted;
+    return { upColor: up, downColor: down, noChangeColor: muted, text: { color: lastPriceTextColor(up, down, muted) } };
+  }
+  const c = neutralLastPriceColor(theme);
+  return { upColor: c, downColor: c, noChangeColor: c, text: { color: readableTextOn(c) } };
+}
+
 export function lastPriceTextColor(up: string, down: string, noChange: string): string {
   return readableTextOnAll([up, down, noChange]);
 }
@@ -276,7 +306,7 @@ export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
       priceMark: {
         high: { color: t.muted },
         low: { color: t.muted },
-        last: { upColor: t.up, downColor: t.down, noChangeColor: t.muted, text: { color: lastPriceTextColor(t.up, t.down, t.muted) } },
+        last: lastPriceMark(theme, defaultAppearance(theme).lastPriceLine, t.up, t.down),
       },
       tooltip: { title: { color: t.text, template: '{displayName} · {tf}' }, legend: { color: t.muted } },
     },

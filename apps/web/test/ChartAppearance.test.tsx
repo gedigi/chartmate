@@ -56,6 +56,19 @@ describe('ChartAppearanceDialog', () => {
     expect(screen.getByLabelText('Up color')).toHaveValue(UP);
   });
 
+  it('last price line: Neutral by default, switches to Candle color and back (stored per theme)', async () => {
+    const onChange = vi.fn();
+    render(<Harness onChange={onChange} theme="light" />);
+    const select = screen.getByLabelText('Last price line');
+    expect(select).toHaveValue('neutral');
+    expect(screen.getByRole('option', { name: 'Neutral (default)' })).toBeInTheDocument();
+    await userEvent.selectOptions(select, 'candle');
+    expect(onChange).toHaveBeenLastCalledWith({ lastPriceLine: 'candle' });
+    expect(select).toHaveValue('candle');
+    await userEvent.selectOptions(select, 'neutral');
+    expect(onChange).toHaveBeenLastCalledWith({ lastPriceLine: 'neutral' });
+  });
+
   it('names the theme being edited', () => {
     const { unmount } = render(<Harness onChange={() => {}} />);
     expect(screen.getByText('Dark theme')).toBeInTheDocument();

@@ -1,6 +1,6 @@
 import {
   MAX_LINE_WIDTH, MIN_LINE_WIDTH,
-  type CandleBodyStyle, type ChartAppearance, type ChartType, type DrawingLineStyle,
+  type CandleBodyStyle, type ChartAppearance, type ChartType, type DrawingLineStyle, type LastPriceLineStyle,
 } from '@chartmate/shared';
 import { useId, type JSX } from 'react';
 import { contrastRatio } from '../chart/contrast';
@@ -27,6 +27,10 @@ const BODY_STYLES: ReadonlyArray<{ value: CandleBodyStyle; label: string }> = [
   { value: 'hollow_up', label: 'Hollow up' },
   { value: 'hollow_down', label: 'Hollow down' },
 ];
+const LAST_PRICE_LINES: ReadonlyArray<{ value: LastPriceLineStyle; label: string }> = [
+  { value: 'neutral', label: 'Neutral (default)' },
+  { value: 'candle', label: 'Candle color' },
+];
 
 /** Up + down candle drawn with the chosen colors and body style. */
 function CandlePreview({ up, down, body }: { up: string; down: string; body: CandleBodyStyle }): JSX.Element {
@@ -52,7 +56,8 @@ export const LOW_CONTRAST_RATIO = 1.5;
 const THEME_LABEL: Record<ThemeName, string> = { dark: 'Dark theme', light: 'Light theme' };
 
 /**
- * Chart appearance of the active theme (each theme keeps its own): candle colors and body style, line/area
+ * Chart appearance of the active theme (each theme keeps its own): candle colors and body style, the last price
+ * line color (neutral or candle up/down), line/area
  * color and width, and the default style of new drawings. Changes apply live; "Reset to defaults" returns this
  * theme to its default colors. Colors that barely show on the theme background get an inline warning.
  */
@@ -92,6 +97,13 @@ export function ChartAppearanceDialog({ appearance, theme, chartType, onChange, 
           <label htmlFor={id('body')}>Body style</label>
           <select id={id('body')} value={r.candleBody} onChange={(e) => set({ candleBody: e.target.value as CandleBodyStyle })}>
             {BODY_STYLES.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+          </select>
+        </div>
+        <div className="settings-row">
+          <label htmlFor={id('lpl')}>Last price line</label>
+          <select id={id('lpl')} value={r.lastPriceLine}
+            onChange={(e) => set({ lastPriceLine: e.target.value === 'candle' ? 'candle' : 'neutral' })}>
+            {LAST_PRICE_LINES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
         <CandlePreview up={r.upColor} down={r.downColor} body={r.candleBody} />
