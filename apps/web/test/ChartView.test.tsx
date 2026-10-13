@@ -36,8 +36,10 @@ const fake = vi.hoisted(() => {
     setMagnetOverride = vi.fn();
     setSelectedStyle = vi.fn();
     deselect = vi.fn();
-    selectionCb: ((s: unknown) => void) | null = null;
-    onSelectionChange = vi.fn((cb: (s: unknown) => void) => { this.selectionCb = cb; return () => { this.selectionCb = null; }; });
+    /** Every subscriber (the style bar and the drawing toolbar both listen), like the real adapter. */
+    selectionCbs = new Set<(s: unknown) => void>();
+    selectionCb: ((s: unknown) => void) | null = (s) => { for (const cb of this.selectionCbs) cb(s); };
+    onSelectionChange = vi.fn((cb: (s: unknown) => void) => { this.selectionCbs.add(cb); return () => { this.selectionCbs.delete(cb); }; });
     setSelectedPrice = vi.fn(() => true);
     setSelectedLabel = vi.fn();
     setShiftConstraint = vi.fn();

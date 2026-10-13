@@ -8,7 +8,7 @@ import './DrawingToolbar.css';
 export type DrawingControls = Pick<
   ChartAdapter,
   'startDrawing' | 'cancelDrawing' | 'clearDrawings' | 'drawingCount' | 'removeSelected' | 'setMagnet' | 'setLockAll' | 'onLockAllChange'
-  | 'setMagnetOverride' | 'setShiftConstraint' | 'deselect'
+  | 'setMagnetOverride' | 'setShiftConstraint' | 'deselect' | 'onSelectionChange'
 >;
 
 export interface DrawingToolbarProps {
@@ -131,6 +131,8 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
   const setActive = (a: Active) => { activeRef.current = a; setActiveState(a); };
   const [magnet, setMagnet] = useState(false);
   const [locked, setLocked] = useState(false);
+  /** The selected drawing is locked (own lock or "Lock all"): "Delete selected drawing" is disabled. */
+  const [selectionLocked, setSelectionLocked] = useState(false);
   const [textPrompt, setTextPrompt] = useState<{ top: number } | null>(null);
   const [text, setText] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -144,6 +146,10 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
   useEffect(() => { setActive(null); setMagnet(false); setLocked(false); }, [controls]);
   // "Lock all" mirrors the adapter: it is re-derived whenever drawings are restored (reload, symbol switch).
   useEffect(() => controls?.onLockAllChange(setLocked), [controls]);
+  useEffect(() => {
+    setSelectionLocked(false);
+    return controls?.onSelectionChange((s) => setSelectionLocked(s?.locked === true));
+  }, [controls]);
 
   const start = (tool: DrawingTool, opts?: { text?: string }) => {
     const c = controlsRef.current;
@@ -310,14 +316,17 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
           onClick={() => { const v = !locked; setLocked(v); controls?.setLockAll(v); }}
         >{locked ? LOCK_ICON : UNLOCK_ICON}</button>
         <button
-          type="button" className="dt-btn" title="Delete selected drawing (Del)" aria-label="Delete selected drawing" disabled={disabled}
+          type="button" className="dt-btn" title={selectionLocked ? 'Drawing is locked' : 'Delete selected drawing (Del)'}
+          aria-label="Delete selected drawing" disabled={disabled || selectionLocked}
           onClick={() => controls?.removeSelected()}
         >{DELETE_ICON}</button>
         <button
           type="button" className="dt-btn" title="Clear all drawings" aria-label="Clear all drawings" disabled={disabled}
           onClick={() => {
             if (!controls) return;
-            const question = clearQuestion(controls.drawingCount(), ticker);
+            const count = controls.drawingCount();
+            if (count.total === 0) return; // nothing to remove ("Lock all" stays as it is)
+            const question = clearQuestion(count, ticker);
             if (question === null) {
               window.alert(`All drawings on ${ticker} are locked. Unlock them to remove them.`);
               return;

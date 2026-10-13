@@ -6,6 +6,7 @@ import { DrawingToolbar, type DrawingControls } from '../src/components/DrawingT
 function makeControls() {
   let onEnd: (() => void) | undefined;
   let lockCb: ((locked: boolean) => void) | null = null;
+  let selCb: ((s: { locked: boolean } | null) => void) | null = null;
   const c = {
     startDrawing: vi.fn((_tool: string, opts?: { text?: string; onEnd?: () => void }) => { onEnd = opts?.onEnd; }),
     cancelDrawing: vi.fn(),
@@ -18,11 +19,13 @@ function makeControls() {
     setShiftConstraint: vi.fn(),
     deselect: vi.fn(),
     onLockAllChange: vi.fn((cb: (locked: boolean) => void) => { lockCb = cb; return () => { lockCb = null; }; }),
+    onSelectionChange: vi.fn((cb: (s: { locked: boolean } | null) => void) => { selCb = cb; return () => { selCb = null; }; }),
   };
   return {
     c: c as typeof c & DrawingControls,
     end: () => act(() => onEnd?.()),
     emitLock: (v: boolean) => act(() => lockCb?.(v)),
+    emitSelection: (s: { locked: boolean } | null) => act(() => selCb?.(s)),
     hasLockListener: () => lockCb !== null,
   };
 }
@@ -207,7 +210,7 @@ describe('DrawingToolbar', () => {
     expect(c.startDrawing).toHaveBeenCalledWith('simpleAnnotation', expect.objectContaining({ text: 'Hi' }));
   });
 
-  it('Clear all asks for confirmation before clearing', async () => {
+  it('Clear all asks for confirmation before clearing (locked drawings kept)', async () => {
     const { c } = makeControls();
     const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
     render(<DrawingToolbar controls={c} ticker="AAPL" />);
@@ -217,6 +220,35 @@ describe('DrawingToolbar', () => {
     expect(c.clearDrawings).not.toHaveBeenCalled();
     await userEvent.click(btn);
     expect(c.clearDrawings).toHaveBeenCalledTimes(1);
+    expect(c.clearDrawings).toHaveBeenCalledWith({ keepLocked: true });
+  });
+
+  it('Clear all with no drawings neither asks nor clears (lock all stays as it is)', async () => {
+    const { c } = makeControls();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    c.drawingCount.mockReturnValue({ total: 0, locked: 0 });
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Clear all drawings' }));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(alert).not.toHaveBeenCalled();
+    expect(c.clearDrawings).not.toHaveBeenCalled();
+  });
+
+  it('Delete selected drawing is disabled while the selected drawing is locked', async () => {
+    const { c, emitSelection } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    const del = screen.getByRole('button', { name: 'Delete selected drawing' });
+    expect(del).toBeEnabled();
+    emitSelection({ locked: true });
+    expect(del).toBeDisabled();
+    expect(del).toHaveAttribute('title', 'Drawing is locked');
+    emitSelection({ locked: false });
+    expect(del).toBeEnabled();
+    expect(del).toHaveAttribute('title', 'Delete selected drawing (Del)');
+    emitSelection({ locked: true });
+    emitSelection(null);
+    expect(del).toBeEnabled();
   });
 
   it('Clear all keeps locked drawings and says so; with every drawing locked it removes nothing', async () => {

@@ -189,13 +189,14 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   cancels the active tool and deselects the drawing.
 - **Locking drawings**: the lock button at the end of a selected drawing's style bar locks that drawing alone
   (TradingView-style); **Lock all drawings** in the toolbar locks every drawing on top of that. A locked drawing
-  can still be selected (so it can be unlocked) but cannot be moved, resized or removed (Delete / Backspace, the
-  toolbar's delete button and a right click leave it), and its style bar fields are disabled except the lock
-  toggle; its handles show as hollow rings. A drawing's own lock is kept when "Lock all" is turned off, and is
+  can still be selected (so it can be unlocked) but cannot be moved, resized or removed (Delete / Backspace and a
+  right click leave it; the toolbar's delete button is disabled while it is selected), and its style bar fields
+  are disabled except the lock toggle; its handles show as hollow rings. A drawing's own lock is kept when "Lock all" is turned off, and is
   saved with it (`locked: true`; `lock` is the effective lock), so it survives reloads and timeframe switches.
   Drawings saved before per-drawing locks keep their lock: all locked → "Lock all", otherwise each locked one
   becomes locked on its own. **Clear all** removes only unlocked drawings: the confirmation says how many locked
-  ones are kept, and when every drawing is locked it removes nothing and says so.
+  ones are kept, and when every drawing is locked it removes nothing and says so (with no drawings at all it does
+  nothing).
 - **Drawing styles**: selecting a drawing shows a small style bar at the top of the chart (color, width,
   solid/dashed/dotted; text annotations: color and font size). Styles are saved with the drawing; drawings
   without their own style follow the default drawing style. Legacy drawings with non-hex colors (or other
