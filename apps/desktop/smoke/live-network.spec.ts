@@ -1,7 +1,7 @@
 // Live-provider check (opt-in: SMOKE_LIVE=1, needs internet). Exercises Yahoo (search, daily + intraday bars,
 // quotes) and the crypto provider through the real app and asserts nothing was blocked by the outbound allowlist.
 // In development runs it also records every host the main process fetched (how the Yahoo host list was
-// determined); packaged runs are driven over CDP, so only the results and the log are checked.
+// determined); packaged runs (SMOKE_APP = the TEST-ONLY inspectable copy) are driven over CDP, so only the results and the log are checked.
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

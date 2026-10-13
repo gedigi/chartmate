@@ -84,17 +84,52 @@ test('NodeOptions fuse: NODE_OPTIONS --require is ignored', async () => {
   }
 });
 
-// This is also why Playwright's _electron.launch (which waits for "Debugger listening") cannot drive the shipped
-// artifact; the functional smoke test uses a copy with only this fuse flipped (prepare-inspectable.mjs).
-test('Inspect fuse: --inspect / --inspect-brk open no debugger', async () => {
-  const { child, userData, output } = start({}, ['--inspect=0', '--inspect-brk=0']);
+/** Starts the shipped app with `args` and expects it to refuse: exit code 1, no window, no debugger. */
+async function expectRefused(args: string[]): Promise<string> {
+  const { child, userData, output } = start({}, args);
   try {
-    expect(await waitFor(() => shown(userData), 30_000)).toBe(true);
+    expect(await waitFor(() => child.exitCode !== null, 15_000), `${args.join(' ')} should exit`).toBe(true);
+    expect(child.exitCode).toBe(1);
+    expect(shown(userData)).toBe(false);
+    expect(output()).toMatch(/refusing to start: forbidden command-line switch/);
     expect(output()).not.toMatch(/Debugger listening/);
-    expect(listeningSockets(processTree(child.pid!))).toEqual([]);
+    return output();
   } finally {
     await stop(child);
   }
+}
+
+// The switch guard (src/boot.ts) is also why no test harness can attach to the shipped app; the functional smoke
+// test drives a separately prepared TEST-ONLY copy (smoke/prepare-inspectable.mjs).
+test('switch guard: --remote-debugging-port=0 → exits 1 and no CDP endpoint is reachable', async () => {
+  const out = await expectRefused(['--remote-debugging-port=0']);
+  const m = /DevTools listening on ws:\/\/[^:]+:(\d+)\//.exec(out);
+  if (m) {
+    // Chromium may announce the port before the guard runs; it must be gone with the process.
+    const reachable = await fetch(`http://127.0.0.1:${m[1]}/json/version`, { signal: AbortSignal.timeout(2000) }).then(() => true, () => false);
+    expect(reachable).toBe(false);
+  }
+});
+
+test('switch guard + inspect fuse: --inspect / --inspect-brk exit 1 without a debugger', async () => {
+  await expectRefused(['--inspect=0']);
+  await expectRefused(['--inspect-brk=0']);
+});
+
+test('switch guard: sandbox/web-security/proxy/profile switches are refused', async () => {
+  for (const a of ['--no-sandbox', '--disable-web-security', '--proxy-server=http://127.0.0.1:9', '--user-data-dir=/tmp/x', '--remote-debugging-pipe', '-js-flags=--expose-gc']) {
+    await expectRefused([a]);
+  }
+});
+
+test('unsigned build: the auto-updater is not in the package at all', async () => {
+  const asar = (await import('@electron/asar')).default;
+  const archive = appPath!.endsWith('.app') ? join(appPath!, 'Contents', 'Resources', 'app.asar') : join(appPath!, '..', 'resources', 'app.asar');
+  const files = asar.listPackage(archive, { isPack: false });
+  expect(files.some((f) => f.includes('updater'))).toBe(false);
+  const main = asar.extractFile(archive, 'dist/main.cjs').toString('utf8');
+  expect(main).not.toContain('updater.cjs');
+  expect(main).not.toContain('electron-updater');
 });
 
 test('ASAR integrity: a tampered app.asar refuses to run', async () => {

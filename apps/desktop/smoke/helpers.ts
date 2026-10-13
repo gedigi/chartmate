@@ -67,10 +67,10 @@ export async function debugEndpointKind(port: number): Promise<'cdp' | 'node-ins
 }
 
 /**
- * Launches a packaged app with Chromium's --remote-debugging-port=0 and returns the DevTools WebSocket URL.
- * Playwright's _electron.launch cannot drive a build whose EnableNodeCliInspectArguments fuse is off (it needs the
- * Node inspector); the Chromium DevTools port is a Chromium switch, not a fuse, so the unmodified shipped artifact
- * can still be driven page-side over CDP.
+ * Launches a packaged app with Chromium's --remote-debugging-port=0 and returns the DevTools WebSocket URL. Only
+ * works on the TEST-ONLY inspectable copy (smoke/prepare-inspectable.mjs): the shipped app exits on this switch.
+ * (Playwright's _electron.launch is not used for packaged builds: it needs the Node inspector, which the
+ * EnableNodeCliInspectArguments fuse disables in every packaged build, the test copy included.)
  */
 export async function spawnWithCdp(exe: string, env: Record<string, string>): Promise<{ child: ChildProcess; wsUrl: string }> {
   const child = spawn(exe, ['--remote-debugging-port=0'], { env, stdio: ['ignore', 'pipe', 'pipe'] });

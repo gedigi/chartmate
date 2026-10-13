@@ -14,14 +14,17 @@
     "dist:win": "pnpm --filter @altv/web build && node scripts/bundle.mjs && electron-builder --config electron-builder.config.cjs --win --publish never",
     "smoke": "playwright test -c smoke/playwright.config.ts",
     "test": "vitest run && vitest run -c vitest.server-suite.config.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "smoke:prepare": "node smoke/prepare-inspectable.mjs"
   },
   "devDependencies": {
+    "@electron/asar": "3.4.1",
     "@electron/fuses": "2.1.3",
     "electron": "44.7.0",
     "electron-builder": "26.15.3",
     "electron-updater": "6.8.9",
     "esbuild": "0.28.2",
+    "js-yaml": "4.3.2",
     "kysely": "0.29.6"
   }
 }

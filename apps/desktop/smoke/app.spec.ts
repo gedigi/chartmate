@@ -10,7 +10,10 @@ const APP_DIR = fileURLToPath(new URL('..', import.meta.url));
 const packaged = process.env.SMOKE_APP ? executableOf(process.env.SMOKE_APP) : null;
 const providers = process.env.SMOKE_PROVIDERS ?? 'fixture';
 
-/** Development: Playwright drives the main process too. Packaged: page-side only, over Chromium CDP. */
+/**
+ * Development: Playwright drives the main process too. Packaged: SMOKE_APP must be the TEST-ONLY inspectable copy
+ * (smoke/prepare-inspectable.mjs; the shipped app refuses debugging switches), driven page-side over CDP.
+ */
 let app: ElectronApplication | null = null;
 let cdp: { browser: Browser; child: ChildProcess } | null = null;
 let page: Page;
@@ -165,15 +168,44 @@ test('path traversal over app:// returns 404', async () => {
   for (const [p, s] of Object.entries(statuses)) expect(s, p).toBe(404);
 });
 
-test('no CSP violations and no console errors', async () => {
-  const violations = await page.evaluate(() => new Promise<string[]>((resolve) => {
-    const seen: string[] = [];
-    document.addEventListener('securitypolicyviolation', (e) => seen.push(`${e.violatedDirective} ${e.blockedURI}`));
-    setTimeout(() => resolve(seen), 1000);
-  }));
+test('Trusted Types are enforced (string → innerHTML is refused, no policy can be created)', async () => {
+  const r = await page.evaluate(() => {
+    const div = document.createElement('div');
+    let html = 'allowed';
+    try { div.innerHTML = '<img src=x>'; } catch { html = 'blocked'; }
+    let policy = 'allowed';
+    try { (window as unknown as { trustedTypes: { createPolicy(n: string, o: object): unknown } }).trustedTypes.createPolicy('x', {}); } catch { policy = 'blocked'; }
+    return { html, policy };
+  });
+  // (eval is not probed here: code evaluated over CDP is exempt from the page's CSP.)
+  expect(r).toEqual({ html: 'blocked', policy: 'blocked' });
+  await page.waitForTimeout(300);
+  // These deliberate probes log their own CSP/Trusted Types errors; keep them out of the next test's check.
+  consoleErrors.length = 0;
+});
+
+test('no CSP / Trusted Types violations while the chart, baskets view and dialogs render', async () => {
+  await page.evaluate(() => {
+    const w = window as unknown as { __violations: string[] };
+    w.__violations = [];
+    document.addEventListener('securitypolicyviolation', (e) => w.__violations.push(`${e.violatedDirective} ${e.blockedURI}`));
+  });
+  // Exercise more of the UI: the baskets view, back to the chart, and the symbol search dropdown.
+  await page.evaluate(() => { window.location.hash = '#/baskets'; });
+  await page.waitForTimeout(800);
+  await page.evaluate(() => { window.location.hash = ''; });
+  await expect(page.getByTestId('chart-host').locator('canvas').first()).toBeVisible();
+  const search = page.getByRole('combobox').first();
+  if (await search.count()) {
+    await search.fill('BT');
+    await page.waitForTimeout(800);
+    await search.press('Escape');
+  }
+  await page.waitForTimeout(500);
+  const violations = await page.evaluate(() => (window as unknown as { __violations: string[] }).__violations);
   expect(violations).toEqual([]);
   // The only expected CSP reports are the deliberate example.com probes of the network test above.
-  expect(consoleErrors.filter((e) => /Content Security Policy|Refused to/i.test(e) && !e.includes('https://example.com/'))).toEqual([]);
+  expect(consoleErrors.filter((e) => /Content Security Policy|Refused to|Trusted ?(HTML|Script|Type)/i.test(e) && !e.includes('https://example.com/'))).toEqual([]);
 });
 
 test('DevTools cannot be opened in a packaged build', async () => {
