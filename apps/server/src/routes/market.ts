@@ -16,6 +16,9 @@ const SPARKLINE_POINTS = 30;
 const SPARKLINE_LOOKBACK_MS = 45 * DAY;
 /** In-memory cache for sparklines and basket quotes (keyed by the sorted id list). */
 const SHORT_CACHE_TTL_MS = 10_000;
+/** Sparklines are 30 daily closes: cached per symbol (not per list) so adding a symbol fetches only that one. */
+const SPARKLINE_TTL_MS = 5 * 60_000;
+const SPARKLINE_CACHE_MAX = 1000;
 const SHORT_CACHE_MAX = 200;
 
 export interface MarketRouteDeps { market: MarketDataService; baskets: BasketService; now?: () => number }
@@ -47,23 +50,25 @@ export async function marketRoutes(app: FastifyInstance, deps: MarketRouteDeps):
     ({ id: `basket:${b.id}`, assetClass: 'basket', ticker: b.name, name: b.name, pricePrecision: 2 });
 
   /** Tiny TTL cache; evicts the oldest entry beyond SHORT_CACHE_MAX. */
-  function ttlCache<T>() {
+  function ttlCache<T>(ttlMs = SHORT_CACHE_TTL_MS, max = SHORT_CACHE_MAX) {
     const m = new Map<string, { at: number; value: T }>();
     return {
       get(key: string): T | undefined {
         const hit = m.get(key);
         if (!hit) return undefined;
-        if (now() - hit.at >= SHORT_CACHE_TTL_MS) { m.delete(key); return undefined; }
+        if (now() - hit.at >= ttlMs) { m.delete(key); return undefined; }
         return hit.value;
       },
       set(key: string, value: T): void {
         m.delete(key);
         m.set(key, { at: now(), value });
-        while (m.size > SHORT_CACHE_MAX) m.delete(m.keys().next().value!);
+        while (m.size > max) m.delete(m.keys().next().value!);
       },
     };
   }
-  const sparkCache = ttlCache<Record<SymbolId, number[]>>();
+  // Market symbols: 5 min. Baskets stay short-lived because an edit changes their history.
+  const sparkCache = ttlCache<number[]>(SPARKLINE_TTL_MS, SPARKLINE_CACHE_MAX);
+  const basketSparkCache = ttlCache<number[]>();
   const basketQuoteCache = ttlCache<Quote[]>();
   const keyOf = (ids: SymbolId[]) => [...new Set(ids)].sort().join(',');
 
@@ -143,16 +148,22 @@ export async function marketRoutes(app: FastifyInstance, deps: MarketRouteDeps):
 
   app.get('/api/sparklines', async (request): Promise<Record<SymbolId, number[]>> => {
     const { symbols } = parse(SymbolsQuery, request.query);
-    const key = keyOf(symbols);
-    const hit = sparkCache.get(key);
-    if (hit) return hit;
-    const results = await Promise.allSettled(symbols.map(dailyCloses));
     const out: Record<SymbolId, number[]> = {};
+    const uniq = [...new Set(symbols)];
+    const todo: SymbolId[] = [];
+    for (const id of uniq) {
+      const hit = (isBasket(id) ? basketSparkCache : sparkCache).get(id);
+      if (hit) out[id] = hit;
+      else todo.push(id);
+    }
+    const results = await Promise.allSettled(todo.map(dailyCloses));
     results.forEach((r, i) => {
-      if (r.status === 'fulfilled') out[symbols[i]!] = r.value;
-      else request.log.debug({ err: r.reason, symbol: symbols[i] }, 'sparkline omitted');
+      const id = todo[i]!;
+      if (r.status === 'fulfilled') {
+        out[id] = r.value;
+        (isBasket(id) ? basketSparkCache : sparkCache).set(id, r.value);
+      } else request.log.debug({ err: r.reason, symbol: id }, 'sparkline omitted');
     });
-    sparkCache.set(key, out);
     return out;
   });
 }

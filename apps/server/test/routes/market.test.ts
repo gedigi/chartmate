@@ -157,7 +157,7 @@ describe('market routes', () => {
     expect(body['crypto:BTC']).toHaveLength(30);
   });
 
-  it('sparklines and basket quotes are cached for 10 s keyed by the sorted id list', async () => {
+  it('basket sparklines and quotes are cached for 10 s; market sparklines per symbol for 5 min', async () => {
     let now = Date.now();
     await t.close();
     t = await makeApp({}, { now: () => now });
@@ -165,21 +165,41 @@ describe('market routes', () => {
     const id = `basket:${created.json<{ id: string }>().id}`;
     const mBars = vi.spyOn(t.market, 'getBars');
     const live = vi.spyOn(t.baskets, 'liveQuotes');
+    const bBars = vi.spyOn(t.baskets, 'getBars');
     await get(`/api/sparklines?symbols=stock:AAPL,${id}`);
     await get(`/api/quotes?symbols=${id},stock:AAPL`);
     const n = mBars.mock.calls.length;
+    const nb = bBars.mock.calls.length;
     now += 9_000;
     const spark2 = await get(`/api/sparklines?symbols=${id},stock:AAPL`); // same set, other order
     const q2 = await get(`/api/quotes?symbols=stock:AAPL,${id}`);
     expect(mBars.mock.calls.length).toBe(n);
+    expect(bBars.mock.calls.length).toBe(nb);
     expect(live).toHaveBeenCalledTimes(1);
     expect(Object.keys(spark2.json()).sort()).toEqual([id, 'stock:AAPL'].sort());
     expect(q2.json<Quote[]>().map((q) => q.id)).toEqual(['stock:AAPL', id]);
     now += 1_001;
     await get(`/api/sparklines?symbols=stock:AAPL,${id}`);
     await get(`/api/quotes?symbols=${id}`);
-    expect(mBars.mock.calls.length).toBeGreaterThan(n);
+    expect(bBars.mock.calls.length).toBeGreaterThan(nb); // basket refetched after 10 s
+    expect(mBars.mock.calls.length).toBe(n); // AAPL still within its 5 min
     expect(live).toHaveBeenCalledTimes(2);
+  });
+
+  it('sparklines are cached 5 min per symbol: an extra symbol fetches only itself', async () => {
+    let now = Date.now();
+    await t.close();
+    t = await makeApp({}, { now: () => now });
+    const mBars = vi.spyOn(t.market, 'getBars');
+    await get('/api/sparklines?symbols=stock:AAPL');
+    expect(mBars.mock.calls.map((c) => c[0].symbol)).toEqual(['stock:AAPL']);
+    now += 4 * 60_000;
+    const r = await get('/api/sparklines?symbols=stock:AAPL,crypto:BTC');
+    expect(Object.keys(r.json()).sort()).toEqual(['crypto:BTC', 'stock:AAPL']);
+    expect(mBars.mock.calls.map((c) => c[0].symbol)).toEqual(['stock:AAPL', 'crypto:BTC']);
+    now += 2 * 60_000; // AAPL is now 6 min old, BTC 2 min
+    await get('/api/sparklines?symbols=stock:AAPL,crypto:BTC');
+    expect(mBars.mock.calls.map((c) => c[0].symbol)).toEqual(['stock:AAPL', 'crypto:BTC', 'stock:AAPL']);
   });
 
   it('editing or deleting a basket invalidates its cached quote at once', async () => {
