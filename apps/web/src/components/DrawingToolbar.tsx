@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX, type ReactNode } from 'react';
 import type { ChartAdapter, DrawingTool } from '../chart/ChartAdapter';
 import { isApplePlatform, isInPopup } from '../keyboard';
+import { LockIcon } from './LockIcon';
 import './DrawingToolbar.css';
 
 /** The slice of ChartAdapter the toolbar drives. */
 export type DrawingControls = Pick<
   ChartAdapter,
-  'startDrawing' | 'cancelDrawing' | 'clearDrawings' | 'removeSelected' | 'setMagnet' | 'setLockAll' | 'onLockAllChange'
+  'startDrawing' | 'cancelDrawing' | 'clearDrawings' | 'drawingCount' | 'removeSelected' | 'setMagnet' | 'setLockAll' | 'onLockAllChange'
   | 'setMagnetOverride' | 'setShiftConstraint' | 'deselect'
 >;
 
@@ -46,12 +47,26 @@ const TOOLS: ReadonlyArray<{ tool: DrawingTool; label: string; icon: JSX.Element
 
 const TEXT_ICON = <Icon><path d="M4 4h12M10 4v12M7.5 16h5" /></Icon>;
 const MAGNET_ICON = <Icon><path d="M5 3v7a5 5 0 0 0 10 0V3h-3v7a2 2 0 0 1-4 0V3z" /><path d="M5 6h3M12 6h3" /></Icon>;
-const LOCK_ICON = <Icon><rect x="4" y="9" width="12" height="8" rx="1.5" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></Icon>;
-const UNLOCK_ICON = <Icon><rect x="4" y="9" width="12" height="8" rx="1.5" /><path d="M7 9V6.5a3 3 0 0 1 5.8-1.1" /></Icon>;
+const LOCK_ICON = <LockIcon locked />;
+const UNLOCK_ICON = <LockIcon locked={false} />;
 const DELETE_ICON = <Icon><path d="M5 5l10 10M15 5L5 15" /></Icon>;
 const CLEAR_ICON = <Icon><path d="M3 5h14M8 5V3h4v2M5 5l1 12h8l1-12M8.5 8.5v5.5M11.5 8.5v5.5" /></Icon>;
 
 type Active = DrawingTool | null;
+
+const drawingsWord = (n: number) => (n === 1 ? 'drawing' : 'drawings');
+
+/**
+ * Confirmation of "Clear all drawings": locked drawings (own lock or "Lock all") are kept, and the question says
+ * so. Null when every drawing is locked (nothing to remove).
+ */
+function clearQuestion({ total, locked }: { total: number; locked: number }, ticker: string): string | null {
+  if (locked === 0) return `Remove all drawings on ${ticker}?`;
+  const removable = total - locked;
+  if (removable <= 0) return null;
+  const kept = locked === 1 ? '1 locked drawing is kept' : `${locked} locked drawings are kept`;
+  return `Remove ${removable} unlocked ${drawingsWord(removable)} on ${ticker}? ${kept}.`;
+}
 
 /**
  * Tool shortcuts: Option (macOS) / Alt + the physical key. Matched by `event.code`: on macOS Option+T types
@@ -104,7 +119,8 @@ function isOtherWidget(target: EventTarget | null): boolean {
 }
 
 /**
- * Vertical drawing toolbar (left column of the chart): drawing tools, magnet, lock all, delete selected, clear all.
+ * Vertical drawing toolbar (left column of the chart): drawing tools, magnet, lock all, delete selected, clear all
+ * (locked drawings are kept).
  * Keyboard: Delete/Backspace removes the selected drawing, Escape cancels the active tool, holding ⌘ (macOS) / Ctrl
  * snaps the drawing being placed or dragged to OHLC values, Option/Alt+T starts a trend line and Option/Alt+H a
  * horizontal line (see TOOL_SHORTCUTS), holding Shift keeps trend lines / rays / extended lines / channels horizontal.
@@ -301,9 +317,14 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
           type="button" className="dt-btn" title="Clear all drawings" aria-label="Clear all drawings" disabled={disabled}
           onClick={() => {
             if (!controls) return;
-            if (!window.confirm(`Remove all drawings on ${ticker}?`)) return;
+            const question = clearQuestion(controls.drawingCount(), ticker);
+            if (question === null) {
+              window.alert(`All drawings on ${ticker} are locked. Unlock them to remove them.`);
+              return;
+            }
+            if (!window.confirm(question)) return;
             cancel();
-            controls.clearDrawings();
+            controls.clearDrawings({ keepLocked: true });
           }}
         >{CLEAR_ICON}</button>
       </div>

@@ -105,7 +105,28 @@
   cursor: pointer;
 }
 .drawing-style-bar select { height: 26px; }
-.drawing-style-locked { font-size: 12px; color: var(--text-muted); padding: 0 2px; }
+.drawing-style-locked { font-size: 12px; color: var(--text-muted); padding: 0 2px; white-space: nowrap; }
+.drawing-style-sep { flex: none; align-self: center; width: 1px; height: 16px; background: var(--border-strong); }
+/* The drawing's own lock: a quiet icon toggle (like the drawing toolbar's buttons), tinted while locked. */
+.drawing-style-bar .drawing-style-lock {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-muted);
+}
+.drawing-style-bar .drawing-style-lock:hover { background: var(--bg-hover); border-color: transparent; color: var(--text); }
+.drawing-style-bar .drawing-style-lock[aria-pressed='true'],
+.drawing-style-bar .drawing-style-lock[aria-pressed='true']:hover { background: var(--accent-soft); border-color: transparent; color: var(--accent-fg); }
+.drawing-style-lock:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.position-lock { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
 .drawing-style-price { position: relative; display: inline-flex; }
 .drawing-style-toggle { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; white-space: nowrap; cursor: pointer; }
 .drawing-style-price input { width: 110px; height: 26px; font-variant-numeric: tabular-nums; }

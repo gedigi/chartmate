@@ -41,7 +41,7 @@ describe('dotted line style', () => {
     let cb: ((s: SelectedDrawing | null) => void) | null = null;
     const c = { onSelectionChange: vi.fn((f: typeof cb) => { cb = f; return () => {}; }), setSelectedStyle: vi.fn(), setSelectedPrice: vi.fn(), setSelectedLabel: vi.fn(), setSelectedExtend: vi.fn(), onPriceEditRequest: vi.fn(() => () => {}) };
     render(<DrawingStyleBar controls={c as unknown as DrawingStyleControls} />);
-    act(() => cb?.({ id: 'a', kind: 'line', style: { color: '#123456', size: 2, style: 'dotted' }, locked: false }));
+    act(() => cb?.({ id: 'a', kind: 'line', style: { color: '#123456', size: 2, style: 'dotted' }, locked: false, ownLock: false }));
     const sel = screen.getByLabelText('Line style');
     expect(sel).toHaveValue('dotted');
     expect(within(sel).getAllByRole('option').map((o) => o.textContent)).toEqual(['Solid', 'Dashed', 'Dotted']);

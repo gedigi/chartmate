@@ -10,6 +10,7 @@ function makeControls() {
     startDrawing: vi.fn((_tool: string, opts?: { text?: string; onEnd?: () => void }) => { onEnd = opts?.onEnd; }),
     cancelDrawing: vi.fn(),
     clearDrawings: vi.fn(),
+    drawingCount: vi.fn(() => ({ total: 2, locked: 0 })),
     removeSelected: vi.fn(() => true),
     setMagnet: vi.fn(),
     setLockAll: vi.fn(),
@@ -216,6 +217,28 @@ describe('DrawingToolbar', () => {
     expect(c.clearDrawings).not.toHaveBeenCalled();
     await userEvent.click(btn);
     expect(c.clearDrawings).toHaveBeenCalledTimes(1);
+  });
+
+  it('Clear all keeps locked drawings and says so; with every drawing locked it removes nothing', async () => {
+    const { c } = makeControls();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    const btn = screen.getByRole('button', { name: 'Clear all drawings' });
+    c.drawingCount.mockReturnValue({ total: 3, locked: 1 });
+    await userEvent.click(btn);
+    expect(confirm).toHaveBeenLastCalledWith('Remove 2 unlocked drawings on AAPL? 1 locked drawing is kept.');
+    expect(c.clearDrawings).toHaveBeenLastCalledWith({ keepLocked: true });
+    c.drawingCount.mockReturnValue({ total: 4, locked: 3 });
+    await userEvent.click(btn);
+    expect(confirm).toHaveBeenLastCalledWith('Remove 1 unlocked drawing on AAPL? 3 locked drawings are kept.');
+    c.clearDrawings.mockClear();
+    confirm.mockClear();
+    c.drawingCount.mockReturnValue({ total: 2, locked: 2 });
+    await userEvent.click(btn);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(alert).toHaveBeenCalledWith('All drawings on AAPL are locked. Unlock them to remove them.');
+    expect(c.clearDrawings).not.toHaveBeenCalled();
   });
 
   it('Magnet and Lock all are toggles reflected via aria-pressed', async () => {

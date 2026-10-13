@@ -12,6 +12,7 @@ function makeControls() {
     setSelectedPrice: vi.fn((_v: number) => true),
     setSelectedLabel: vi.fn(),
     setSelectedExtend: vi.fn(),
+    setSelectedLock: vi.fn((_locked: boolean) => true),
     onPriceEditRequest: vi.fn((f: (id: string) => void) => { editCb = f; return () => { editCb = null; }; }),
   };
   return {
@@ -38,7 +39,7 @@ describe('DrawingStyleBar', () => {
   it('line kind: color, widths 1–4 and solid/dashed', () => {
     const { c, emit } = makeControls();
     render(<DrawingStyleBar controls={c} />);
-    emit({ id: 'a', kind: 'line', style: { color: '#123456', size: 3, style: 'dashed' }, locked: false });
+    emit({ id: 'a', kind: 'line', style: { color: '#123456', size: 3, style: 'dashed' }, locked: false, ownLock: false });
     expect(screen.getByLabelText('Drawing color')).toHaveValue('#123456');
     const width = screen.getByLabelText('Line width');
     expect(width).toHaveValue('3');
@@ -54,7 +55,7 @@ describe('DrawingStyleBar', () => {
   it('text kind: color + font sizes 10–24 (an unusual current size is listed too)', () => {
     const { c, emit } = makeControls();
     render(<DrawingStyleBar controls={c} />);
-    emit({ id: 't', kind: 'text', style: { color: '#ff0000', size: 12 }, locked: false });
+    emit({ id: 't', kind: 'text', style: { color: '#ff0000', size: 12 }, locked: false, ownLock: false });
     const size = screen.getByLabelText('Font size');
     expect(size).toHaveValue('12');
     expect(within(size).getAllByRole('option').map((o) => o.textContent)).toEqual(['10px', '12px', '14px', '16px', '18px', '20px', '22px', '24px']);
@@ -64,17 +65,50 @@ describe('DrawingStyleBar', () => {
     expect(c.setSelectedStyle).toHaveBeenLastCalledWith({ size: 24 });
     fireEvent.input(screen.getByLabelText('Drawing color'), { target: { value: '#00ff00' } });
     expect(c.setSelectedStyle).toHaveBeenLastCalledWith({ color: '#00ff00' });
-    emit({ id: 't', kind: 'text', style: { color: '#ff0000', size: 13 }, locked: false });
+    emit({ id: 't', kind: 'text', style: { color: '#ff0000', size: 13 }, locked: false, ownLock: false });
     expect(within(screen.getByLabelText('Font size')).getAllByRole('option').map((o) => o.textContent)).toContain('13px');
   });
 
-  it('locked drawings are shown read-only', () => {
+  it('drawings locked by "Lock all" are shown read-only, with the lock toggle still available', () => {
     const { c, emit } = makeControls();
     render(<DrawingStyleBar controls={c} />);
-    emit({ id: 'a', kind: 'line', style: { color: '#123456', size: 1, style: 'solid' }, locked: true });
+    emit({ id: 'a', kind: 'line', style: { color: '#123456', size: 1, style: 'solid' }, locked: true, ownLock: false });
     expect(bar()).toHaveAttribute('aria-disabled', 'true');
-    expect(screen.getByText('Locked')).toBeInTheDocument();
+    expect(screen.getByText('All drawings locked')).toBeInTheDocument();
     for (const label of ['Drawing color', 'Line width', 'Line style']) expect(screen.getByLabelText(label)).toBeDisabled();
+    const lock = screen.getByRole('button', { name: 'Lock drawing' });
+    expect(lock).toBeEnabled();
+    expect(lock).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('the lock toggle locks / unlocks the selected drawing; a locked drawing is read-only except the toggle', () => {
+    const { c, emit } = makeControls();
+    render(<DrawingStyleBar controls={c} />);
+    const line = { id: 'a', kind: 'line' as const, style: { color: '#123456', size: 1, style: 'solid' as const } };
+    emit({ ...line, locked: false, ownLock: false });
+    const lock = screen.getByRole('button', { name: 'Lock drawing' });
+    expect(lock).toHaveAttribute('aria-pressed', 'false');
+    expect(lock).toHaveAttribute('title', 'Lock drawing');
+    fireEvent.click(lock);
+    expect(c.setSelectedLock).toHaveBeenLastCalledWith(true);
+    emit({ ...line, locked: true, ownLock: true });
+    expect(bar()).toHaveAttribute('aria-disabled', 'true');
+    for (const label of ['Drawing color', 'Line width', 'Line style']) expect(screen.getByLabelText(label)).toBeDisabled();
+    expect(screen.queryByText('All drawings locked')).toBeNull();
+    const pressed = screen.getByRole('button', { name: 'Lock drawing' });
+    expect(pressed).toBeEnabled();
+    expect(pressed).toHaveAttribute('aria-pressed', 'true');
+    expect(pressed).toHaveAttribute('title', 'Unlock drawing');
+    fireEvent.click(pressed);
+    expect(c.setSelectedLock).toHaveBeenLastCalledWith(false);
+  });
+
+  it('text drawings have the lock toggle too', () => {
+    const { c, emit } = makeControls();
+    render(<DrawingStyleBar controls={c} />);
+    emit({ id: 't', kind: 'text', style: { color: '#ff0000', size: 12 }, locked: true, ownLock: true });
+    expect(screen.getByLabelText('Font size')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Lock drawing' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('unsubscribes on unmount', () => {
@@ -86,7 +120,7 @@ describe('DrawingStyleBar', () => {
   });
 
   describe('price of horizontal drawings', () => {
-    const LINE = { id: 'h', kind: 'line' as const, style: { color: '#123456', size: 1, style: 'solid' as const }, locked: false };
+    const LINE = { id: 'h', kind: 'line' as const, style: { color: '#123456', size: 1, style: 'solid' as const }, locked: false, ownLock: false };
     const price = () => screen.getByLabelText('Price') as HTMLInputElement;
 
     it('shows a Price field only for horizontal drawings, formatted to the symbol precision with a matching step', () => {
@@ -209,7 +243,7 @@ describe('DrawingStyleBar', () => {
   });
 
   describe('price label toggles (price line / horizontal line)', () => {
-    const LINE = { id: 'p', kind: 'line' as const, style: { color: '#123456', size: 1, style: 'solid' as const }, locked: false, price: { value: 5, precision: 2 } };
+    const LINE = { id: 'p', kind: 'line' as const, style: { color: '#123456', size: 1, style: 'solid' as const }, locked: false, ownLock: false, price: { value: 5, precision: 2 } };
 
     it('shows "Price on line" / "Price on axis" only when the drawing has label options, reflecting them', () => {
       const { c, emit } = makeControls();
@@ -235,7 +269,7 @@ describe('DrawingStyleBar', () => {
   });
 
   describe('channel extend toggles', () => {
-    const CH = { id: 'c', kind: 'line' as const, style: { color: '#123456', size: 1, style: 'solid' as const }, locked: false };
+    const CH = { id: 'c', kind: 'line' as const, style: { color: '#123456', size: 1, style: 'solid' as const }, locked: false, ownLock: false };
 
     it('shows "Extend left" / "Extend right" only for channels, reflecting them', () => {
       const { c, emit } = makeControls();

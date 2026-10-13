@@ -3,8 +3,9 @@ import { useEffect, useId, useState, type JSX, type KeyboardEvent } from 'react'
 import type { ChartAdapter, SelectedDrawing } from '../chart/ChartAdapter';
 import { distanceTicks, outcomeLabel, priceFromPct, priceFromTicks, validatePrices } from '../chart/position';
 import { positionContext } from '../chart/positionOverlay';
+import { DrawingLockToggle } from './LockIcon';
 
-export type PositionControls = Pick<ChartAdapter, 'setSelectedPositionPrices'>;
+export type PositionControls = Pick<ChartAdapter, 'setSelectedPositionPrices' | 'setSelectedLock'>;
 export type SelectedPosition = Extract<SelectedDrawing, { kind: 'position' }>;
 
 type Parsed<T> = { value: T } | { error: string };
@@ -75,7 +76,7 @@ const roundPct = (v: number) => Math.round(v * 1e4) / 1e4;
 export function PositionStyleBar({ controls, sel, onUseAsDefault }: {
   controls: PositionControls; sel: SelectedPosition; onUseAsDefault?: (d: PositionDefaults) => void;
 }): JSX.Element {
-  const { side, precision, locked, metrics: m } = sel;
+  const { side, precision, locked, ownLock, metrics: m } = sel;
   const fixed = (v: number) => v.toFixed(precision);
   const prices = { entry: sel.entry, target: sel.target, stop: sel.stop };
 
@@ -129,7 +130,9 @@ export function PositionStyleBar({ controls, sel, onUseAsDefault }: {
         <button type="button" className="position-default" disabled={!validDefaults} onClick={() => { if (validDefaults) onUseAsDefault?.(defaults); }}
           title={validDefaults ? 'Use these target / stop distances (%) for new positions' : 'Distances must be at most 99 % to be used as defaults'}>Use as default</button>
         {outcome && <span className="position-outcome" data-testid="position-outcome">{outcome}</span>}
-        {locked && <span className="drawing-style-locked">Locked</span>}
+        <span className="position-lock">
+          <DrawingLockToggle locked={locked} ownLock={ownLock} onToggle={(v) => controls.setSelectedLock(v)} />
+        </span>
       </div>
     </div>
   );

@@ -12,6 +12,7 @@ function makeControls() {
     setSelectedPrice: vi.fn(() => true),
     setSelectedLabel: vi.fn(), setSelectedExtend: vi.fn(),
     onPriceEditRequest: vi.fn(() => () => {}),
+    setSelectedLock: vi.fn((_locked: boolean) => true),
     setSelectedPositionPrices: vi.fn((_p: { entry?: number; target?: number; stop?: number }): string | null => null),
   };
   return { c: c as typeof c & DrawingStyleControls, emit: (s: SelectedDrawing | null) => act(() => cb?.(s)) };
@@ -21,7 +22,7 @@ function position(over: Partial<{ side: 'long' | 'short'; entry: number; target:
   const side = over.side ?? 'long';
   const g = { start: 0, end: 1, entry: over.entry ?? 100, target: over.target ?? (side === 'long' ? 102 : 98), stop: over.stop ?? (side === 'long' ? 98 : 102) };
   return {
-    id: 'p', kind: 'position', side, locked: over.locked ?? false, entry: g.entry, target: g.target, stop: g.stop, precision: 2,
+    id: 'p', kind: 'position', side, locked: over.locked ?? false, ownLock: over.locked ?? false, entry: g.entry, target: g.target, stop: g.stop, precision: 2,
     metrics: positionMetrics(side, g), outcome: { kind: 'waiting' },
   };
 }
@@ -142,7 +143,22 @@ describe('DrawingStyleBar: long / short positions', () => {
     for (const name of ['Entry', 'Target', 'Stop', 'Target %', 'Target ticks', 'Stop %', 'Stop ticks']) {
       expect(field(name), name).toBeDisabled();
     }
-    expect(screen.getByText('Locked')).toBeInTheDocument();
+    const lock = screen.getByRole('button', { name: 'Lock drawing' });
+    expect(lock).toBeEnabled();
+    expect(lock).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(lock);
+    expect(c.setSelectedLock).toHaveBeenLastCalledWith(false);
+    expect(screen.getByRole('button', { name: 'Use as default' })).toBeEnabled();
+  });
+
+  it('a position locked by "Lock all" says so; its lock toggle locks it on its own', () => {
+    const { c, emit } = makeControls();
+    render(<DrawingStyleBar controls={c} />);
+    emit({ ...position(), locked: true, ownLock: false });
+    expect(field('Entry')).toBeDisabled();
+    expect(screen.getByText('All drawings locked')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Lock drawing' }));
+    expect(c.setSelectedLock).toHaveBeenLastCalledWith(true);
   });
 
   it('"Use as default" is disabled while a distance is over 99 %', () => {
