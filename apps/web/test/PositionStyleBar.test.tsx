@@ -13,23 +13,19 @@ function makeControls() {
     setSelectedLabel: vi.fn(), setSelectedExtend: vi.fn(),
     onPriceEditRequest: vi.fn(() => () => {}),
     setSelectedPositionPrices: vi.fn((_p: { entry?: number; target?: number; stop?: number }): string | null => null),
-    setSelectedPositionSettings: vi.fn(),
   };
   return { c: c as typeof c & DrawingStyleControls, emit: (s: SelectedDrawing | null) => act(() => cb?.(s)) };
 }
 
-const settings = { accountSize: 10000, riskMode: 'percent' as const, riskValue: 1, currency: 'USD' };
 function position(over: Partial<{ side: 'long' | 'short'; entry: number; target: number; stop: number; locked: boolean }> = {}): SelectedDrawing {
   const side = over.side ?? 'long';
   const g = { start: 0, end: 1, entry: over.entry ?? 100, target: over.target ?? (side === 'long' ? 102 : 98), stop: over.stop ?? (side === 'long' ? 98 : 102) };
   return {
     id: 'p', kind: 'position', side, locked: over.locked ?? false, entry: g.entry, target: g.target, stop: g.stop, precision: 2,
-    settings, metrics: positionMetrics(side, g, settings, 0), outcome: { kind: 'waiting' },
+    metrics: positionMetrics(side, g), outcome: { kind: 'waiting' },
   };
 }
 const field = (name: string) => screen.getByLabelText(name) as HTMLInputElement;
-/** The inline error of a field (aria-describedby). */
-const errorOf = (name: string) => document.getElementById(field(name).getAttribute('aria-describedby') ?? '');
 const type = (name: string, value: string, key = 'Enter') => {
   fireEvent.change(field(name), { target: { value } });
   if (key === 'blur') fireEvent.blur(field(name));
@@ -111,98 +107,56 @@ describe('DrawingStyleBar: long / short positions', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/whole number/i);
   });
 
-  it('risk section: account size, mode, value, currency; computed qty, amounts and R:R', () => {
+  it('summary: R:R only, no sizing (account, risk, currency, quantity, money amounts)', () => {
     const { c, emit } = makeControls();
     render(<DrawingStyleBar controls={c} />);
     emit(position({ target: 106, stop: 97 }));
-    expect(field('Account size').value).toBe('10000');
-    expect((screen.getByLabelText('Risk mode') as HTMLSelectElement).value).toBe('percent');
-    expect(field('Risk').value).toBe('1');
-    expect(field('Currency').value).toBe('USD');
-    const summary = screen.getByTestId('position-summary');
-    expect(summary).toHaveTextContent('Qty 33');
-    expect(summary).toHaveTextContent('Risk 99.00 USD');
-    expect(summary).toHaveTextContent('Reward 198.00 USD');
-    expect(summary).toHaveTextContent('R:R 2.00');
-    type('Account size', '25000');
-    expect(c.setSelectedPositionSettings).toHaveBeenLastCalledWith({ accountSize: 25000 });
-    fireEvent.change(screen.getByLabelText('Risk mode'), { target: { value: 'amount' } });
-    expect(c.setSelectedPositionSettings).toHaveBeenLastCalledWith({ riskMode: 'amount', riskValue: 100 }); // 1 % of 10 000
-    type('Risk', '2.5', 'blur');
-    expect(c.setSelectedPositionSettings).toHaveBeenLastCalledWith({ riskValue: 2.5 });
-    type('Currency', 'EUR');
-    expect(c.setSelectedPositionSettings).toHaveBeenLastCalledWith({ currency: 'EUR' });
-    type('Risk', '150');
-    expect(errorOf('Risk')).toHaveTextContent(/at most 100/i);
-    type('Currency', 'TOOLONGCUR');
-    expect(errorOf('Currency')).toHaveTextContent(/at most 8/i);
-    type('Account size', '0');
-    expect(errorOf('Account size')).toHaveTextContent(/positive/i);
-    expect(c.setSelectedPositionSettings).toHaveBeenCalledTimes(4);
+    expect(screen.getByTestId('position-summary')).toHaveTextContent(/^R:R 2\.00$/);
+    for (const name of ['Account size', 'Risk mode', 'Risk', 'Currency']) expect(screen.queryByLabelText(name), name).toBeNull();
+    expect(screen.getByRole('toolbar', { name: 'Position settings' })).not.toHaveTextContent(/Qty|USD/);
   });
 
-  it('shows the outcome', () => {
+  it('shows the outcome with its % result', () => {
     const { c, emit } = makeControls();
     render(<DrawingStyleBar controls={c} />);
-    emit({ ...position(), outcome: { kind: 'stop', ts: Date.UTC(2024, 0, 5), price: 98, pnl: -100, pnlPct: -2 } } as SelectedDrawing);
-    expect(screen.getByTestId('position-outcome')).toHaveTextContent('Stop hit · -100.00 USD (-2.00%) · 2024-01-05');
+    emit({ ...position(), outcome: { kind: 'stop', fillTs: 0, ts: Date.UTC(2024, 0, 5), price: 98, pnlPct: -2 } } as SelectedDrawing);
+    expect(screen.getByTestId('position-outcome')).toHaveTextContent('Stop hit · -2.00% · 2024-01-05');
   });
 
-  it('"Use as default" saves the risk settings as the global defaults', () => {
+  it('"Use as default" saves the target / stop distances (%) as the defaults of new positions', () => {
     const { c, emit } = makeControls();
     const onUse = vi.fn();
     render(<DrawingStyleBar controls={c} onUsePositionDefaults={onUse} />);
-    emit({ ...position(), settings: { accountSize: 5000, riskMode: 'amount', riskValue: 50, currency: 'EUR' } } as SelectedDrawing);
+    emit(position({ target: 103, stop: 98.5 }));
     fireEvent.click(screen.getByRole('button', { name: 'Use as default' }));
-    expect(onUse).toHaveBeenCalledWith({ accountSize: 5000, riskMode: 'amount', riskValue: 50, currency: 'EUR' });
+    expect(onUse).toHaveBeenCalledWith({ targetPct: 3, stopPct: 1.5 });
+    emit(position({ side: 'short', entry: 3, target: 2.9, stop: 3.1 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use as default' }));
+    expect(onUse).toHaveBeenLastCalledWith({ targetPct: 3.3333, stopPct: 3.3333 }); // rounded to 4 decimals
   });
 
   it('locked positions are read-only', () => {
     const { c, emit } = makeControls();
     render(<DrawingStyleBar controls={c} />);
     emit(position({ locked: true }));
-    for (const name of ['Entry', 'Target', 'Stop', 'Target %', 'Target ticks', 'Stop %', 'Stop ticks', 'Account size', 'Risk', 'Currency']) {
+    for (const name of ['Entry', 'Target', 'Stop', 'Target %', 'Target ticks', 'Stop %', 'Stop ticks']) {
       expect(field(name), name).toBeDisabled();
     }
-    expect(screen.getByLabelText('Risk mode')).toBeDisabled();
     expect(screen.getByText('Locked')).toBeInTheDocument();
   });
 
-  it('changing the risk mode converts the value so the money at risk stays the same (percentage at most 100)', () => {
-    const { c, emit } = makeControls();
-    render(<DrawingStyleBar controls={c} />);
-    emit({ ...position(), settings: { ...settings, riskMode: 'amount', riskValue: 500 } } as SelectedDrawing);
-    fireEvent.change(screen.getByLabelText('Risk mode'), { target: { value: 'percent' } });
-    expect(c.setSelectedPositionSettings).toHaveBeenLastCalledWith({ riskMode: 'percent', riskValue: 5 });
-    emit({ ...position(), settings: { ...settings, riskMode: 'amount', riskValue: 50000 } } as SelectedDrawing);
-    fireEvent.change(screen.getByLabelText('Risk mode'), { target: { value: 'percent' } });
-    expect(c.setSelectedPositionSettings).toHaveBeenLastCalledWith({ riskMode: 'percent', riskValue: 100 });
-    emit({ ...position(), settings: { ...settings, riskValue: 2 } } as SelectedDrawing);
-    fireEvent.change(screen.getByLabelText('Risk mode'), { target: { value: 'amount' } });
-    expect(c.setSelectedPositionSettings).toHaveBeenLastCalledWith({ riskMode: 'amount', riskValue: 200 });
-  });
-
-  it('"Use as default" is disabled while the risk settings are invalid', () => {
+  it('"Use as default" is disabled while a distance is over 99 %', () => {
     const { c, emit } = makeControls();
     const onUse = vi.fn();
     render(<DrawingStyleBar controls={c} onUsePositionDefaults={onUse} />);
-    emit({ ...position(), settings: { ...settings, riskValue: 500 } } as SelectedDrawing);
+    emit(position({ target: 250 }));
     const btn = screen.getByRole('button', { name: 'Use as default' });
     expect(btn).toBeDisabled();
     fireEvent.click(btn);
     expect(onUse).not.toHaveBeenCalled();
   });
 
-  it('a quantity of 0 explains that the risk is below one unit', () => {
-    const { c, emit } = makeControls();
-    render(<DrawingStyleBar controls={c} />);
-    const sel = position();
-    emit({ ...sel, metrics: { ...(sel as { metrics: object }).metrics, qty: 0, riskAmount: 0, rewardAmount: 0 } } as SelectedDrawing);
-    expect(screen.getByTestId('position-summary')).toHaveTextContent('Qty 0 (Risk is below 1 unit)');
-    expect(screen.getByTestId('position-summary')).toHaveTextContent('Risk 0.00 USD');
-  });
-
-  it('shows waiting / needs-data states without P&L', () => {
+  it('shows waiting / needs-data states without a result', () => {
     const { c, emit } = makeControls();
     render(<DrawingStyleBar controls={c} />);
     emit(position());

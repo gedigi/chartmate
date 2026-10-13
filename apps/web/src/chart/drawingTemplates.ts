@@ -147,8 +147,6 @@ function kindOf(line: Record<string, unknown> | undefined): LineStyleKind {
 
 /** Key of the price-label options inside an overlay's KLineChart styles (ignored by KLineChart itself). */
 export const LABEL_STYLE_KEY = 'chartmateLabel';
-/** Key of a long / short position's own risk settings inside its KLineChart overlay styles (ignored by KLineChart). */
-export const POSITION_STYLE_KEY = 'chartmatePosition';
 export interface LabelOptions { onLine: boolean; onAxis: boolean }
 /** Drawings with price-label toggles and their defaults. */
 export const LABEL_DEFAULTS: Readonly<Record<string, LabelOptions>> = {

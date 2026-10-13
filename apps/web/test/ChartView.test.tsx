@@ -44,7 +44,6 @@ const fake = vi.hoisted(() => {
     onPriceEditRequest = vi.fn(() => () => {});
     setPositionDefaults = vi.fn();
     setSelectedPositionPrices = vi.fn(() => null);
-    setSelectedPositionSettings = vi.fn();
     constructor() { instances.push(this); }
   }
   return { instances, FakeAdapter };
@@ -334,7 +333,7 @@ describe('ChartView', () => {
   });
 
   it('applies the layout position defaults to the adapter, re-applied only when they change by value', async () => {
-    const positionDefaults = { accountSize: 5000, riskMode: 'amount' as const, riskValue: 25, currency: 'EUR' };
+    const positionDefaults = { targetPct: 3, stopPct: 1.5 };
     const { rerenderWith } = renderView({ ...LAYOUT, positionDefaults });
     await flush();
     expect(adapter().setPositionDefaults).toHaveBeenLastCalledWith(positionDefaults);
@@ -349,14 +348,13 @@ describe('ChartView', () => {
     const setLayout = vi.fn();
     render(<ChartView layout={LAYOUT} setLayout={setLayout} symbolInfo={AAPL} theme="dark" />);
     await flush();
-    const settings = { accountSize: 7000, riskMode: 'percent' as const, riskValue: 0.5, currency: 'USD' };
     act(() => adapter().selectionCb?.({
-      id: 'p', kind: 'position', side: 'long', locked: false, entry: 100, target: 102, stop: 98, precision: 2, settings,
-      metrics: { qty: 17, riskAmount: 34, rewardAmount: 34, rr: 1, targetPct: 2, stopPct: 2 }, outcome: { kind: 'pending' },
+      id: 'p', kind: 'position', side: 'long', locked: false, entry: 100, target: 103, stop: 99, precision: 2,
+      metrics: { rr: 3, targetPct: 3, stopPct: 1 }, outcome: { kind: 'waiting' },
     }));
     fireEvent.click(screen.getByRole('button', { name: 'Use as default' }));
     const update = setLayout.mock.calls.at(-1)![0] as (l: Layout) => Layout;
-    expect(update(LAYOUT)).toEqual({ ...LAYOUT, positionDefaults: settings });
+    expect(update(LAYOUT)).toEqual({ ...LAYOUT, positionDefaults: { targetPct: 3, stopPct: 1 } });
   });
 
   it('passes indicator line widths / styles / bar colors to the adapter', async () => {

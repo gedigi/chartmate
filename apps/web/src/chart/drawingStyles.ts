@@ -1,10 +1,10 @@
 import {
   isHexColor, isPositionTool, MAX_LINE_WIDTH, MAX_TEXT_SIZE, MIN_LINE_WIDTH, MIN_TEXT_SIZE,
-  sanitizePositionSettings, type DrawingLineStyle, type DrawingStyles, type LineStyleKind,
+  type DrawingLineStyle, type DrawingStyles, type LineStyleKind,
 } from '@chartmate/shared';
 import type { DeepPartial, OverlayStyle } from 'klinecharts';
 import { readableTextOn } from './contrast';
-import { EXTEND_DEFAULTS, EXTEND_STYLE_KEY, LABEL_DEFAULTS, LABEL_STYLE_KEY, POSITION_STYLE_KEY } from './drawingTemplates';
+import { EXTEND_DEFAULTS, EXTEND_STYLE_KEY, LABEL_DEFAULTS, LABEL_STYLE_KEY } from './drawingTemplates';
 
 export type LabelStyle = NonNullable<DrawingStyles['label']>;
 export type ExtendStyle = NonNullable<DrawingStyles['extend']>;
@@ -72,11 +72,10 @@ export function textToOverlay(t: TextStyle): DeepPartial<OverlayStyle> {
 
 export function toOverlayStyles(s: DrawingStyles | undefined): DeepPartial<OverlayStyle> | undefined {
   let out: Record<string, unknown> | undefined = s?.text ? textToOverlay(s.text) : s?.line ? lineToOverlay(s.line) : undefined;
-  // Price-label options, channel extend options and position risk settings ride along in the overlay styles
+  // Price-label options and channel extend options ride along in the overlay styles
   // (KLineChart ignores the keys; our templates read them).
   if (s?.label) out = { ...out, [LABEL_STYLE_KEY]: { ...s.label } };
   if (s?.extend) out = { ...out, [EXTEND_STYLE_KEY]: { ...s.extend } };
-  if (s?.position) out = { ...out, [POSITION_STYLE_KEY]: { ...s.position } };
   return out as DeepPartial<OverlayStyle> | undefined;
 }
 
@@ -119,9 +118,8 @@ export function readText(styles: unknown): TextStyle | null {
 /** Normalized styles of an overlay (only what the app lets the user change), or undefined. */
 export function normalizeOverlayStyles(name: string, styles: unknown): DrawingStyles | undefined {
   if (isPositionTool(name)) {
-    // Positions have no line style: only their own risk settings.
-    const position = sanitizePositionSettings((styles as Record<string, unknown> | null | undefined)?.[POSITION_STYLE_KEY]);
-    return position ? { position } : undefined;
+    // Positions have no stored styles (their colors follow the appearance).
+    return undefined;
   }
   if (name === TEXT_TOOL) {
     const text = readText(styles);
@@ -170,7 +168,5 @@ export function sanitizeDrawingStyles(s: unknown): DrawingStyles | undefined {
   if (label) out.label = label;
   const extend = readExtend((s as { extend?: unknown }).extend);
   if (extend) out.extend = extend;
-  const position = sanitizePositionSettings((s as { position?: unknown }).position);
-  if (position) out.position = position;
-  return out.line || out.text || out.label || out.extend || out.position ? out : undefined;
+  return out.line || out.text || out.label || out.extend ? out : undefined;
 }

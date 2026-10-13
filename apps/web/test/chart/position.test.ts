@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  centerLabel, defaultGeometry, distancePct, distanceTicks, endAfterBars, evaluateOutcome, formatAmount, formatPct, fromPositionPoints,
-  nextBarTime, outcomeLabel, positionMetrics, pressedMove, shiftByBars, priceFromPct, priceFromTicks, qtyDecimals, riskAmount, sideOf, stopLabel, targetLabel,
+  centerLabel, defaultGeometry, distancePct, distanceTicks, endAfterBars, evaluateOutcome, formatPct, fromPositionPoints,
+  nextBarTime, outcomeLabel, positionMetrics, pressedMove, shiftByBars, priceFromPct, priceFromTicks, sideOf, stopLabel, targetLabel,
   toPositionPoints, validatePrices, type PositionGeometry,
 } from '../../src/chart/position';
 
@@ -9,7 +9,6 @@ const DAY = 86_400_000;
 const T0 = Date.UTC(2024, 0, 1);
 const g: PositionGeometry = { start: T0, end: T0 + 20 * DAY, entry: 100, target: 102, stop: 98 };
 const short: PositionGeometry = { start: T0, end: T0 + 20 * DAY, entry: 100, target: 98, stop: 102 };
-const settings = { accountSize: 10000, riskMode: 'percent' as const, riskValue: 1, currency: 'USD' };
 
 describe('position points schema', () => {
   it('four points: entry, target, stop (all at the start time) and end (at the entry price)', () => {
@@ -32,6 +31,12 @@ describe('defaults and validation', () => {
   it('default target / stop at ±2 % rounded to the precision (short inverted)', () => {
     expect(defaultGeometry('long', T0, 123.456, T0 + 5, 2)).toEqual({ start: T0, end: T0 + 5, entry: 123.46, target: 125.93, stop: 120.99 });
     expect(defaultGeometry('short', T0, 100, T0 + 5, 2)).toEqual({ start: T0, end: T0 + 5, entry: 100, target: 98, stop: 102 });
+  });
+
+  it('custom default distances ("Use as default")', () => {
+    const d = { targetPct: 3, stopPct: 1.5 };
+    expect(defaultGeometry('long', T0, 100, T0 + 5, 2, d)).toEqual({ start: T0, end: T0 + 5, entry: 100, target: 103, stop: 98.5 });
+    expect(defaultGeometry('short', T0, 100, T0 + 5, 2, d)).toEqual({ start: T0, end: T0 + 5, entry: 100, target: 97, stop: 101.5 });
   });
 
   it('long needs stop < entry < target, short target < entry < stop', () => {
@@ -61,46 +66,30 @@ describe('defaults and validation', () => {
   });
 });
 
-describe('risk, quantity and R:R', () => {
-  it('risk amount: % of the account or a fixed amount', () => {
-    expect(riskAmount(settings)).toBe(100);
-    expect(riskAmount({ ...settings, riskMode: 'amount', riskValue: 250 })).toBe(250);
-  });
-
-  it('quantity decimals: stocks and baskets whole units, crypto 6 decimals', () => {
-    expect(qtyDecimals('stock')).toBe(0);
-    expect(qtyDecimals('basket')).toBe(0);
-    expect(qtyDecimals('crypto')).toBe(6);
-  });
-
-  it('qty = risk / |entry − stop| (floored), reward / risk amounts, R:R and % distances', () => {
-    expect(positionMetrics('long', g, settings, 0)).toEqual({ qty: 50, riskAmount: 100, rewardAmount: 100, rr: 1, targetPct: 2, stopPct: 2 });
-    const m = positionMetrics('long', { ...g, target: 106, stop: 97 }, settings, 0);
-    expect(m.qty).toBe(33); // 100 / 3 = 33.33 → 33 shares
-    expect(m.riskAmount).toBeCloseTo(99);
-    expect(m.rewardAmount).toBeCloseTo(198);
-    expect(m.rr).toBeCloseTo(2);
-    const c = positionMetrics('short', { ...short, entry: 60000, target: 57000, stop: 61500 }, settings, 6);
-    expect(c.qty).toBeCloseTo(0.066666, 6);
+describe('R:R and % distances', () => {
+  it('R:R = |target − entry| / |entry − stop|; distances in % of the entry', () => {
+    expect(positionMetrics('long', g)).toEqual({ rr: 1, targetPct: 2, stopPct: 2 });
+    expect(positionMetrics('long', { ...g, target: 106, stop: 97 }).rr).toBeCloseTo(2);
+    const c = positionMetrics('short', { ...short, entry: 60000, target: 57000, stop: 61500 });
     expect(c.rr).toBe(2);
     expect(c.targetPct).toBeCloseTo(5);
     expect(c.stopPct).toBeCloseTo(2.5);
+    expect(positionMetrics('long', { ...g, stop: 100 }).rr).toBe(0);
   });
 });
 
 describe('labels', () => {
-  const m = positionMetrics('long', g, settings, 0);
-  it('target / stop / center labels', () => {
-    expect(targetLabel(g, m, 2, 'USD')).toBe('Target: 102.00 (+2.00%) +100.00 USD');
-    expect(stopLabel(g, m, 2, 'USD')).toBe('Stop: 98.00 (-2.00%) -100.00 USD');
-    expect(centerLabel('long', m)).toBe('Long · Qty 50 · R:R 1.00');
-    expect(centerLabel('short', { ...m, qty: 0.0667, rr: 2.345 })).toBe('Short · Qty 0.0667 · R:R 2.35');
+  const m = positionMetrics('long', g);
+  it('target / stop / center labels: prices, % and R:R only (no size or money amounts)', () => {
+    expect(targetLabel(g, m, 2)).toBe('Target: 102.00 (+2.00%)');
+    expect(stopLabel(g, m, 2)).toBe('Stop: 98.00 (-2.00%)');
+    expect(centerLabel('long', m)).toBe('Long · R:R 1.00');
+    expect(centerLabel('short', { ...m, rr: 2.345 })).toBe('Short · R:R 2.35');
   });
 
-  it('amounts keep two decimals with thousands separators', () => {
-    expect(formatAmount(1234.5, 'EUR')).toBe('+1,234.50 EUR');
-    expect(formatAmount(-0.004, 'USD')).toBe('+0.00 USD'); // no "-0.00"
-    expect(formatAmount(-0, 'USD')).toBe('+0.00 USD');
+  it('percentages keep two decimals; values rounding to zero show as +0.00%', () => {
+    expect(formatPct(1.234)).toBe('+1.23%');
+    expect(formatPct(-2)).toBe('-2.00%');
     expect(formatPct(-0)).toBe('+0.00%');
     expect(formatPct(-0.001)).toBe('+0.00%');
   });
@@ -114,75 +103,75 @@ describe('outcome: fill on entry touch, then target / stop on the following bars
   it('fills on the first bar at or after the start whose range touches the entry; hits are checked from the next bar', () => {
     // Bar 0 touches 100 and also reaches the target: intrabar order unknown, the target counts on later bars only.
     const bars = [bar(0, 99, 103, 99.5), bar(1, 101, 101.5, 99.5), bar(2, 101, 102.5, 100.5), bar(3, 90, 91, 80)];
-    expect(evaluateOutcome(bars, 'long', g, 50, opts)).toEqual({ kind: 'target', fillTs: T0, ts: T0 + 2 * DAY, price: 102, pnl: 100, pnlPct: 2 });
+    expect(evaluateOutcome(bars, 'long', g, opts)).toEqual({ kind: 'target', fillTs: T0, ts: T0 + 2 * DAY, price: 102, pnlPct: 2 });
   });
 
   it('waits for the entry: bars that never touch it, and a bar that only contains the start (began before it), do not fill', () => {
     const mid = { ...g, start: T0 + DAY / 2 };
     // Bar 0 began before the start → excluded; bar 1 does not touch 100.
     const bars = [bar(0, 100, 101, 99), bar(1, 105, 106, 104)];
-    expect(evaluateOutcome(bars, 'long', mid, 50, opts)).toEqual({ kind: 'waiting' });
-    expect(evaluateOutcome([], 'long', g, 50, opts)).toEqual({ kind: 'waiting' });
-    expect(evaluateOutcome([bar(-1, 100, 101, 99)], 'long', g, 50, opts)).toEqual({ kind: 'waiting' }); // future start
+    expect(evaluateOutcome(bars, 'long', mid, opts)).toEqual({ kind: 'waiting' });
+    expect(evaluateOutcome([], 'long', g, opts)).toEqual({ kind: 'waiting' });
+    expect(evaluateOutcome([bar(-1, 100, 101, 99)], 'long', g, opts)).toEqual({ kind: 'waiting' }); // future start
   });
 
   it('range over without touching the entry: unfilled', () => {
-    expect(evaluateOutcome([bar(1, 105, 106, 104), bar(21, 100, 101, 99)], 'long', g, 50, opts)).toEqual({ kind: 'unfilled' });
+    expect(evaluateOutcome([bar(1, 105, 106, 104), bar(21, 100, 101, 99)], 'long', g, opts)).toEqual({ kind: 'unfilled' });
   });
 
   it('needs earlier data when the start lies before the first loaded bar and older bars exist', () => {
     const bars = [bar(5, 100, 101, 99), bar(6, 100, 103, 99.5)];
-    expect(evaluateOutcome(bars, 'long', g, 50, { historyComplete: false })).toEqual({ kind: 'needsData' });
-    expect(evaluateOutcome(bars, 'long', g, 50)).toEqual({ kind: 'needsData' }); // unknown → assume more exists
+    expect(evaluateOutcome(bars, 'long', g, { historyComplete: false })).toEqual({ kind: 'needsData' });
+    expect(evaluateOutcome(bars, 'long', g)).toEqual({ kind: 'needsData' }); // unknown → assume more exists
     // No older data at all (provider limit): evaluated on what exists.
-    expect(evaluateOutcome(bars, 'long', g, 50, opts)).toMatchObject({ kind: 'target', fillTs: T0 + 5 * DAY });
+    expect(evaluateOutcome(bars, 'long', g, opts)).toMatchObject({ kind: 'target', fillTs: T0 + 5 * DAY });
   });
 
   it('stop hit (long); both levels in the same later bar → stop first (conservative)', () => {
-    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 99, 101, 97.5)], 'long', g, 50, opts))
-      .toEqual({ kind: 'stop', fillTs: T0, ts: T0 + DAY, price: 98, pnl: -100, pnlPct: -2 });
-    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 100, 103, 97)], 'long', g, 50, opts)).toMatchObject({ kind: 'stop' });
-    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 100, 103, 97)], 'short', short, 50, opts)).toMatchObject({ kind: 'stop', pnl: -100 });
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 99, 101, 97.5)], 'long', g, opts))
+      .toEqual({ kind: 'stop', fillTs: T0, ts: T0 + DAY, price: 98, pnlPct: -2 });
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 100, 103, 97)], 'long', g, opts)).toMatchObject({ kind: 'stop' });
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 100, 103, 97)], 'short', short, opts)).toMatchObject({ kind: 'stop' });
   });
 
   it('short: target when the low reaches it, stop when the high does', () => {
-    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 100, 100.5, 97.9)], 'short', short, 50, opts))
-      .toEqual({ kind: 'target', fillTs: T0, ts: T0 + DAY, price: 98, pnl: 100, pnlPct: 2 });
-    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 101, 102, 99)], 'short', short, 50, opts)).toMatchObject({ kind: 'stop', price: 102, pnl: -100 });
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 100, 100.5, 97.9)], 'short', short, opts))
+      .toEqual({ kind: 'target', fillTs: T0, ts: T0 + DAY, price: 98, pnlPct: 2 });
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 101, 102, 99)], 'short', short, opts)).toMatchObject({ kind: 'stop', price: 102, pnlPct: -2 });
   });
 
   it('gaps: a bar opening beyond the stop books the loss at the open; beyond the target the gain stays at the target', () => {
-    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 96, 97, 95)], 'long', g, 50, opts))
-      .toMatchObject({ kind: 'stop', price: 96, pnl: -200, pnlPct: -4 });
-    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 105, 106, 104)], 'long', g, 50, opts))
-      .toMatchObject({ kind: 'target', price: 102, pnl: 100 });
-    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 104, 105, 103)], 'short', short, 50, opts))
-      .toMatchObject({ kind: 'stop', price: 104, pnl: -200 });
-    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 95, 96, 94)], 'short', short, 50, opts))
-      .toMatchObject({ kind: 'target', price: 98, pnl: 100 });
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 96, 97, 95)], 'long', g, opts))
+      .toMatchObject({ kind: 'stop', price: 96, pnlPct: -4 });
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 105, 106, 104)], 'long', g, opts))
+      .toMatchObject({ kind: 'target', price: 102, pnlPct: 2 });
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 104, 105, 103)], 'short', short, opts))
+      .toMatchObject({ kind: 'stop', price: 104, pnlPct: -4 });
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(1, 95, 96, 94)], 'short', short, opts))
+      .toMatchObject({ kind: 'target', price: 98, pnlPct: 2 });
   });
 
   it('filled, no hit, last bar inside the range: open at the last close (also on the fill bar itself)', () => {
-    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(2, 101, 101.5, 99.5, 101)], 'long', g, 50, opts))
-      .toEqual({ kind: 'open', fillTs: T0, ts: T0 + 2 * DAY, price: 101, pnl: 50, pnlPct: 1 });
-    expect(evaluateOutcome([bar(0, 100, 103, 99, 99)], 'short', short, 50, opts)).toMatchObject({ kind: 'open', pnl: 50, pnlPct: 1 });
+    expect(evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(2, 101, 101.5, 99.5, 101)], 'long', g, opts))
+      .toEqual({ kind: 'open', fillTs: T0, ts: T0 + 2 * DAY, price: 101, pnlPct: 1 });
+    expect(evaluateOutcome([bar(0, 100, 103, 99, 99)], 'short', short, opts)).toMatchObject({ kind: 'open', pnlPct: 1 });
   });
 
   it('filled, no hit up to the end time, later bars exist: ended at the last close in range', () => {
-    const o = evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(20, 100, 101, 99, 99), bar(21, 150, 200, 1)], 'long', g, 50, opts);
-    expect(o).toMatchObject({ kind: 'ended', ts: T0 + 20 * DAY, price: 99, pnl: -50 });
+    const o = evaluateOutcome([bar(0, 100, 100.5, 99.5), bar(20, 100, 101, 99, 99), bar(21, 150, 200, 1)], 'long', g, opts);
+    expect(o).toMatchObject({ kind: 'ended', ts: T0 + 20 * DAY, price: 99, pnlPct: -1 });
   });
 
   it('outcome labels', () => {
     const date = (ts: number) => new Date(ts).toISOString().slice(0, 10);
     const base = { fillTs: T0 };
-    expect(outcomeLabel({ ...base, kind: 'target', ts: T0 + DAY, price: 102, pnl: 100, pnlPct: 2 }, 'USD', date)).toBe('Target hit · +100.00 USD (+2.00%) · 2024-01-02');
-    expect(outcomeLabel({ ...base, kind: 'stop', ts: T0 + DAY, price: 98, pnl: -100, pnlPct: -2 }, 'USD', date)).toBe('Stop hit · -100.00 USD (-2.00%) · 2024-01-02');
-    expect(outcomeLabel({ ...base, kind: 'open', ts: T0 + DAY, price: 101, pnl: 50, pnlPct: 1 }, 'USD', date)).toBe('Open · +50.00 USD (+1.00%)');
-    expect(outcomeLabel({ ...base, kind: 'ended', ts: T0 + DAY, price: 99, pnl: -50, pnlPct: -1 }, 'USD', date)).toBe('Ended, no hit · -50.00 USD (-1.00%) · 2024-01-02');
-    expect(outcomeLabel({ kind: 'waiting' }, 'USD', date)).toBe('Waiting for entry');
-    expect(outcomeLabel({ kind: 'unfilled' }, 'USD', date)).toBe('Entry not reached');
-    expect(outcomeLabel({ kind: 'needsData' }, 'USD', date)).toBe('Outcome needs earlier data');
+    expect(outcomeLabel({ ...base, kind: 'target', ts: T0 + DAY, price: 102, pnlPct: 2 }, date)).toBe('Target hit · +2.00% · 2024-01-02');
+    expect(outcomeLabel({ ...base, kind: 'stop', ts: T0 + DAY, price: 98, pnlPct: -2 }, date)).toBe('Stop hit · -2.00% · 2024-01-02');
+    expect(outcomeLabel({ ...base, kind: 'open', ts: T0 + DAY, price: 101, pnlPct: 1 }, date)).toBe('Open · +1.00%');
+    expect(outcomeLabel({ ...base, kind: 'ended', ts: T0 + DAY, price: 99, pnlPct: -1 }, date)).toBe('Ended, no hit · -1.00% · 2024-01-02');
+    expect(outcomeLabel({ kind: 'waiting' }, date)).toBe('Waiting for entry');
+    expect(outcomeLabel({ kind: 'unfilled' }, date)).toBe('Entry not reached');
+    expect(outcomeLabel({ kind: 'needsData' }, date)).toBe('Outcome needs earlier data');
   });
 });
 

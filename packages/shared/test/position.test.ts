@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  convertRiskValue, DEFAULT_POSITION_SETTINGS, isPositionTool, isValidPositionDefaults, MAX_CURRENCY_LENGTH, MAX_POSITION_AMOUNT,
-  MAX_RISK_PERCENT, POSITION_TOOLS, resolvePositionDefaults, sanitizePositionSettings,
+  DEFAULT_POSITION_DEFAULTS, isPositionTool, isValidPositionDefaults, MAX_POSITION_PCT, POSITION_TOOLS, resolvePositionDefaults,
 } from '../src/types.js';
 
-describe('position settings', () => {
-  it('app defaults: 10 000 account, 1 % risk, USD', () => {
-    expect(DEFAULT_POSITION_SETTINGS).toEqual({ accountSize: 10000, riskMode: 'percent', riskValue: 1, currency: 'USD' });
-    expect(MAX_CURRENCY_LENGTH).toBe(8);
+describe('position defaults', () => {
+  it('app defaults: target and stop 2 % from the entry', () => {
+    expect(DEFAULT_POSITION_DEFAULTS).toEqual({ targetPct: 2, stopPct: 2 });
+    expect(MAX_POSITION_PCT).toBe(99);
   });
 
   it('position tools', () => {
@@ -17,49 +16,24 @@ describe('position settings', () => {
     expect(isPositionTool('segment')).toBe(false);
   });
 
-  it('sanitizePositionSettings keeps only valid fields', () => {
-    expect(sanitizePositionSettings({ accountSize: 5000, riskMode: 'amount', riskValue: 50, currency: 'EUR' }))
-      .toEqual({ accountSize: 5000, riskMode: 'amount', riskValue: 50, currency: 'EUR' });
-    expect(sanitizePositionSettings({ accountSize: -1, riskMode: 'x', riskValue: Number.NaN, currency: 'TOOLONGCUR', bogus: 1 })).toBeUndefined();
-    expect(sanitizePositionSettings({ accountSize: Infinity, riskValue: 2 })).toEqual({ riskValue: 2 });
-    expect(sanitizePositionSettings({ currency: '' })).toBeUndefined();
-    expect(sanitizePositionSettings({ currency: '  BTC ' })).toEqual({ currency: 'BTC' });
-    expect(sanitizePositionSettings(null)).toBeUndefined();
-    expect(sanitizePositionSettings('x')).toBeUndefined();
-    expect(sanitizePositionSettings({})).toBeUndefined();
+  it('resolvePositionDefaults fills missing / invalid fields from the app defaults', () => {
+    expect(resolvePositionDefaults(undefined)).toEqual(DEFAULT_POSITION_DEFAULTS);
+    expect(resolvePositionDefaults(null)).toEqual(DEFAULT_POSITION_DEFAULTS);
+    expect(resolvePositionDefaults('x')).toEqual(DEFAULT_POSITION_DEFAULTS);
+    expect(resolvePositionDefaults({ targetPct: 3, stopPct: 1.5 })).toEqual({ targetPct: 3, stopPct: 1.5 });
+    expect(resolvePositionDefaults({ targetPct: 4 })).toEqual({ targetPct: 4, stopPct: 2 });
+    expect(resolvePositionDefaults({ targetPct: 0, stopPct: 100 })).toEqual(DEFAULT_POSITION_DEFAULTS);
+    expect(resolvePositionDefaults({ targetPct: Number.NaN, stopPct: -1 })).toEqual(DEFAULT_POSITION_DEFAULTS);
   });
 
-  it('resolvePositionDefaults fills missing / invalid fields from the app defaults (backward compatible)', () => {
-    expect(resolvePositionDefaults(undefined)).toEqual(DEFAULT_POSITION_SETTINGS);
-    expect(resolvePositionDefaults({ accountSize: 2500, riskMode: 'amount', riskValue: 25, currency: 'CHF' }))
-      .toEqual({ accountSize: 2500, riskMode: 'amount', riskValue: 25, currency: 'CHF' });
-    expect(resolvePositionDefaults({ accountSize: 2500 } as never)).toEqual({ ...DEFAULT_POSITION_SETTINGS, accountSize: 2500 });
+  it('resolvePositionDefaults ignores the sizing fields of layouts saved when positions were sized', () => {
+    expect(resolvePositionDefaults({ accountSize: 2500, riskMode: 'amount', riskValue: 25, currency: 'CHF' })).toEqual(DEFAULT_POSITION_DEFAULTS);
   });
 
-  it('the same limits as the server: amounts ≤ 1e15, a percentage risk ≤ 100', () => {
-    expect(MAX_POSITION_AMOUNT).toBe(1e15);
-    expect(MAX_RISK_PERCENT).toBe(100);
-    expect(sanitizePositionSettings({ accountSize: 2e15, riskValue: 2e15, riskMode: 'amount' })).toEqual({ riskMode: 'amount' });
-    expect(sanitizePositionSettings({ riskMode: 'percent', riskValue: 500 })).toEqual({ riskMode: 'percent' });
-    expect(sanitizePositionSettings({ riskMode: 'amount', riskValue: 500 })).toEqual({ riskMode: 'amount', riskValue: 500 });
-    // Without a mode, a value over 100 is kept (it may be an amount); resolution caps it when the mode is percent.
-    expect(sanitizePositionSettings({ riskValue: 500 })).toEqual({ riskValue: 500 });
-    expect(resolvePositionDefaults({ riskValue: 500 } as never)).toEqual({ ...DEFAULT_POSITION_SETTINGS, riskValue: 100 });
-  });
-
-  it('isValidPositionDefaults', () => {
-    expect(isValidPositionDefaults(DEFAULT_POSITION_SETTINGS)).toBe(true);
-    expect(isValidPositionDefaults({ ...DEFAULT_POSITION_SETTINGS, riskValue: 500 })).toBe(false);
-    expect(isValidPositionDefaults({ ...DEFAULT_POSITION_SETTINGS, riskMode: 'amount', riskValue: 500 })).toBe(true);
-    expect(isValidPositionDefaults({ ...DEFAULT_POSITION_SETTINGS, accountSize: 0 })).toBe(false);
-    expect(isValidPositionDefaults({ ...DEFAULT_POSITION_SETTINGS, currency: '' })).toBe(false);
-  });
-
-  it('convertRiskValue keeps the money at risk when the mode changes (percentage capped at 100)', () => {
-    expect(convertRiskValue({ ...DEFAULT_POSITION_SETTINGS, riskMode: 'amount', riskValue: 500 }, 'percent')).toBe(5);
-    expect(convertRiskValue({ ...DEFAULT_POSITION_SETTINGS, riskMode: 'amount', riskValue: 50000 }, 'percent')).toBe(100);
-    expect(convertRiskValue({ ...DEFAULT_POSITION_SETTINGS, riskValue: 2.5 }, 'amount')).toBe(250);
-    expect(convertRiskValue({ ...DEFAULT_POSITION_SETTINGS, accountSize: 3000, riskMode: 'amount', riskValue: 10 }, 'percent')).toBe(0.3333);
-    expect(convertRiskValue({ ...DEFAULT_POSITION_SETTINGS, riskValue: 2 }, 'percent')).toBe(2);
+  it('isValidPositionDefaults: both distances in (0, 99]', () => {
+    expect(isValidPositionDefaults(DEFAULT_POSITION_DEFAULTS)).toBe(true);
+    expect(isValidPositionDefaults({ targetPct: 99, stopPct: 0.01 })).toBe(true);
+    expect(isValidPositionDefaults({ targetPct: 150, stopPct: 2 })).toBe(false);
+    expect(isValidPositionDefaults({ targetPct: 2, stopPct: 0 })).toBe(false);
   });
 });
