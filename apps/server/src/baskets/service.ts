@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
-  BasketValidationError, baseTimeframe, bucketStart, buildBasketBars, computeVersionUnits, filterSession,
+  BasketValidationError, baseTimeframe, basketQuoteExt, bucketStart, buildBasketBars, computeVersionUnits, filterSession,
   isIntraday, nyDateUtcMidnight, parseDateString, parseSymbolId, resample, tfMs, utcDateString, validateVersions, versionMarkers,
   type Bar, type Basket, type BasketVersion, type Calendar, type ConstituentSeries, type Marker, type Quote,
   type SessionMode, type SymbolId, type Timeframe, type UnitsResult,
@@ -238,7 +238,9 @@ export class BasketService {
    * Quotes for baskets (by uuid) plus plain market ids, with ONE batched `market.quotes` call for the market ids and
    * every basket's current constituents. A basket's price is Σ unitsᵢ × quoteᵢ.price with the version active now;
    * changePct is against the basket's previous daily close (two latest daily closes cached once per UTC day per
-   * basket, invalidated on update). When any constituent quote is missing (or units can't be had) the basket falls
+   * basket, invalidated on update). Constituent prices are their REGULAR ones, so price/changePct stay a consistent
+   * pair; while any stock constituent trades pre/post-market, `ext` holds the basket's extended value (see
+   * basketQuoteExt). When any constituent quote is missing (or units can't be had) the basket falls
    * back to its latest daily bar. Baskets that fail entirely are omitted.
    */
   async liveQuotes(basketIds: string[], marketIds: SymbolId[]): Promise<{ market: Quote[]; baskets: Quote[] }> {
@@ -280,7 +282,9 @@ export class BasketService {
             // the latest bar is the previous close.
             const prev = d.last && quoteDay > d.last.ts ? d.last : d.prev;
             const changePct = prev && prev.close !== 0 ? ((live.price - prev.close) / prev.close) * 100 : null;
-            return { id: `basket:${p.id}`, price: live.price, changePct, ts: live.ts };
+            // Extended hours: constituents at their pre/post prices (others at their regular/live price), vs this value.
+            const ext = basketQuoteExt(p.units, byId, live.price);
+            return { id: `basket:${p.id}`, price: live.price, changePct, ts: live.ts, ...(ext ? { ext } : {}) };
           }
         }
         return await this.dailyQuote(p.id);

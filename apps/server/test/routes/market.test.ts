@@ -142,6 +142,26 @@ describe('market routes', () => {
     expect((await get('/api/quotes?symbols=bogus')).statusCode).toBe(400);
   });
 
+  it('GET /api/quotes passes the extended-hours ext through, for stocks and baskets', async () => {
+    const created = await t.app.inject({ method: 'POST', url: '/api/baskets', payload: basketBody() });
+    const id = `basket:${created.json<{ id: string }>().id}`;
+    const ts = Date.now();
+    const aapl: Quote = { id: 'stock:AAPL', price: 200, changePct: -1.5, ts: ts - HOUR, ext: { session: 'pre', price: 202, changePct: 1, ts } };
+    const btc: Quote = { id: 'crypto:BTC', price: 60_000, changePct: 2, ts };
+    vi.spyOn(t.market, 'quotes').mockImplementation(async (ids) => [aapl, btc].filter((q) => ids.includes(q.id)));
+    const r = await get(`/api/quotes?symbols=stock:AAPL,crypto:BTC,${id}`);
+    expect(r.statusCode).toBe(200);
+    const [qa, qb, qk] = r.json<Quote[]>();
+    expect(qa).toEqual(aapl);
+    expect(qb).toEqual(btc);
+    expect(qb).not.toHaveProperty('ext');
+    // The basket (AAPL + BTC) has a pre-market value: AAPL at 202, BTC at its live price, vs the regular value.
+    expect(qk!.id).toBe(id);
+    expect(qk!.ext).toMatchObject({ session: 'pre', ts });
+    expect(qk!.ext!.price).toBeGreaterThan(qk!.price);
+    expect(qk!.ext!.changePct).toBeCloseTo((qk!.ext!.price / qk!.price - 1) * 100, 9);
+  });
+
   it('GET /api/sparklines returns ≤ 30 closes per id and omits failures', async () => {
     const created = await t.app.inject({ method: 'POST', url: '/api/baskets', payload: basketBody() });
     const id = `basket:${created.json<{ id: string }>().id}`;

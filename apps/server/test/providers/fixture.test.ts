@@ -131,11 +131,62 @@ describe('FixtureProvider', () => {
     expect(await crypto().quotes(['NOPE'])).toEqual([]);
   });
 
-  it('stock quotes use the last session bar when the market is closed (Sunday)', async () => {
+  it('stock quotes use the last REGULAR bar when the market is closed (Sunday), with no ext', async () => {
     const [q] = await stock().quotes(['AAPL']);
     const { bars } = await stock().fetchBars('AAPL', '1m', NOW - 3 * DAY, NOW);
-    expect(q!.ts).toBe(bars.at(-1)!.ts);
-    expect(nyParts(q!.ts).dow).toBe(5); // Friday post-market
+    const lastRegular = bars.filter((b) => b.session === 'regular').at(-1)!;
+    expect(q!.ts).toBe(lastRegular.ts);
+    expect(q!.price).toBe(lastRegular.close);
+    expect(nyParts(q!.ts)).toMatchObject({ dow: 5, hh: 15, mm: 59 }); // Friday's last regular minute
+    expect(q!.ext).toBeUndefined();
+  });
+
+  describe('extended hours (deterministic from the simulated clock)', () => {
+    const at = (iso: string) => new FixtureProvider({ assetClass: 'stock', now: () => Date.parse(iso) });
+    const bars1m = async (p: FixtureProvider, now: number) => (await p.fetchBars('AAPL', '1m', now - 4 * DAY, now)).bars;
+
+    it('pre-market: regular pair = the previous session; ext = latest pre bar vs that close', async () => {
+      const iso = '2026-10-12T12:15:00Z'; // Mon 08:15 EDT
+      const p = at(iso);
+      const [q] = await p.quotes(['AAPL']);
+      const bars = await bars1m(p, Date.parse(iso));
+      const reg = bars.filter((b) => b.session === 'regular').at(-1)!;
+      const last = bars.at(-1)!;
+      expect(last.session).toBe('pre');
+      expect(nyParts(reg.ts).dow).toBe(5); // Friday
+      expect(q).toMatchObject({ id: 'stock:AAPL', price: reg.close, ts: reg.ts });
+      expect(q!.ext).toEqual({ session: 'pre', price: last.close, ts: last.ts, changePct: expect.any(Number) });
+      expect(q!.ext!.changePct).toBeCloseTo(((last.close - reg.close) / reg.close) * 100, 9);
+      expect(await at(iso).quotes(['AAPL'])).toEqual([q]); // deterministic
+    });
+
+    it('post-market: regular pair = today\'s session; ext = latest post bar vs today\'s close', async () => {
+      const iso = '2026-10-12T21:30:00Z'; // Mon 17:30 EDT
+      const p = at(iso);
+      const [q] = await p.quotes(['AAPL']);
+      const bars = await bars1m(p, Date.parse(iso));
+      const reg = bars.filter((b) => b.session === 'regular').at(-1)!;
+      expect(nyParts(reg.ts)).toMatchObject({ dow: 1, hh: 15, mm: 59 });
+      expect(q).toMatchObject({ price: reg.close, ts: reg.ts });
+      expect(q!.ext?.session).toBe('post');
+      expect(q!.ext!.price).toBe(bars.at(-1)!.close);
+      expect(q!.ext!.changePct).toBeCloseTo(((q!.ext!.price - reg.close) / reg.close) * 100, 9);
+    });
+
+    it('regular hours and overnight: no ext', async () => {
+      for (const iso of ['2026-10-12T15:00:00Z', '2026-10-13T02:00:00Z']) { // Mon 11:00 EDT; Mon 22:00 EDT
+        const [q] = await at(iso).quotes(['AAPL']);
+        expect(q!.ext).toBeUndefined();
+        expect(nyParts(q!.ts).dow).toBe(1);
+      }
+      // Saturday 17:30 EDT is post-market by the clock but not a trading day
+      expect((await at('2026-10-10T21:30:00Z').quotes(['AAPL']))[0]!.ext).toBeUndefined();
+    });
+
+    it('crypto never has ext', async () => {
+      const p = new FixtureProvider({ assetClass: 'crypto', now: () => Date.parse('2026-10-12T12:15:00Z') });
+      for (const q of await p.quotes(['BTC', 'ETH'])) expect(q.ext).toBeUndefined();
+    });
   });
 
   it('stock quote changePct is vs the previous daily close', async () => {

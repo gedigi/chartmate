@@ -315,35 +315,101 @@ describe('YahooProvider', () => {
     expect((await provider(client).quotes(['AAPL', 'SPY', 'MSFT'])).map((q) => q.id)).toEqual(['stock:MSFT']);
   });
 
-  it('quotes pick postMarketPrice when marketState is POST, else regularMarketPrice', async () => {
-    const fx = fixture<any[]>('yahoo/quote-aapl-spy.json');
-    fx[0].marketState = 'POST';
-    fx[1].marketState = 'REGULAR';
-    let asked: string[] = [];
-    const { client } = fakeYahoo({ quote: (syms) => { asked = syms; return fx; } });
-    const res = await provider(client).quotes(['AAPL', 'SPY']);
-    expect(asked).toEqual(['AAPL', 'SPY']);
-    expect(res).toEqual([
-      // ts is the time of the price used (post-market), not the regular close time
-      { id: 'stock:AAPL', price: fx[0].postMarketPrice, changePct: fx[0].regularMarketChangePercent, ts: Date.parse(fx[0].postMarketTime) },
-      { id: 'stock:SPY', price: fx[1].regularMarketPrice, changePct: fx[1].regularMarketChangePercent, ts: Date.parse(fx[1].regularMarketTime) },
-    ]);
-    expect(res[0]!.price).not.toBe(fx[0].regularMarketPrice);
-  });
-
-  it('quotes pick preMarketPrice when marketState is PRE and present', async () => {
-    const { client } = fakeYahoo({
-      quote: () => [{ symbol: 'AAPL', marketState: 'PRE', preMarketPrice: 101, regularMarketPrice: 100, regularMarketChangePercent: 1.5, regularMarketTime: new Date(NOW) }],
+  describe('quotes: regular pair + extended-hours ext', () => {
+    type Row = Record<string, any>;
+    const states = () => fixture<Record<string, Row>>('yahoo/quote-aapl-states.json');
+    const one = async (row: Row) => {
+      const { client } = fakeYahoo({ quote: () => [row] });
+      const res = await provider(client).quotes(['AAPL']);
+      expect(res).toHaveLength(1);
+      return res[0]!;
+    };
+    /** price/changePct/ts are always the regular-session pair. */
+    const regular = (r: Row) => ({
+      id: 'stock:AAPL', price: r.regularMarketPrice, changePct: r.regularMarketChangePercent, ts: Date.parse(r.regularMarketTime),
     });
-    expect(await provider(client).quotes(['AAPL'])).toEqual([{ id: 'stock:AAPL', price: 101, changePct: 1.5, ts: NOW }]);
-  });
 
-  it('a pre-market quote is stamped with preMarketTime (the time of the price used)', async () => {
-    const pre = NOW + 3 * 86_400_000;
-    const { client } = fakeYahoo({
-      quote: () => [{ symbol: 'AAPL', marketState: 'PRE', preMarketPrice: 101, preMarketTime: new Date(pre), regularMarketPrice: 100, regularMarketChangePercent: 1.5, regularMarketTime: new Date(NOW) }],
+    it('REGULAR: the regular pair, no ext (stale pre/post fields are ignored)', async () => {
+      const r = states().REGULAR!;
+      expect(await one(r)).toEqual(regular(r));
     });
-    expect(await provider(client).quotes(['AAPL'])).toEqual([{ id: 'stock:AAPL', price: 101, changePct: 1.5, ts: pre }]);
+
+    it('PRE: regular = the previous session close and its move; ext = pre price vs that close', async () => {
+      const r = states().PRE!;
+      const q = await one(r);
+      expect(q).toMatchObject(regular(r));
+      expect(q.price).toBe(336.64);
+      expect(q.changePct).toBeCloseTo(-1.1103926, 9); // Friday's regular move, matching Friday's close
+      expect(q.ext).toEqual({ session: 'pre', price: 339.4, changePct: expect.any(Number), ts: Date.parse('2026-10-12T12:14:55.000Z') });
+      expect(q.ext!.changePct).toBeCloseTo(((339.4 - 336.64) / 336.64) * 100, 9); // +0.82 %
+      expect(q.ext!.changePct).toBeCloseTo(r.preMarketChangePercent, 5); // agrees with Yahoo's own figure
+    });
+
+    it('POST: regular = today\'s close and day change; ext = post price vs today\'s close', async () => {
+      const r = states().POST!;
+      const q = await one(r);
+      expect(q).toMatchObject(regular(r));
+      expect(q.ext).toEqual({ session: 'post', price: 337.25, changePct: expect.any(Number), ts: Date.parse('2026-10-12T21:29:40.000Z') });
+      expect(q.ext!.changePct).toBeCloseTo(((337.25 - 338.1) / 338.1) * 100, 9);
+    });
+
+    it('POSTPOST and PREPRE (overnight): ext = the latest post print after the regular close', async () => {
+      for (const key of ['POSTPOST', 'PREPRE']) {
+        const r = states()[key]!;
+        const q = await one(r);
+        expect(q).toMatchObject(regular(r));
+        expect(q.ext?.session).toBe('post');
+        expect(q.ext?.price).toBe(337.1);
+        expect(q.ext?.ts).toBe(Date.parse('2026-10-12T23:59:50.000Z'));
+        expect(q.ext!.changePct).toBeCloseTo(((337.1 - 338.1) / 338.1) * 100, 9);
+      }
+    });
+
+    it('CLOSED: the regular pair only, even with a post-market price present', async () => {
+      const r = states().CLOSED!;
+      const q = await one(r);
+      expect(q).toEqual(regular(r));
+      expect(q.ext).toBeUndefined();
+    });
+
+    it('no ext when the extended price is missing, not positive, or older than the regular close', async () => {
+      const base = states().PRE!;
+      const cases: Row[] = [
+        { ...base, preMarketPrice: undefined },
+        { ...base, preMarketPrice: null },
+        { ...base, preMarketPrice: 0 },
+        { ...base, preMarketPrice: Number.NaN },
+        { ...base, preMarketTime: undefined },
+        // 04:00 with no pre-market trade yet: yesterday's pre price predates the regular close it would compare to
+        { ...base, preMarketTime: '2026-10-09T13:29:00.000Z' },
+      ];
+      for (const r of cases) {
+        const q = await one(r);
+        expect(q).toEqual(regular(base));
+      }
+      const post = states().POST!;
+      expect((await one({ ...post, postMarketPrice: -1 })).ext).toBeUndefined();
+    });
+
+    it('regular changePct falls back to regularMarketPreviousClose, else null', async () => {
+      const r = { ...states().REGULAR!, regularMarketChangePercent: undefined };
+      expect((await one(r)).changePct).toBeCloseTo(((338.1 - 336.64) / 336.64) * 100, 9);
+      expect((await one({ ...r, regularMarketPreviousClose: undefined })).changePct).toBeNull();
+    });
+
+    it('a batch maps every row independently (recorded CLOSED fixture)', async () => {
+      const fx = fixture<any[]>('yahoo/quote-aapl-spy.json');
+      fx[1].marketState = 'POST';
+      fx[1].postMarketTime = '2026-10-09T21:00:00.000Z';
+      fx[1].postMarketPrice = 779.5;
+      let asked: string[] = [];
+      const { client } = fakeYahoo({ quote: (syms) => { asked = syms; return fx; } });
+      const res = await provider(client).quotes(['AAPL', 'SPY']);
+      expect(asked).toEqual(['AAPL', 'SPY']);
+      expect(res[0]).toEqual({ id: 'stock:AAPL', price: 336.64, changePct: fx[0].regularMarketChangePercent, ts: Date.parse(fx[0].regularMarketTime) });
+      expect(res[1]).toMatchObject({ id: 'stock:SPY', price: 778.57, changePct: fx[1].regularMarketChangePercent, ts: Date.parse(fx[1].regularMarketTime) });
+      expect(res[1]!.ext).toMatchObject({ session: 'post', price: 779.5, ts: Date.parse('2026-10-09T21:00:00.000Z') });
+    });
   });
 
   it('quotes([]) makes no call', async () => {

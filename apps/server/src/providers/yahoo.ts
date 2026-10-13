@@ -1,7 +1,7 @@
 import YahooFinance from 'yahoo-finance2';
 import {
-  nyDateUtcMidnight, nyParts, nyToUtc, tagSessions, tfMs,
-  type Bar, type NativeTimeframe, type Quote, type Session, type SessionWindow, type SymbolInfo,
+  nyDateUtcMidnight, nyParts, nyToUtc, pctChange, tagSessions, tfMs,
+  type Bar, type NativeTimeframe, type Quote, type QuoteExt, type Session, type SessionWindow, type SymbolInfo,
 } from '@altv/shared';
 import { NotFoundError, ProviderError } from '../errors.js';
 import { errMessage, REQUEST_TIMEOUT_MS } from './http.js';
@@ -125,23 +125,15 @@ export class YahooProvider implements MarketDataProvider {
     const out: Quote[] = [];
     for (const r of rows) {
       if (!r || typeof r.symbol !== 'string') continue;
-      const state = r.marketState;
-      let price: unknown = r.regularMarketPrice; // isNum below rejects null/NaN/non-numbers
-      // ts is the time of the price actually used, so consumers can tell which session it belongs to.
-      let ts = toMs(r.regularMarketTime);
-      if ((state === 'POST' || state === 'POSTPOST') && isNum(r.postMarketPrice)) {
-        price = r.postMarketPrice;
-        ts = toMs(r.postMarketTime) ?? ts;
-      } else if (state === 'PRE' && isNum(r.preMarketPrice)) {
-        price = r.preMarketPrice;
-        ts = toMs(r.preMarketTime) ?? ts;
-      }
+      // price/changePct/ts are always the REGULAR session pair (in PRE: the previous session's close and its move).
+      const price: unknown = r.regularMarketPrice; // isNum rejects null/NaN/non-numbers
+      const ts = toMs(r.regularMarketTime);
       if (!isNum(price) || ts === null) continue;
-      out.push({
-        id: `stock:${r.symbol}`, price,
-        changePct: isNum(r.regularMarketChangePercent) ? r.regularMarketChangePercent : null,
-        ts,
-      });
+      const changePct = isNum(r.regularMarketChangePercent)
+        ? r.regularMarketChangePercent
+        : isNum(r.regularMarketPreviousClose) ? pctChange(price, r.regularMarketPreviousClose) : null;
+      const ext = extendedQuote(r, price, ts);
+      out.push({ id: `stock:${r.symbol}`, price, changePct, ts, ...(ext ? { ext } : {}) });
     }
     return out;
   }
@@ -201,6 +193,29 @@ function isNetworkError(err: unknown): boolean {
   if (err instanceof TypeError && /fetch failed|network/i.test(err.message)) return true;
   const causeCode = (err as { cause?: { code?: unknown } }).cause?.code;
   return typeof causeCode === 'string' && /^(ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR)/.test(causeCode);
+}
+
+/** Which extended-hours field set each Yahoo marketState reports (REGULAR/CLOSED: none). */
+const EXT_FIELDS: Record<string, { session: 'pre' | 'post'; price: string; time: string }> = {
+  PRE: { session: 'pre', price: 'preMarketPrice', time: 'preMarketTime' },
+  POST: { session: 'post', price: 'postMarketPrice', time: 'postMarketTime' },
+  POSTPOST: { session: 'post', price: 'postMarketPrice', time: 'postMarketTime' },
+  // Overnight before the pre-market opens: the latest extended print is still the evening's post-market one.
+  PREPRE: { session: 'post', price: 'postMarketPrice', time: 'postMarketTime' },
+};
+
+/**
+ * The extended-hours price with its change vs the latest regular close (`regularPrice`, stamped `regularTs`).
+ * Yahoo keeps stale pre/post fields around, so the print must be finite, positive and newer than that close.
+ */
+function extendedQuote(r: Record<string, any>, regularPrice: number, regularTs: number): QuoteExt | undefined {
+  const f = EXT_FIELDS[r.marketState as string];
+  if (!f) return undefined;
+  const price: unknown = r[f.price];
+  const ts = toMs(r[f.time]);
+  if (!isNum(price) || price <= 0 || ts === null || ts <= regularTs) return undefined;
+  const changePct = pctChange(price, regularPrice);
+  return changePct === null ? undefined : { session: f.session, price, changePct, ts };
 }
 
 function toBar(q: YQuote): Bar | null {

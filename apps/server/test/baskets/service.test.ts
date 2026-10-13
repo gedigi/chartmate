@@ -477,8 +477,8 @@ describe('BasketService', () => {
       expect(qs.changePct).toBeCloseTo(((es.last.close - es.prev.close) / es.prev.close) * 100, 9);
     });
 
-    it('pre-market Monday: change is vs the last session close (Friday), not two sessions back', async () => {
-      const b = await svc.create({ name: 's', versions: [v('2026-09-14', { 'stock:AAA': 1 })] });
+    it('pre-market Monday: regular pair = Friday close vs Thursday; ext = pre prices vs the basket Friday value', async () => {
+      const b = await svc.create({ name: 's', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'stock:BBB': 0.5 })] });
       now = D(10, 12, 12); // Mon 08:00 EDT, before the open: latest daily bar is Friday 10-09
       // (the fake would already emit a Monday daily bar; Yahoo has none before the open)
       const orig = market.getNativeBars.bind(market);
@@ -488,24 +488,57 @@ describe('BasketService', () => {
       });
       const bars = (await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: now - 10 * DAY, to: now + DAY })).bars;
       expect(bars.at(-1)!.ts).toBe(D(10, 9));
-      stock.quotePrice = () => 200;
-      stock.quoteTs = () => D(10, 12, 11, 50); // preMarketTime
+      // Yahoo in PRE: the regular price is Friday's close (stamped Friday 16:00), the pre print rides in ext.
+      stock.quotePrice = lastClose('stock');
+      stock.quoteTs = () => D(10, 9, 20);
+      const preTs = D(10, 12, 11, 50);
+      stock.quoteExt = (c) => (c === 'AAA' ? { session: 'pre', price: 200, changePct: 0, ts: preTs } : undefined); // BBB: no print yet
       const q = (await svc.liveQuotes([b.id], [])).baskets[0]!;
-      const units = 100 / price('stock')('AAA', '1D', D(9, 11)).close; // sized at the 09-11 close
-      expect(q.price).toBeCloseTo(units * 200, 9);
-      expect(q.changePct).toBeCloseTo(((units * 200 - bars.at(-1)!.close) / bars.at(-1)!.close) * 100, 9);
+      const last = bars.at(-1)!.close;
+      const prev = bars.at(-2)!.close; // Thursday
+      expect(q.price).toBeCloseTo(last, 9);
+      expect(q.ts).toBe(D(10, 9, 20));
+      expect(q.changePct).toBeCloseTo(((last - prev) / prev) * 100, 9);
+      const uA = 50 / price('stock')('AAA', '1D', D(9, 11)).close; // sized at the 09-11 close
+      const uB = 50 / price('stock')('BBB', '1D', D(9, 11)).close;
+      const extValue = uA * 200 + uB * lastClose('stock')('BBB');
+      expect(q.ext).toEqual({ session: 'pre', price: expect.any(Number), changePct: expect.any(Number), ts: preTs });
+      expect(q.ext!.price).toBeCloseTo(extValue, 9);
+      expect(q.ext!.changePct).toBeCloseTo(((extValue - q.price) / q.price) * 100, 9);
     });
 
-    it('post-market Friday evening (already Saturday in UTC): change is vs Thursday, the session before the price', async () => {
+    it('post-market Friday evening (already Saturday in UTC): change is vs Thursday; ext = post vs Friday value', async () => {
       const b = await svc.create({ name: 's', versions: [v('2026-09-14', { 'stock:AAA': 1 })] });
       now = D(10, 10, 0, 30); // Fri 20:30 EDT = Sat 00:30Z
       const bars = (await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: now - 10 * DAY, to: now + DAY })).bars;
       expect(bars.at(-1)!.ts).toBe(D(10, 9));
       stock.quotePrice = () => 200;
-      stock.quoteTs = () => D(10, 10, 0, 15); // postMarketTime, Friday 20:15 EDT
+      stock.quoteTs = () => D(10, 9, 20); // regularMarketTime, Friday 16:00 EDT
+      stock.quoteExt = () => ({ session: 'post', price: 210, changePct: 5, ts: D(10, 10, 0, 15) }); // Friday 20:15 EDT
       const q = (await svc.liveQuotes([b.id], [])).baskets[0]!;
       const prev = bars.at(-2)!.close; // Thursday
       expect(q.changePct).toBeCloseTo(((q.price - prev) / prev) * 100, 9);
+      expect(q.ext?.session).toBe('post');
+      expect(q.ext!.price).toBeCloseTo((q.price * 210) / 200, 9);
+      expect(q.ext!.changePct).toBeCloseTo(5, 9);
+      expect(q.ext!.ts).toBe(D(10, 10, 0, 15));
+    });
+
+    it('a stock + crypto basket: crypto counts at its live price in the ext value; no ext without stock ext', async () => {
+      const b = await svc.create({ name: 'mix', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
+      crypto.quotePrice = () => 1000;
+      stock.quotePrice = () => 110;
+      const at110 = (await svc.liveQuotes([b.id], [])).baskets[0]!;
+      stock.quotePrice = () => 100;
+      const q0 = (await svc.liveQuotes([b.id], [])).baskets[0]!;
+      expect(q0.ext).toBeUndefined();
+      stock.quoteExt = () => ({ session: 'post', price: 110, changePct: 10, ts: NOW });
+      const q = (await svc.liveQuotes([b.id], [])).baskets[0]!;
+      expect(q.price).toBeCloseTo(q0.price, 9); // the regular value ignores ext
+      expect(q.changePct).toBeCloseTo(q0.changePct!, 9);
+      expect(q.ext?.session).toBe('post');
+      expect(q.ext!.price).toBeCloseTo(at110.price, 9); // AAA at its post price, BTC at its live price
+      expect(q.ext!.changePct).toBeCloseTo((at110.price / q0.price - 1) * 100, 9);
     });
 
     it('falls back to the daily-bars method when a constituent quote is missing', async () => {
