@@ -79,6 +79,7 @@ export function drawWyckoff({ ctx, chart, indicator, xAxis, yAxis }: IndicatorDr
       }
       ctx.strokeStyle = WYCKOFF_COLORS.gray;
       ctx.lineWidth = 1;
+      ctx.setLineDash([]); // line.style_solid (the context may carry a dash from earlier figures)
       ctx.strokeRect(Math.round(x0) + 0.5, Math.round(yTop) + 0.5, Math.round(w), Math.round(h));
       if (b.text) {
         // Pine's size.auto: shrink the text to fit the box.

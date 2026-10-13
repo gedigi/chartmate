@@ -11,7 +11,7 @@ function makeCtx() {
   const fn = (name: string) => vi.fn((...a: unknown[]) => { calls.push([name, [...a, state.fillStyle, state.globalAlpha]]); });
   const ctx = {
     save: fn('save'), restore: fn('restore'), fillRect: fn('fillRect'), strokeRect: fn('strokeRect'), beginPath: fn('beginPath'),
-    moveTo: fn('moveTo'), lineTo: fn('lineTo'), closePath: fn('closePath'), fill: fn('fill'), fillText: fn('fillText'),
+    moveTo: fn('moveTo'), lineTo: fn('lineTo'), closePath: fn('closePath'), fill: fn('fill'), fillText: fn('fillText'), setLineDash: fn('setLineDash'),
     measureText: (t: string) => ({ width: t.length * 3 }),
     set fillStyle(v: unknown) { state.fillStyle = v; }, get fillStyle() { return state.fillStyle; },
     set globalAlpha(v: unknown) { state.globalAlpha = v; }, get globalAlpha() { return state.globalAlpha ?? 1; },
@@ -67,6 +67,7 @@ describe('drawWyckoff', () => {
     const fillRects = calls.filter(([n]) => n === 'fillRect').map(([, a]) => a);
     expect(fillRects[0]).toEqual([0, 880, 50, 40, C.accumulationBg, undefined]); // box background
     expect(calls.find(([n]) => n === 'strokeRect')).toBeDefined();
+    expect(calls.find(([n]) => n === 'setLineDash')![1][0]).toEqual([]); // solid border
     const texts = calls.filter(([n]) => n === 'fillText').map(([, a]) => a);
     expect(texts[0]!.slice(0, 1)).toEqual(['Accumulation']);
     expect(texts[0]!.slice(3)).toEqual([THEME_TEXT, 0.2]);
