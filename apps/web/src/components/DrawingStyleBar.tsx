@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react
 import { MAX_PRICE_DECIMALS, type ChartAdapter, type SelectedDrawing } from '../chart/ChartAdapter';
 import { LINE_STYLES, parseLineStyle } from '../chart/drawingStyles';
 
-export type DrawingStyleControls = Pick<ChartAdapter, 'onSelectionChange' | 'setSelectedStyle' | 'setSelectedPrice' | 'onPriceEditRequest'>;
+export type DrawingStyleControls = Pick<ChartAdapter, 'onSelectionChange' | 'setSelectedStyle' | 'setSelectedPrice' | 'setSelectedLabel' | 'onPriceEditRequest'>;
 
 /** `value` with the symbol precision, or with its own decimals (≤ MAX_PRICE_DECIMALS) when it is finer. */
 export function formatPrice(value: number, precision: number): string {
@@ -127,6 +127,20 @@ export function DrawingStyleBar({ controls }: { controls: DrawingStyleControls |
       {sel.kind === 'line' && sel.price && (
         <PriceField key={sel.id} controls={controls} value={sel.price.value} precision={sel.price.precision} locked={locked}
           focusRequest={focusReq?.id === sel.id ? focusReq.n : null} onFocused={() => setFocusReq(null)} />
+      )}
+      {sel.kind === 'line' && sel.label && (
+        <>
+          <label className="drawing-style-toggle" title="Show the price on the line">
+            <input type="checkbox" aria-label="Price on line" checked={sel.label.onLine} disabled={locked}
+              onChange={(e) => controls.setSelectedLabel({ onLine: e.target.checked })} />
+            On line
+          </label>
+          <label className="drawing-style-toggle" title="Show the price label on the price axis">
+            <input type="checkbox" aria-label="Price on axis" checked={sel.label.onAxis} disabled={locked}
+              onChange={(e) => controls.setSelectedLabel({ onAxis: e.target.checked })} />
+            On axis
+          </label>
+        </>
       )}
       {locked && <span className="drawing-style-locked">Locked</span>}
     </div>

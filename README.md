@@ -144,17 +144,34 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   time across timeframes, zoom levels and window sizes.
 - **Chart appearance** (gear icon in the top bar): candle up/down colours, body style (filled, hollow,
   hollow up, hollow down; OHLC bars use the colours only), line/area colour and width, and the default
-  style (colour, width, solid/dashed) of new drawings. It is global (stored in the `default` layout, not
+  style (colour, width, solid/dashed/dotted) of new drawings. It is global (stored in the `default` layout, not
   per symbol), applies live, survives theme switches, and "Reset to defaults" returns to the theme colours.
-- **Indicator settings** also set each line's width (1–4 px) and solid/dashed style, and the up/down bar
+- **Indicator settings** also set each line's width (1–4 px) and solid/dashed/dotted style, and the up/down bar
   colours of histogram indicators (VOL, MACD, AO).
 - **Drawing styles**: selecting a drawing shows a small style bar at the top of the chart (colour, width,
-  solid/dashed; text annotations: colour and font size). Styles are saved with the drawing; drawings
+  solid/dashed/dotted; text annotations: colour and font size). Styles are saved with the drawing; drawings
   without their own style follow the default drawing style. Legacy drawings with non-hex colours (or other
   unsupported style values) fall back to the default style on their next save.
 - **⌘ magnet**: hold **⌘** (macOS) or **Ctrl** (other systems) while placing or dragging a drawing to snap
   it to the nearest open/high/low/close (strong magnet); releasing the key returns to the toolbar's magnet
   setting.
+- **Shortcuts**: **⌥T** / **Alt+T** starts a trend line and **⌥H** / **Alt+H** a horizontal line (same as
+  clicking the toolbar button; pressing it again cancels). They are ignored while typing in a text field or
+  inside a dialog, and are shown in the buttons' tooltips.
+- **Shift (horizontal)**: hold **Shift** while placing or dragging a trend line, ray, extended line or parallel
+  channel to keep it perfectly horizontal: every point takes the anchor's price (the first point while drawing,
+  the fixed end while dragging one end), rounded to the symbol's price precision. A channel's width point stays
+  free. Combined with ⌘/Ctrl, the snap picks the anchor price and Shift keeps the line flat.
+- **Exact price**: selecting a horizontal line or price line shows a **Price** field in the style bar
+  (double-clicking the line focuses it). Type a price (the symbol's precision, or up to 8 decimals) and press
+  Enter or leave the field to move the line there; Escape reverts; invalid prices show an error; locked
+  drawings are read-only. Only the price changes (the time anchor is kept). Horizontal lines placed or dragged
+  with the mouse are rounded to the symbol's price precision.
+- **Price labels**: price lines and horizontal lines have **On line** (price text on the line) and **On axis**
+  (price label on the right axis) toggles in the style bar; defaults: price line both on, horizontal line
+  axis only. Saved with the drawing.
+- **Parallel channels** show a dashed midline halfway between the two lines, in the channel's colour and width
+  (longer dashes when the channel itself is dashed or dotted); it is not a stored point.
 
 ## Baskets
 

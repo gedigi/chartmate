@@ -1,7 +1,7 @@
 import {
   dispose, init,
   type Chart, type DeepPartial, type IndicatorCreate, type IndicatorStyle, type KLineData, type Overlay, type OverlayCreate,
-  type OverlayMode, type Styles,
+  type OverlayMode, type OverlayStyle, type Styles,
 } from 'klinecharts';
 import {
   isIntraday, nyToUtc, tfMs,
@@ -12,6 +12,10 @@ import {
   klineLine, lineToOverlay, normalizeOverlayStyles, readLine, readText, sanitizeDrawingStyles, textToOverlay, toOverlayStyles, TEXT_TOOL,
   type TextStyle,
 } from './drawingStyles';
+import {
+  drawingConstraint, flattenBase, LABEL_STYLE_KEY, labelOptions, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
+  type LabelOptions,
+} from './drawingTemplates';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
 import { catalogEntry } from './indicators/catalog';
 import { PRICE_PRECISION_INDICATORS } from './indicators/extensions';
@@ -43,18 +47,14 @@ export const HORIZONTAL_DRAWINGS: ReadonlySet<string> = new Set(['horizontalStra
 /** Most decimals a typed price keeps (crypto quotes can be finer than the symbol precision). */
 export const MAX_PRICE_DECIMALS = 8;
 
-/** `v` rounded to `decimals` decimals (clean binary value, e.g. 1.005 → 1.01 not 1.0049999). */
-export function roundPrice(v: number, decimals: number): number {
-  const f = 10 ** decimals;
-  return Number((Math.round(v * f) / f).toFixed(decimals));
-}
-
 /** Style of the selected drawing, as the floating style bar edits it. */
 export type SelectedDrawing =
   | {
     id: string; kind: 'line'; style: DrawingLineStyle; locked: boolean;
     /** Horizontal drawings only: their price and the symbol's price precision. */
     price?: { value: number; precision: number };
+    /** Price / horizontal lines only: effective price-label options (price text on the line, label on the axis). */
+    label?: LabelOptions;
   }
   | { id: string; kind: 'text'; style: TextStyle; locked: boolean };
 
@@ -146,6 +146,7 @@ export class ChartAdapter {
   constructor(el: HTMLElement, opts: { theme: ThemeName }) {
     registerSessionShade();
     registerMarkerOverlay();
+    registerDrawingTemplates();
     registerCustomIndicators();
     this.el = el;
     this.theme = opts.theme;
@@ -195,6 +196,7 @@ export class ChartAdapter {
     this.tf = p.tf;
     this.assetClass = p.symbol.assetClass;
     this.pricePrecision = p.symbol.pricePrecision;
+    drawingConstraint.precision = p.symbol.pricePrecision;
     this.basketHasCrypto = p.symbol.assetClass === 'basket' && p.basketHasCrypto === true;
     // Same symbol, but daily-anchored drawings now display differently (daily ↔ intraday): re-place them.
     if (prevSymbol === p.symbol.id && prevMapping !== this.mapsDailyAnchors()) this.replaceForAnchorMapping(p.symbol.id);
@@ -462,7 +464,7 @@ export class ChartAdapter {
   /** Price precision of the current symbol (horizontal drawings placed with the mouse are rounded to it). */
   private pricePrecision = 2;
 
-  private readonly handlers: Pick<OverlayCreate, 'onDrawEnd' | 'onPressedMoveStart' | 'onPressedMoveEnd' | 'onRemoved' | 'onSelected' | 'onDeselected' | 'onDoubleClick'> = {
+  private readonly handlers: Pick<OverlayCreate, 'onDrawEnd' | 'onPressedMoveStart' | 'onPressedMoving' | 'onPressedMoveEnd' | 'onRemoved' | 'onSelected' | 'onDeselected' | 'onDoubleClick'> = {
     onDrawEnd: ({ overlay }) => {
       if (this.drawing?.id === overlay.id) {
         const { onEnd } = this.drawing;
@@ -478,11 +480,18 @@ export class ChartAdapter {
     },
     onPressedMoveStart: ({ overlay }) => {
       this.draggingId = overlay.id;
+      drawingConstraint.draggingId = overlay.id;
       this.pressedPoints.set(overlay.id, completePoints(overlay));
       if (this.strongMagnet) this.applyStrong(overlay.id);
     },
+    // Shift held: a whole-drawing drag keeps it horizontal (point drags are constrained by the template).
+    onPressedMoving: ({ overlay }) => {
+      if (drawingConstraint.shift && SHIFT_TOOLS.has(overlay.name)) flattenBase(overlay.name, overlay.points, this.pricePrecision);
+      return false;
+    },
     onPressedMoveEnd: ({ overlay }) => {
       if (this.draggingId === overlay.id) this.draggingId = null;
+      if (drawingConstraint.draggingId === overlay.id) drawingConstraint.draggingId = null;
       this.revertMode(overlay.id);
       // KLineChart fires press start/end on a plain click too: only a real move changes the anchoring.
       const before = this.pressedPoints.get(overlay.id);
@@ -497,6 +506,7 @@ export class ChartAdapter {
       if (this.selectedId === overlay.id) this.select(null);
       if (this.drawing?.id === overlay.id) this.endDrawing();
       if (this.draggingId === overlay.id) this.draggingId = null;
+      if (drawingConstraint.draggingId === overlay.id) drawingConstraint.draggingId = null;
       this.strongIds.delete(overlay.id);
       this.anchors.delete(overlay.id);
       this.pressedPoints.delete(overlay.id);
@@ -649,7 +659,24 @@ export class ChartAdapter {
     const sel: SelectedDrawing = { id: o.id, kind: 'line', style, locked: o.lock };
     const value = o.points[0]?.value;
     if (HORIZONTAL_DRAWINGS.has(o.name) && typeof value === 'number') sel.price = { value, precision: this.pricePrecision };
+    const label = labelOptions(o.name, o.styles);
+    if (label) sel.label = label;
     return sel;
+  }
+
+  /** Changes the selected price / horizontal line's label options; saved like any drawing edit. */
+  setSelectedLabel(patch: Partial<LabelOptions>): void {
+    const sel = this.getSelectedDrawing();
+    if (!sel || sel.kind !== 'line' || !sel.label || sel.locked) return;
+    const next = { ...sel.label, ...patch };
+    this.chart.overrideOverlay({ id: sel.id, styles: { [LABEL_STYLE_KEY]: next } as DeepPartial<OverlayStyle> });
+    this.emitChange();
+    this.emitSelection();
+  }
+
+  /** Shift held (toolbar): trend lines, rays, extended lines and channels being placed or dragged stay horizontal. */
+  setShiftConstraint(on: boolean): void {
+    drawingConstraint.shift = on;
   }
 
   /**
@@ -707,6 +734,8 @@ export class ChartAdapter {
     const styles = sel.kind === 'text'
       ? textToOverlay({ ...sel.style, ...(patch as Partial<TextStyle>) })
       : lineToOverlay({ ...sel.style, ...(patch as Partial<DrawingLineStyle>) });
+    // Label options are re-sent with the style (never lost, whatever KLineChart's style merging does).
+    if (sel.kind === 'line' && sel.label) (styles as Record<string, unknown>)[LABEL_STYLE_KEY] = { ...sel.label };
     this.chart.overrideOverlay({ id: sel.id, styles });
     this.emitChange();
     this.emitSelection();

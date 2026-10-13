@@ -6,7 +6,7 @@ import './DrawingToolbar.css';
 export type DrawingControls = Pick<
   ChartAdapter,
   'startDrawing' | 'cancelDrawing' | 'clearDrawings' | 'removeSelected' | 'setMagnet' | 'setLockAll' | 'onLockAllChange'
-  | 'setMagnetOverride' | 'deselect'
+  | 'setMagnetOverride' | 'setShiftConstraint' | 'deselect'
 >;
 
 export interface DrawingToolbarProps {
@@ -70,11 +70,15 @@ function shortcutLabel(key: string): string {
   return isApplePlatform() ? `⌥${key}` : `Alt+${key}`;
 }
 
+/** Inputs that take no typed text: keys there are still the app's (e.g. after toggling a style-bar checkbox). */
+const NON_TEXT_INPUTS = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'color', 'range']);
+
 /** True when keyboard input is going to a text field (shortcuts must not fire then). */
 function isTyping(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+  if (tag === 'INPUT') return !NON_TEXT_INPUTS.has((target as HTMLInputElement).type);
+  return tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 }
 
 /** True when the event comes from inside a dialog / modal / popup: its Escape closes that, nothing else. */
@@ -102,7 +106,7 @@ function isOtherWidget(target: EventTarget | null): boolean {
  * Vertical drawing toolbar (left column of the chart): drawing tools, magnet, lock all, delete selected, clear all.
  * Keyboard: Delete/Backspace removes the selected drawing, Escape cancels the active tool, holding ⌘ (macOS) / Ctrl
  * snaps the drawing being placed or dragged to OHLC values, Option/Alt+T starts a trend line and Option/Alt+H a
- * horizontal line (see TOOL_SHORTCUTS).
+ * horizontal line (see TOOL_SHORTCUTS), holding Shift keeps trend lines / rays / extended lines / channels horizontal.
  */
 export function DrawingToolbar({ controls, disabled: disabledProp = false, ticker }: DrawingToolbarProps): JSX.Element {
   const [active, setActiveState] = useState<Active>(null);
@@ -188,6 +192,38 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
     const onPointer = (e: PointerEvent) => {
       if (held && !(modifier === 'Meta' ? e.metaKey : e.ctrlKey)) set(false);
     };
+    document.addEventListener('keydown', onDown);
+    document.addEventListener('keyup', onUp);
+    document.addEventListener('visibilitychange', onVisibility);
+    document.addEventListener('pointerdown', onPointer, true);
+    document.addEventListener('pointermove', onPointer, true);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      document.removeEventListener('keydown', onDown);
+      document.removeEventListener('keyup', onUp);
+      document.removeEventListener('visibilitychange', onVisibility);
+      document.removeEventListener('pointerdown', onPointer, true);
+      document.removeEventListener('pointermove', onPointer, true);
+      window.removeEventListener('blur', onBlur);
+      set(false);
+    };
+  }, [controls]);
+
+  // Shift held: trend lines, rays, extended lines and channels being placed or dragged stay horizontal.
+  useEffect(() => {
+    if (!controls) return;
+    let held = false;
+    const set = (v: boolean) => {
+      if (held === v) return;
+      held = v;
+      controls.setShiftConstraint(v);
+    };
+    const onDown = (e: KeyboardEvent) => { if (e.key === 'Shift' && !isTyping(e.target)) set(true); };
+    const onUp = (e: KeyboardEvent) => { if (e.key === 'Shift') set(false); };
+    const onBlur = () => set(false);
+    const onVisibility = () => { if (document.hidden) set(false); };
+    // Pointer events carry the real modifier state (Shift may have been pressed / released unseen).
+    const onPointer = (e: PointerEvent) => set(e.shiftKey);
     document.addEventListener('keydown', onDown);
     document.addEventListener('keyup', onUp);
     document.addEventListener('visibilitychange', onVisibility);

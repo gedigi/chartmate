@@ -3,6 +3,9 @@ import {
   type DrawingLineStyle, type DrawingStyles, type LineStyleKind,
 } from '@altv/shared';
 import type { DeepPartial, OverlayStyle } from 'klinecharts';
+import { LABEL_DEFAULTS, LABEL_STYLE_KEY } from './drawingTemplates';
+
+export type LabelStyle = NonNullable<DrawingStyles['label']>;
 
 /** Dash pattern of dashed drawings (KLineChart's [2, 2] is barely visible). */
 export const DRAWING_DASH = [6, 4];
@@ -56,9 +59,20 @@ export function textToOverlay(t: TextStyle): DeepPartial<OverlayStyle> {
 }
 
 export function toOverlayStyles(s: DrawingStyles | undefined): DeepPartial<OverlayStyle> | undefined {
-  if (s?.text) return textToOverlay(s.text);
-  if (s?.line) return lineToOverlay(s.line);
-  return undefined;
+  const base = s?.text ? textToOverlay(s.text) : s?.line ? lineToOverlay(s.line) : undefined;
+  if (!s?.label) return base;
+  // Price-label options ride along in the overlay styles (KLineChart ignores the key; our templates read it).
+  return { ...base, [LABEL_STYLE_KEY]: { ...s.label } } as DeepPartial<OverlayStyle>;
+}
+
+/** The valid label options in `l` (booleans only), or undefined. */
+function readLabel(l: unknown): LabelStyle | undefined {
+  if (!l || typeof l !== 'object') return undefined;
+  const out: LabelStyle = {};
+  const { onLine, onAxis } = l as Record<string, unknown>;
+  if (typeof onLine === 'boolean') out.onLine = onLine;
+  if (typeof onAxis === 'boolean') out.onAxis = onAxis;
+  return out.onLine !== undefined || out.onAxis !== undefined ? out : undefined;
 }
 
 /** Reads the normalized line style out of KLineChart overlay styles (null when absent/invalid). */
@@ -83,8 +97,19 @@ export function normalizeOverlayStyles(name: string, styles: unknown): DrawingSt
     const text = readText(styles);
     return text ? { text } : undefined;
   }
+  const out: DrawingStyles = {};
   const line = readLine(styles);
-  return line ? { line } : undefined;
+  if (line) out.line = line;
+  // Label options: only those that differ from the drawing's defaults are kept.
+  const defaults = LABEL_DEFAULTS[name];
+  const own = readLabel((styles as Record<string, unknown> | null | undefined)?.[LABEL_STYLE_KEY]);
+  if (defaults && own) {
+    const label: LabelStyle = {};
+    if (own.onLine !== undefined && own.onLine !== defaults.onLine) label.onLine = own.onLine;
+    if (own.onAxis !== undefined && own.onAxis !== defaults.onAxis) label.onAxis = own.onAxis;
+    if (label.onLine !== undefined || label.onAxis !== undefined) out.label = label;
+  }
+  return out.line || out.label ? out : undefined;
 }
 
 /** '#RRGGBB' / '#rgb' → '#rrggbb'; anything else → fallback. */
@@ -102,5 +127,7 @@ export function sanitizeDrawingStyles(s: unknown): DrawingStyles | undefined {
   if (line) out.line = line;
   const t = (s as { text?: Record<string, unknown> }).text;
   if (t && isHexColor(t.color) && intIn(t.size, MIN_TEXT_SIZE, MAX_TEXT_SIZE)) out.text = { color: t.color.toLowerCase(), size: t.size };
-  return out.line || out.text ? out : undefined;
+  const label = readLabel((s as { label?: unknown }).label);
+  if (label) out.label = label;
+  return out.line || out.text || out.label ? out : undefined;
 }

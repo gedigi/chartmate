@@ -14,6 +14,7 @@ function makeControls() {
     setMagnet: vi.fn(),
     setLockAll: vi.fn(),
     setMagnetOverride: vi.fn(),
+    setShiftConstraint: vi.fn(),
     deselect: vi.fn(),
     onLockAllChange: vi.fn((cb: (locked: boolean) => void) => { lockCb = cb; return () => { lockCb = null; }; }),
   };
@@ -362,6 +363,13 @@ describe('DrawingToolbar keyboard shortcuts (Option/Alt+T trend line, Option/Alt
     expect(c.startDrawing).not.toHaveBeenCalled();
   });
 
+  it('works while a checkbox (e.g. a style-bar toggle) has the focus: no text is typed there', () => {
+    const { c } = makeControls();
+    render(<><DrawingToolbar controls={c} ticker="AAPL" /><input type="checkbox" aria-label="toggle" /></>);
+    expect(altT(screen.getByLabelText('toggle'))).toBe(false);
+    expect(c.startDrawing).toHaveBeenCalledWith('segment', expect.anything());
+  });
+
   it('does nothing while disabled or without a chart', () => {
     const { c } = makeControls();
     const { rerender } = render(<DrawingToolbar controls={c} disabled ticker="AAPL" />);
@@ -398,5 +406,46 @@ describe('DrawingToolbar keyboard shortcuts (Option/Alt+T trend line, Option/Alt
     altT(document.body);
     expect(screen.queryByLabelText('Annotation text')).toBeNull();
     expect(c.startDrawing).toHaveBeenCalledWith('segment', expect.anything());
+  });
+});
+
+describe('DrawingToolbar Shift (horizontal constraint while placing / dragging)', () => {
+  it('holding Shift turns the constraint on; release, blur, hidden page and unmount turn it off', () => {
+    const { c } = makeControls();
+    const { unmount } = render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    fireEvent.keyDown(document.body, { key: 'Shift', shiftKey: true });
+    expect(c.setShiftConstraint).toHaveBeenLastCalledWith(true);
+    fireEvent.keyUp(document.body, { key: 'Shift' });
+    expect(c.setShiftConstraint).toHaveBeenLastCalledWith(false);
+    fireEvent.keyDown(document.body, { key: 'Shift', shiftKey: true });
+    fireEvent.blur(window);
+    expect(c.setShiftConstraint).toHaveBeenLastCalledWith(false);
+    fireEvent.keyDown(document.body, { key: 'Shift', shiftKey: true });
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    fireEvent(document, new Event('visibilitychange'));
+    expect(c.setShiftConstraint).toHaveBeenLastCalledWith(false);
+    hidden.mockRestore();
+    fireEvent.keyDown(document.body, { key: 'Shift', shiftKey: true });
+    unmount();
+    expect(c.setShiftConstraint).toHaveBeenLastCalledWith(false);
+  });
+
+  it('follows the pointer events\' shiftKey (e.g. Shift pressed while the window had no focus)', () => {
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    fireEvent.pointerMove(document.body, { shiftKey: true });
+    expect(c.setShiftConstraint).toHaveBeenLastCalledWith(true);
+    fireEvent.pointerDown(document.body, { shiftKey: false });
+    expect(c.setShiftConstraint).toHaveBeenLastCalledWith(false);
+    const calls = c.setShiftConstraint.mock.calls.length;
+    fireEvent.pointerMove(document.body, { shiftKey: false });
+    expect(c.setShiftConstraint).toHaveBeenCalledTimes(calls); // only changes are forwarded
+  });
+
+  it('Shift typed into an input is ignored', () => {
+    const { c } = makeControls();
+    render(<><DrawingToolbar controls={c} ticker="AAPL" /><input aria-label="field" /></>);
+    fireEvent.keyDown(screen.getByLabelText('field'), { key: 'Shift', shiftKey: true });
+    expect(c.setShiftConstraint).not.toHaveBeenCalledWith(true);
   });
 });

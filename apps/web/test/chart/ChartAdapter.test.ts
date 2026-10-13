@@ -83,6 +83,7 @@ vi.mock('klinecharts', () => ({
   dispose: k.dispose,
   registerIndicator: k.registerIndicator,
   registerOverlay: k.registerOverlay,
+  getOverlayClass: () => null,
   getSupportedIndicators: () => k.state.registered,
 }));
 
@@ -1173,5 +1174,93 @@ describe('ChartAdapter precise price of horizontal drawings', () => {
     off();
     h!.onDoubleClick?.({ overlay: h });
     expect(request).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ChartAdapter Shift constraint and price labels', () => {
+  const D1 = Date.UTC(2024, 2, 4);
+  const D2 = Date.UTC(2024, 6, 8);
+  const userOverlays = () => chart().overlays.filter((o) => o.groupId !== 'markers');
+  const ETH: SymbolInfo = { id: 'crypto:ETH', assetClass: 'crypto', ticker: 'ETH', name: 'Ether', pricePrecision: 3 };
+
+  async function loaded(symbol: SymbolInfo = ETH) {
+    const a = make();
+    a.load({ symbol, tf: '1h', session: 'rth', pollMs: 15000 }, events());
+    vi.spyOn(api, 'bars').mockResolvedValue({
+      symbol: symbol.id, tf: '1h', session: 'rth', hasMoreBefore: false, stale: false, notices: [], markers: [],
+      bars: [{ ts: D1, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 }],
+    });
+    const loader = chart().setDataLoader.mock.calls.at(-1)![0] as { getBars: (p: unknown) => Promise<void> };
+    await loader.getBars({ type: 'init', timestamp: null, symbol: { ticker: symbol.id }, period: { type: 'day', span: 1 }, callback: () => {} });
+    return a;
+  }
+  type Live = FakeOverlay & { onPressedMoveStart?: (e: unknown) => void; onPressedMoving?: (e: unknown) => void };
+
+  it('load passes the symbol precision to the template constraint; setShiftConstraint toggles it', async () => {
+    const { drawingConstraint } = await import('../../src/chart/drawingTemplates');
+    const a = await loaded();
+    expect(drawingConstraint.precision).toBe(3);
+    a.setShiftConstraint(true);
+    expect(drawingConstraint.shift).toBe(true);
+    a.setShiftConstraint(false);
+    expect(drawingConstraint.shift).toBe(false);
+  });
+
+  it('the overlay being dragged is the one point moves may constrain; with Shift a whole drag stays horizontal', async () => {
+    const { drawingConstraint } = await import('../../src/chart/drawingTemplates');
+    const a = await loaded();
+    a.restoreDrawings([{ name: 'segment', points: [{ timestamp: D1, value: 10 }, { timestamp: D2, value: 20 }], lock: false }]);
+    const o = userOverlays()[0]! as Live;
+    o.onPressedMoveStart?.({ overlay: o });
+    expect(drawingConstraint.draggingId).toBe(o.id);
+    o.points = [{ timestamp: D1, value: 11.11111 }, { timestamp: D2, value: 21 }];
+    o.onPressedMoving?.({ overlay: o });
+    expect(o.points.map((p) => p.value)).toEqual([11.11111, 21]); // no Shift: free
+    a.setShiftConstraint(true);
+    o.onPressedMoving?.({ overlay: o });
+    expect(o.points.map((p) => p.value)).toEqual([11.111, 11.111]);
+    o.onPressedMoveEnd?.({ overlay: o });
+    expect(drawingConstraint.draggingId).toBeNull();
+    expect(a.serializeDrawings()[0]!.points.map((p) => p.value)).toEqual([11.111, 11.111]);
+    a.setShiftConstraint(false);
+  });
+
+  it('price line / horizontal line expose label toggles (defaults; persisted only when changed)', async () => {
+    const a = await loaded();
+    const changed = vi.fn();
+    a.onDrawingsChange(changed);
+    a.restoreDrawings([
+      { name: 'priceLine', points: [{ timestamp: D1, value: 5 }], lock: false, styles: { label: { onLine: false } } },
+      { name: 'horizontalStraightLine', points: [{ timestamp: D1, value: 6 }], lock: false },
+      { name: 'segment', points: [{ timestamp: D1, value: 1 }, { timestamp: D2, value: 2 }], lock: false },
+    ]);
+    const [p, h, s] = userOverlays();
+    expect(p!.styles).toEqual({ altvLabel: { onLine: false } });
+    p!.onSelected?.({ overlay: p });
+    expect(a.getSelectedDrawing()).toMatchObject({ label: { onLine: false, onAxis: true } });
+    s!.onSelected?.({ overlay: s });
+    expect(a.getSelectedDrawing()).not.toHaveProperty('label');
+    h!.onSelected?.({ overlay: h });
+    expect(a.getSelectedDrawing()).toMatchObject({ label: { onLine: false, onAxis: true } });
+    a.setSelectedLabel({ onLine: true });
+    expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: h!.id, styles: { altvLabel: { onLine: true, onAxis: true } } });
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(a.getSelectedDrawing()).toMatchObject({ label: { onLine: true, onAxis: true } });
+    expect(a.serializeDrawings()[1]!.styles).toEqual({ label: { onLine: true } });
+    a.setSelectedLabel({ onLine: false }); // back to the default: nothing stored
+    expect(a.serializeDrawings()[1]).not.toHaveProperty('styles');
+    p!.onSelected?.({ overlay: p });
+    a.setSelectedStyle({ color: '#ff0000' }); // a style change keeps the label options
+    expect(a.serializeDrawings()[0]!.styles).toEqual({ line: { color: '#ff0000', size: 1, style: 'solid' }, label: { onLine: false } });
+  });
+
+  it('label toggles are read-only for locked drawings', async () => {
+    const a = await loaded();
+    a.restoreDrawings([{ name: 'priceLine', points: [{ timestamp: D1, value: 5 }], lock: true }]);
+    const p = userOverlays()[0]!;
+    p.onSelected?.({ overlay: p });
+    chart().overrideOverlay.mockClear();
+    a.setSelectedLabel({ onAxis: false });
+    expect(chart().overrideOverlay).not.toHaveBeenCalled();
   });
 });

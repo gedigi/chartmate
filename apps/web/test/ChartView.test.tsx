@@ -39,6 +39,8 @@ const fake = vi.hoisted(() => {
     selectionCb: ((s: unknown) => void) | null = null;
     onSelectionChange = vi.fn((cb: (s: unknown) => void) => { this.selectionCb = cb; return () => { this.selectionCb = null; }; });
     setSelectedPrice = vi.fn(() => true);
+    setSelectedLabel = vi.fn();
+    setShiftConstraint = vi.fn();
     onPriceEditRequest = vi.fn(() => () => {});
     constructor() { instances.push(this); }
   }

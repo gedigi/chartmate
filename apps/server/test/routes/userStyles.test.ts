@@ -73,6 +73,22 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
     }
   });
 
+  it('drawing styles: price label options are accepted alone or with a line; invalid ones are dropped', async () => {
+    const base = { name: 'priceLine', points: [{ timestamp: 1, value: 2 }], lock: false };
+    const r = await putDrawings([
+      { ...base, styles: { label: { onLine: false } } },
+      { ...base, styles: { line: { color: '#ff0000', size: 2, style: 'dotted' }, label: { onLine: true, onAxis: false } } },
+      { ...base, styles: { label: { onLine: 'no' } } },
+      { ...base, styles: { label: {} } },
+    ]);
+    expect(r.statusCode).toBe(200);
+    expect(r.json().map((d: DrawingState) => d.styles)).toEqual([
+      { label: { onLine: false } },
+      { line: { color: '#ff0000', size: 2, style: 'dotted' }, label: { onLine: true, onAxis: false } },
+      undefined, undefined,
+    ]);
+  });
+
   it('drawing styles: an invalid part is dropped but valid parts survive', async () => {
     const base = { name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false };
     const r = await putDrawings([

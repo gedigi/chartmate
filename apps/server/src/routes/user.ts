@@ -23,16 +23,18 @@ const AppearanceSchema = z.object({
 
 /**
  * Normalized drawing styles; unknown keys (e.g. raw KLineChart styles) are stripped. Tolerant per part: an invalid
- * `line` or `text` part is dropped on its own so valid parts survive; if no valid part remains, styles are dropped.
+ * `line`, `text` or `label` part is dropped on its own so valid parts survive; if no valid part remains, styles are dropped.
  */
 const DrawingStylesSchema = z.object({
   line: LineStyleSchema.optional().catch(undefined),
   text: z.object({ color: Hex, size: z.number().int().min(MIN_TEXT_SIZE).max(MAX_TEXT_SIZE) }).optional().catch(undefined),
+  label: z.object({ onLine: z.boolean().optional(), onAxis: z.boolean().optional() }).optional().catch(undefined),
 }).transform((s) => {
-  const out: { line?: z.infer<typeof LineStyleSchema>; text?: { color: string; size: number } } = {};
+  const out: { line?: z.infer<typeof LineStyleSchema>; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean } } = {};
   if (s.line) out.line = s.line;
   if (s.text) out.text = s.text;
-  return out.line || out.text ? out : undefined;
+  if (s.label && (s.label.onLine !== undefined || s.label.onAxis !== undefined)) out.label = s.label;
+  return out.line || out.text || out.label ? out : undefined;
 });
 
 const IndicatorSchema = z.object({

@@ -50,8 +50,11 @@ export interface Layout {
   symbol: SymbolId; tf: Timeframe; session: SessionMode; chartType: ChartType; indicators: IndicatorState[];
   appearance?: ChartAppearance;
 }
-/** Normalized drawing styles: `line` for line tools, `text` (annotation bubble colour + font size) for text. */
-export interface DrawingStyles { line?: DrawingLineStyle; text?: { color: string; size: number } }
+/**
+ * Normalized drawing styles: `line` for line tools, `text` (annotation bubble colour + font size) for text,
+ * `label` (price text on the line / price label on the y-axis) for price and horizontal lines; missing → defaults.
+ */
+export interface DrawingStyles { line?: DrawingLineStyle; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean } }
 export interface DrawingState { name: string; points: { timestamp: number; value: number }[]; lock: boolean; text?: string; styles?: DrawingStyles; anchorTf?: '1D'|'1W'|'1M' }
 export interface WatchlistItem { id: SymbolId; position: number }
 

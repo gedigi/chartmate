@@ -10,6 +10,7 @@ function makeControls() {
     onSelectionChange: vi.fn((f: (s: SelectedDrawing | null) => void) => { cb = f; return () => { cb = null; }; }),
     setSelectedStyle: vi.fn(),
     setSelectedPrice: vi.fn((_v: number) => true),
+    setSelectedLabel: vi.fn(),
     onPriceEditRequest: vi.fn((f: (id: string) => void) => { editCb = f; return () => { editCb = null; }; }),
   };
   return {
@@ -187,6 +188,32 @@ describe('DrawingStyleBar', () => {
       emit(null);
       emit({ ...LINE, id: 'h2', price: { value: 7, precision: 2 } });
       expect(price()).not.toHaveFocus();
+    });
+  });
+
+  describe('price label toggles (price line / horizontal line)', () => {
+    const LINE = { id: 'p', kind: 'line' as const, style: { color: '#123456', size: 1, style: 'solid' as const }, locked: false, price: { value: 5, precision: 2 } };
+
+    it('shows "Price on line" / "Price on axis" only when the drawing has label options, reflecting them', () => {
+      const { c, emit } = makeControls();
+      render(<DrawingStyleBar controls={c} />);
+      emit(LINE);
+      expect(screen.queryByLabelText('Price on line')).toBeNull();
+      emit({ ...LINE, label: { onLine: true, onAxis: false } });
+      expect(screen.getByLabelText('Price on line')).toBeChecked();
+      expect(screen.getByLabelText('Price on axis')).not.toBeChecked();
+      fireEvent.click(screen.getByLabelText('Price on line'));
+      expect(c.setSelectedLabel).toHaveBeenLastCalledWith({ onLine: false });
+      fireEvent.click(screen.getByLabelText('Price on axis'));
+      expect(c.setSelectedLabel).toHaveBeenLastCalledWith({ onAxis: true });
+    });
+
+    it('are disabled for locked drawings', () => {
+      const { c, emit } = makeControls();
+      render(<DrawingStyleBar controls={c} />);
+      emit({ ...LINE, locked: true, label: { onLine: true, onAxis: true } });
+      expect(screen.getByLabelText('Price on line')).toBeDisabled();
+      expect(screen.getByLabelText('Price on axis')).toBeDisabled();
     });
   });
 });

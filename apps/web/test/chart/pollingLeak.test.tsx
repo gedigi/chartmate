@@ -80,6 +80,7 @@ vi.mock('klinecharts', () => ({
   dispose: k.dispose,
   registerIndicator: () => {},
   registerOverlay: () => {},
+  getOverlayClass: () => null,
   getSupportedIndicators: () => [],
   getSupportedOverlays: () => [],
 }));

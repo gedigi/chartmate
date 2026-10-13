@@ -23,5 +23,6 @@ export const init = () => makeChart();
 export const dispose = () => {};
 export const registerIndicator = () => {};
 export const registerOverlay = () => {};
+export const getOverlayClass = () => null;
 export const getSupportedIndicators = () => [];
 export const getSupportedOverlays = () => [];
