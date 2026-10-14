@@ -129,7 +129,11 @@ and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by defa
   Wyckoff indicator files keep their MPL-2.0 headers. Only add dependencies whose licenses are compatible with
   AGPL-3.0 (MIT, BSD, ISC, Apache-2.0, MPL-2.0 and similar).
 - Never hardcode the GitHub repository URL or owner: use relative links in docs and
-  `github.repository` / `GITHUB_REPOSITORY` in workflows and build config.
+  `github.repository` / `GITHUB_REPOSITORY` in workflows and build config. One exception: the published image
+  name `ghcr.io/gedigi/chartmate` (and the raw `compose.yaml` / `.env.example` download URLs) in the
+  user-facing self-host docs and the `compose.yaml` default, so a copy-paste install works. A test
+  (`apps/server/test/selfhost-docs.test.ts`) pins the image name in the README, `compose.yaml` and
+  `.env.example`, so a move is a one-line change there plus a search and replace.
 - Custom indicators: one file in `apps/web/src/chart/indicators/custom/` (start from `pnpm new:indicator`), colors
   only through palette slots (`lineSlots`) or `activeIndicatorColors()`; a test rejects color literals there.
 - Commits: small and logical, conventional style as in `git log`: `feat(web): …`, `fix(desktop): …`,
@@ -175,9 +179,9 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   staples each dmg (`xcrun notarytool`, `stapler`, checked with `spctl`).
 - The same tag runs `.github/workflows/docker.yml`: tests, `scripts/docker-smoke.sh` (amd64, and arm64 under
   QEMU), then pushes the multi-arch self-hosting image (`linux/amd64`, `linux/arm64`) to
-  `ghcr.io/<owner>/<repo>` (from `github.repository`, lowercased) as `X.Y.Z`, `X.Y`, `X` and `latest`
+  `ghcr.io/gedigi/chartmate` (from `github.repository`, lowercased) as `X.Y.Z`, `X.Y`, `X` and `latest`
   (pre-releases: `X.Y.Z-suffix` only), with provenance and SBOM attestations. Manual dispatch never publishes.
-  `compose.yaml` + `.env.example` at the root are the documented way to run it.
+  `compose.yaml` (no `.env` needed) is the documented way to run it, with `.env.example` as the optional template.
 - Windows signing uses a Certum SimplySign cloud certificate (`docs/desktop.md`, "Windows signing with Certum"):
   - `build/signing.cjs` picks the method.
   - `build/win-sign.cjs` is electron-builder's sign hook. It signs `chartmate.exe`, the uninstaller and the

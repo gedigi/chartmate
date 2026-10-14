@@ -302,7 +302,7 @@ What the tag runs:
   Developer ID and notarization, the Certum certificate for Windows, the manual `sign:win` fallback):
   [docs/desktop.md](docs/desktop.md#signing-notarization-updates).
 - `.github/workflows/docker.yml`: tests, smoke-tests the amd64 and arm64 images (`scripts/docker-smoke.sh`), then
-  pushes the multi-arch image to `ghcr.io/<owner>/<repo>` with provenance and SBOM attestations.
+  pushes the multi-arch image to `ghcr.io/gedigi/chartmate` with provenance and SBOM attestations.
 
 After the first image is published, make the GHCR package public once (the package's **Package settings**,
 **Change visibility**) and check that it is linked to this repository; until then, pulls need a login.
