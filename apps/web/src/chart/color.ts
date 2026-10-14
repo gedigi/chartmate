@@ -126,6 +126,18 @@ function computeSoftTone(color: string, bg: string): string {
   return fromOklch(L + (Lb - L) * t, C * (1 - SOFT_TONE.chromaLoss * t), H);
 }
 
+/**
+ * The opaque color a (possibly translucent) `color` shows over the opaque `bg`, as '#rrggbb' — e.g. to pick a text
+ * color that reads on a tinted fill. Unparseable `color` → `bg`.
+ */
+export function compositeOver(color: string, bg: string): string {
+  const c = parseColor(color);
+  const b = parseColor(bg);
+  if (!b) return bg;
+  if (!c) return toHex(b.rgb);
+  return toHex(c.rgb.map((v, i) => v * c.alpha + b.rgb[i]! * (1 - c.alpha)) as Rgb);
+}
+
 /** Perceptual (OKLab) distance of two sRGB colors. */
 export function colorDistance(a: Rgb, b: Rgb): number {
   const x = rgbToOklab(a);

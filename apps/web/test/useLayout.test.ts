@@ -141,7 +141,7 @@ describe('useLayout (one global indicator set in the default layout)', () => {
   });
 
   it('rev 3 ("Luminous" teal / rose) defaults are old defaults too: a rev 3 layout moves to aqua / ruby once; picks survive', () => {
-    expect(COLOR_DEFAULTS_REV).toBe(4);
+    expect(COLOR_DEFAULTS_REV).toBeGreaterThanOrEqual(4);
     const rev3 = (appearance: Layout['appearance'], indicators = [ma]) => ({ ...saved, colorDefaultsRev: 3, indicators, appearance });
     const migrated = migrateColorDefaults(rev3({
       dark: { upColor: '#34E0B8', downColor: '#ff4d73', lineWidth: 3 },
@@ -183,6 +183,31 @@ describe('useLayout (one global indicator set in the default layout)', () => {
     expect(migrate('EMA', ['#e56c19', '#2488f7', '#00b3c2'])).toEqual(ind('EMA', ['#e56c19', '#2488f7', dark[2]!]));
     // Already migrated layouts are never touched again.
     const current = { ...saved, indicators: [ind('EMA', ['#2488f7', '#e56c19', '#00b3c2'])] };
+    expect(migrateColorDefaults(current)).toBe(current);
+  });
+
+  it('rev 4 → 5: VWAP moved from the cyan slot (shared with the BOLL lower band) to blue; its old default follows the palette again, picks stay', () => {
+    expect(COLOR_DEFAULTS_REV).toBe(5);
+    const vwap = (lineColors?: string[]) => ({ name: 'VWAP', pane: 'main' as const, calcParams: [], visible: true, ...(lineColors ? { lineColors } : {}) });
+    const rev4 = (lineColors: string[]) => ({ ...saved, colorDefaultsRev: 4, indicators: [vwap(lineColors)] });
+    // The rev 4 default of either theme (any case) → unset: the line takes today's slot.
+    expect(migrateColorDefaults(rev4(['#3fc8e4'])).indicators).toEqual([vwap()]);
+    expect(migrateColorDefaults(rev4(['#0A8EA6'])).indicators).toEqual([vwap()]);
+    expect(migrateColorDefaults(rev4(['#3fc8e4'])).colorDefaultsRev).toBe(5);
+    // Older palettes at VWAP's old slot too (rev 2 dark cyan).
+    expect(migrateColorDefaults({ ...rev4(['#00b3c2']), colorDefaultsRev: 2 }).indicators).toEqual([vwap()]);
+    // Old generations only match at the slot VWAP used then: an old pink pick (rev 1 / rev 2 slot 5, today's VWAP slot)
+    // was never VWAP's default and is kept.
+    expect(migrateColorDefaults({ ...rev4(['#f631aa']), colorDefaultsRev: 2 }).indicators).toEqual([vwap(['#f631aa'])]);
+    expect(migrateColorDefaults({ ...rev4(['#d55181']), colorDefaultsRev: 1 }).indicators).toEqual([vwap(['#d55181'])]);
+    // A user pick — including another palette color — is kept.
+    expect(migrateColorDefaults(rev4(['#123456'])).indicators).toEqual([vwap(['#123456'])]);
+    expect(migrateColorDefaults(rev4(['#f2b861'])).indicators).toEqual([vwap(['#f2b861'])]);
+    // Another indicator's cyan line (the BOLL lower band keeps slot 3) is not a moved default: untouched.
+    const boll = { name: 'BOLL', pane: 'main' as const, calcParams: [20, 2], visible: true, lineColors: ['#a99bff', '#ff0000', '#3fc8e4'] };
+    expect(migrateColorDefaults({ ...saved, colorDefaultsRev: 4, indicators: [boll] }).indicators).toEqual([boll]);
+    // Already on rev 5: never touched again.
+    const current = { ...saved, indicators: [vwap(['#3fc8e4'])] };
     expect(migrateColorDefaults(current)).toBe(current);
   });
 

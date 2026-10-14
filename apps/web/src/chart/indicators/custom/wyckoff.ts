@@ -5,29 +5,95 @@
 // License 2.0 (https://mozilla.org/MPL/2.0/).
 // Original Pine Script® source © faytterro.
 
+import type { ThemedAppearance } from '@chartmate/shared';
 import type { CandleType, Chart, IndicatorDrawParams, KLineData } from 'klinecharts';
-import { wyckoff, WYCKOFF_COLORS, type WyckoffBox, type WyckoffSignal } from '../wyckoffCalc';
+import { compositeOver, zoneTint } from '../../color';
+import { readableTextOnAll } from '../../contrast';
+import { CHART_FONT, themeTokens, type ThemeName } from '../../theme';
+import { indicatorColorContext, indicatorColors, type IndicatorColors } from '../colors';
+import { wyckoff, type WyckoffBox, type WyckoffBoxKind, type WyckoffSignal, type WyckoffTone, type WyckoffTrend } from '../wyckoffCalc';
 import type { CustomIndicator } from '../types';
 
 /** One calc result per bar. Boxes are attached to the bar of their right-most edge. */
 export interface WyckoffBarResult {
-  barColor: string | null;
+  barTrend: WyckoffTrend | null;
   signals: WyckoffSignal[];
   boxes: WyckoffBox[];
 }
 
-/** Theme text color (Pine's default `color_` is white; the theme color keeps labels readable in light mode). */
-function textColor(chart: Chart): string {
-  const s = chart.getStyles();
-  return s.candle?.tooltip?.title?.color ?? s.indicator?.tooltip?.title?.color ?? '#888888';
+/**
+ * Box fills: the hue-locked tint of the family color (color.ts zoneTint, the position zones' fill) at a set perceived
+ * weight over the chart background, so accumulation reads as a whisper of the up color and distribution of the down
+ * color, equally strong on both themes, and the candles inside keep their colors (the original's 95% / 90%
+ * transparent green / red / gray).
+ */
+export const WYCKOFF_FILL = { weight: 0.04, maxAlpha: 0.1 } as const;
+export const WYCKOFF_RANGE_FILL = { weight: 0.03, maxAlpha: 0.1 } as const;
+
+/** Every color the Wyckoff overlay paints, for one palette. */
+export interface WyckoffStyle {
+  /** Bars recolored by the trend: in the trend's direction the strong color, against it the trend's soft tone. */
+  bar: Record<WyckoffTrend, { with: string; against: string }>;
+  box: Record<WyckoffBoxKind, { fill: string; border: string; label: string }>;
+  /** Triangles: accumulation events in the up family, distribution in the down family, plain pivots palette slot 0. */
+  signal: Record<WyckoffTone, string>;
+  /** Signal labels (small text on the chart background). */
+  signalText: Record<WyckoffTone, string>;
+}
+
+/**
+ * Maps the indicator's roles onto `c` (theme tokens and the user's up / down colors): accumulation = up family,
+ * distribution = down family, sideways ranges = muted; box labels take the family's text tone unless it falls under
+ * 3:1 on the box's composited fill, then whichever of white / near-black reads.
+ */
+export function wyckoffStyle(c: IndicatorColors): WyckoffStyle {
+  const box = (strong: string, border: string, text: string, f: { weight: number; maxAlpha: number }) => {
+    const fill = zoneTint(strong, c.bg, f.weight, f.maxAlpha);
+    return { fill, border, label: readableTextOnAll([compositeOver(fill, c.bg)], text) };
+  };
+  return {
+    bar: { bull: { with: c.up, against: c.upSoft }, bear: { with: c.down, against: c.downSoft } },
+    box: {
+      range: box(c.muted, c.level, c.muted, WYCKOFF_RANGE_FILL),
+      accumulation: box(c.up, c.upSoft, c.upText, WYCKOFF_FILL),
+      distribution: box(c.down, c.downSoft, c.downText, WYCKOFF_FILL),
+    },
+    signal: { accumulation: c.up, distribution: c.down, pivot: c.palette[0]! },
+    signalText: { accumulation: c.upText, distribution: c.downText, pivot: c.muted },
+  };
+}
+
+let styleCache: { theme: ThemeName; appearance: ThemedAppearance | undefined; tokens: object; style: WyckoffStyle } | null = null;
+
+/**
+ * wyckoffStyle of the chart's current palette. Memoized on identities (it runs on every repaint): the theme, the
+ * appearance object (replaced, never mutated, on every change) and the theme's token object (replaced when the CSS
+ * tokens are re-read).
+ */
+export function currentWyckoffStyle(): WyckoffStyle {
+  const { theme, appearance } = indicatorColorContext;
+  const tokens = themeTokens(theme);
+  const hit = styleCache;
+  if (hit && hit.theme === theme && hit.appearance === appearance && hit.tokens === tokens) return hit.style;
+  const style = wyckoffStyle(indicatorColors(theme, appearance));
+  styleCache = { theme, appearance, tokens, style };
+  return style;
+}
+
+/** Color of a bar recolored by `trend` (doji count as with the trend). */
+export function trendBarColor(style: WyckoffStyle, trend: WyckoffTrend, bar: { open: number; close: number }): string {
+  const against = trend === 'bull' ? bar.close < bar.open : bar.close > bar.open;
+  return against ? style.bar[trend].against : style.bar[trend].with;
 }
 
 function fontFamily(chart: Chart): string {
-  return chart.getStyles().candle?.tooltip?.title?.family ?? 'Helvetica Neue';
+  return chart.getStyles().candle?.tooltip?.title?.family ?? CHART_FONT;
 }
 
 const TRIANGLE_GAP = 3;
 const LABEL_SIZE = 10;
+const BOX_LABEL_SIZE = 11;
+const BOX_LABEL_PAD = 6;
 
 export interface BarRect { x: number; y: number; w: number; h: number; stroke: boolean }
 
@@ -99,13 +165,13 @@ export function drawWyckoff({ ctx, chart, indicator, xAxis, yAxis }: IndicatorDr
   const from = Math.max(0, Math.floor(realFrom) - 1);
   const to = Math.min(data.length, result.length, Math.ceil(realTo) + 1);
   if (to <= from) return true;
-  const text = textColor(chart);
+  const style = currentWyckoffStyle();
   const family = fontFamily(chart);
   const styles = chart.getStyles();
 
   ctx.save();
 
-  // Boxes (rect + centered text), in creation order so newer boxes paint over older ones.
+  // Boxes (tinted rect + its phase name), in creation order so newer boxes paint over older ones.
   for (const r of result) {
     for (const b of r?.boxes ?? []) {
       const l = Math.min(b.left, b.right);
@@ -117,29 +183,25 @@ export function drawWyckoff({ ctx, chart, indicator, xAxis, yAxis }: IndicatorDr
       const yBot = yAxis.convertToPixel(Math.min(b.top, b.bottom));
       const w = x1 - x0;
       const h = yBot - yTop;
-      if (b.bgColor) {
-        ctx.fillStyle = b.bgColor;
+      const look = style.box[b.kind];
+      if (b.filled) {
+        ctx.fillStyle = look.fill;
         ctx.fillRect(x0, yTop, w, h);
       }
-      ctx.strokeStyle = WYCKOFF_COLORS.gray;
+      ctx.strokeStyle = look.border;
       ctx.lineWidth = 1;
       ctx.setLineDash([]); // line.style_solid (the context may carry a dash from earlier figures)
       ctx.strokeRect(Math.round(x0) + 0.5, Math.round(yTop) + 0.5, Math.round(w), Math.round(h));
       if (b.text) {
-        // Pine's size.auto: shrink the text to fit the box.
-        let size = 14;
-        ctx.font = `${size}px ${family}`;
+        // The phase name, small and opaque in the box's top-left corner (the original's 80%-transparent centered
+        // text sat on the candles); left out when it does not fit.
+        ctx.font = `600 ${BOX_LABEL_SIZE}px ${family}`;
         const tw = ctx.measureText(b.text).width;
-        if (tw > w - 4) size = Math.floor((size * (w - 4)) / tw);
-        size = Math.min(size, Math.floor(h - 2));
-        if (size >= 7) {
-          ctx.font = `${size}px ${family}`;
-          ctx.globalAlpha = 0.2; // color.new(color_, 80)
-          ctx.fillStyle = text;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(b.text, x0 + w / 2, yTop + h / 2);
-          ctx.globalAlpha = 1;
+        if (tw + 2 * BOX_LABEL_PAD <= w && BOX_LABEL_SIZE + 2 * BOX_LABEL_PAD <= h) {
+          ctx.fillStyle = look.label;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillText(b.text, x0 + BOX_LABEL_PAD, yTop + BOX_LABEL_PAD);
         }
       }
     }
@@ -148,9 +210,10 @@ export function drawWyckoff({ ctx, chart, indicator, xAxis, yAxis }: IndicatorDr
   // barcolor: repaint the bar in the chart's own bar style (solid / hollow candle, OHLC bar); not on area charts.
   const candleType = (styles.candle?.type ?? 'candle_solid') as CandleType;
   for (let i = from; i < to; i++) {
-    const color = result[i]?.barColor;
+    const trend = result[i]?.barTrend;
     const d = data[i];
-    if (!color || !d) continue;
+    if (!trend || !d) continue;
+    const color = trendBarColor(style, trend, d);
     const px = {
       open: yAxis.convertToPixel(d.open), close: yAxis.convertToPixel(d.close),
       high: yAxis.convertToPixel(d.high), low: yAxis.convertToPixel(d.low),
@@ -169,7 +232,7 @@ export function drawWyckoff({ ctx, chart, indicator, xAxis, yAxis }: IndicatorDr
   // Triangles with their labels (stacked when several shapes share a bar and side).
   const tw = Math.max(6, Math.min(10, gapBar + 2));
   const th = tw * 0.8;
-  ctx.font = `${LABEL_SIZE}px ${family}`;
+  ctx.font = `600 ${LABEL_SIZE}px ${family}`;
   ctx.textAlign = 'center';
   for (let i = from; i < to; i++) {
     const signals = result[i]?.signals;
@@ -179,23 +242,23 @@ export function drawWyckoff({ ctx, chart, indicator, xAxis, yAxis }: IndicatorDr
     let below = yAxis.convertToPixel(d.low) + TRIANGLE_GAP;
     let above = yAxis.convertToPixel(d.high) - TRIANGLE_GAP;
     for (const s of signals) {
-      const small = s.text === '' ? 0.8 : 1; // the unlabeled orange pivots (size.auto) are a little smaller
+      const small = s.text === '' ? 0.8 : 1; // the unlabeled pivots (size.auto) are a little smaller
       const w = tw * small;
       const h = th * small;
       if (s.position === 'below') {
-        triangle(ctx, x, below, w, h, true, s.color);
+        triangle(ctx, x, below, w, h, true, style.signal[s.tone]);
         below += h + 2;
         if (s.text) {
-          ctx.fillStyle = text;
+          ctx.fillStyle = style.signalText[s.tone];
           ctx.textBaseline = 'top';
           ctx.fillText(s.text, x, below);
           below += LABEL_SIZE + 2;
         }
       } else {
-        triangle(ctx, x, above, w, h, false, s.color);
+        triangle(ctx, x, above, w, h, false, style.signal[s.tone]);
         above -= h + 2;
         if (s.text) {
-          ctx.fillStyle = text;
+          ctx.fillStyle = style.signalText[s.tone];
           ctx.textBaseline = 'bottom';
           ctx.fillText(s.text, x, above);
           above -= LABEL_SIZE + 2;
@@ -214,7 +277,7 @@ export function wyckoffBarResults(
   calcParams: readonly number[],
 ): WyckoffBarResult[] {
   const r = wyckoff(dataList, { rsiLen: calcParams[0] ?? 14, sens: calcParams[1] ?? 20, pivotLen: calcParams[2] ?? 5 });
-  const out: WyckoffBarResult[] = dataList.map((_, i) => ({ barColor: r.barColors[i] ?? null, signals: [], boxes: [] }));
+  const out: WyckoffBarResult[] = dataList.map((_, i) => ({ barTrend: r.barTrends[i] ?? null, signals: [], boxes: [] }));
   for (const s of r.signals) out[s.index]?.signals.push(s);
   for (const b of r.boxes) out[Math.max(b.left, b.right)]?.boxes.push(b);
   return out;

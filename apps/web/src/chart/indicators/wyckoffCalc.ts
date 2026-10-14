@@ -77,18 +77,17 @@ export const CALC_BARS_COUNT = 1000;
 /** Pine's `max_boxes_count = 500`: older boxes are deleted. */
 export const MAX_BOXES = 500;
 
-/** Pine v5 color constants and the script's colors. */
-export const WYCKOFF_COLORS = {
-  lime: '#00E676', // color.lime (bull bars)
-  purple: '#9C27B0', // color.purple (bear bars)
-  green: '#4CAF50', // color.green (SC, AR, ST)
-  red: '#FF5252', // color.red (BC, AR, ST of distribution)
-  orange: '#FF9800', // color.orange (other pivots)
-  gray: '#787B86', // color.gray (box border)
-  sideBg: 'rgba(120,123,134,0.10)', // color.rgb(120, 123, 134, 90)
-  accumulationBg: 'rgba(76,175,79,0.05)', // color.rgb(76, 175, 79, 95)
-  distributionBg: 'rgba(255,82,82,0.05)', // color.rgb(255, 82, 82, 95)
-} as const;
+/**
+ * The script's colors as ROLES; the draw callback (custom/wyckoff.ts) maps them onto the active theme's palette at draw
+ * time, so they follow the theme and the user's up / down colors. The original's Pine colors, for reference:
+ * bull / bear bars color.lime / color.purple; SC, AR, ST color.green; BC and the distribution AR, ST color.red; other
+ * pivots color.orange; box borders color.gray; range boxes gray at 90% transparency, accumulation / distribution
+ * boxes green / red at 95%.
+ */
+export type WyckoffTrend = 'bull' | 'bear';
+/** Which phase a signal or box belongs to: accumulation (up family), distribution (down family), or neither. */
+export type WyckoffTone = 'accumulation' | 'distribution' | 'pivot';
+export type WyckoffBoxKind = 'range' | 'accumulation' | 'distribution';
 
 export interface WyckoffBar { high: number; low: number; close: number }
 export interface WyckoffParams { rsiLen: number; sens: number; pivotLen: number }
@@ -102,7 +101,7 @@ export interface WyckoffSignal {
   text: string;
   /** 'below': triangle up under the bar's low; 'above': triangle down over the bar's high. */
   position: 'below' | 'above';
-  color: string;
+  tone: WyckoffTone;
 }
 export interface WyckoffBox {
   /** Bar index of the box's left / right edge (bar centers, like Pine's xloc.bar_index). */
@@ -110,8 +109,10 @@ export interface WyckoffBox {
   right: number;
   top: number;
   bottom: number;
-  /** Background color, or null for none (Pine `na`). */
-  bgColor: string | null;
+  /** A sideways range, recolored Accumulation / Distribution by the trend that follows. */
+  kind: WyckoffBoxKind;
+  /** Whether the box has a background (Pine `na` for a range whose x1 >= x2). */
+  filled: boolean;
   /** Centered text ('Accumulation' / 'Distribution'), or null. */
   text: string | null;
 }
@@ -120,19 +121,19 @@ export interface WyckoffResult {
   rsi: number[];
   boxes: WyckoffBox[];
   signals: WyckoffSignal[];
-  /** barcolor per bar (null = default candle color). */
-  barColors: Array<string | null>;
+  /** barcolor per bar as the trend (null = default candle color). */
+  barTrends: Array<WyckoffTrend | null>;
 }
 
-const SIGNAL_STYLE: Record<WyckoffSignalKind, Pick<WyckoffSignal, 'text' | 'position' | 'color'>> = {
-  SC: { text: 'SC', position: 'below', color: WYCKOFF_COLORS.green },
-  AR: { text: 'AR', position: 'above', color: WYCKOFF_COLORS.green },
-  ST: { text: 'ST', position: 'below', color: WYCKOFF_COLORS.green },
-  BC: { text: 'BC', position: 'above', color: WYCKOFF_COLORS.red },
-  DAR: { text: 'AR', position: 'below', color: WYCKOFF_COLORS.red },
-  DST: { text: 'ST', position: 'above', color: WYCKOFF_COLORS.red },
-  PIVOT_LOW: { text: '', position: 'below', color: WYCKOFF_COLORS.orange },
-  PIVOT_HIGH: { text: '', position: 'above', color: WYCKOFF_COLORS.orange },
+const SIGNAL_STYLE: Record<WyckoffSignalKind, Pick<WyckoffSignal, 'text' | 'position' | 'tone'>> = {
+  SC: { text: 'SC', position: 'below', tone: 'accumulation' },
+  AR: { text: 'AR', position: 'above', tone: 'accumulation' },
+  ST: { text: 'ST', position: 'below', tone: 'accumulation' },
+  BC: { text: 'BC', position: 'above', tone: 'distribution' },
+  DAR: { text: 'AR', position: 'below', tone: 'distribution' },
+  DST: { text: 'ST', position: 'above', tone: 'distribution' },
+  PIVOT_LOW: { text: '', position: 'below', tone: 'pivot' },
+  PIVOT_HIGH: { text: '', position: 'above', tone: 'pivot' },
 };
 
 /**
@@ -161,7 +162,7 @@ export function wyckoff(
 
   const rsiAll = new Array<number>(total).fill(NA);
   rsi.forEach((v, i) => { rsiAll[start + i] = v; });
-  const barColors = new Array<string | null>(total).fill(null);
+  const barTrends = new Array<WyckoffTrend | null>(total).fill(null);
   const boxes: WyckoffBox[] = [];
   const signals: WyckoffSignal[] = [];
   const emit = (t: number, kind: WyckoffSignalKind) => signals.push({ index: start + t - len, kind, ...SIGNAL_STYLE[kind] });
@@ -208,7 +209,7 @@ export function wyckoff(
     const boxlen = isNa(lastSideStart) ? NA : t - lastSideStart; // ta.barssince(side and not side[1])
 
     // barcolor(bull ? color.lime : bear ? color.purple : na, offset = -2)
-    if ((bull || bear) && t - 2 >= 0) barColors[start + t - 2] = bull ? WYCKOFF_COLORS.lime : WYCKOFF_COLORS.purple;
+    if ((bull || bear) && t - 2 >= 0) barTrends[start + t - 2] = bull ? 'bull' : 'bear';
 
     const x1 = lastSideStart;
     if (!sideNow && side1) lastSideEnd = t - 1;
@@ -231,7 +232,7 @@ export function wyckoff(
     const y2 = hist(mylowSeries, t, 2);
 
     if (side1 && !sideNow) {
-      trendBox = { left: start + x1, right: start + x2, top: y1, bottom: y2, bgColor: x1 < x2 ? WYCKOFF_COLORS.sideBg : null, text: null };
+      trendBox = { left: start + x1, right: start + x2, top: y1, bottom: y2, kind: 'range', filled: x1 < x2, text: null };
       boxes.push(trendBox);
       if (boxes.length > maxBoxes) boxes.shift();
     }
@@ -240,10 +241,12 @@ export function wyckoff(
     else if (bear) afterTrend = 'Distribution';
 
     if (trendBox && afterTrend === 'Accumulation') {
-      trendBox.bgColor = WYCKOFF_COLORS.accumulationBg;
+      trendBox.kind = 'accumulation';
+      trendBox.filled = true;
       trendBox.text = 'Accumulation';
     } else if (trendBox && afterTrend === 'Distribution') {
-      trendBox.bgColor = WYCKOFF_COLORS.distributionBg;
+      trendBox.kind = 'distribution';
+      trendBox.filled = true;
       trendBox.text = 'Distribution';
     }
 
@@ -314,5 +317,5 @@ export function wyckoff(
     }
   }
 
-  return { rsi: rsiAll, boxes, signals, barColors };
+  return { rsi: rsiAll, boxes, signals, barTrends };
 }

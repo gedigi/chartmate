@@ -39,7 +39,7 @@ describe('default line colors (per-theme categorical palette)', () => {
   const LIGHT = ['#c98512', '#5b49e0', '#0a8ea6', '#e0621a', '#c8399a', '#2f62d6'];
   // Slot (1-based) of each line, in figure order.
   const SLOTS: Record<string, number[]> = {
-    MA: [1, 2, 3, 4], EMA: [1, 2, 3], BOLL: [2, 1, 3], SAR: [], BBI: [1], VWAP: [3], VOL: [1, 2, 3], MACD: [1, 2],
+    MA: [1, 2, 3, 4], EMA: [1, 2, 3], BOLL: [2, 1, 3], SAR: [], BBI: [1], VWAP: [6], VOL: [1, 2, 3], MACD: [1, 2],
     RSI: [1, 2, 3], KDJ: [1, 2, 3], CCI: [1], ATR: [1], OBV: [1, 2], WR: [1, 2, 3], DMI: [1, 2, 3, 4], ROC: [1, 2],
     MTM: [1, 2], TRIX: [1, 2], AO: [], SMA: [1], WYCKOFF: [],
   };
@@ -65,9 +65,11 @@ describe('default line colors (per-theme categorical palette)', () => {
     }
   });
 
-  it('VWAP is slot 3 (distinct from MA / BOLL slots 1-2), and its template carries no fixed color', () => {
-    expect(defaultLineColor(0, 'VWAP', 'dark')).toBe('#3fc8e4');
-    expect(defaultLineColor(0, 'VWAP', 'light')).toBe('#0a8ea6');
+  it('VWAP is slot 6 (blue: no other price-pane overlay uses it), and its template carries no fixed color', () => {
+    expect(defaultLineColor(0, 'VWAP', 'dark')).toBe('#6f9dff');
+    expect(defaultLineColor(0, 'VWAP', 'light')).toBe('#2f62d6');
+    const others = CATALOG.filter((e) => e.pane === 'main' && e.name !== 'VWAP').flatMap((e) => defaultLineColors(e.name, 'dark'));
+    expect(others).not.toContain('#6f9dff');
     const tpl = CUSTOM_INDICATORS.find((c) => c.catalog.name === 'VWAP')!.template;
     expect(tpl.styles?.lines?.[0]?.color).toBeUndefined();
   });

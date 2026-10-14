@@ -14,7 +14,7 @@ const indicator: CustomIndicator = {
     series: 'price',
     calcParams: [],
     figures: [{ key: 'vwap', title: 'VWAP: ', type: 'line' }],
-    styles: { lines: [{ style: 'solid', smooth: false, size: 1, dashedValue: [2, 2] }] }, // color: palette slot 3 (cyan), set by the chart adapter per theme
+    styles: { lines: [{ style: 'solid', smooth: false, size: 1, dashedValue: [2, 2] }] }, // color: palette slot 5 (blue), set by the chart adapter per theme
     calc: (dataList, ind) => {
       const ext = ind.extendData as IndicatorExtendData | undefined;
       if (ext?.intraday === false) return vwap(dataList, () => 0);
@@ -23,7 +23,7 @@ const indicator: CustomIndicator = {
   },
   catalog: {
     name: 'VWAP', label: 'VWAP (session, intraday)', pane: 'main', defaultParams: [], paramLabels: [], lines: ['VWAP'],
-    lineSlots: [2], // cyan: distinct from MA / BOLL (slots 1-2) when they share the pane
+    lineSlots: [5], // blue: no other price-pane overlay uses it (MA slots 0-3, EMA 0-2, BOLL 0-2, BBI 0)
     description: 'Resets each session on intraday charts; on 1D and longer timeframes it spans the whole loaded series.',
   },
 };

@@ -1,21 +1,25 @@
 // Tests for the port of 'Wyckoff Accumulation Distribution' by faytterro (MPL-2.0, https://mozilla.org/MPL/2.0/).
-import { describe, expect, it, vi } from 'vitest';
-import wyckoffIndicator, { barcolorRects, drawWyckoff, wyckoffBarResults, type WyckoffBarResult } from '../../src/chart/indicators/custom/wyckoff';
-import { WYCKOFF_COLORS as C } from '../../src/chart/indicators/wyckoffCalc';
-
-const THEME_TEXT = '#131722';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { compositeOver } from '../../src/chart/color';
+import { contrastRatio } from '../../src/chart/contrast';
+import { indicatorColorContext, indicatorColors } from '../../src/chart/indicators/colors';
+import wyckoffIndicator, {
+  barcolorRects, currentWyckoffStyle, drawWyckoff, trendBarColor, wyckoffBarResults, wyckoffStyle, type WyckoffBarResult,
+} from '../../src/chart/indicators/custom/wyckoff';
+import { INDICATOR_PALETTE, THEME_TOKENS } from '../../src/chart/theme';
 
 function makeCtx() {
   const calls: Array<[string, unknown[]]> = [];
   const state: Record<string, unknown> = {};
-  const fn = (name: string) => vi.fn((...a: unknown[]) => { calls.push([name, [...a, state.fillStyle, state.globalAlpha]]); });
+  const fn = (name: string) => vi.fn((...a: unknown[]) => { calls.push([name, [...a, state.fillStyle, state.globalAlpha, state.strokeStyle]]); });
   const ctx = {
     save: fn('save'), restore: fn('restore'), fillRect: fn('fillRect'), strokeRect: fn('strokeRect'), beginPath: fn('beginPath'),
     moveTo: fn('moveTo'), lineTo: fn('lineTo'), closePath: fn('closePath'), fill: fn('fill'), fillText: fn('fillText'), setLineDash: fn('setLineDash'),
     measureText: (t: string) => ({ width: t.length * 3 }),
     set fillStyle(v: unknown) { state.fillStyle = v; }, get fillStyle() { return state.fillStyle; },
     set globalAlpha(v: unknown) { state.globalAlpha = v; }, get globalAlpha() { return state.globalAlpha ?? 1; },
-    strokeStyle: '', lineWidth: 1, font: '', textAlign: '', textBaseline: '',
+    set strokeStyle(v: unknown) { state.strokeStyle = v; }, get strokeStyle() { return state.strokeStyle; },
+    lineWidth: 1, font: '', textAlign: '', textBaseline: '',
   };
   return { ctx, calls };
 }
@@ -31,7 +35,7 @@ function run(
       getDataList: () => data,
       getVisibleRange: () => range,
       getBarSpace: () => ({ bar: 10, halfBar: 5, gapBar: 8, halfGapBar: 4 }),
-      getStyles: () => ({ candle: { type: candleType, tooltip: { title: { color: THEME_TEXT, family: 'Arial' } } }, indicator: {} }),
+      getStyles: () => ({ candle: { type: candleType, tooltip: { title: { family: 'Arial' } } }, indicator: {} }),
     } as never,
     indicator: { result } as never,
     bounding: {} as never,
@@ -60,29 +64,84 @@ describe('drawWyckoff', () => {
     expect(run([{ open: 1, high: 2, low: 0, close: 1 }], []).ret).toBe(true);
   });
 
-  it('draws the box, its 20%-alpha theme-colored text, the recolored candle and labeled triangles', () => {
+  afterEach(() => {
+    indicatorColorContext.theme = 'dark';
+    indicatorColorContext.appearance = undefined;
+  });
+
+  const scene = () => {
     const data = Array.from({ length: 6 }, () => ({ open: 10, high: 12, low: 8, close: 11 }));
-    const result: WyckoffBarResult[] = data.map(() => ({ barColor: null, signals: [], boxes: [] }));
-    result[5]!.boxes.push({ left: 0, right: 5, top: 12, bottom: 8, bgColor: C.accumulationBg, text: 'Accumulation' });
-    result[2]!.barColor = C.lime;
-    result[3]!.signals.push({ index: 3, kind: 'SC', text: 'SC', position: 'below', color: C.green });
+    data[3] = { open: 11, high: 12, low: 8, close: 9 }; // a down bar inside the bull trend
+    const result: WyckoffBarResult[] = data.map(() => ({ barTrend: null, signals: [], boxes: [] }));
+    result[5]!.boxes.push({ left: 0, right: 5, top: 12, bottom: 8, kind: 'accumulation', filled: true, text: 'Accumulation' });
+    result[2]!.barTrend = 'bull';
+    result[3]!.barTrend = 'bull';
+    result[3]!.signals.push({ index: 3, kind: 'SC', text: 'SC', position: 'below', tone: 'accumulation' });
+    result[4]!.signals.push({ index: 4, kind: 'PIVOT_HIGH', text: '', position: 'above', tone: 'pivot' });
+    return { data, result };
+  };
+
+  for (const theme of ['dark', 'light'] as const) {
+    it(`paints every part from the ${theme} palette: up-family box, labels, trend bars and triangles`, () => {
+      indicatorColorContext.theme = theme;
+      const t = THEME_TOKENS[theme];
+      const style = wyckoffStyle(indicatorColors(theme, undefined));
+      const { data, result } = scene();
+      const { calls } = run(data, result);
+      const fillRects = calls.filter(([n]) => n === 'fillRect').map(([, a]) => a);
+      expect(fillRects[0]!.slice(0, 5)).toEqual([0, 880, 50, 40, style.box.accumulation.fill]); // box background
+      const border = calls.find(([n]) => n === 'strokeRect')!;
+      expect(border[1][6]).toBe(t.upSoft);
+      expect(calls.find(([n]) => n === 'setLineDash')![1][0]).toEqual([]); // solid border
+      const texts = calls.filter(([n]) => n === 'fillText').map(([, a]) => a);
+      expect(texts[0]!.slice(0, 1)).toEqual(['Accumulation']);
+      expect(texts[0]![3]).toBe(style.box.accumulation.label);
+      expect(texts[0]![4] ?? 1).toBe(1); // opaque (never set below 1)
+      expect(texts[1]!.slice(0, 1)).toEqual(['SC']);
+      expect(texts[1]![3]).toBe(t.upFg);
+      expect(fillRects.filter((a) => a[4] === t.up)).toHaveLength(2); // bull bar with the trend: wick + body
+      expect(fillRects.filter((a) => a[4] === t.upSoft)).toHaveLength(2); // the down bar against it: soft tone
+      expect(calls.filter(([n, a]) => n === 'fill' && a[0] === t.up)).toHaveLength(1); // SC triangle
+      expect(calls.filter(([n, a]) => n === 'fill' && a[0] === INDICATOR_PALETTE[theme][0])).toHaveLength(1); // pivot
+    });
+  }
+
+  it('recolors on a theme toggle without recomputing (colors are read at draw time)', () => {
+    const { data, result } = scene();
+    const fills = () => run(data, result).calls.filter(([n]) => n === 'fillRect').map(([, a]) => a[4]);
+    const dark = fills();
+    indicatorColorContext.theme = 'light';
+    const light = fills();
+    expect(light).not.toEqual(dark);
+    expect(light).toContain(THEME_TOKENS.light.up);
+    expect(dark).toContain(THEME_TOKENS.dark.up);
+  });
+
+  it('memoizes the style per theme / appearance object: same object while they hold, rebuilt when either changes', () => {
+    const first = currentWyckoffStyle();
+    expect(currentWyckoffStyle()).toBe(first);
+    indicatorColorContext.theme = 'light';
+    const light = currentWyckoffStyle();
+    expect(light).not.toBe(first);
+    expect(light.signal.accumulation).toBe(THEME_TOKENS.light.up);
+    expect(currentWyckoffStyle()).toBe(light);
+    indicatorColorContext.appearance = { light: { upColor: '#33aaff' } };
+    const custom = currentWyckoffStyle();
+    expect(custom).not.toBe(light);
+    expect(custom.signal.accumulation).toBe('#33aaff');
+  });
+
+  it('follows the user\'s custom up / down colors', () => {
+    indicatorColorContext.appearance = { dark: { upColor: '#33aaff' } };
+    const { data, result } = scene();
     const { calls } = run(data, result);
-    const fillRects = calls.filter(([n]) => n === 'fillRect').map(([, a]) => a);
-    expect(fillRects[0]).toEqual([0, 880, 50, 40, C.accumulationBg, undefined]); // box background
-    expect(calls.find(([n]) => n === 'strokeRect')).toBeDefined();
-    expect(calls.find(([n]) => n === 'setLineDash')![1][0]).toEqual([]); // solid border
-    const texts = calls.filter(([n]) => n === 'fillText').map(([, a]) => a);
-    expect(texts[0]!.slice(0, 1)).toEqual(['Accumulation']);
-    expect(texts[0]!.slice(3)).toEqual([THEME_TEXT, 0.2]);
-    expect(texts[1]!.slice(0, 1)).toEqual(['SC']);
-    expect(texts[1]![3]).toBe(THEME_TEXT);
-    expect(fillRects.filter((a) => a[4] === C.lime)).toHaveLength(2); // wick + body
-    expect(calls.filter(([n, a]) => n === 'fill' && a[0] === C.green)).toHaveLength(1);
+    expect(calls.filter(([n, a]) => n === 'fillRect' && a[4] === '#33aaff')).toHaveLength(2);
+    expect(calls.filter(([n, a]) => n === 'fill' && a[0] === '#33aaff')).toHaveLength(1);
   });
 
   it('only draws within the visible range', () => {
     const data = Array.from({ length: 100 }, () => ({ open: 10, high: 12, low: 8, close: 11 }));
-    const result: WyckoffBarResult[] = data.map(() => ({ barColor: C.purple, signals: [], boxes: [] }));
+    const result: WyckoffBarResult[] = data.map(() => ({ barTrend: 'bear', signals: [], boxes: [] }));
     const { calls } = run(data, result, { realFrom: 50, realTo: 60 });
     const xs = calls.filter(([n]) => n === 'fillRect').map(([, a]) => a[0] as number);
     expect(Math.min(...xs)).toBeGreaterThanOrEqual(480);
@@ -141,16 +200,48 @@ describe('barcolorRects (recolored bar keeps the chart bar style, like KLineChar
 
 describe('drawWyckoff bar styles', () => {
   const data = [{ open: 10, high: 12, low: 8, close: 11 }];
-  const result: WyckoffBarResult[] = [{ barColor: C.lime, signals: [], boxes: [] }];
+  const result: WyckoffBarResult[] = [{ barTrend: 'bull', signals: [], boxes: [] }];
+  const up = THEME_TOKENS.dark.up;
 
   it('hollow candles get a stroke-only recolored body', () => {
     const { calls } = run(data, result, undefined, 'candle_stroke');
     expect(calls.filter(([n]) => n === 'strokeRect')).toHaveLength(1);
-    expect(calls.filter(([n, a]) => n === 'fillRect' && a[4] === C.lime)).toHaveLength(2); // the two wick halves
+    expect(calls.filter(([n, a]) => n === 'fillRect' && a[4] === up)).toHaveLength(2); // the two wick halves
   });
 
   it('area charts are not recolored', () => {
     const { calls } = run(data, result, undefined, 'area');
-    expect(calls.filter(([n, a]) => n === 'fillRect' && a[4] === C.lime)).toHaveLength(0);
+    expect(calls.filter(([n, a]) => n === 'fillRect' && a[4] === up)).toHaveLength(0);
+  });
+});
+
+describe('wyckoffStyle', () => {
+  for (const theme of ['dark', 'light'] as const) {
+    it(`${theme}: accumulation = up family, distribution = down family, ranges muted, labels readable on their fill`, () => {
+      const t = THEME_TOKENS[theme];
+      const s = wyckoffStyle(indicatorColors(theme, undefined));
+      expect(s.bar).toEqual({ bull: { with: t.up, against: t.upSoft }, bear: { with: t.down, against: t.downSoft } });
+      expect(s.signal).toEqual({ accumulation: t.up, distribution: t.down, pivot: INDICATOR_PALETTE[theme][0] });
+      expect(s.signalText).toEqual({ accumulation: t.upFg, distribution: t.downFg, pivot: t.muted });
+      expect(s.box.accumulation.border).toBe(t.upSoft);
+      expect(s.box.distribution.border).toBe(t.downSoft);
+      expect(s.box.range.border).toBe(t.level);
+      for (const kind of ['range', 'accumulation', 'distribution'] as const) {
+        const { fill, label } = s.box[kind];
+        expect(fill).toMatch(/^rgba\(/); // a light translucent tint: the candles stay visible through it
+        expect(contrastRatio(label, compositeOver(fill, t.bg))).toBeGreaterThanOrEqual(3);
+      }
+      expect(s.box.accumulation.label).toBe(t.upFg);
+      expect(s.box.distribution.label).toBe(t.downFg);
+    });
+  }
+
+  it('trendBarColor: with the trend the strong color, against it the soft tone, doji with the trend', () => {
+    const s = wyckoffStyle(indicatorColors('dark', undefined));
+    expect(trendBarColor(s, 'bull', { open: 1, close: 2 })).toBe(s.bar.bull.with);
+    expect(trendBarColor(s, 'bull', { open: 2, close: 1 })).toBe(s.bar.bull.against);
+    expect(trendBarColor(s, 'bear', { open: 2, close: 1 })).toBe(s.bar.bear.with);
+    expect(trendBarColor(s, 'bear', { open: 1, close: 2 })).toBe(s.bar.bear.against);
+    expect(trendBarColor(s, 'bear', { open: 1, close: 1 })).toBe(s.bar.bear.with);
   });
 });
