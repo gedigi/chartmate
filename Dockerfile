@@ -16,7 +16,8 @@ RUN pnpm deploy --filter @chartmate/server --prod /out
 
 FROM node:22-bookworm-slim AS runtime
 LABEL org.opencontainers.image.title="Chartmate" \
-      org.opencontainers.image.description="Self-hosted charting app (server + web UI)"
+      org.opencontainers.image.description="Self-hosted charting app (server + web UI)" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     DATABASE_URL=sqlite:/data/chartmate.db \

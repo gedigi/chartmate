@@ -2,7 +2,7 @@
   "productName": "Chartmate",
   "appId": "dev.chartmate.app",
   "executableName": "chartmate",
-  "copyright": "Copyright © Chartmate contributors",
+  "copyright": "Copyright © Chartmate contributors. Licensed under the AGPL-3.0.",
   "previousProductNames": [],
   "autoUpdate": false
 }

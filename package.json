@@ -1,6 +1,7 @@
 {
   "name": "chartmate", "private": true, "type": "module",
   "description": "Self-hosted, single-user charting app for stocks, crypto and custom baskets (pnpm workspace root).",
+  "license": "AGPL-3.0-only",
   "pnpm": { "neverBuiltDependencies": ["better-sqlite3"] },
   "engines": { "node": ">=22" },
   "packageManager": "pnpm@8.15.9",

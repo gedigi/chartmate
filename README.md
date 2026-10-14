@@ -447,7 +447,7 @@ examples. Restart `pnpm dev` (or rebuild) after adding a file.
 `custom/wyckoff.ts` (with its calculation in `wyckoffCalc.ts`) is a port of the TradingView script
 'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colors in a `draw`
 callback. **License:** these two files (and their tests) are covered by the
-[Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/), not by the rest of the project's terms; keep
+[Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/), not by the project's AGPL-3.0; keep
 their MPL-2.0 headers and attribution when modifying or redistributing them.
 
 Example: `apps/web/src/chart/indicators/custom/range.ts`
@@ -796,3 +796,13 @@ uses its own port. The run fails if the port is already in use.
 - Compare/overlay another symbol on the same chart
 - Price alerts
 - FX (currency pair) data
+
+## License
+
+Chartmate is free software, licensed under the [GNU Affero General Public License v3.0 only](LICENSE)
+(`AGPL-3.0-only`). You may use, study, modify and share it. If you distribute it, or run a modified version as a
+service that other people use over a network, you must make your version's complete source code available to
+them under the same license.
+
+Exceptions: the Wyckoff indicator files keep their own MPL-2.0 license (see "Custom indicators"), and
+third-party dependencies keep their own licenses.

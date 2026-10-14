@@ -113,6 +113,9 @@ and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by defa
   `apps/server/src/db/migrations.ts`.
 - Configuration env vars are `CHARTMATE_*` (plus the generic `PORT`, `HOST`, `DATABASE_URL`,
   `CRYPTO_PROVIDER`, `BINANCE_BASE_URL`). No other prefixes.
+- License: the project is `AGPL-3.0-only` (`LICENSE`); new packages carry `"license": "AGPL-3.0-only"`. The
+  Wyckoff indicator files keep their MPL-2.0 headers. Only add dependencies whose licenses are compatible with
+  AGPL-3.0 (MIT, BSD, ISC, Apache-2.0, MPL-2.0 and similar).
 - Never hardcode the GitHub repository URL or owner: use relative links in docs and
   `github.repository` / `GITHUB_REPOSITORY` in workflows and build config.
 - Commits: small and logical, conventional style as in `git log`: `feat(web): …`, `fix(desktop): …`,
