@@ -198,8 +198,9 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   the watchlist, baskets and sparklines. Volume / MACD / AO bars without their own colors follow the active
   theme's candle colors, custom ones included. Rising MACD / AO bars use an opaque soft tone of the same hue;
   the legend shows histogram values in the readable up / down text colors. Parabolic SAR dots use the same up
-  / down colors. Indicator lines take a per-theme categorical palette (six colors, none of them green or red).
-  The Wyckoff overlay paints with the same palette: accumulation boxes, events and trend bars in the up
+  / down colors. Indicator lines take a per-theme categorical palette (six colors, none of them green or red);
+  VWAP uses its own slot (blue), apart from the moving averages and Bollinger Bands it shares the price pane
+  with. The Wyckoff overlay paints with the same palette: accumulation boxes, events and trend bars in the up
   family, distribution in the down family, sideways ranges in a muted gray, plain pivots in the palette's
   gold; bars against the trend take the trend color's soft tone. Everything follows the theme toggle and your
   custom up / down colors.

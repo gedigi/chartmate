@@ -1,4 +1,6 @@
-import { indicatorPaletteColor, LEGACY_INDICATOR_PALETTES, LEGACY_KLINE_LINE_COLORS, LEGACY_VWAP_COLOR, type ThemeName } from '../theme';
+import {
+  INDICATOR_PALETTE, indicatorPaletteColor, LEGACY_INDICATOR_PALETTES, LEGACY_KLINE_LINE_COLORS, LEGACY_LINE_SLOTS, LEGACY_VWAP_COLOR, type ThemeName,
+} from '../theme';
 import { CUSTOM_INDICATORS } from './extensions';
 import type { CatalogEntry } from './types';
 
@@ -9,8 +11,8 @@ const numbered = (prefix: string, n: number) => Array.from({ length: n }, (_, i)
 
 /**
  * KLineChart built-ins we expose. `lines` follow each template's line-figure order.
- * Default line colors: line i uses palette slot i (INDICATOR_PALETTE), except BOLL (Upper/Middle/Lower = slots
- * 2/1/3, so the middle band matches MA's first line) and VWAP (slot 3, see custom/vwap.ts). Max 4 lines today.
+ * Default line colors: line i uses palette slot i (INDICATOR_PALETTE, 0-based), except BOLL (Upper/Middle/Lower = slots
+ * 1/0/2, so the middle band matches MA's first line) and VWAP (slot 5, see custom/vwap.ts). Max 4 lines today.
  * Note: KLineChart's `MA` is the simple moving average; its `SMA` is a different, weighted average.
  * `levels`: conventional reference lines of oscillators: zero lines of MACD / AO / ROC / MTM /
  * TRIX, overbought / oversold bands of RSI (70 / 30), KDJ (80 / 20), CCI (+-100) and WR (-20 / -80; KLineChart's WR
@@ -76,7 +78,8 @@ export function defaultLineColors(name: string, theme: ThemeName): string[] {
 
 /**
  * Stored line colors of indicator `name` with earlier default palettes resolved, per line: an entry equal to ITS
- * line's old default (any earlier palette generation, either theme; rev 0: KLineChart's colors by line index) becomes
+ * line's old default (any earlier palette generation, either theme; a slot the line used before, LEGACY_LINE_SLOTS;
+ * rev 0: KLineChart's colors by line index) becomes
  * today's default for that line in the theme of the palette it came from (rev 0 was the dark-first release); any
  * other entry — including an old palette color on another line, i.e. a swapped / reordered palette — is the user's
  * pick and is kept. Undefined when every entry ends up a default (the lines then follow the active theme).
@@ -88,6 +91,11 @@ export function migrateLegacyLineColors(name: string, colors: readonly string[])
     const slot = catalogEntry(name)?.lineSlots?.[i] ?? i;
     const generation = LEGACY_INDICATOR_PALETTES.find((p) => p.colors[slot] === c);
     if (generation) return defaultLineColor(i, name, generation.theme);
+    // A slot this line used before (LEGACY_LINE_SLOTS), in any palette generation including today's.
+    const oldSlots = LEGACY_LINE_SLOTS[name]?.[i] ?? [];
+    const moved = [...LEGACY_INDICATOR_PALETTES, ...(['dark', 'light'] as const).map((theme) => ({ theme, colors: INDICATOR_PALETTE[theme] }))]
+      .find((p) => oldSlots.some((s) => p.colors[s] === c));
+    if (moved) return defaultLineColor(i, name, moved.theme);
     const rev0 = name === 'VWAP' && i === 0 ? LEGACY_VWAP_COLOR : LEGACY_KLINE_LINE_COLORS[i % LEGACY_KLINE_LINE_COLORS.length];
     if (c === rev0) return defaultLineColor(i, name, 'dark');
     custom = true;

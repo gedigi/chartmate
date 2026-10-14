@@ -918,14 +918,14 @@ describe('ChartAdapter', () => {
   });
 
   describe('indicator default line colors follow the theme palette', () => {
-    it('new indicators get the active theme palette by slot (BOLL upper/middle/lower = slots 2/1/3, VWAP = slot 3)', () => {
+    it('new indicators get the active theme palette by slot (BOLL upper/middle/lower = slots 2/1/3, VWAP = slot 6)', () => {
       const a = make();
       a.addIndicator({ name: 'MA', pane: 'main' });
       expect(lineColors(chart().createIndicator.mock.calls.at(-1)![0])).toEqual(MA_DARK);
       a.addIndicator({ name: 'BOLL', pane: 'main' });
       expect(lineColors(chart().createIndicator.mock.calls.at(-1)![0])).toEqual(['#a99bff', '#f2b861', '#3fc8e4']);
       a.addIndicator({ name: 'VWAP', pane: 'main' });
-      expect(lineColors(chart().createIndicator.mock.calls.at(-1)![0])).toEqual(['#3fc8e4']);
+      expect(lineColors(chart().createIndicator.mock.calls.at(-1)![0])).toEqual(['#6f9dff']);
       const light = new ChartAdapter(el, { theme: 'light' });
       light.addIndicator({ name: 'MA', pane: 'main' });
       expect(lineColors(chart().createIndicator.mock.calls.at(-1)![0])).toEqual(MA_LIGHT);

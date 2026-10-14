@@ -49,7 +49,7 @@ export const THEME_TOKENS = {
  * default read as "unset" ONCE (see useLayout's migrateColorDefaults), then carry this revision so a color the
  * user picks later — even an old default — is never touched again.
  */
-export const COLOR_DEFAULTS_REV = 4;
+export const COLOR_DEFAULTS_REV = 5;
 
 /**
  * Default colors of earlier revisions (rev 0: the original release; rev 1: an unreleased intermediate set; rev 2: the
@@ -76,6 +76,12 @@ export const LEGACY_INDICATOR_PALETTES: ReadonlyArray<{ theme: ThemeName; colors
   { theme: 'dark', colors: ['#2488f7', '#e56c19', '#00b3c2', '#8d7cf8', '#e49916', '#f631aa'] },
   { theme: 'light', colors: ['#1272da', '#eb6111', '#0095a0', '#541cdc', '#eda100', '#e12ca0'] },
 ];
+/**
+ * Palette slots a line used before its current one, per indicator, by line (rev 5: VWAP left slot 2, the cyan it shared
+ * with the BOLL lower band on the price pane, for slot 5). A stored color equal to that slot's color in any palette
+ * generation — today's included — was that line's default, so the migration moves it to today's slot.
+ */
+export const LEGACY_LINE_SLOTS: Readonly<Record<string, ReadonlyArray<readonly number[]>>> = { VWAP: [[2]] };
 /** Rev 0: KLineChart's default indicator line colors by line index, and the first VWAP color. */
 export const LEGACY_KLINE_LINE_COLORS = ['#ff9600', '#935ebd', '#1677ff', '#e11d74', '#01c5c4'] as const;
 export const LEGACY_VWAP_COLOR = '#01c5c4';
