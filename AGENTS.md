@@ -67,7 +67,7 @@ or an unpackaged smoke run, fetch it once with `node apps/desktop/node_modules/e
 | One file | `pnpm --filter @chartmate/web exec vitest run test/chart/theme.test.ts` |
 | End-to-end | `pnpm e2e` (first time: `pnpm exec playwright install chromium`); `E2E_PORT=8873 pnpm e2e` for another port |
 | Docker image | `docker build -t chartmate .` |
-| Docker image smoke test (read-only rootfs, healthcheck, API, UI, SIGTERM) | `scripts/docker-smoke.sh chartmate [host-port]` |
+| Docker image smoke test (read-only rootfs + tmpfs, healthcheck, API, UI, SQLite temp files, SIGTERM) | `scripts/docker-smoke.sh chartmate` (another arch: `--platform linux/arm64`) |
 | Re-record provider fixtures (network) | `pnpm --filter @chartmate/server exec tsx scripts/record-fixtures.ts` |
 
 Desktop (`apps/desktop`; `pnpm --filter @chartmate/desktop <script>`):
@@ -158,10 +158,10 @@ The renderer is untrusted web content. Read the README's "Security model" before
   Windows x64/arm64 (NSIS + zip), smoke-tests both, and publishes a full GitHub Release with the binaries.
 - A suffixed tag (`vX.Y.Z-beta.1`) publishes a pre-release instead.
 - Builds are unsigned unless the signing secrets are configured; unsigned builds contain no auto-updater.
-- The same tag runs `.github/workflows/docker.yml`: tests, `scripts/docker-smoke.sh`, then pushes the multi-arch
-  self-hosting image (`linux/amd64`, `linux/arm64`) to `ghcr.io/<owner>/<repo>` (from `github.repository`,
-  lowercased) as `X.Y.Z`, `X.Y`, `X` and `latest` (pre-releases: `X.Y.Z-suffix` only), with provenance and SBOM
-  attestations. `compose.yaml` + `.env.example` at the root are the documented way to run it.
+- The same tag runs `.github/workflows/docker.yml`: tests, `scripts/docker-smoke.sh` (amd64, and arm64 under
+  QEMU), then pushes the multi-arch self-hosting image (`linux/amd64`, `linux/arm64`) to
+  `ghcr.io/<owner>/<repo>` (from `github.repository`, lowercased) as `X.Y.Z`, `X.Y`, `X` and `latest`
+  (pre-releases: `X.Y.Z-suffix` only), with provenance and SBOM attestations. Manual dispatch never publishes. `compose.yaml` + `.env.example` at the root are the documented way to run it.
 - `.github/workflows/ci.yml` runs `pnpm audit`, typecheck, tests, the web build, e2e and the Docker build on
   pull requests and pushes to `main`; the release workflow audits too. Dependabot (`.github/dependabot.yml`)
   opens weekly update PRs for npm packages, the pinned actions and the digest-pinned Docker base image.

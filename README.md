@@ -35,6 +35,11 @@ Run Chartmate on your own server and use it from any browser. Every release publ
 `ghcr.io/<owner>/<repo>` in lowercase (see **Packages** on the repository page). Tags: `X.Y.Z`, `X.Y`, `X`
 and `latest`; a pre-release only gets its full version (`X.Y.Z-beta.1`).
 
+A new GHCR package starts out private. While it is, pulling needs a login with a personal access token
+(classic) that has the `read:packages` scope: `docker login ghcr.io -u <github-user>` and paste the token as
+the password. Maintainers: after the first release, make the package public once (the package's
+**Package settings**, **Change visibility**) and check that it is linked to this repository.
+
 ### Quick start (Docker Compose)
 
 Put [`compose.yaml`](compose.yaml) and [`.env.example`](.env.example) in a directory, then:
@@ -48,21 +53,24 @@ Open http://localhost:8787. `docker compose ps` shows the container as `healthy`
 
 - Data lives in the `chartmate-data` volume (SQLite at `/data/chartmate.db`).
 - The port is published on `127.0.0.1` only. To reach it from other machines, set `CHARTMATE_BIND=0.0.0.0`
-  in `.env`, and set a password (see [Security](#security)). `CHARTMATE_PORT` changes the host port.
+  in `.env`, and set a password (see [Security](#security)). Ports Docker publishes bypass host firewalls
+  such as ufw, so `0.0.0.0` really is every interface. `CHARTMATE_PORT` changes the host port.
 - The container runs as a non-root user with a read-only root filesystem, no Linux capabilities and
-  `no-new-privileges`; it writes only to `/data`.
+  `no-new-privileges`. It writes only to `/data`, plus SQLite's temporary files (large sorts, `VACUUM`) to a
+  tmpfs on `/tmp`.
 - To run your own build instead: `docker build -t chartmate:local .` and `CHARTMATE_IMAGE=chartmate:local`.
 
 ### Plain `docker run`
 
 ```sh
-docker run -d --name chartmate --restart unless-stopped \
+docker run -d --name chartmate --restart unless-stopped --read-only --tmpfs /tmp \
   -p 127.0.0.1:8787:8787 -v chartmate-data:/data ghcr.io/<owner>/<repo>:latest
 ```
 
 The image sets `HOST=0.0.0.0` so the published port is reachable, runs as the `node` user (uid/gid 1000)
-and has a built-in healthcheck on `/api/health` (it honors `PORT`). `--read-only` works too. A named volume
-just works; a bind-mounted host directory must be writable by uid 1000:
+and has a built-in healthcheck on `/api/health` (it honors `PORT`). With `--read-only`, always add
+`--tmpfs /tmp`: without it, queries that spill to SQLite temporary files fail. A named volume just works; a
+bind-mounted host directory must be writable by uid 1000:
 
 ```sh
 mkdir -p ./chartmate-data && sudo chown 1000:1000 ./chartmate-data
@@ -91,8 +99,18 @@ docker compose start chartmate
 ```
 
 To restore, stop the container and extract the archive into the volume the same way
-(`tar xzf /backup/chartmate-<date>.tgz -C /data`, with the volume mounted read-write). With Postgres,
-use `docker compose exec postgres pg_dump -U chartmate chartmate > chartmate.sql`.
+(`tar xzf /backup/chartmate-<date>.tgz -C /data`, with the volume mounted read-write).
+
+Postgres (the bundled service):
+
+```sh
+# back up
+docker compose exec -T postgres pg_dump -U chartmate --clean --if-exists chartmate > chartmate.sql
+# restore
+docker compose stop chartmate
+docker compose exec -T postgres psql -U chartmate -d chartmate -v ON_ERROR_STOP=1 < chartmate.sql
+docker compose start chartmate
+```
 
 ### Postgres
 
@@ -743,11 +761,12 @@ image.
 
   The release notes say whether each platform's build is signed.
 
-`.github/workflows/docker.yml` publishes the [self-hosting image](#self-host) on the same `v*` tags: after
-`pnpm audit`, typecheck, tests and a smoke test of the image (`scripts/docker-smoke.sh`: read-only root
-filesystem, healthcheck, API, web UI, clean shutdown), the `publish` job (the only one with `packages: write`)
-pushes `linux/amd64` + `linux/arm64` to `ghcr.io/<owner>/<repo>` with provenance and SBOM attestations. Pull
-requests that touch the image only build it.
+`.github/workflows/docker.yml` publishes the [self-hosting image](#self-host) when a `vX.Y.Z` (or
+`vX.Y.Z-suffix`) tag is pushed: after `pnpm audit`, typecheck, tests and a smoke test of the amd64 and the arm64
+image (`scripts/docker-smoke.sh`, arm64 under QEMU: read-only root filesystem, healthcheck, API, web UI, SQLite
+temp files, clean shutdown), the `publish` job (the only one with `packages: write`) pushes `linux/amd64` +
+`linux/arm64` to `ghcr.io/<owner>/<repo>` with provenance and SBOM attestations. Manual runs and pull requests
+that touch the image only build and test it.
 
 Unsigned releases are allowed (no certificates yet). Expect Gatekeeper and SmartScreen warnings, and install
 updates manually.
