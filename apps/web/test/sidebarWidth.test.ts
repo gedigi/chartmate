@@ -70,15 +70,33 @@ describe('useSidebarWidth', () => {
     expect(result.current.width).toBe(400);
   });
 
-  it('previews without persisting, and persists on commit', () => {
+  it('previews on the shell element only (no React state, nothing stored), and persists on commit', () => {
     setViewport(1600);
     const { result } = renderHook(() => useSidebarWidth());
-    act(() => result.current.preview(410));
-    expect(result.current.width).toBe(410);
+    const shell = document.createElement('div');
+    result.current.shellRef.current = shell;
+    let shown = 0;
+    act(() => { shown = result.current.preview(410); });
+    expect(shown).toBe(410);
+    expect(shell.style.getPropertyValue('--sidebar-w')).toBe('410px');
+    expect(result.current.width).toBe(DEFAULT_SIDEBAR_WIDTH);
     expect(localStorage.getItem('chartmate.sidebar.width')).toBeNull();
+    act(() => { shown = result.current.preview(5000); });
+    expect(shown).toBe(800);
     act(() => result.current.commit(420));
     expect(result.current.width).toBe(420);
+    expect(shell.style.getPropertyValue('--sidebar-w')).toBe('420px');
     expect(localStorage.getItem('chartmate.sidebar.width')).toBe('420');
+  });
+
+  it('a commit equal to the current width still overwrites a previewed value', () => {
+    setViewport(1600);
+    const { result } = renderHook(() => useSidebarWidth());
+    const shell = document.createElement('div');
+    result.current.shellRef.current = shell;
+    act(() => { result.current.preview(500); });
+    act(() => result.current.commit(DEFAULT_SIDEBAR_WIDTH));
+    expect(shell.style.getPropertyValue('--sidebar-w')).toBe(`${DEFAULT_SIDEBAR_WIDTH}px`);
   });
 
   it('clamps commits to the window', () => {

@@ -1,5 +1,5 @@
 import { parseSymbolId, type SymbolId, type SymbolInfo } from '@chartmate/shared';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type JSX } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type JSX, type RefObject } from 'react';
 import { api, errorMessage, setUnauthorizedHandler } from './api/client';
 import { BasketsPage } from './components/BasketsPage';
 import { ChartView } from './components/ChartView';
@@ -143,7 +143,7 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
 
   return (
     <div className={`app-shell view-${view}${sidebarOpen && view === 'chart' ? '' : ' sidebar-collapsed'}`}
-      style={{ '--sidebar-w': `${sidebar.width}px` } as CSSProperties}>
+      ref={sidebar.shellRef as RefObject<HTMLDivElement | null>} style={{ '--sidebar-w': `${sidebar.width}px` } as CSSProperties}>
       <TopBar
         view={view}
         onView={setView}

@@ -1,5 +1,5 @@
 // Width of the right sidebar (watchlist + symbol details): a per-device UI preference in `chartmate.sidebar.width`.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { readStored, writeStored } from './storage';
 
 const KEY = 'sidebar.width';
@@ -33,10 +33,15 @@ function readPreferred(): number {
 export interface SidebarWidth extends SidebarBounds {
   /** The width to render: the preference clamped to the current window. */
   width: number;
-  /** Shows a width live (while dragging) without storing it. */
-  preview: (width: number) => void;
-  /** Sets and stores a width. */
-  commit: (width: number) => void;
+  /** The element carrying `--sidebar-w` (the app shell): previews write to it directly. */
+  shellRef: MutableRefObject<HTMLElement | null>;
+  /**
+   * Shows a width live (while dragging) by writing `--sidebar-w` on the shell element: no React state, nothing stored,
+   * so a drag re-renders nothing. Returns the clamped width shown.
+   */
+  preview: (width: number) => number;
+  /** Sets and stores a width; returns the clamped width. */
+  commit: (width: number) => number;
   /** Back to the default width. */
   reset: () => void;
 }
@@ -54,16 +59,22 @@ export function useSidebarWidth(): SidebarWidth {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  const preview = useCallback((w: number) => setPreferred(clampSidebarWidth(w, window.innerWidth)), []);
+  const shellRef = useRef<HTMLElement | null>(null);
+  const show = (w: number) => shellRef.current?.style.setProperty('--sidebar-w', `${w}px`);
+
+  const preview = useCallback((w: number) => {
+    const next = clampSidebarWidth(w, window.innerWidth);
+    show(next);
+    return next;
+  }, []);
   const commit = useCallback((w: number) => {
     const next = clampSidebarWidth(w, window.innerWidth);
+    show(next); // also when React sees no change (a drag that ends where it started) and so would not re-apply it
     setPreferred(next);
     writeStored(KEY, String(next));
+    return next;
   }, []);
-  const reset = useCallback(() => {
-    setPreferred(DEFAULT_SIDEBAR_WIDTH);
-    writeStored(KEY, String(DEFAULT_SIDEBAR_WIDTH));
-  }, []);
+  const reset = useCallback(() => { commit(DEFAULT_SIDEBAR_WIDTH); }, [commit]);
 
-  return { width: clampSidebarWidth(preferred, viewport), ...sidebarWidthBounds(viewport), preview, commit, reset };
+  return { width: clampSidebarWidth(preferred, viewport), ...sidebarWidthBounds(viewport), shellRef, preview, commit, reset };
 }

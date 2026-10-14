@@ -1,23 +1,30 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { JSX } from 'react';
+import type { CSSProperties, JSX } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SidebarResizer } from '../src/components/SidebarResizer';
 import { DEFAULT_SIDEBAR_WIDTH, useSidebarWidth } from '../src/state/sidebarWidth';
 
 const setViewport = (w: number) => { Object.defineProperty(window, 'innerWidth', { configurable: true, value: w }); };
 
+let renders = 0;
 function Harness(): JSX.Element {
   const s = useSidebarWidth();
-  return <SidebarResizer width={s.width} min={s.min} max={s.max} onPreview={s.preview} onCommit={s.commit} onReset={s.reset} />;
+  renders += 1;
+  return (
+    <div data-testid="shell" ref={s.shellRef as never} style={{ '--sidebar-w': `${s.width}px` } as CSSProperties}>
+      <SidebarResizer width={s.width} min={s.min} max={s.max} onPreview={s.preview} onCommit={s.commit} onReset={s.reset} />
+    </div>
+  );
 }
+const shellWidth = () => screen.getByTestId('shell').style.getPropertyValue('--sidebar-w');
 
 const separator = () => screen.getByRole('separator', { name: 'Resize watchlist' });
 const stored = () => localStorage.getItem('chartmate.sidebar.width');
 
 // jsdom has no PointerEvent constructor with clientX; a MouseEvent carries the coordinates and pointer fields.
-function pointer(type: string, el: Element, clientX: number): void {
-  const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, button: 0 });
+function pointer(type: string, el: Element, clientX: number, buttons = type === 'pointerup' ? 0 : 1): void {
+  const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, button: 0, buttons });
   Object.assign(e, { pointerId: 1, isPrimary: true, pointerType: 'mouse' });
   fireEvent(el, e);
 }
@@ -46,9 +53,12 @@ describe('SidebarResizer', () => {
     render(<Harness />);
     const sep = separator();
     act(() => pointer('pointerdown', sep, 1000));
+    const before = renders;
     act(() => pointer('pointermove', sep, 900));
     expect(raf).toHaveBeenCalled();
     expect(sep).toHaveAttribute('aria-valuenow', '420');
+    expect(shellWidth()).toBe('420px');
+    expect(renders).toBe(before); // the drag writes the CSS variable directly; React renders only on release
     expect(stored()).toBeNull();
     act(() => pointer('pointermove', sep, 950));
     act(() => pointer('pointerup', sep, 950));
@@ -141,5 +151,55 @@ describe('SidebarResizer', () => {
     separator().focus();
     await userEvent.keyboard('{Enter}');
     expect(separator()).toHaveAttribute('aria-valuenow', String(DEFAULT_SIDEBAR_WIDTH));
+  });
+
+  it('pointercancel keeps the last previewed width and ignores the cancel position', () => {
+    setViewport(1600);
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(0); return 1; });
+    render(<Harness />);
+    const sep = separator();
+    act(() => pointer('pointerdown', sep, 1000));
+    act(() => pointer('pointermove', sep, 900));
+    act(() => pointer('pointercancel', sep, 0, 0));
+    expect(sep).toHaveAttribute('aria-valuenow', '420');
+    expect(stored()).toBe('420');
+  });
+
+  it('losing pointer capture ends the drag at the last previewed width', () => {
+    setViewport(1600);
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(0); return 1; });
+    render(<Harness />);
+    const sep = separator();
+    act(() => pointer('pointerdown', sep, 1000));
+    act(() => pointer('pointermove', sep, 900));
+    act(() => pointer('lostpointercapture', sep, 0, 0));
+    expect(stored()).toBe('420');
+    act(() => pointer('pointermove', sep, 700));
+    expect(sep).toHaveAttribute('aria-valuenow', '420');
+  });
+
+  it('a move with no button pressed ends a drag whose release was missed', () => {
+    setViewport(1600);
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(0); return 1; });
+    render(<Harness />);
+    const sep = separator();
+    act(() => pointer('pointerdown', sep, 1000));
+    act(() => pointer('pointermove', sep, 900));
+    act(() => pointer('pointermove', sep, 800, 0));
+    expect(stored()).toBe('420');
+    act(() => pointer('pointermove', sep, 700));
+    expect(sep).toHaveAttribute('aria-valuenow', '420');
+  });
+
+  it('Shift+arrows resize by 64 px', async () => {
+    setViewport(1600);
+    render(<Harness />);
+    const sep = separator();
+    sep.focus();
+    await userEvent.keyboard('{Shift>}{ArrowLeft}{/Shift}');
+    expect(sep).toHaveAttribute('aria-valuenow', '384');
+    await userEvent.keyboard('{Shift>}{ArrowRight}{ArrowRight}{/Shift}');
+    expect(sep).toHaveAttribute('aria-valuenow', '256');
+    expect(stored()).toBe('256');
   });
 });
