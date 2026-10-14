@@ -113,10 +113,12 @@ vi.mock('klinecharts', () => ({
 
 const { ChartAdapter } = await import('../../src/chart/ChartAdapter');
 const { api } = await import('../../src/api/client');
+const { drawingClipboard } = await import('../../src/chart/drawingClipboard');
 
 type Adapter = InstanceType<typeof ChartAdapter>;
 const AAPL: SymbolInfo = { id: 'stock:AAPL', assetClass: 'stock', ticker: 'AAPL', name: 'Apple', pricePrecision: 2 };
 const BTC: SymbolInfo = { id: 'crypto:BTC', assetClass: 'crypto', ticker: 'BTC', name: 'Bitcoin', pricePrecision: 2 };
+const MSFT: SymbolInfo = { id: 'stock:MSFT', assetClass: 'stock', ticker: 'MSFT', name: 'Microsoft', pricePrecision: 2 };
 const ETH: SymbolInfo = { id: 'crypto:ETH', assetClass: 'crypto', ticker: 'ETH', name: 'Ethereum', pricePrecision: 2 };
 const events = () => ({ onMeta: vi.fn(), onError: vi.fn(), onConnection: vi.fn() });
 
@@ -128,18 +130,26 @@ const day = (i: number) => D1 + i * DAY;
 let el: HTMLElement;
 beforeEach(() => {
   vi.clearAllMocks();
+  drawingClipboard.clear();
   el = document.createElement('div');
 });
 const chart = () => k.state.chart;
 const userOverlays = () => chart().overlays.filter((o) => o.groupId !== 'markers');
 
 /** Loads `count` bars (from `t0`, one per bar of `tf`, prices around `price`) into `a` (a new adapter by default). */
-async function loadAt(symbol: SymbolInfo, tf: '1D' | '1h', opts: { a?: Adapter; t0?: number; count?: number; price?: number } = {}): Promise<Adapter> {
+interface LoadOpts {
+  a?: Adapter; t0?: number; count?: number; price?: number;
+  /** High − price and price − low of every bar (default 1). */
+  spread?: number;
+  /** Visible range (default: every bar and the space right of the last one up to index 33). */
+  visible?: { from: number; to: number; realFrom: number; realTo: number };
+}
+async function loadAt(symbol: SymbolInfo, tf: '1D' | '1h', opts: LoadOpts = {}): Promise<Adapter> {
   const a = opts.a ?? new ChartAdapter(el, { theme: 'dark' });
   const step = tf === '1D' ? DAY : HOUR;
   const t0 = opts.t0 ?? D1;
   const price = opts.price ?? 100;
-  const bars = Array.from({ length: opts.count ?? 30 }, (_, i) => ({ ts: t0 + i * step, open: price, high: price + 1, low: price - 1, close: price, volume: 1 }));
+  const bars = Array.from({ length: opts.count ?? 30 }, (_, i) => ({ ts: t0 + i * step, open: price, high: price + (opts.spread ?? 1), low: price - (opts.spread ?? 1), close: price, volume: 1 }));
   a.load({ symbol, tf, session: 'rth', pollMs: 15000 }, events());
   vi.spyOn(api, 'bars').mockResolvedValue({ symbol: symbol.id, tf, session: 'rth', hasMoreBefore: false, stale: false, notices: [], markers: [], bars });
   const loader = chart().setDataLoader.mock.calls.at(-1)![0] as { getBars: (p: unknown) => Promise<void> };
@@ -147,7 +157,7 @@ async function loadAt(symbol: SymbolInfo, tf: '1D' | '1h', opts: { a?: Adapter; 
     type: 'init', timestamp: null, symbol: { ticker: symbol.id }, period: { type: tf === '1D' ? 'day' : 'hour', span: 1 },
     callback: (d: Array<{ timestamp: number; high: number }>) => { chart().data.splice(0, chart().data.length, ...d); },
   });
-  chart().visible = { from: 10, to: 30, realFrom: 10, realTo: 34 };
+  chart().visible = opts.visible ?? { from: 0, to: 30, realFrom: 0, realTo: 34 };
   return a;
 }
 const select = (o: FakeOverlay) => o.onSelected?.({ overlay: o });
@@ -259,7 +269,9 @@ describe('ChartAdapter copy / paste of drawings', () => {
     }
     const shift = <T extends { points: Array<{ timestamp: number; value: number }> }>(d: T) =>
       ({ ...d, points: d.points.map((p) => ({ ...p, timestamp: p.timestamp + 5 * DAY })) });
-    expect(a.serializeDrawings().slice(4)).toEqual([shift(channel), shift(priceLine), shift(text), shift(fib)]);
+    // The price line moves up (5 % of the visible price range) instead of in time.
+    const raised = { ...priceLine, points: [{ timestamp: day(3), value: 100.6 }] };
+    expect(a.serializeDrawings().slice(4)).toEqual([shift(channel), raised, shift(text), shift(fib)]);
   });
 
   it('a horizontal line is offset in price (a shift in time would not show)', async () => {
@@ -290,15 +302,15 @@ describe('ChartAdapter copy / paste of drawings', () => {
     a.restoreDrawings([long], BTC.id);
     select(userOverlays()[0]!);
     a.copySelected();
-    // Later data around 50: visible bars 10…29 (low 49, high 51).
+    // Later data around 50 (low 49, high 51).
     const t0 = day(400);
     await loadAt(ETH, '1D', { a, t0, price: 50 });
     a.restoreDrawings([], ETH.id);
     expect(a.pasteDrawing()).toBe(true);
-    // 4 bars wide, centered on the visible range (bars 10…33, incl. the space right of the last bar → 20…24);
+    // 4 bars wide, centered on the visible range (bars 0…33, incl. the space right of the last bar → 15…19);
     // the prices scaled by 50 / 101 (visible middle / drawing middle) keep their percentages.
     const at = (i: number) => t0 + i * DAY;
-    expect(a.serializeDrawings()).toEqual([{ ...long, points: position(at(20), at(24), 49.5, 51.49, 48.51) }]);
+    expect(a.serializeDrawings()).toEqual([{ ...long, points: position(at(15), at(19), 49.5, 51.49, 48.51) }]);
   });
 
   it('a copy pasted on a daily stock chart is daily-anchored, like a drawing made there', async () => {
@@ -322,5 +334,129 @@ describe('ChartAdapter copy / paste of drawings', () => {
     expect(userOverlays().map((o) => o.name)).toEqual(['segment', 'segment']);
     a.restoreDrawings([segment], 'crypto:OTHER'); // queued until that symbol's data is in
     expect(a.pasteDrawing()).toBe(false);
+  });
+
+  /** Copies the first drawing of `drawings` restored on `symbol` (already loaded in `a`). */
+  const copyFrom = (a: Adapter, symbol: SymbolInfo, drawings: Parameters<Adapter['restoreDrawings']>[0]) => {
+    a.restoreDrawings(drawings, symbol.id);
+    select(userOverlays()[0]!);
+    expect(a.copySelected()).toBe(true);
+  };
+  const LATER = day(400);
+  const at = (i: number) => LATER + i * DAY;
+
+  it('every horizontal drawing moves up in price, never in time', async () => {
+    for (const name of ['horizontalStraightLine', 'priceLine', 'horizontalRayLine', 'horizontalSegment']) {
+      const a = await loadAt(BTC, '1D');
+      const pts = name === 'horizontalSegment' ? [{ timestamp: day(3), value: 100 }, { timestamp: day(8), value: 100 }] : [{ timestamp: day(3), value: 100 }];
+      copyFrom(a, BTC, [{ name, points: pts, lock: false }]);
+      a.pasteDrawing();
+      expect(a.serializeDrawings()[1], name).toEqual({ name, points: pts.map((p) => ({ ...p, value: 100.1 })), lock: false });
+    }
+  });
+
+  it('visible times: the prices are kept as they are (no scaling without a relocation)', async () => {
+    const a = await loadAt(BTC, '1D');
+    copyFrom(a, BTC, [segment]);
+    await loadAt(ETH, '1D', { a, price: 50 });
+    a.restoreDrawings([], ETH.id);
+    a.pasteDrawing();
+    expect(a.serializeDrawings()).toEqual([segment]);
+  });
+
+  it('off-screen but inside the loaded data: centered on the visible range; prices in range are kept', async () => {
+    const a = await loadAt(BTC, '1D');
+    copyFrom(a, BTC, [segment]);
+    await loadAt(ETH, '1D', { a, count: 60, visible: { from: 40, to: 60, realFrom: 40, realTo: 60 } });
+    a.restoreDrawings([], ETH.id);
+    a.pasteDrawing();
+    // 4 bars wide, centered on bars 40…59 → 48…52.
+    expect(a.serializeDrawings()).toEqual([{ ...segment, points: [{ timestamp: day(48), value: 100 }, { timestamp: day(52), value: 101 }] }]);
+  });
+
+  it('a relocated position keeps its prices when the scaled ones would not be valid', async () => {
+    const a = await loadAt(BTC, '1D');
+    const long = { name: 'longPosition', points: position(day(2), day(6), 100, 104, 98), lock: false };
+    copyFrom(a, BTC, [long]);
+    await loadAt(ETH, '1D', { a, t0: LATER, price: 0.01, spread: 0 }); // scaled: all 0.01 at 2 decimals
+    a.restoreDrawings([], ETH.id);
+    a.pasteDrawing();
+    expect(a.serializeDrawings()).toEqual([{ ...long, points: position(at(15), at(19), 100, 104, 98) }]);
+  });
+
+  it('a flat visible price range (every bar at one price): scaled onto that price; horizontal steps of one tick', async () => {
+    const a = await loadAt(BTC, '1D');
+    copyFrom(a, BTC, [segment]);
+    await loadAt(ETH, '1D', { a, t0: LATER, price: 50, spread: 0 });
+    a.restoreDrawings([], ETH.id);
+    a.pasteDrawing();
+    expect(a.serializeDrawings()).toEqual([{ ...segment, points: [{ timestamp: at(15), value: 49.75 }, { timestamp: at(19), value: 50.25 }] }]);
+
+    const line = { name: 'horizontalStraightLine', points: [{ timestamp: at(3), value: 50 }], lock: false };
+    copyFrom(a, ETH, [line]);
+    a.pasteDrawing();
+    expect(a.serializeDrawings()[1]).toEqual({ ...line, points: [{ timestamp: at(3), value: 50.01 }] });
+  });
+
+  it('single-bar data: the copy is placed around that bar', async () => {
+    const a = await loadAt(BTC, '1D');
+    copyFrom(a, BTC, [segment]);
+    await loadAt(ETH, '1D', { a, t0: LATER, price: 50, count: 1, visible: { from: 0, to: 1, realFrom: 0, realTo: 1 } });
+    a.restoreDrawings([], ETH.id);
+    expect(a.pasteDrawing()).toBe(true);
+    expect(a.serializeDrawings()).toEqual([{ ...segment, points: [{ timestamp: at(-2), value: 49.75 }, { timestamp: at(2), value: 50.25 }] }]);
+  });
+
+  it('the cascade is bounded: past PASTE_CASCADE_MAX steps a paste lands where it got to', async () => {
+    const { PASTE_CASCADE_MAX } = await import('../../src/chart/ChartAdapter');
+    const a = await loadAt(BTC, '1D');
+    copyFrom(a, BTC, [segment]);
+    for (let i = 0; i < PASTE_CASCADE_MAX + 2; i++) a.pasteDrawing();
+    const starts = userOverlays().map((o) => o.points[0]!.timestamp);
+    expect(starts).toHaveLength(PASTE_CASCADE_MAX + 3);
+    expect(starts.slice(-3)).toEqual(Array(3).fill(day(2 + 5 * PASTE_CASCADE_MAX)));
+  });
+
+  describe('daily-anchored drawings across timeframes', () => {
+    const OPEN = (d: number) => Date.UTC(2024, 2, d, 14, 30); // 09:30 New York (EST)
+    const intraday = { visible: { from: 0, to: 200, realFrom: 0, realTo: 200 }, t0: OPEN(4), count: 200 };
+    const anchoredSeg = { name: 'segment', points: [{ timestamp: day(1), value: 100 }, { timestamp: day(3), value: 101 }], lock: false, anchorTf: '1D' as const };
+
+    it('daily → intraday: shown at 09:30 New York of its dates and saved with its daily points and anchor', async () => {
+      const a = await loadAt(AAPL, '1D');
+      copyFrom(a, AAPL, [anchoredSeg]);
+      await loadAt(MSFT, '1h', { a, ...intraday });
+      a.restoreDrawings([], MSFT.id);
+      a.pasteDrawing();
+      expect(userOverlays()[0]!.points.map((p) => p.timestamp)).toEqual([OPEN(5), OPEN(7)]);
+      expect(a.serializeDrawings()).toEqual([anchoredSeg]);
+    });
+
+    it('an anchored drawing copied on an intraday chart pastes as daily-anchored on a daily chart', async () => {
+      const a = await loadAt(AAPL, '1h', intraday);
+      copyFrom(a, AAPL, [anchoredSeg]);
+      await loadAt(MSFT, '1D', { a });
+      a.restoreDrawings([], MSFT.id);
+      a.pasteDrawing();
+      expect(a.serializeDrawings()).toEqual([anchoredSeg]);
+    });
+
+    it('intraday → daily: the points snap to their daily bars and the copy is anchored there, like a new drawing', async () => {
+      const a = await loadAt(MSFT, '1h', intraday);
+      copyFrom(a, MSFT, [{ name: 'segment', points: [{ timestamp: Date.UTC(2024, 2, 5, 15, 30), value: 100 }, { timestamp: Date.UTC(2024, 2, 7, 16, 30), value: 101 }], lock: false }]);
+      await loadAt(AAPL, '1D', { a });
+      a.restoreDrawings([], AAPL.id);
+      a.pasteDrawing();
+      expect(a.serializeDrawings()).toEqual([anchoredSeg]);
+    });
+
+    it('pasted next to its anchored original on an intraday chart: moved, so plain intraday points', async () => {
+      const a = await loadAt(AAPL, '1h', intraday);
+      copyFrom(a, AAPL, [anchoredSeg]);
+      a.pasteDrawing();
+      const copy = a.serializeDrawings()[1]!;
+      expect(copy).not.toHaveProperty('anchorTf');
+      expect(copy.points.map((p) => p.timestamp)).toEqual([OPEN(5) + 5 * HOUR, OPEN(7) + 5 * HOUR]);
+    });
   });
 });

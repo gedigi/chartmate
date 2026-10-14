@@ -21,6 +21,7 @@ import {
   toPositionPoints, validatePrices, type OutcomeBar, type PositionMetrics, type PositionOutcome, type PositionSide,
 } from './position';
 import { positionContext, positionState, registerPositionOverlays } from './positionOverlay';
+import { drawingClipboard, type DrawingClip } from './drawingClipboard';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
 import { catalogEntry, defaultLineColor, effectiveLevels } from './indicators/catalog';
 import { CUSTOM_INDICATORS, PRICE_PRECISION_INDICATORS } from './indicators/extensions';
@@ -67,15 +68,10 @@ export const MAX_PRICE_DECIMALS = 8;
 export const PASTE_OFFSET_BARS = 5;
 /** Bars left between a pasted long / short position and the identical one it moves past (by its own width). */
 export const PASTE_POSITION_GAP_BARS = 2;
+/** Most steps a paste moves to get clear of identical drawings (then it lands where it got to). */
+export const PASTE_CASCADE_MAX = 50;
 /** A pasted horizontal line that would cover an identical one is moved up by this share of the visible price range. */
 export const PASTE_OFFSET_PRICE_SHARE = 0.05;
-
-/** A copied drawing (in-app clipboard): what is pasted, never its id or its own lock. */
-interface DrawingClip {
-  name: string; points: Point[]; text?: string; styles?: DrawingState['styles'];
-  /** Bar index of each point relative to the earliest one, on the chart it was copied from. */
-  barOffsets: number[];
-}
 
 /**
  * Lock state of the selected drawing: `locked` is the effective lock ("Lock all drawings" or its own lock: read-only,
@@ -1192,9 +1188,7 @@ export class ChartAdapter {
     return true;
   }
 
-  // ── copy / paste (in-app clipboard; the system clipboard is never touched) ──
-
-  private clip: DrawingClip | null = null;
+  // ── copy / paste (in-app clipboard, see drawingClipboard; the system clipboard is never touched) ──
 
   /** The chart's bar duration (the timeframe's; a day before the first load). */
   private barMs(): number {
@@ -1202,92 +1196,137 @@ export class ChartAdapter {
   }
 
   /**
-   * Copies the selected drawing (locked or not) to the in-app clipboard: its name, points as shown, text, styles and
-   * options; not its id or lock. False when nothing is selected.
+   * Copies the selected drawing (locked or not) to the in-app clipboard: its name, points, text, styles and options
+   * (a daily-anchored drawing: its stored daily points and anchor); not its id or lock. False when nothing is selected.
    */
   copySelected(): boolean {
     const id = this.selectedId;
     if (!id || id === this.drawing?.id) return false;
     const o = this.userOverlays().find((x) => x.id === id);
-    const points = o ? completePoints(o) : null;
-    if (!o || !points) return false;
+    const shown = o ? completePoints(o) : null;
+    if (!o || !shown) return false;
     const bars = this.chart.getDataList();
     const barMs = this.barMs();
-    const idx = points.map((p) => (bars.length > 0 ? barIndex(bars, p.timestamp, barMs) : Math.floor(p.timestamp / barMs)));
+    const idx = shown.map((p) => (bars.length > 0 ? barIndex(bars, p.timestamp, barMs) : Math.floor(p.timestamp / barMs)));
     const first = Math.min(...idx);
-    const clip: DrawingClip = { name: o.name, points: points.map((p) => ({ ...p })), barOffsets: idx.map((i) => i - first) };
+    const clip: DrawingClip = { name: o.name, points: shown.map((p) => ({ ...p })), barOffsets: idx.map((i) => i - first) };
+    const anchor = this.anchors.get(o.id);
+    if (anchor && (!anchor.display || samePoints(shown, anchor.display))) {
+      clip.anchorTf = anchor.anchorTf;
+      clip.points = (anchor.original ?? shown).map((p) => ({ ...p }));
+    }
     if (typeof o.extendData === 'string') clip.text = o.extendData;
     const styles = normalizeOverlayStyles(o.name, o.styles);
     if (styles) clip.styles = structuredClone(styles);
-    this.clip = clip;
+    drawingClipboard.set(clip);
     return true;
   }
 
   /**
-   * Pastes the copied drawing as a new one on the current chart, selected and saved like a newly drawn drawing
-   * (daily-anchored on a daily+ stock chart; locked only while "Lock all" is on). Placement:
-   * - same times and prices, so a copy lands where it was copied from, also on another symbol or timeframe;
-   * - outside the loaded data (its time span misses the bars and the space right of them), it keeps its width in
-   *   bars and is centered on the visible range; when its prices miss the visible bars' low…high, they are scaled
-   *   (percentages kept) to center on that range;
+   * Pastes the copied drawing as a new one on the current chart; it is selected and saved (one onDrawingsChange)
+   * like a newly drawn drawing: locked only while "Lock all" is on. Placement:
+   * - it keeps its times and prices, so it lands where it was copied from, also on another symbol or timeframe.
+   *   A daily-anchored copy stays anchored on stock charts (09:30 New York of its dates on intraday charts);
+   *   other points snap to the bar containing them on daily+ charts, which anchors them there like a new drawing;
+   * - entirely outside the visible time range, it keeps its width in bars and is centered on the visible range,
+   *   and only then, when its prices miss the visible bars' low…high, they are scaled (percentages kept) to center
+   *   on that range (positions keep their prices if the scaled ones would not be valid);
    * - while an identical drawing is in the way (e.g. the original), it moves PASTE_OFFSET_BARS bars to the right
-   *   (long / short positions: their own width plus PASTE_POSITION_GAP_BARS, so boxes and labels never overlap;
-   *   horizontal lines: up by PASTE_OFFSET_PRICE_SHARE of the visible price range), so repeated pastes cascade.
+   *   (long / short positions: their own width plus PASTE_POSITION_GAP_BARS; horizontal drawings: up by
+   *   PASTE_OFFSET_PRICE_SHARE of the visible price range), at most PASTE_CASCADE_MAX times, so pastes cascade.
    * The drawing being placed is canceled first. False (nothing pasted) with an empty clipboard or before the
    * current symbol's drawings and data are in.
    */
   pasteDrawing(): boolean {
-    const clip = this.clip;
+    const clip = drawingClipboard.get();
     if (!clip || this.destroyed || this.pendingRestore !== null || this.dataSymbol === null) return false;
     this.cancelDrawing();
     const bars = this.chart.getDataList();
     const barMs = this.barMs();
-    let points = clip.points.map((p) => ({ ...p }));
-    const range = this.chart.getVisibleRange?.();
-    if (bars.length > 0 && range) {
-      const last = bars.length - 1;
-      const from = Math.min(Math.max(range.from, 0), last);
-      const to = Math.max(Math.min(range.to, bars.length), from + 1);
-      const times = points.map((p) => p.timestamp);
-      const end = barTime(bars, Math.max(last, range.realTo - 1), barMs);
-      if (Math.max(...times) < bars[0]!.timestamp || Math.min(...times) > end) {
-        const span = Math.max(...clip.barOffsets);
-        const start = Math.round((range.realFrom + range.realTo - 1) / 2 - span / 2);
-        points = points.map((p, i) => ({ ...p, timestamp: barTime(bars, start + clip.barOffsets[i]!, barMs) }));
-      }
-      let low = Infinity;
-      let high = -Infinity;
-      for (let i = from; i < to; i++) {
-        low = Math.min(low, bars[i]!.low);
-        high = Math.max(high, bars[i]!.high);
-      }
-      const values = points.map((p) => p.value);
-      const min = Math.min(...values);
-      const max = Math.max(...values);
-      if (low > 0 && Number.isFinite(high) && min > 0 && (max < low || min > high)) {
-        const factor = (low + high) / (min + max);
-        points = points.map((p) => ({ ...p, value: roundPrice(p.value * factor, this.pricePrecision) }));
-      }
-      points = this.clearOfCopies(clip.name, points, low, high);
+    const anchored = clip.anchorTf !== undefined && this.stockLike();
+    const remap = anchored && this.mapsDailyAnchors();
+    let base = clip.points.map((p) => ({ ...p, timestamp: remap ? toSessionOpen(p.timestamp) : p.timestamp }));
+    if (!anchored && bars.length > 0 && this.tf !== null && !isIntraday(this.tf)) {
+      base = base.map((p) => ({ ...p, timestamp: barTime(bars, barIndex(bars, p.timestamp, barMs), barMs) }));
     }
-    const create: OverlayCreate = { name: clip.name, points, lock: this.lockAll, mode: this.baseMode(), ...this.handlers };
-    if (clip.text !== undefined) create.extendData = clip.text;
-    const styles = toOverlayStyles(sanitizeDrawingStyles(clip.styles));
-    if (this.lockAll) create.styles = { ...styles, point: this.lockedPoint() };
-    else if (styles) create.styles = styles;
-    const id = this.chart.createOverlay(create);
-    if (typeof id !== 'string') return false;
-    this.anchorAfterEdit(id);
+    const points = this.placePaste(clip, base);
+    let id: string | null = null;
+    // Silent like a restore: the creation and selection fire nothing; one explicit change below.
+    this.withSilence(() => {
+      const create: OverlayCreate = { name: clip.name, points, lock: this.lockAll, mode: this.baseMode(), ...this.handlers };
+      if (clip.text !== undefined) create.extendData = clip.text;
+      const styles = toOverlayStyles(sanitizeDrawingStyles(clip.styles));
+      if (this.lockAll) create.styles = { ...styles, point: this.lockedPoint() };
+      else if (styles) create.styles = styles;
+      const created = this.chart.createOverlay(create);
+      if (typeof created !== 'string') return;
+      id = created;
+      if (anchored && clip.anchorTf && samePoints(points, base)) {
+        this.anchors.set(created, remap ? { anchorTf: clip.anchorTf, original: clip.points.map((p) => ({ ...p })), display: points } : { anchorTf: clip.anchorTf });
+      } else {
+        this.anchorAfterEdit(created);
+      }
+      this.selectOverlay(created);
+    });
+    if (id === null) return false;
     this.emitChange();
-    this.selectOverlay(id);
     if (isPositionTool(clip.name)) this.ensurePositionHistory();
     return true;
+  }
+
+  /** Where a paste of `clip` (at `base` on this chart) goes: see pasteDrawing. */
+  private placePaste(clip: DrawingClip, base: Point[]): Point[] {
+    const bars = this.chart.getDataList();
+    const range = this.chart.getVisibleRange?.();
+    if (bars.length === 0 || !range) return base;
+    const barMs = this.barMs();
+    const last = bars.length - 1;
+    const from = Math.min(Math.max(range.from, 0), last);
+    const to = Math.min(Math.max(range.to, from + 1), bars.length);
+    let low = Infinity;
+    let high = -Infinity;
+    for (let i = from; i < to; i++) {
+      low = Math.min(low, bars[i]!.low);
+      high = Math.max(high, bars[i]!.high);
+    }
+    const realFrom = range.realFrom;
+    const realTo = Math.max(range.realTo, realFrom + 1);
+    const times = base.map((p) => p.timestamp);
+    // Horizontal lines span the whole width; price lines / horizontal rays extend to the right.
+    const unbounded = clip.name === 'horizontalStraightLine';
+    const toRight = unbounded || clip.name === 'priceLine' || clip.name === 'horizontalRayLine';
+    const begin = unbounded ? -Infinity : Math.min(...times);
+    const end = toRight ? Infinity : Math.max(...times);
+    let points = base;
+    if (end < barTime(bars, realFrom, barMs) || begin > barTime(bars, realTo - 1, barMs)) {
+      const span = Math.max(...clip.barOffsets);
+      const first = Math.round((realFrom + realTo - 1) / 2 - span / 2);
+      points = points.map((p, i) => ({ ...p, timestamp: barTime(bars, first + (clip.barOffsets[i] ?? 0), barMs) }));
+      points = this.scaleInto(clip.name, points, low, high);
+    }
+    return this.clearOfCopies(clip.name, points, low, high);
+  }
+
+  /** `points` scaled (percentages kept, rounded) to center on low…high when their prices miss that range. */
+  private scaleInto(name: string, points: Point[], low: number, high: number): Point[] {
+    const values = points.map((p) => p.value);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    if (!(low > 0) || !Number.isFinite(high) || !(min > 0) || (max >= low && min <= high)) return points;
+    const factor = (low + high) / (min + max);
+    const scaled = points.map((p) => ({ ...p, value: roundPrice(p.value * factor, this.pricePrecision) }));
+    const side = sideOf(name);
+    if (side) {
+      const g = fromPositionPoints(scaled);
+      if (!g || validatePrices(side, g) !== null) return points;
+    }
+    return scaled;
   }
 
   /** `points` moved (see pasteDrawing) until no drawing named `name` covers them exactly. */
   private clearOfCopies(name: string, points: Point[], low: number, high: number): Point[] {
     const others = this.userOverlays().filter((o) => o.name === name).map(completePoints).filter((p): p is Point[] => p !== null);
-    const flat = name === 'horizontalStraightLine';
+    const flat = HORIZONTAL_DRAWINGS.has(name);
     const covered = (pts: Point[]) => others.some((o) => (flat ? o[0]!.value === pts[0]!.value : samePoints(o, pts)));
     const bars = this.chart.getDataList();
     const barMs = this.barMs();
@@ -1296,7 +1335,7 @@ export class ChartAdapter {
     const idx = points.map((p) => barIndex(bars, p.timestamp, barMs));
     const shift = isPositionTool(name) ? Math.max(...idx) - Math.min(...idx) + PASTE_POSITION_GAP_BARS : PASTE_OFFSET_BARS;
     let next = points;
-    for (let n = 0; n < 1000 && covered(next); n++) {
+    for (let n = 0; n < PASTE_CASCADE_MAX && covered(next); n++) {
       next = flat
         ? next.map((p) => ({ ...p, value: roundPrice(p.value + step, this.pricePrecision) }))
         : next.map((p) => ({ ...p, timestamp: barTime(bars, barIndex(bars, p.timestamp, barMs) + shift, barMs) }));
