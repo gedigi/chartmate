@@ -241,16 +241,16 @@ kbd {
 }
 
 /*
- * The sidebar's resize handle fills the gutter between the chart and the sidebar (the side area's left margin). It is
- * invisible until hovered: then a hairline sits in the middle of the gap, accent while dragging, ring on keyboard focus.
+ * The sidebar's resize handle covers the gutter between the chart and the sidebar (the side area's left margin) plus
+ * 1 px of each panel's edge, a 10 px target. It is invisible until hovered: then a hairline sits in the middle of the gap, accent while dragging, ring on keyboard focus.
  */
 .sidebar-resizer {
   grid-area: side;
   justify-self: start;
   position: relative;
   z-index: 2;
-  width: var(--gutter);
-  margin-bottom: var(--gutter);
+  width: calc(var(--gutter) + 2px);
+  margin: 0 0 var(--gutter) -1px;
   cursor: col-resize;
   touch-action: none;
   outline: none;
