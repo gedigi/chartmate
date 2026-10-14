@@ -2,7 +2,7 @@
 // Signing / notarization are driven purely by environment variables (CI secrets, see build/signing.cjs); without
 // them the build is unsigned. electron-builder never uploads anything (the CI publish job does).
 const product = require('../product.json');
-const { signingFor } = require('./signing.cjs');
+const { signingFor, CERTUM_TIMESTAMP_URL } = require('./signing.cjs');
 
 /**
  * GitHub publish settings (only for app-update.yml; artifacts are uploaded by the CI publish job, electron-builder
@@ -71,6 +71,16 @@ function buildConfig(env = process.env) {
           endpoint: env.AZURE_TRUSTED_SIGNING_ENDPOINT,
           codeSigningAccountName: env.AZURE_TRUSTED_SIGNING_ACCOUNT,
           certificateProfileName: env.AZURE_TRUSTED_SIGNING_PROFILE,
+        },
+      } : {}),
+      ...(win.certum ? {
+        // Certum SimplySign: electron-builder hands every file (app exe, uninstaller, installer) to build/win-sign.cjs.
+        // publisherName goes into app-update.yml: electron-updater accepts only installers signed by that CN.
+        signtoolOptions: {
+          sign: require('./win-sign.cjs').sign,
+          signingHashAlgorithms: ['sha256'],
+          publisherName: env.CHARTMATE_WIN_PUBLISHER_NAME.trim(),
+          rfc3161TimeStampServer: CERTUM_TIMESTAMP_URL,
         },
       } : {}),
     },

@@ -1,0 +1,161 @@
+// electron-builder custom Windows sign hook (win.signtoolOptions.sign) for a Certum SimplySign cloud certificate.
+// electron-builder calls it for every file it signs: the app executable (before the zip and the NSIS packages are
+// made), each NSIS uninstaller (before it is embedded) and each NSIS installer (before its blockmap and latest.yml
+// entry are computed). So everything downstream already sees the final signed bytes.
+//
+// Backends (build/signing.cjs decides which one the environment configures):
+// - signtool (Windows): SimplySign Desktop is logged in, so the certificate sits in CurrentUser\My; signtool picks it by
+//   thumbprint (CHARTMATE_WIN_CERT_SHA1). Used by CI after scripts/certum/login.ps1, and by a local Windows release.
+// - pkcs11 (macOS/Linux): osslsigncode + an OpenSSL PKCS#11 provider + the SimplySign PKCS#11 module
+//   (CHARTMATE_WIN_PKCS11_MODULE). SimplySign Desktop must be logged in (the owner types the one-time code).
+// Every signature is SHA-256 with an RFC 3161 timestamp from Certum. Nothing secret is passed on a command line: an
+// optional card PIN (CHARTMATE_WIN_PKCS11_PIN, set in-process by scripts/sign-win-release.mjs) goes through stdin.
+const { spawnSync } = require('node:child_process');
+const { appendFileSync, existsSync, renameSync, rmSync, readdirSync } = require('node:fs');
+const { basename, dirname, join } = require('node:path');
+const { certumBackend, CERTUM_TIMESTAMP_URL } = require('./signing.cjs');
+
+const DEFAULT_PKCS11_CERT = 'pkcs11:type=cert';
+const DEFAULT_PKCS11_KEY = 'pkcs11:type=private';
+/** Where Homebrew puts libp11's OpenSSL 3+ provider (Apple silicon, then Intel / Rosetta prefix). */
+const PROVIDER_CANDIDATES = {
+  arm64: ['/opt/homebrew/opt/libp11/lib/ossl-modules/pkcs11prov.dylib'],
+  x86_64: ['/usr/local/opt/libp11/lib/ossl-modules/pkcs11prov.dylib'],
+  linux: ['/usr/lib/x86_64-linux-gnu/ossl-modules/pkcs11prov.so', '/usr/lib64/ossl-modules/pkcs11prov.so', '/usr/lib/aarch64-linux-gnu/ossl-modules/pkcs11prov.so'],
+};
+
+const value = (env, k) => (typeof env[k] === 'string' && env[k].trim() !== '' ? env[k].trim() : undefined);
+
+/** signtool arguments for one file (thumbprint selection, SHA-256, RFC 3161 timestamp). */
+function signtoolArgs({ thumbprint, file, description }) {
+  if (!/^[0-9A-Fa-f]{40}$/.test(thumbprint ?? '')) throw new Error('CHARTMATE_WIN_CERT_SHA1 must be a 40-hex-digit certificate thumbprint');
+  return ['sign', '/sha1', thumbprint.toUpperCase(), '/fd', 'sha256', '/tr', CERTUM_TIMESTAMP_URL, '/td', 'sha256',
+    ...(description ? ['/d', description] : []), '/v', file];
+}
+
+/**
+ * The osslsigncode command for one file. Pure: the caller passes what it found on the host.
+ * @param {NodeJS.ProcessEnv} env
+ * @param {{ file: string, out: string, description?: string, hostPlatform: string, hostArch: string,
+ *   moduleArchs: string[] | null, exists: (p: string) => boolean }} host
+ */
+function osslsigncodePlan(env, host) {
+  const module = value(env, 'CHARTMATE_WIN_PKCS11_MODULE');
+  if (!module) throw new Error('CHARTMATE_WIN_PKCS11_MODULE is not set');
+  if (!host.exists(module)) throw new Error(`PKCS#11 module not found: ${module}`);
+
+  // SimplySign Desktop for macOS ships an Intel-only module (the Homebrew cask requires Rosetta). An arm64
+  // osslsigncode cannot load it, so it has to run as x86_64 with an Intel toolchain (/usr/local Homebrew).
+  let arch = value(env, 'CHARTMATE_OSSLSIGNCODE_ARCH');
+  if (!arch && host.hostPlatform === 'darwin' && host.hostArch === 'arm64' && host.moduleArchs && !host.moduleArchs.includes('arm64')) {
+    if (!host.moduleArchs.includes('x86_64')) throw new Error(`PKCS#11 module has no usable architecture (${host.moduleArchs.join(', ')})`);
+    arch = 'x86_64';
+  }
+  const toolArch = arch ?? (host.hostPlatform === 'darwin' ? host.hostArch : 'linux');
+  const osslsigncode = value(env, 'CHARTMATE_OSSLSIGNCODE') ?? (arch === 'x86_64' && host.hostPlatform === 'darwin' ? '/usr/local/bin/osslsigncode' : 'osslsigncode');
+  const provider = value(env, 'CHARTMATE_WIN_PKCS11_PROVIDER')
+    ?? (PROVIDER_CANDIDATES[toolArch === 'arm64' || toolArch === 'x86_64' ? toolArch : 'linux'] ?? []).find((p) => host.exists(p));
+  if (!provider) throw new Error('OpenSSL PKCS#11 provider not found: install libp11 (brew install libp11) or set CHARTMATE_WIN_PKCS11_PROVIDER');
+  const chain = value(env, 'CHARTMATE_WIN_CERT_CHAIN');
+  if (chain && !host.exists(chain)) throw new Error(`CHARTMATE_WIN_CERT_CHAIN not found: ${chain}`);
+  const pin = typeof env.CHARTMATE_WIN_PKCS11_PIN === 'string' && env.CHARTMATE_WIN_PKCS11_PIN !== '' ? env.CHARTMATE_WIN_PKCS11_PIN : undefined;
+
+  const args = ['sign', '-provider', provider, '-pkcs11module', module,
+    '-pkcs11cert', value(env, 'CHARTMATE_WIN_PKCS11_CERT') ?? DEFAULT_PKCS11_CERT,
+    '-key', value(env, 'CHARTMATE_WIN_PKCS11_KEY') ?? DEFAULT_PKCS11_KEY,
+    ...(chain ? ['-ac', chain] : []),
+    ...(pin ? ['-readpass', '-'] : []),
+    '-h', 'sha256', ...(host.description ? ['-n', host.description] : []), '-ts', CERTUM_TIMESTAMP_URL,
+    '-in', host.file, '-out', host.out];
+  const useArch = arch && host.hostPlatform === 'darwin' && arch !== host.hostArch;
+  return {
+    command: useArch ? '/usr/bin/arch' : osslsigncode,
+    args: useArch ? [`-${arch}`, osslsigncode, ...args] : args,
+    input: pin ? `${pin}\n` : undefined,
+  };
+}
+
+/** Network / timestamp hiccups are retried; anything else (and anything about a PIN: a card locks after 3 bad PINs) is not. */
+function isTransient(output) {
+  if (/\bPIN\b|CKR_PIN|login/i.test(output)) return false;
+  return /timestamp|time stamp|connect|timed? ?out|HTTP|0x80072ee2|0x80190/i.test(output);
+}
+
+/** Newest x64 signtool.exe from the Windows SDK (an ARM64 signtool cannot load the x64 SimplySign minidriver). */
+function findSigntool(env) {
+  const explicit = value(env, 'CHARTMATE_SIGNTOOL');
+  if (explicit) return explicit;
+  const root = join(env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Windows Kits', '10', 'bin');
+  const versions = existsSync(root) ? readdirSync(root).filter((d) => /^10\./.test(d)) : [];
+  versions.sort((a, b) => b.localeCompare(a, 'en', { numeric: true }));
+  for (const v of versions) {
+    const p = join(root, v, 'x64', 'signtool.exe');
+    if (existsSync(p)) return p;
+  }
+  return 'signtool.exe';
+}
+
+function moduleArchs(module) {
+  if (process.platform !== 'darwin') return null;
+  const r = spawnSync('/usr/bin/lipo', ['-archs', module], { encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.trim().split(/\s+/) : null;
+}
+
+function run(command, args, input) {
+  const r = spawnSync(command, args, { input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+  return { ok: r.status === 0, output: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? String(r.error) : ''}` };
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Signs `file` in place with the configured Certum backend.
+ * @param {string} file
+ * @param {{ env?: NodeJS.ProcessEnv, description?: string }} [opts]
+ */
+async function signFile(file, opts = {}) {
+  const env = opts.env ?? process.env;
+  const backend = certumBackend(env);
+  if (!backend) throw new Error('Certum signing is not configured (see build/signing.cjs)');
+  const thumbprint = value(env, 'CHARTMATE_WIN_CERT_SHA1');
+  if (backend === 'ci-login' && !thumbprint) throw new Error('CHARTMATE_WIN_CERT_SHA1 is not set: run scripts/certum/login.ps1 before packaging');
+
+  for (let attempt = 1; ; attempt++) {
+    let result;
+    const tmp = join(dirname(file), `.${basename(file)}.signed`);
+    if (backend === 'pkcs11') {
+      const plan = osslsigncodePlan(env, {
+        file, out: tmp, description: opts.description, hostPlatform: process.platform, hostArch: process.arch === 'x64' ? 'x86_64' : process.arch,
+        moduleArchs: moduleArchs(env.CHARTMATE_WIN_PKCS11_MODULE.trim()), exists: existsSync,
+      });
+      rmSync(tmp, { force: true });
+      result = run(plan.command, plan.args, plan.input);
+      if (result.ok) renameSync(tmp, file);
+      else rmSync(tmp, { force: true });
+    } else {
+      result = run(findSigntool(env), signtoolArgs({ thumbprint, file, description: opts.description }));
+    }
+    if (result.ok) break;
+    if (attempt >= 3 || !isTransient(result.output)) {
+      throw new Error(`Certum signing failed for ${basename(file)} (${backend}):\n${result.output.trim()}`);
+    }
+    console.warn(`  • signing ${basename(file)} failed (attempt ${attempt}), retrying: ${result.output.trim().split('\n').pop()}`);
+    await sleep(5000 * attempt);
+  }
+
+  const log = value(env, 'CHARTMATE_WIN_SIGN_LOG');
+  if (log) appendFileSync(log, `${JSON.stringify({ file, backend, at: new Date().toISOString() })}\n`);
+  console.log(`  • signed (Certum, ${backend})  file=${basename(file)}`);
+}
+
+/**
+ * electron-builder hook: `configuration.path` is the file, `configuration.hash` the digest (only sha256 is
+ * configured, see builder-config.cjs).
+ * @param {{ path: string, hash?: string, name?: string }} configuration
+ */
+async function sign(configuration) {
+  if (configuration.hash && configuration.hash !== 'sha256') throw new Error(`unexpected signing hash ${configuration.hash}`);
+  await signFile(configuration.path, { description: configuration.name });
+}
+
+module.exports = { sign, signFile, signtoolArgs, osslsigncodePlan, isTransient, DEFAULT_PKCS11_CERT, DEFAULT_PKCS11_KEY };
