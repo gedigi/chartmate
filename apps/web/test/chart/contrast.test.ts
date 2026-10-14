@@ -23,7 +23,7 @@ describe('contrast helpers', () => {
     expect(readableTextOn('#ffff00')).toBe(DARK_TEXT); // bright yellow
     expect(readableTextOn('#2962ff')).toBe(LIGHT_TEXT); // accent blue
     expect(readableTextOn('#363a45')).toBe(LIGHT_TEXT); // dark crosshair background
-    // White reaches 3:1 here although dark contrasts more: white is kept (TradingView-style labels).
+    // White reaches 3:1 here although dark contrasts more: white is kept (the common charting-app convention).
     expect(readableTextOn('#808080')).toBe(LIGHT_TEXT); // mid gray: white 3.95, dark 4.53
     expect(readableTextOn('#ef5350')).toBe(LIGHT_TEXT); // white 3.49, dark 5.13
     expect(readableTextOn('#26a69a')).toBe(LIGHT_TEXT); // white 2.9985: inside the 0.01 tolerance

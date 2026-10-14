@@ -12,7 +12,7 @@ const numbered = (prefix: string, n: number) => Array.from({ length: n }, (_, i)
  * Default line colors: line i uses palette slot i (INDICATOR_PALETTE), except BOLL (Upper/Middle/Lower = slots
  * 2/1/3, so the middle band matches MA's first line) and VWAP (slot 3, see custom/vwap.ts). Max 4 lines today.
  * Note: KLineChart's `MA` is the simple moving average; its `SMA` is a different, weighted average.
- * `levels`: conventional reference lines of oscillators (TradingView-style): zero lines of MACD / AO / ROC / MTM /
+ * `levels`: conventional reference lines of oscillators: zero lines of MACD / AO / ROC / MTM /
  * TRIX, overbought / oversold bands of RSI (70 / 30), KDJ (80 / 20), CCI (+-100) and WR (-20 / -80; KLineChart's WR
  * runs from -100 to 0), and DMI's ADX trend threshold 25. VOL, OBV (cumulative), SMA and ATR have none.
  */

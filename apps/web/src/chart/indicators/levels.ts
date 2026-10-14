@@ -38,7 +38,7 @@ export function levelsDraw<D, C, E>(
 
 /**
  * The y-axis range bounds that keep `levels` visible (KLineChart's `minValue` / `maxValue` only widen the
- * auto-range, like a TradingView `hline`): RSI's pane then always shows 30-70, MACD's always its zero line.
+ * auto-range, like a horizontal reference line): RSI's pane then always shows 30-70, MACD's always its zero line.
  * Null bounds (no levels) restore plain auto-ranging.
  */
 export function levelsRange(levels: readonly number[]): { minValue: number | null; maxValue: number | null } {

@@ -169,7 +169,7 @@ function upperBound(bars: ReadonlyArray<{ timestamp: number }>, ts: number): num
 }
 
 /**
- * The outcome over the bars (ascending, of the displayed timeframe), like TradingView:
+ * The outcome over the bars (ascending, of the displayed timeframe):
  *  - Fill: the position opens on the first bar that starts at or after the start time and whose range touches the
  *    entry (low ≤ entry ≤ high); until then 'waiting' ('unfilled' once the range is over).
  *  - Hits: from the bar AFTER the fill bar (the order inside the fill bar is unknown, so a level also touched there

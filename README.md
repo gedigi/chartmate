@@ -1,6 +1,6 @@
 # Chartmate
 
-A self-hosted, single-user alternative to TradingView: candlestick charts for stocks and crypto,
+A single-user charting app for macOS, Windows or your own server: candlestick charts for stocks and crypto,
 indicators, drawing tools, watchlists, and custom **baskets** (weighted synthetic instruments).
 Free data sources only (Yahoo Finance for stocks, Binance or Coinbase for crypto), cached in
 SQLite or Postgres.
@@ -178,9 +178,9 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
 - **Indicator settings** also set each line's width (1–4 px) and solid/dashed/dotted style, and the up/down bar
   colors of histogram indicators (VOL, MACD, AO); unchanged bar colors follow the theme.
 - **Oscillator reference levels**: oscillator panes draw thin dashed lines in the theme's muted level color behind
-  the indicator lines, TradingView-style: MACD, AO, ROC, MTM and TRIX at 0; RSI at 70 / 30; KDJ at 80 / 20;
-  CCI at ±100; WR at -20 / -80 (KLineChart's WR runs from -100 to 0); DMI at 25 (ADX trend threshold). Like a
-  TradingView `hline`, the levels are part of the pane's auto-range, so RSI always shows its 30–70 band and
+  the indicator lines: MACD, AO, ROC, MTM and TRIX at 0; RSI at 70 / 30; KDJ at 80 / 20;
+  CCI at ±100; WR at -20 / -80 (KLineChart's WR runs from -100 to 0); DMI at 25 (ADX trend threshold). The levels
+  are part of the pane's auto-range, so RSI always shows its 30–70 band and
   MACD its zero line even when the values stay on one side. The settings dialog's **Levels** section hides
   them or edits the values (up to 5, separated by commas; empty = none); Reset restores the defaults. They
   are saved with the layout only when changed (older layouts use the defaults).
@@ -188,8 +188,8 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   vertical line, price line, parallel channel, Fibonacci retracement, text, long position and short
   position; plus magnet, lock all, delete selected (**Delete** / **Backspace**) and clear all. **Escape**
   cancels the active tool and deselects the drawing.
-- **Locking drawings**: the lock button at the end of a selected drawing's style bar locks that drawing alone
-  (TradingView-style); **Lock all drawings** in the toolbar locks every drawing on top of that. A locked drawing
+- **Locking drawings**: the lock button at the end of a selected drawing's style bar locks that drawing alone;
+  **Lock all drawings** in the toolbar locks every drawing on top of that. A locked drawing
   can still be selected (so it can be unlocked) but cannot be moved, resized or removed (Delete / Backspace and a
   right click leave it; the toolbar's delete button is disabled while it is selected), and its style bar fields
   are disabled except the lock toggle; its handles show as hollow rings. A drawing's own lock is kept when "Lock all" is turned off, and is
@@ -220,7 +220,7 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
 - **Price labels**: price lines and horizontal lines have **On line** (price text on the line) and **On axis**
   (price label on the right axis) toggles in the style bar; defaults: price line both on, horizontal line
   axis only. Saved with the drawing.
-- **Long / short positions** (toolbar: "Long position", "Short position"), like TradingView's but without a
+- **Long / short positions** (toolbar: "Long position", "Short position"), without a
   position size: they show prices, % distances, R:R and the outcome in %, no account, risk, quantity or money
   amounts (sizing needs an account balance, which will come with broker integration).
   - **Placing**: one click sets the entry at the clicked time and price (rounded to the symbol's precision;
@@ -254,7 +254,7 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
     and a long's stop stay above zero); invalid defaults sent to the server are dropped on their own (the rest of
     the layout is still saved). Defaults only apply at placement: existing positions keep their prices. Locked
     positions are read-only.
-  - **Outcome** (TradingView rules, on the bars of the displayed timeframe):
+  - **Outcome** (on the bars of the displayed timeframe):
     - **Fill**: the position opens on the first bar that starts at or after the start time and whose range
       touches the entry (low ≤ entry ≤ high); a bar that only contains the start (it began earlier) does not count.
       Until then the label reads "Waiting for entry" (neutral, no result); "Entry not reached" once the range is over.
@@ -283,7 +283,7 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   dotted; not a stored point) and a subtle fill (the channel's color at 8% opacity). Clicking a line, the
   midline or the fill selects (and drags) the channel; clicking beyond its ends does not. A right click inside
   the fill is ignored (a right click on a line removes the channel, as for other unlocked drawings).
-  - **Extend left / Extend right** (style bar, TradingView-style) extend the lines, midline and fill to the
+  - **Extend left / Extend right** (style bar) extend the lines, midline and fill to the
     chart's left / right edge; both on gives an infinite channel. Both are off for new channels.
   - **Stored** as `parallelChannel` drawings (three points) with optional `styles.extend` (`left` / `right`;
     only the sides that differ from the default are saved).
@@ -306,7 +306,7 @@ closed from the New York clock and the quote's freshness; crypto trades around t
 gauge (open → now), and open, previous close, volume, 30-day average volume and the 52-week high / low, all from
 the daily bars and the quote.
 
-**Sections** group symbols under a header, TradingView-style. The watchlist is one ordered list of symbols and
+**Sections** group symbols under a header. The watchlist is one ordered list of symbols and
 section headers: the symbols below a header belong to it until the next header; symbols above the first header
 form an untitled top group.
 
@@ -445,7 +445,7 @@ The files are picked up at build time with `import.meta.glob` (eager), registere
 listed in the picker; no other file needs editing. `custom/vwap.ts` and `custom/atr.ts` are the built-in
 examples. Restart `pnpm dev` (or rebuild) after adding a file.
 
-`custom/wyckoff.ts` (with its calculation in `wyckoffCalc.ts`) is a port of the TradingView script
+`custom/wyckoff.ts` (with its calculation in `wyckoffCalc.ts`) is a port of the Pine Script indicator
 'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colors in a `draw`
 callback. **License:** these two files (and their tests) are covered by the
 [Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/), not by the project's AGPL-3.0; keep

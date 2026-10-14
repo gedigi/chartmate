@@ -48,8 +48,8 @@ export function pineRsi(src: readonly number[], len: number): number[] {
 
 /**
  * `ta.pivothigh(src, left, right)` / `ta.pivotlow`: on bar t, the value of bar c = t − right when it is the
- * extreme of the window [c − left, c + right], otherwise na. Ties follow TradingView (as reproduced by
- * PyneCore, which validates against TradingView output): an equal value on the LEFT (older) side does not
+ * extreme of the window [c − left, c + right], otherwise na. Ties follow Pine Script's ta.pivothigh / ta.pivotlow (as reproduced by
+ * PyneCore, which validates against the original output): an equal value on the LEFT (older) side does not
  * disqualify the pivot, an equal value on the RIGHT (newer) side does — i.e. of equal extremes the newest wins.
  * The whole window must exist (na in the first left + right bars).
  */
@@ -138,7 +138,7 @@ const SIGNAL_STYLE: Record<WyckoffSignalKind, Pick<WyckoffSignal, 'text' | 'posi
 /**
  * Runs the script over `bars` (oldest first). Only the last `calcBarsCount` bars are calculated (Pine's
  * `calc_bars_count`); everything before produces nothing, and the calculation (RSI seed, `var` state, history
- * references) starts fresh at the first calculated bar, as in TradingView. All returned indices refer to `bars`.
+ * references) starts fresh at the first calculated bar, as in Pine Script. All returned indices refer to `bars`.
  */
 export function wyckoff(
   bars: readonly WyckoffBar[],

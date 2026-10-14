@@ -73,7 +73,7 @@ export class BinanceProvider implements MarketDataProvider {
   }
 
   /**
-   * changePct = last / previous UTC daily close - 1 (TradingView / stock convention), not Binance's rolling 24h.
+   * changePct = last / previous UTC daily close - 1 (the usual charting / stock convention), not Binance's rolling 24h.
    * `ticker/tradingDay` gives the current UTC day's last price; its `openPrice` is usually, but not always, the
    * previous close (WALUSDT: 0.03509 vs 0.03508), so the close comes from the previous 1d kline (cached per UTC
    * day) and `openPrice` is only a fallback.

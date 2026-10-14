@@ -4,7 +4,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build Chartmate — a self-hosted TradingView alternative with charts, indicators, drawings, watchlist and custom chained baskets — for US stocks/ETFs (incl. extended hours) and crypto.
+**Goal:** Build Chartmate — a self-hosted charting app with charts, indicators, drawings, watchlist and custom chained baskets — for US stocks/ETFs (incl. extended hours) and crypto.
 
 **Architecture:** pnpm TypeScript monorepo. `packages/shared` holds types and pure, heavily-tested math (time/session helpers, resampling, basket engine). `apps/server` (Fastify + Kysely over SQLite/Postgres) wraps market-data providers behind one interface, caches bars with coverage tracking, and serves baskets as ordinary symbols. `apps/web` (React + Vite) renders charts through a single `ChartAdapter` module around KLineChart v10.
 

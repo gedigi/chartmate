@@ -7,7 +7,7 @@ Status: Draft, awaiting review
 
 ## 1. Purpose
 
-A personal TradingView alternative: fast candlestick charts for US stocks/ETFs and crypto, a library of
+A personal charting app: fast candlestick charts for US stocks/ETFs and crypto, a library of
 configurable indicators, drawing tools, a watchlist, and — the differentiating feature — **custom
 baskets/indices** whose price is tracked and charted like any other symbol.
 
@@ -204,7 +204,7 @@ interface ChartAdapter {
 }
 ```
 
-Allows a later swap to TradingView Advanced Charts or Lightweight Charts by replacing this one module.
+Allows a later swap to another charting library by replacing this one module.
 
 ### 5.3 Indicators
 

@@ -258,7 +258,7 @@ function withChannel(t: Template, fill: boolean): Template {
       const line = lineStyles(p);
       const figures: OverlayFigure[] = [];
       // The fill first (under the lines); it is part of the drawing, so clicking inside it selects / drags the
-      // channel (TradingView-like), but a right click inside it is ignored (KLineChart's right click removes).
+      // channel, but a right click inside it is ignored (KLineChart's right click removes).
       if (fill && g.fill) {
         figures.push({
           type: 'polygon', attrs: { coordinates: g.fill }, ignoreEvent: ['onRightClick'],

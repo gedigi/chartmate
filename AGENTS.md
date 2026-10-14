@@ -6,7 +6,7 @@ env var or a default updates the README in the same commit.
 
 ## What Chartmate is
 
-A self-hosted, single-user alternative to TradingView: candlestick charts for US stocks/ETFs (with pre/post
+A single-user charting app (desktop app for macOS and Windows, or self-hosted): candlestick charts for US stocks/ETFs (with pre/post
 market) and crypto, indicators, drawing tools, a watchlist with sections, and baskets (weighted synthetic
 instruments charted like any symbol). Free data only (Yahoo Finance; Binance or Coinbase), cached in SQLite or
 Postgres. It ships as a web server (also as a Docker image) and as an Electron desktop app for macOS and Windows.
