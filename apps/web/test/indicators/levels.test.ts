@@ -7,8 +7,9 @@ import { indicatorLevelColor, THEME_TOKENS } from '../../src/chart/theme';
 describe('catalog reference levels', () => {
   it('oscillators carry their conventional levels', () => {
     const levels = Object.fromEntries(CATALOG.filter((e) => e.levels).map((e) => [e.name, e.levels]));
-    expect(levels).toEqual({
-      MACD: [0], AO: [0], ROC: [0], MTM: [0], TRIX: [0],
+    // toMatchObject: pins the shipped oscillators; an added indicator pins its own levels in its own test.
+    expect(levels).toMatchObject({
+      MACD: [0], AO: [0], ROC: [0], MTM: [0], TRIX: [0], PPO: [0],
       RSI: [70, 30], KDJ: [80, 20], CCI: [100, -100], WR: [-20, -80], DMI: [25],
     });
   });

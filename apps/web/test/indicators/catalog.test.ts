@@ -41,7 +41,7 @@ describe('default line colors (per-theme categorical palette)', () => {
   const SLOTS: Record<string, number[]> = {
     MA: [1, 2, 3, 4], EMA: [1, 2, 3], BOLL: [2, 1, 3], SAR: [], BBI: [1], VWAP: [6], VOL: [1, 2, 3], MACD: [1, 2],
     RSI: [1, 2, 3], KDJ: [1, 2, 3], CCI: [1], ATR: [1], OBV: [1, 2], WR: [1, 2, 3], DMI: [1, 2, 3, 4], ROC: [1, 2],
-    MTM: [1, 2], TRIX: [1, 2], AO: [], SMA: [1], WYCKOFF: [],
+    MTM: [1, 2], TRIX: [1, 2], AO: [], SMA: [1], WYCKOFF: [], PPO: [1, 2],
   };
 
   it('palettes are fixed per theme', () => {

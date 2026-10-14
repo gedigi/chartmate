@@ -63,8 +63,8 @@ describe('collectCustomIndicators', () => {
   });
 
   // Containment, not equality: adding an indicator to ./custom must not require editing this test.
-  it('ships VWAP, ATR and WYCKOFF from ./custom; ATR uses the price precision', () => {
-    expect(CUSTOM_INDICATORS.map((c) => c.template.name)).toEqual(expect.arrayContaining(['ATR', 'VWAP', 'WYCKOFF']));
+  it('ships VWAP, ATR, WYCKOFF and PPO from ./custom; ATR uses the price precision', () => {
+    expect(CUSTOM_INDICATORS.map((c) => c.template.name)).toEqual(expect.arrayContaining(['ATR', 'PPO', 'VWAP', 'WYCKOFF']));
     expect(PRICE_PRECISION_INDICATORS.has('ATR')).toBe(true);
     expect(PRICE_PRECISION_INDICATORS.has('VWAP')).toBe(false);
   });
