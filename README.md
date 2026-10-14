@@ -155,7 +155,8 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   hollow, hollow up, hollow down; OHLC bars use the colors only), **last price line** (neutral, the default:
   the theme's text color, near-white on dark and ink on light; or the candle up/down color). The last price
   sits in a capsule on the price axis with a fine dashed price line; on intraday charts (and daily crypto
-  charts) the capsule also counts down to the bar close ("4:59", "1:04:59"; "Closed" once the bar ended), line/area color and width, and the
+  charts) the capsule also counts down to the bar close ("4:59", "1:04:59"; "Closed" once the bar ended; for stocks a
+  bar ends at the session close, 16:00 New York for RTH and 20:00 for ETH, if that comes first), line/area color and width, and the
   default style (color, width, solid/dashed/dotted) of new drawings. It is global (stored in the `default`
   layout, not per symbol) and applies live. Appearance is **per theme**: the dialog edits the active theme
   ("Dark theme" / "Light theme"), toggling the theme switches to the other theme's settings, and "Reset to
