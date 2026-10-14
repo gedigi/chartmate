@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api/client';
-import { Watchlist } from '../src/components/Watchlist';
+import { Watchlist, watchlistSparkWidth } from '../src/components/Watchlist';
 import { lastQuote } from '../src/state/quoteStore';
 
 const INFO: Record<string, SymbolInfo> = {
@@ -695,5 +695,42 @@ describe('Watchlist sections', () => {
     render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
     await screen.findByText('S49');
     expect(screen.getByRole('button', { name: 'Add section' })).toBeDisabled();
+  });
+});
+
+describe('watchlistSparkWidth', () => {
+  it('keeps the compact 52 px sparkline up to the default rail width', () => {
+    expect(watchlistSparkWidth(222)).toBe(52);
+    expect(watchlistSparkWidth(302)).toBe(52);
+    expect(watchlistSparkWidth(380)).toBe(52);
+  });
+
+  it('grows the sparkline on a wide rail, in even steps, up to a cap', () => {
+    const w = watchlistSparkWidth(500);
+    expect(w).toBeGreaterThan(52);
+    expect(w % 2).toBe(0);
+    expect(watchlistSparkWidth(600)).toBeGreaterThanOrEqual(w);
+    expect(watchlistSparkWidth(2000)).toBe(104);
+  });
+});
+
+describe('Watchlist on a resized rail', () => {
+  it('draws the sparklines at the width that fits the rail', async () => {
+    let observed: ResizeObserverCallback | null = null;
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(cb: ResizeObserverCallback) { observed = cb; }
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    });
+    try {
+      setup(['stock:AAPL']);
+      const { container } = render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+      await waitFor(() => expect(container.querySelector('.wl-spark svg')).toHaveAttribute('width', '52'));
+      act(() => observed!([{ contentRect: { width: 2000 } } as unknown as ResizeObserverEntry], {} as ResizeObserver));
+      expect(container.querySelector('.wl-spark svg')).toHaveAttribute('width', '104');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

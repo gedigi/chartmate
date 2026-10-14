@@ -1,8 +1,9 @@
 import { MAX_SECTION_TITLE, MAX_WATCHLIST_SECTIONS, type Quote, type QuoteExt, type SymbolId, type SymbolInfo, type WatchlistSection } from '@chartmate/shared';
-import { useEffect, useId, useRef, useState, type DragEvent, type JSX, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties, type DragEvent, type JSX, type KeyboardEvent } from 'react';
 import { api } from '../api/client';
 import { publishQuotes } from '../state/quoteStore';
 import { retryDelayMs } from '../state/retry';
+import { useElementWidth } from '../state/useElementWidth';
 import { useWatchlist } from '../state/useWatchlist';
 import {
   deleteSection, dropEntry, insertSection, moveByKey, newSectionId, renameSection, setCollapsed, visibleRows, type WatchlistRow,
@@ -62,6 +63,21 @@ function rowKey(row: WatchlistRow): FocusKey {
   return { kind: row.entry.type, id: row.entry.id };
 }
 
+const SPARK_WIDTH = 52;
+const SPARK_MAX_WIDTH = 104;
+/** Rail width (px) up to which the sparkline keeps its compact size. */
+const SPARK_GROW_FROM = 380;
+
+/**
+ * Sparkline width for a rail `railWidth` px wide: compact up to the default width, then growing with a share of the
+ * extra room (in even steps, capped) so a wide rail fills with chart instead of a gap. Narrow rails hide it in CSS.
+ */
+export function watchlistSparkWidth(railWidth: number): number {
+  if (!(railWidth > SPARK_GROW_FROM)) return SPARK_WIDTH;
+  const w = SPARK_WIDTH + Math.round(((railWidth - SPARK_GROW_FROM) * 0.3) / 2) * 2;
+  return Math.min(SPARK_MAX_WIDTH, w);
+}
+
 /**
  * Right-sidebar watchlist with live quotes, sparklines, add/remove, reordering and sections. Sections are header
  * rows in the same ordered list: the symbols below a header belong to it until the next header.
@@ -84,6 +100,8 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
   const requestedInfo = useRef(new Set<string>());
   const focusKey = useRef<FocusKey | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const [railRef, railWidth] = useElementWidth();
+  const sparkWidth = watchlistSparkWidth(railWidth ?? 0);
   const hintId = useId();
   const sectionHintId = useId();
   const headerIdBase = useId();
@@ -451,7 +469,7 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
           onKeyDown={(e) => onSymbolKeyDown(e, id, row, pos)}
         >
           <span className="wl-symbol" title={info?.name}>{label}</span>
-          <span className="wl-spark"><Sparkline values={spark} width={52} height={20} /></span>
+          <span className="wl-spark"><Sparkline values={spark} width={sparkWidth} height={20} /></span>
           <span className="wl-price">{q && info ? fmtPrice(q.price, info.pricePrecision) : '—'}</span>
           <span className={`wl-change ${chg?.dir ?? ''}`}>{chg ? chg.text : '—'}</span>
           {/* Always present, so rows keep their height when the extended line comes and goes at 09:30/16:00. */}
@@ -485,7 +503,8 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
   }
 
   return (
-    <section className="watchlist" data-testid="watchlist" aria-label="Watchlist">
+    <section className="watchlist" data-testid="watchlist" aria-label="Watchlist" ref={railRef}
+      style={{ '--wl-spark-w': `${sparkWidth}px` } as CSSProperties}>
       <div className="watchlist-head">
         <h2 className="panel-title">Watchlist</h2>
         <button

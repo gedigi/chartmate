@@ -3,6 +3,7 @@ import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api/client';
+import { DayRangeGauge } from '../src/components/RangeGauge';
 import { BARS_POLL_MS, QUOTE_POLL_MS, SymbolDetails } from '../src/components/SymbolDetails';
 import { clearQuotes, publishQuotes } from '../src/state/quoteStore';
 
@@ -90,3 +91,16 @@ describe('SymbolDetails', () => {
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
   });
 });
+
+describe('DayRangeGauge', () => {
+  it('draws at the given width (the measured panel width) so it fills a resized rail 1:1', () => {
+    const { container } = render(<DayRangeGauge open={10} value={12} low={8} high={14} dir="up" width={420} />);
+    expect(container.querySelector('svg')).toHaveAttribute('viewBox', '0 0 420 15');
+  });
+
+  it('keeps its compact default without a measured width', () => {
+    const { container } = render(<DayRangeGauge open={10} value={12} low={8} high={14} dir="up" />);
+    expect(container.querySelector('svg')).toHaveAttribute('viewBox', '0 0 264 15');
+  });
+});
+

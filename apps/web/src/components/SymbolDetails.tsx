@@ -3,6 +3,7 @@ import { useEffect, useState, useSyncExternalStore, type JSX } from 'react';
 import { api } from '../api/client';
 import { cachedQuote, lastQuote, publishQuotes, subscribeQuotes } from '../state/quoteStore';
 import { compactNumber, MARKET_STATUS_LABEL, marketStatus, symbolStats } from '../state/symbolStats';
+import { useElementWidth } from '../state/useElementWidth';
 import { DayRangeGauge } from './RangeGauge';
 
 export interface SymbolDetailsProps {
@@ -32,6 +33,7 @@ export function SymbolDetails({ symbol, info }: SymbolDetailsProps): JSX.Element
   const [reload, setReload] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const quote = useSyncExternalStore(subscribeQuotes, () => lastQuote(symbol));
+  const [rangeRef, rangeWidth] = useElementWidth();
 
   // Daily bars: on symbol change / retry, then every 5 min while visible.
   useEffect(() => {
@@ -106,9 +108,10 @@ export function SymbolDetails({ symbol, info }: SymbolDetailsProps): JSX.Element
       )}
       {stats && (
         <>
-          <div className="sd-range">
+          <div className="sd-range" ref={rangeRef}>
             <div className="sd-range-label"><span>Day range</span><span className="num">{fmt(stats.price, p)}</span></div>
-            <DayRangeGauge open={stats.open} value={stats.price} low={stats.dayLow} high={stats.dayHigh} dir={dir} />
+            <DayRangeGauge open={stats.open} value={stats.price} low={stats.dayLow} high={stats.dayHigh} dir={dir}
+              width={rangeWidth ?? undefined} />
             <div className="sd-range-ends"><span>{fmt(stats.dayLow, p)}</span><span>{fmt(stats.dayHigh, p)}</span></div>
           </div>
           <dl className="sd-stats">

@@ -26,14 +26,22 @@ export function RangeGauge({ value, low, high, dir, width = 140 }: RangeGaugePro
   );
 }
 
-export interface DayRangeGaugeProps { open: number; value: number; low: number; high: number; dir: 'up' | 'down' | '' }
+export interface DayRangeGaugeProps {
+  open: number;
+  value: number;
+  low: number;
+  high: number;
+  dir: 'up' | 'down' | '';
+  /** Drawing width in px: the panel's measured width, so the rule and caret stay 1:1 at any rail width. */
+  width?: number;
+}
 
 /**
  * The detail panel's day range: a ruled track (minor ticks every 5 %, major every 25 %), the open → now move as a
  * colored segment and a caret at the current price.
  */
-export function DayRangeGauge({ open, value, low, high, dir }: DayRangeGaugeProps): JSX.Element {
-  const w = 264;
+export function DayRangeGauge({ open, value, low, high, dir, width = 264 }: DayRangeGaugeProps): JSX.Element {
+  const w = Math.max(80, Math.round(width));
   const xo = rangePosition(open, low, high) * w;
   const xl = Math.min(w - 4, Math.max(4, rangePosition(value, low, high) * w));
   const ticks = Array.from({ length: 21 }, (_, k) => Math.round((k / 20) * (w - 1)) + 0.5);
