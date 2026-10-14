@@ -269,9 +269,9 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   ratio below 1.5) gets an inline "Low contrast on the … background" warning. Layouts saved before
   appearance was per theme (one flat appearance) still load: their settings become the dark theme's.
 - **Default market colors**: one up and one down color per theme (the `--up` / `--down` CSS tokens; dark
-  `#3ccfd0` / `#e76a88`, light `#0b9da0` / `#c43d68`), used by candles, volume, MACD and AO bars, positions,
-  the watchlist, baskets and sparklines. Volume / MACD / AO bars without their own colors follow the active
-  theme's candle colors, custom ones included. Rising MACD / AO bars use an opaque soft tone of the same hue;
+  `#3ccfd0` / `#e76a88`, light `#0b9da0` / `#c43d68`), used by candles, volume, MACD, AO and PPO bars, positions,
+  the watchlist, baskets and sparklines. Volume / MACD / AO / PPO bars without their own colors follow the active
+  theme's candle colors, custom ones included. Rising MACD / AO / PPO bars use an opaque soft tone of the same hue;
   the legend shows histogram values in the readable up / down text colors. Parabolic SAR dots use the same up
   / down colors. Indicator lines take a per-theme categorical palette (six colors, none of them green or red);
   VWAP uses its own slot (blue), apart from the moving averages and Bollinger Bands it shares the price pane
@@ -287,9 +287,9 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   down and unchanged labels, so in candle color mode the rule uses the worst case over the three colors.
   Start/version marker labels keep their muted color on the chart background under the same rule.
 - **Indicator settings** also set each line's width (1–4 px) and solid/dashed/dotted style, and the up/down bar
-  colors of histogram indicators (VOL, MACD, AO); unchanged bar colors follow the theme.
+  colors of histogram indicators (VOL, MACD, AO, PPO); unchanged bar colors follow the theme.
 - **Oscillator reference levels**: oscillator panes draw thin dashed lines in the theme's muted level color behind
-  the indicator lines: MACD, AO, ROC, MTM and TRIX at 0; RSI at 70 / 30; KDJ at 80 / 20;
+  the indicator lines: MACD, AO, ROC, MTM, TRIX and PPO at 0; RSI at 70 / 30; KDJ at 80 / 20;
   CCI at ±100; WR at -20 / -80 (KLineChart's WR runs from -100 to 0); DMI at 25 (ADX trend threshold). The levels
   are part of the pane's auto-range, so RSI always shows its 30–70 band and
   MACD its zero line even when the values stay on one side. The settings dialog's **Levels** section hides
@@ -609,7 +609,8 @@ Every file in `apps/web/src/chart/indicators/custom/*.ts` is a custom indicator.
 
 The files are picked up at build time with `import.meta.glob` (eager), registered with KLineChart, and
 listed in the picker; no other file needs editing. `custom/vwap.ts` and `custom/atr.ts` are the built-in
-examples. Restart `pnpm dev` (or rebuild) after adding a file.
+examples; `custom/ppo.ts` (the percentage price oscillator: params, two lines, a histogram and a level) is the
+annotated example that CONTRIBUTING.md walks through. Restart `pnpm dev` (or rebuild) after adding a file.
 
 `custom/wyckoff.ts` (with its calculation in `wyckoffCalc.ts`) is a port of the Pine Script indicator
 'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colors in a `draw`

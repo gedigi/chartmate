@@ -74,6 +74,13 @@ An indicator is one file in `apps/web/src/chart/indicators/custom/`. It is regis
 in the indicator picker automatically; no other file needs editing. Its colors come from the app's palette, so it
 matches every other indicator in both themes.
 
+This guide follows a complete example that ships with Chartmate:
+[`custom/ppo.ts`](apps/web/src/chart/indicators/custom/ppo.ts), the **percentage price oscillator**, with its test
+[`test/indicators/ppo.test.ts`](apps/web/test/indicators/ppo.test.ts). It has everything an indicator can have:
+three params, two lines (PPO and its signal line), a histogram in the up / down colors and a zero reference
+level, in its own pane. The snippets below are copied from those files (a test keeps them identical); read the
+files for the whole picture.
+
 ### 1. Scaffold it
 
 ```sh
@@ -89,57 +96,158 @@ The name is PascalCase or an acronym (`TSI`), 2 to 24 letters and digits. The co
   line colors in both themes.
 
 It refuses a name that is already in the picker (built-in or custom) and never overwrites a file. The generated
-indicator works as is (a placeholder moving average), so `pnpm dev` shows it right away.
+indicator works as is (a placeholder moving average), so the app shows it right away. The steps below turn the
+placeholder into the real thing.
 
-### 2. Write the calculation, test first
+### 2. The calculation, test first
 
-The exported `calc…` function is pure: bars in, one result per bar out, `null` while there is not enough history
-(the warm-up). No chart, no DOM, no globals, no network. Replace the placeholder tests with the real formula's
-expected values (a short hand-computed series, the warm-up, edge cases such as an empty list or a flat series),
-then the placeholder formula. Shared helpers live in `apps/web/src/chart/indicators/calc.ts`.
+The calculation is a plain function: bars in, one result per bar out, `null` during the warm-up (not enough
+history yet; nothing is drawn there). No chart, no DOM, no globals, no network. Start with a test whose expected
+values you computed by hand on a short series:
 
-Keep the module's top-level code free of side effects: the indicators are bundled eagerly, so a module that throws
-while being imported stops the app from starting (a module with the wrong shape is only skipped, with a console
-warning).
+<!-- snippet: apps/web/test/indicators/ppo.test.ts -->
+```ts
+  it('fast and slow EMA spread as a percentage of the slow EMA, its signal line and the histogram', () => {
+    // Hand-computed with fast 2, slow 3, signal 2 (see the ema test for the EMAs).
+    const ppo = [50 / 11, 25 / 6, 25 / 18]; // (11.5 - 11) / 11, (12.5 - 12) / 12, (73/6 - 12) / 12, in %
+```
 
-### 3. Fill in the template and the catalog entry
+Then cover the edges: the warm-up, an empty list, a flat series, a division by zero. Then write the function:
 
-`template` is a KLineChart indicator template: `name`, `shortName`, `calcParams` (the defaults), `figures` (one
-`line` figure per line, or a `bar` figure for a histogram) and `calc`. Set `usePricePrecision: true` when the values
-are prices (moving averages, bands, ATR); drop it for ratios and percentages.
+<!-- snippet: apps/web/src/chart/indicators/custom/ppo.ts -->
+```ts
+export function calcPpo(bars: ReadonlyArray<{ close: number }>, fast: number, slow: number, signal: number): PpoResult[] {
+  const closes = bars.map((b) => b.close);
+  const fastEma = ema(closes, fast);
+  const slowEma = ema(closes, slow);
+  const ppo = fastEma.map((f, i) => {
+    const s = slowEma[i];
+    return f === null || s === null || s === undefined || s === 0 ? null : ((f - s) / s) * 100;
+  });
+  const sig = ema(ppo, signal);
+  return ppo.map((p, i) => {
+    const s = sig[i] ?? null;
+    return { ppo: p, signal: s, hist: p === null || s === null ? null : p - s };
+  });
+}
+```
 
-`catalog` is the picker and settings entry:
+Run just your test while you work:
+
+```sh
+pnpm --filter @chartmate/web exec vitest run test/indicators/ppo.test.ts
+```
+
+Shared helpers (moving averages, ATR, session keys) live in `apps/web/src/chart/indicators/calc.ts`. Keep the
+module's top-level code free of side effects: indicators are bundled eagerly, so a module that throws while being
+imported stops the app from starting (a module with the wrong shape is only skipped, with a console warning).
+
+### 3. The chart template
+
+`template` tells the chart how to compute and draw the indicator. Each value of a result is a **figure**: `key`
+names the field, `type` is `line` or `bar` (a histogram). `calcParams` are the default params, passed to `calc` in
+order:
+
+<!-- snippet: apps/web/src/chart/indicators/custom/ppo.ts -->
+```ts
+  template: {
+    name: 'PPO', // unique; equal to catalog.name
+    shortName: 'PPO', // the chart legend
+    calcParams: [12, 26, 9], // default params; the user edits them in the settings dialog
+    precision: 2, // values are percentages
+    // One figure per value: `key` names the field of PpoResult, `type` line or bar. Lines are listed in
+    // catalog.lines in this same order; their colors come from catalog.lineSlots, never from here.
+    figures: [
+      { key: 'hist', title: 'Hist: ', type: 'bar', baseValue: 0, styles: histStyles },
+      { key: 'ppo', title: 'PPO: ', type: 'line' },
+      { key: 'signal', title: 'Signal: ', type: 'line' },
+    ],
+    calc: (dataList, ind) => calcPpo(dataList, ind.calcParams[0] ?? 12, ind.calcParams[1] ?? 26, ind.calcParams[2] ?? 9),
+  },
+```
+
+For an indicator whose values are prices (moving averages, bands, ATR), set `usePricePrecision: true` next to
+`template` instead of a fixed `precision`: values then use the charted symbol's precision.
+
+### 4. The picker entry
+
+`catalog` is what the indicator picker and the settings dialog show:
+
+<!-- snippet: apps/web/src/chart/indicators/custom/ppo.ts -->
+```ts
+  catalog: {
+    name: 'PPO',
+    label: 'Percentage price oscillator',
+    pane: 'sub', // its own pane under the candles
+    defaultParams: [12, 26, 9],
+    paramLabels: ['Fast period', 'Slow period', 'Signal period'],
+    lines: ['PPO', 'Signal'], // the line figures, in figure order
+    lineSlots: [0, 1], // palette slots: PPO amber, signal violet, in each theme's own shade
+    levels: [0], // a dashed zero line, editable in the settings dialog
+```
 
 | Field | Meaning |
 | --- | --- |
 | `name`, `label` | `name` equals `template.name`; `label` is what the picker shows (sentence case). |
 | `pane` | `'sub'` (own pane) or `'main'` (overlay on the candles). |
 | `defaultParams`, `paramLabels` | The default params and one label per param. Params are integers in 1…1000 unless listed in `decimalParams` (decimals > 0) or bounded by `paramMin` / `paramMax`. |
-| `lines` | One name per `line` figure, in figure order. |
+| `lines` | One name per `line` figure, in figure order (bar figures are not listed). |
 | `lineSlots` | The palette slot (0-5) of each line, index-aligned with `lines`; default: line i uses slot i. |
 | `bars` | A histogram with editable up / down colors; inferred from a `bar` figure. |
 | `levels` | Default dashed reference levels of an oscillator, at most 5 (e.g. `[70, 30]`, `[0]`); `sub` only. |
 | `description` | A longer explanation for the picker tooltip. |
 
-`customIndicatorProblem` (`apps/web/src/chart/indicators/extensions.ts`) validates this shape; the generated test
-runs it.
+`customIndicatorProblem` (`apps/web/src/chart/indicators/extensions.ts`) validates this shape, and the test checks
+it:
 
-### 4. Colors: palette slots only
+<!-- snippet: apps/web/test/indicators/ppo.test.ts -->
+```ts
+    expect(customIndicatorProblem(indicator)).toBeNull();
+    expect(catalogEntry('PPO')).toMatchObject({
+      label: 'Percentage price oscillator', pane: 'sub', defaultParams: [12, 26, 9], lines: ['PPO', 'Signal'], levels: [0], bars: true,
+    });
+```
 
-Never write a color. Each theme has a six-slot categorical palette (`INDICATOR_PALETTE` in
+### 5. Colors: never write one
+
+Indicator code contains no colors. Each theme has a six-slot categorical palette (`INDICATOR_PALETTE` in
 `apps/web/src/chart/theme.ts`), tuned to read on its background:
 
 | Slot | 0 | 1 | 2 | 3 | 4 | 5 |
 | --- | --- | --- | --- | --- | --- | --- |
 | Hue | amber | violet | cyan | orange | magenta | blue |
 
-Pick each line's slot with `lineSlots`. In its own pane, start at slot 0. On the price pane the lines share the
-candles with other overlays (MA uses slots 0-3, EMA and BOLL 0-2, BBI 0, VWAP 5), so the scaffold puts an overlay
-on slot 4. Lines of one indicator must use distinct slots. Histograms (`bars`) use the theme's up / down colors.
+**Lines** pick a slot with `lineSlots`, as above. In its own pane, start at slot 0. On the price pane the lines
+share the candles with other overlays (MA uses slots 0-3, EMA and BOLL 0-2, BBI 0, VWAP 5), so the scaffold puts an
+overlay on slot 4. Lines of one indicator use distinct slots. The test pins them in both themes:
 
-An indicator that paints on the canvas itself (a template `draw` callback, like `custom/wyckoff.ts`) takes every
-color from `activeIndicatorColors()` (`apps/web/src/chart/indicators/colors.ts`), **called inside the callback**,
-so a theme toggle or a custom candle color repaints it correctly:
+<!-- snippet: apps/web/test/indicators/ppo.test.ts -->
+```ts
+  it.each(['dark', 'light'] as const)('draws its two lines in distinct palette colors on the %s theme', (theme) => {
+    expect(defaultLineColors('PPO', theme)).toEqual([INDICATOR_PALETTE[theme][0], INDICATOR_PALETTE[theme][1]]);
+  });
+```
+
+**Histograms** use the chart's bar colors: the theme's up / down colors, or the ones the user picked in the
+indicator settings. KLineChart passes both to the figure's `styles` callback, which only chooses between them:
+
+<!-- snippet: apps/web/src/chart/indicators/custom/ppo.ts -->
+```ts
+const histStyles: IndicatorFigureStylesCallback<PpoResult> = ({ data, indicator, defaultStyles }) => {
+  const own = indicator.styles?.bars?.[0];
+  const theme = defaultStyles!.bars[0]!;
+  const hist = data.current?.hist ?? 0;
+  const prev = data.prev?.hist ?? null;
+  const color = hist > 0 ? own?.upColor ?? theme.upColor : hist < 0 ? own?.downColor ?? theme.downColor : own?.noChangeColor ?? theme.noChangeColor;
+  return { color, borderColor: color, style: prev !== null && hist > prev ? 'stroke' : 'fill' };
+};
+```
+
+A bar returned as `'stroke'` (here: a rising one) is drawn filled in the soft tone of its color.
+
+**Custom drawing.** An indicator that paints on the canvas itself (a template `draw` callback, like
+`custom/wyckoff.ts`) takes every color from `activeIndicatorColors()` (`apps/web/src/chart/indicators/colors.ts`),
+**called inside the callback**, so a theme toggle or a custom candle color repaints it correctly:
 
 ```ts
 draw: ({ ctx }) => {
@@ -159,20 +267,20 @@ without alpha), CSS color functions (`rgb(`, `rgba(`, `hsl(`, `hsla(`, `hwb(`, `
 and common color names as whole words (`'red'`, `'white'`, `'gold'`…, so keep them out of labels too). Comments are
 not checked.
 
-### 5. Check it in the app, in both themes
+### 6. See it in the app, in both themes
 
 ```sh
-pnpm --filter @chartmate/web exec vitest run test/indicators/keltnerChannels.test.ts
 pnpm typecheck && pnpm test
 DATABASE_URL=sqlite:/tmp/chartmate-dev.db CHARTMATE_PROVIDERS=fixture pnpm dev
 ```
 
-Restart `pnpm dev` after adding the file. Add the indicator from the picker (**Indicators**), open its settings,
-switch the theme (sun / moon button) and look at it on a few symbols and timeframes. Attach a dark and a light
-screenshot of the chart with the indicator to the pull request.
+Open http://localhost:5173 (restart `pnpm dev` after adding a file), click **Indicators** in the top bar and type
+the name (`PPO`): the picker lists it under its pane. Add it, open its settings (the settings button on its chip) to try the
+params, levels and colors, then switch the theme with the sun / moon button. Look at a few symbols and timeframes,
+including the first bars (the warm-up). Attach a dark and a light screenshot of the chart to the pull request.
 
-### 6. Document it
+### 7. Document it
 
-Give the indicator a `catalog.description` (the picker tooltip) when its label alone does not say how it behaves.
+Give the indicator a `catalog.description` (the picker tooltip) when its label alone does not say what it shows.
 If users need to know more (session anchoring, timeframes it does not support, unusual params), add it to the
 README's "Charts" section in the same pull request.
