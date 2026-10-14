@@ -256,7 +256,8 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
     cascade (up to 50 steps).
 
   The keys are left alone in text fields, editable content, dialogs, popups and behind a modal, while page text
-  is selected, and when no drawing is selected (copy) or nothing was copied (paste).
+  is selected, when no drawing is selected (copy) or nothing was copied (paste), and while the key repeats. In
+  the desktop app the Edit menu's Copy and Paste do the same.
 - **Shift (horizontal)**: hold **Shift** while placing or dragging a trend line, ray, extended line or parallel
   channel to keep it perfectly horizontal: every point takes the anchor's price (the first point while drawing,
   the fixed end while dragging one end), rounded to the symbol's price precision. A channel's width point stays

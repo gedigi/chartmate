@@ -7,7 +7,7 @@ import './DrawingToolbar.css';
 /** The slice of ChartAdapter the toolbar drives. */
 export type DrawingControls = Pick<
   ChartAdapter,
-  'startDrawing' | 'cancelDrawing' | 'clearDrawings' | 'drawingCount' | 'removeSelected' | 'copySelected' | 'pasteDrawing' | 'setMagnet' | 'setLockAll' | 'onLockAllChange'
+  'startDrawing' | 'cancelDrawing' | 'clearDrawings' | 'drawingCount' | 'removeSelected' | 'copySelected' | 'pasteDrawing' | 'canPaste' | 'getSelectedDrawing' | 'setMagnet' | 'setLockAll' | 'onLockAllChange'
   | 'setMagnetOverride' | 'setShiftConstraint' | 'deselect' | 'onSelectionChange'
 >;
 
@@ -88,6 +88,9 @@ function shortcutTool(e: KeyboardEvent): DrawingTool | null {
 function shortcutLabel(key: string): string {
   return isApplePlatform() ? `⌥${key}` : `Alt+${key}`;
 }
+
+/** A copy / paste event this soon after the key press that caused it belongs to that press. */
+const KEY_EVENT_MS = 1000;
 
 /** Inputs that take no typed text (Escape on them still deselects the drawing, e.g. a style-bar checkbox). */
 const NON_TEXT_INPUTS = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'color', 'range']);
@@ -175,20 +178,62 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
     setActive(null);
   };
 
+  // Copy / paste of drawings (in-app clipboard; the system clipboard is never read or written): ⌘C / ⌘V (Ctrl
+  // elsewhere) and the 'copy' / 'paste' events, which the desktop app's Edit menu fires (on macOS its accelerators
+  // may take the keys before the page sees them). One press acts once: the event a handled key causes is skipped.
+  // Text fields, editable content, dialogs, popups and modals keep them, a held (repeating) key does nothing, and
+  // with nothing to copy / paste (or page text selected, for copy) the browser's own action goes ahead.
   useEffect(() => {
+    let lastKey: { kind: 'copy' | 'paste'; at: number; acted: boolean } | null = null;
+    const blocked = (e: Event) => e.defaultPrevented || isTyping(e.target) || isInPopup(e.target) || isModalOpen();
+    const run = (kind: 'copy' | 'paste'): boolean => {
+      const c = controlsRef.current;
+      return kind === 'copy'
+        ? !hasTextSelection() && c?.copySelected() === true
+        : !disabledRef.current && c?.pasteDrawing() === true;
+    };
+    // Chromium enables Copy / Paste with no text selected or field focused (the Edit menu's commands) only when
+    // beforecopy / beforepaste is prevented: done when there is a drawing to copy / a copy to paste.
+    const onBefore = (e: Event) => {
+      const c = controlsRef.current;
+      const can = e.type === 'beforecopy'
+        ? !hasTextSelection() && c?.getSelectedDrawing() != null
+        : !disabledRef.current && c?.canPaste() === true;
+      if (can && !blocked(e)) e.preventDefault();
+    };
     const onKey = (e: KeyboardEvent) => {
-      // ⌘C / ⌘V (Ctrl elsewhere): copy the selected drawing / paste the copy (in-app clipboard). Text fields,
-      // dialogs, popups and modals keep the keys; with nothing to copy / paste the browser's own action goes ahead.
-      const clip = clipboardShortcut(e);
-      if (clip) {
-        if (e.defaultPrevented || isTyping(e.target) || isInPopup(e.target) || isModalOpen()) return;
-        const c = controlsRef.current;
-        const done = clip === 'copy'
-          ? !hasTextSelection() && c?.copySelected() === true
-          : !disabledRef.current && c?.pasteDrawing() === true;
-        if (done) e.preventDefault();
+      const kind = clipboardShortcut(e);
+      if (!kind || blocked(e)) return;
+      const acted = !e.repeat && run(kind);
+      if (acted) e.preventDefault();
+      lastKey = { kind, at: performance.now(), acted };
+    };
+    const onClipboard = (e: Event) => {
+      const kind = e.type === 'copy' ? 'copy' : 'paste';
+      const k = lastKey;
+      lastKey = null;
+      if (k && k.kind === kind && performance.now() - k.at < KEY_EVENT_MS) {
+        if (k.acted) e.preventDefault();
         return;
       }
+      if (!blocked(e) && run(kind)) e.preventDefault();
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('copy', onClipboard);
+    document.addEventListener('paste', onClipboard);
+    document.addEventListener('beforecopy', onBefore);
+    document.addEventListener('beforepaste', onBefore);
+    return () => {
+      document.removeEventListener('beforecopy', onBefore);
+      document.removeEventListener('beforepaste', onBefore);
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('copy', onClipboard);
+      document.removeEventListener('paste', onClipboard);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
       const tool = shortcutTool(e);
       if (tool) {
         if (isFormControl(e.target) || isInPopup(e.target) || disabledRef.current || e.defaultPrevented) return;

@@ -15,6 +15,8 @@ function makeControls() {
     removeSelected: vi.fn(() => true),
     copySelected: vi.fn(() => true),
     pasteDrawing: vi.fn(() => true),
+    canPaste: vi.fn(() => true),
+    getSelectedDrawing: vi.fn((): { id: string } | null => ({ id: 'ov_1' })),
     setMagnet: vi.fn(),
     setLockAll: vi.fn(),
     setMagnetOverride: vi.fn(),
@@ -660,5 +662,113 @@ describe('DrawingToolbar copy / paste (⌘C / ⌘V on Apple platforms, Ctrl+C / 
     expect(c.pasteDrawing).not.toHaveBeenCalled();
     press(document.body, { key: 'c', metaKey: true });
     expect(c.copySelected).toHaveBeenCalledTimes(1);
+  });
+
+  it('a repeating key (held down) copies / pastes nothing, nor does the copy / paste event it causes', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    press(document.body, { key: 'v', metaKey: true });
+    expect(c.pasteDrawing).toHaveBeenCalledTimes(1);
+    expect(press(document.body, { key: 'v', metaKey: true, repeat: true })).toBe(true);
+    expect(fireEvent.paste(document.body)).toBe(true);
+    expect(press(document.body, { key: 'c', metaKey: true, repeat: true })).toBe(true);
+    expect(fireEvent.copy(document.body)).toBe(true);
+    expect(c.pasteDrawing).toHaveBeenCalledTimes(1);
+    expect(c.copySelected).not.toHaveBeenCalled();
+  });
+});
+
+describe('DrawingToolbar copy / paste events (the desktop app\'s Edit menu)', () => {
+  it('copy and paste events copy the selected drawing / paste it, without touching the system clipboard', () => {
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    expect(fireEvent.copy(document.body)).toBe(false); // prevented: nothing is written to the clipboard
+    expect(c.copySelected).toHaveBeenCalledTimes(1);
+    expect(fireEvent.paste(document.body)).toBe(false);
+    expect(c.pasteDrawing).toHaveBeenCalledTimes(1);
+  });
+
+  it('a key press and the copy / paste event it causes act once', () => {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    fireEvent.keyDown(document.body, { key: 'v', metaKey: true });
+    expect(fireEvent.paste(document.body)).toBe(false); // still kept from the page
+    fireEvent.keyDown(document.body, { key: 'c', metaKey: true });
+    fireEvent.copy(document.body);
+    expect(c.pasteDrawing).toHaveBeenCalledTimes(1);
+    expect(c.copySelected).toHaveBeenCalledTimes(1);
+    // A later menu paste is a new action.
+    fireEvent.paste(document.body);
+    expect(c.pasteDrawing).toHaveBeenCalledTimes(2);
+  });
+
+  it('enables the Edit menu\'s Copy / Paste (beforecopy / beforepaste prevented) only when there is something to do', () => {
+    const { c } = makeControls();
+    const { unmount } = render(<><input aria-label="field" /><DrawingToolbar controls={c} ticker="AAPL" /></>);
+    const before = (type: 'beforecopy' | 'beforepaste', target: Element = document.body) =>
+      target.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
+    expect(before('beforecopy')).toBe(false);
+    expect(before('beforepaste')).toBe(false);
+    expect(before('beforecopy', screen.getByLabelText('field'))).toBe(true);
+    expect(before('beforepaste', screen.getByLabelText('field'))).toBe(true);
+    c.getSelectedDrawing.mockReturnValue(null);
+    c.canPaste.mockReturnValue(false);
+    expect(before('beforecopy')).toBe(true);
+    expect(before('beforepaste')).toBe(true);
+    // Nothing happened: only a query.
+    expect(c.copySelected).not.toHaveBeenCalled();
+    expect(c.pasteDrawing).not.toHaveBeenCalled();
+    unmount();
+    c.getSelectedDrawing.mockReturnValue({ id: 'ov_1' });
+    c.canPaste.mockReturnValue(true);
+    render(<DrawingToolbar controls={c} ticker="AAPL" disabled />);
+    expect(before('beforepaste')).toBe(true);
+  });
+
+  it('nothing to copy / paste: the event goes ahead untouched', () => {
+    const { c } = makeControls();
+    c.copySelected.mockReturnValue(false);
+    c.pasteDrawing.mockReturnValue(false);
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    expect(fireEvent.copy(document.body)).toBe(true);
+    expect(fireEvent.paste(document.body)).toBe(true);
+  });
+
+  it('left to text fields, editable content, dialogs, popups, modals and selected page text; paste waits while disabled', () => {
+    const { c } = makeControls();
+    const { unmount } = render(
+      <>
+        <input aria-label="field" />
+        <div contentEditable aria-label="editable" />
+        <div role="dialog" aria-label="dlg"><span tabIndex={0}>in dialog</span></div>
+        <div role="menu"><span>menu item</span></div>
+        <p>Some text</p>
+        <DrawingToolbar controls={c} ticker="AAPL" />
+      </>,
+    );
+    for (const t of [screen.getByLabelText('field'), screen.getByLabelText('editable'), screen.getByText('in dialog'), screen.getByText('menu item')]) {
+      expect(fireEvent.copy(t), t.outerHTML).toBe(true);
+      expect(fireEvent.paste(t), t.outerHTML).toBe(true);
+    }
+    document.getSelection()!.selectAllChildren(screen.getByText('Some text'));
+    try {
+      expect(fireEvent.copy(document.body)).toBe(true);
+    } finally {
+      document.getSelection()!.removeAllRanges();
+    }
+    expect(c.copySelected).not.toHaveBeenCalled();
+    expect(c.pasteDrawing).not.toHaveBeenCalled();
+    unmount();
+
+    const modal = render(<><div aria-modal="true" role="dialog" aria-label="modal" /><DrawingToolbar controls={c} ticker="AAPL" /></>);
+    fireEvent.copy(document.body);
+    fireEvent.paste(document.body);
+    modal.unmount();
+    render(<DrawingToolbar controls={c} ticker="AAPL" disabled />);
+    expect(fireEvent.paste(document.body)).toBe(true);
+    expect(c.copySelected).not.toHaveBeenCalled();
+    expect(c.pasteDrawing).not.toHaveBeenCalled();
   });
 });

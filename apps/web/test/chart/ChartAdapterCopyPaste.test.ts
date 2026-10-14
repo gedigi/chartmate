@@ -171,6 +171,7 @@ describe('ChartAdapter copy / paste of drawings', () => {
     const a = await loadAt(BTC, '1D');
     a.restoreDrawings([segment], BTC.id);
     expect(a.copySelected()).toBe(false);
+    expect(a.canPaste()).toBe(false);
     expect(a.pasteDrawing()).toBe(false);
     expect(userOverlays()).toHaveLength(1);
   });
@@ -332,7 +333,9 @@ describe('ChartAdapter copy / paste of drawings', () => {
     expect(a.pasteDrawing()).toBe(true);
     expect(onEnd).toHaveBeenCalled();
     expect(userOverlays().map((o) => o.name)).toEqual(['segment', 'segment']);
+    expect(a.canPaste()).toBe(true);
     a.restoreDrawings([segment], 'crypto:OTHER'); // queued until that symbol's data is in
+    expect(a.canPaste()).toBe(false);
     expect(a.pasteDrawing()).toBe(false);
   });
 

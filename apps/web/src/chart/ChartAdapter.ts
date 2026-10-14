@@ -1222,6 +1222,11 @@ export class ChartAdapter {
     return true;
   }
 
+  /** True when pasteDrawing would paste: something was copied and this symbol's drawings and data are in. */
+  canPaste(): boolean {
+    return drawingClipboard.get() !== null && !this.destroyed && this.pendingRestore === null && this.dataSymbol !== null;
+  }
+
   /**
    * Pastes the copied drawing as a new one on the current chart; it is selected and saved (one onDrawingsChange)
    * like a newly drawn drawing: locked only while "Lock all" is on. Placement:
@@ -1239,7 +1244,7 @@ export class ChartAdapter {
    */
   pasteDrawing(): boolean {
     const clip = drawingClipboard.get();
-    if (!clip || this.destroyed || this.pendingRestore !== null || this.dataSymbol === null) return false;
+    if (!clip || !this.canPaste()) return false;
     this.cancelDrawing();
     const bars = this.chart.getDataList();
     const barMs = this.barMs();
