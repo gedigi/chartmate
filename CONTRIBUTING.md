@@ -265,9 +265,10 @@ DATABASE_URL=sqlite:/tmp/chartmate-dev.db CHARTMATE_PROVIDERS=fixture pnpm dev
 ```
 
 Open http://localhost:5173 (restart `pnpm dev` after adding a file), click **Indicators** in the top bar and type
-the name (`PPO`): the picker lists it under its pane. Add it, open its settings (the settings button on its chip) to try the
-params, levels and colors, then switch the theme with the sun / moon button. Look at a few symbols and timeframes,
-including the first bars (the warm-up). Attach a dark and a light screenshot of the chart to the pull request.
+the name (`PPO`): the picker lists it under its pane. Add it, open its settings (the settings button on its chip)
+to try the params, levels and colors, then switch the theme with the sun / moon button. Look at a few symbols and
+timeframes, including the first bars (the warm-up). Attach a dark and a light screenshot of the chart to the pull
+request.
 
 ### 7. Document it
 

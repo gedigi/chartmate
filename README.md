@@ -616,9 +616,9 @@ annotated example that CONTRIBUTING.md walks through. Restart `pnpm dev` (or reb
 'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colors in a `draw`
 callback. Indicator code never hardcodes a color: lines take palette slots (`lineSlots`), and an indicator that
 paints on the canvas itself takes its colors from `indicators/colors.ts` (`activeIndicatorColors()`, read at draw
-time); a test rejects color literals in `src/chart/indicators/`. **License:** these two files (and their tests) are covered by the
-[Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/), not by the project's AGPL-3.0; keep
-their MPL-2.0 headers and attribution when modifying or redistributing them.
+time); a test rejects color literals in `src/chart/indicators/`. **License:** these two files (and their tests)
+are covered by the [Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/), not by the project's AGPL-3.0;
+keep their MPL-2.0 headers and attribution when modifying or redistributing them.
 
 Example: `apps/web/src/chart/indicators/custom/range.ts`
 
