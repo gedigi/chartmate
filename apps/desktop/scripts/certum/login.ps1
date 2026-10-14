@@ -6,8 +6,10 @@
 # community actions use). That is the fragile part: if Certum changes the window, this fails loudly and the build
 # stops; the manual release flow (scripts/sign-win-release.mjs) still works.
 #
-# Inputs (environment): CHARTMATE_CERTUM_USERNAME, CHARTMATE_CERTUM_OTP_URI, CHARTMATE_WIN_PUBLISHER_NAME (required);
-# CHARTMATE_CERTUM_SIMPLYSIGN_VERSION, CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256 (optional). Secrets are never written to the log or disk.
+# Inputs (environment): CHARTMATE_CERTUM_USERNAME, CHARTMATE_CERTUM_OTP_URI, CHARTMATE_WIN_PUBLISHER_NAME,
+# CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256 (required: the installer's SHA-256, recorded by the owner);
+# CHARTMATE_CERTUM_SIMPLYSIGN_VERSION, CHARTMATE_CERTUM_SIMPLYSIGN_SIGNER_SHA1, CHARTMATE_CERTUM_TOTP_ALGORITHM (optional).
+# Secrets are never written to the log or disk. The workflow unsets them as soon as this script returns.
 param([Parameter(Mandatory = $true)][string]$OutFile)
 
 $ErrorActionPreference = 'Stop'
@@ -15,7 +17,7 @@ Set-StrictMode -Version 3
 
 function Log([string]$m) { Write-Host "certum-login: $m" }
 
-foreach ($k in 'CHARTMATE_CERTUM_USERNAME', 'CHARTMATE_CERTUM_OTP_URI', 'CHARTMATE_WIN_PUBLISHER_NAME') {
+foreach ($k in 'CHARTMATE_CERTUM_USERNAME', 'CHARTMATE_CERTUM_OTP_URI', 'CHARTMATE_WIN_PUBLISHER_NAME', 'CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256') {
   if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($k))) { throw "$k is not set" }
 }
 $publisher = $env:CHARTMATE_WIN_PUBLISHER_NAME.Trim()
@@ -23,8 +25,9 @@ $version = if ([string]::IsNullOrWhiteSpace($env:CHARTMATE_CERTUM_SIMPLYSIGN_VER
 if ($version -notmatch '^\d+(\.\d+){1,3}$') { throw "invalid CHARTMATE_CERTUM_SIMPLYSIGN_VERSION" }
 $totpScript = Join-Path $PSScriptRoot 'totp.mjs'
 
-# 1. Download and verify the installer: it must carry a valid Authenticode signature from Asseco Data Systems
-#    (Certum's operator); optionally also a pinned SHA-256.
+# 1. Download and verify the installer: its SHA-256 must equal the pinned value, and it must carry a valid
+#    Authenticode signature (chain built and revocation-checked) whose subject O is exactly Asseco Data Systems S.A.
+#    (Certum's operator); optionally the signer certificate thumbprint is pinned too.
 $msi = Join-Path $env:RUNNER_TEMP "SimplySignDesktop-$version.msi"
 $url = "https://files.certum.eu/software/SimplySignDesktop/Windows/$version/SimplySignDesktop-$version-64-bit-en.msi"
 Log "downloading SimplySign Desktop $version"
@@ -32,13 +35,25 @@ for ($i = 1; ; $i++) {
   try { Invoke-WebRequest -Uri $url -OutFile $msi -UseBasicParsing; break }
   catch { if ($i -ge 3) { throw }; Start-Sleep -Seconds (5 * $i) }
 }
-$sig = Get-AuthenticodeSignature -FilePath $msi
-if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Asseco Data Systems') {
-  throw "SimplySign installer signature is not a valid Asseco Data Systems signature ($($sig.Status): $($sig.SignerCertificate.Subject))"
+$hash = (Get-FileHash -Algorithm SHA256 -Path $msi).Hash
+if ($hash -ne $env:CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256.Trim().ToUpper()) {
+  throw "SimplySign installer SHA-256 mismatch (got $hash): check the installer and update CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256"
 }
-if (-not [string]::IsNullOrWhiteSpace($env:CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256)) {
-  $hash = (Get-FileHash -Algorithm SHA256 -Path $msi).Hash
-  if ($hash -ne $env:CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256.Trim().ToUpper()) { throw "SimplySign installer SHA-256 mismatch ($hash)" }
+$sig = Get-AuthenticodeSignature -FilePath $msi
+if ($sig.Status -ne 'Valid' -or -not $sig.SignerCertificate) { throw "SimplySign installer signature is not valid ($($sig.Status))" }
+$signer = $sig.SignerCertificate
+$org = [regex]::Match($signer.Subject, '(?:^|,\s*)O=("(?:[^"]|"")*"|[^,]*)').Groups[1].Value.Trim('"')
+if ($org -cne 'Asseco Data Systems S.A.') { throw "SimplySign installer is signed by '$($signer.Subject)', expected O=Asseco Data Systems S.A." }
+$chain = New-Object System.Security.Cryptography.X509Certificates.X509Chain
+$chain.ChainPolicy.RevocationMode = 'Online'
+$chain.ChainPolicy.RevocationFlag = 'EntireChain'
+if (-not $chain.Build($signer)) {
+  throw "SimplySign installer signer chain does not verify: $(($chain.ChainStatus | ForEach-Object { $_.StatusInformation.Trim() }) -join '; ')"
+}
+Log "installer signed by $($signer.Subject), issued by $($signer.Issuer)"
+if (-not [string]::IsNullOrWhiteSpace($env:CHARTMATE_CERTUM_SIMPLYSIGN_SIGNER_SHA1) -and
+    $signer.Thumbprint -ne $env:CHARTMATE_CERTUM_SIMPLYSIGN_SIGNER_SHA1.Trim().ToUpper()) {
+  throw "SimplySign installer signer thumbprint $($signer.Thumbprint) does not match CHARTMATE_CERTUM_SIMPLYSIGN_SIGNER_SHA1"
 }
 
 # 2. Install silently.
@@ -61,7 +76,7 @@ function Escape-SendKeys([string]$s) { ($s.ToCharArray() | ForEach-Object { if (
 Add-Type -AssemblyName System.Windows.Forms
 $shell = New-Object -ComObject WScript.Shell
 
-# 3. Log in. At most two attempts: wrong codes must not lock the SimplySign account.
+# 3. Log in. At most two attempts, so a failing login is never retried in a loop.
 $cert = $null
 for ($attempt = 1; $attempt -le 2 -and -not $cert; $attempt++) {
   Get-Process SimplySignDesktop -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -78,7 +93,7 @@ for ($attempt = 1; $attempt -le 2 -and -not $cert; $attempt++) {
   # The code is computed at the last moment, with at least 8 s of validity left.
   $code = (& node $totpScript --min-remaining=8)
   if ($LASTEXITCODE -ne 0 -or $code -notmatch '^\d{6,10}$') { throw 'could not compute the SimplySign one-time code' }
-  [void]$shell.AppActivate($proc.Id)
+  if (-not ($shell.AppActivate($proc.Id) -or $shell.AppActivate('SimplySign Desktop'))) { throw 'SimplySign Desktop lost focus before the one-time code could be typed' }
   [System.Windows.Forms.SendKeys]::SendWait($code)
   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
   $code = $null
