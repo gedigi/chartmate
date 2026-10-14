@@ -2,7 +2,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  createIndicator, CUSTOM_DIR, INDICATORS_DIR, indicatorSpec, takenNames, TEST_DIR, testSource,
+  createIndicator, CUSTOM_DIR, INDICATORS_DIR, indicatorSpec, parseArgs, takenNames, TEST_DIR, testSource,
 } from '../../../../scripts/new-indicator.mjs';
 import { CATALOG } from '../../src/chart/indicators/catalog';
 import { customIndicatorProblem } from '../../src/chart/indicators/extensions';
@@ -25,6 +25,22 @@ describe('indicatorSpec', () => {
 
   it('rejects an unknown pane', () => {
     expect(() => indicatorSpec('Foo', 'left')).toThrow(/invalid pane/);
+  });
+});
+
+describe('parseArgs', () => {
+  it('reads the name and the pane (default sub)', () => {
+    expect(parseArgs(['Foo'])).toEqual({ name: 'Foo', pane: 'sub' });
+    expect(parseArgs(['Foo', '--pane', 'main'])).toEqual({ name: 'Foo', pane: 'main' });
+    expect(parseArgs(['--pane=main', 'Foo'])).toEqual({ name: 'Foo', pane: 'main' });
+  });
+
+  it.each([[['Foo', '--pane']], [['Foo', '--pane=']], [['--pane', '--x', 'Foo']]])('rejects a --pane without a value: %j', (argv) => {
+    expect(() => parseArgs(argv)).toThrow(/--pane needs a value/);
+  });
+
+  it.each([[[]], [['Foo', 'Bar']], [['--help']]])('rejects other argument lists with the usage: %j', (argv) => {
+    expect(() => parseArgs(argv)).toThrow(/usage: pnpm new:indicator/);
   });
 });
 

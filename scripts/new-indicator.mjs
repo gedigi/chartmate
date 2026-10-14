@@ -33,7 +33,12 @@ export function indicatorSpec(name, pane = 'sub') {
   return { id, templateName: name.toUpperCase(), label, calcName: `calc${pascal}`, pane };
 }
 
-/** Template names already taken (built-ins in catalog.ts and every module in custom/), upper-cased. */
+/**
+ * Template names already taken (built-ins in catalog.ts and every module in custom/), upper-cased. A plain text scan,
+ * not a parse: it only sees `name: '...'` with single quotes (the repo's style; a double-quoted or computed name is
+ * missed), and it may over-match other `name:` keys in those files, which only makes the scaffold refuse a few more
+ * names. The test in apps/web/test/scaffold/ checks that it finds every indicator in the picker.
+ */
 export function takenNames(root) {
   const sources = [join(root, INDICATORS_DIR, 'catalog.ts')];
   const customDir = join(root, CUSTOM_DIR);
@@ -159,21 +164,34 @@ export function createIndicator(name, { root, pane = 'sub' }) {
   return files.map(([path]) => path);
 }
 
-function main(argv) {
+const USAGE = 'usage: pnpm new:indicator <Name> [--pane sub|main]   e.g. pnpm new:indicator KeltnerChannels';
+
+/** `{ name, pane }` from the CLI arguments, or an Error (a `--pane` without a value is an error, not the default). */
+export function parseArgs(argv) {
   const args = [...argv];
   let pane = 'sub';
   const paneAt = args.findIndex((a) => a === '--pane' || a.startsWith('--pane='));
   if (paneAt >= 0) {
     const [flag] = args.splice(paneAt, 1);
-    pane = flag.includes('=') ? flag.slice('--pane='.length) : args.splice(paneAt, 1)[0];
+    const value = flag.includes('=') ? flag.slice('--pane='.length) : args.splice(paneAt, 1)[0];
+    if (value === undefined || value === '' || value.startsWith('-')) throw new Error(`--pane needs a value (sub or main)\n${USAGE}`);
+    pane = value;
   }
-  if (args.length !== 1 || args[0].startsWith('-')) {
-    console.error('usage: pnpm new:indicator <Name> [--pane sub|main]   e.g. pnpm new:indicator KeltnerChannels');
+  if (args.length !== 1 || args[0].startsWith('-')) throw new Error(USAGE);
+  return { name: args[0], pane };
+}
+
+function main(argv) {
+  let parsed;
+  try {
+    parsed = parseArgs(argv);
+  } catch (e) {
+    console.error(`new:indicator: ${e instanceof Error ? e.message : e}`);
     return 1;
   }
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
   try {
-    const written = createIndicator(args[0], { root, pane });
+    const written = createIndicator(parsed.name, { root, pane: parsed.pane });
     for (const p of written) console.log(`created ${p}`);
     const testPath = relative(join(root, 'apps/web'), join(root, written[1]));
     console.log(`\nNext: write the calculation and its test, then run\n  pnpm --filter @chartmate/web exec vitest run ${testPath}\n` +
