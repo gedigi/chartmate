@@ -9,7 +9,8 @@
 // - pkcs11 (macOS/Linux): osslsigncode + an OpenSSL PKCS#11 provider + the SimplySign PKCS#11 module
 //   (CHARTMATE_WIN_PKCS11_MODULE). SimplySign Desktop must be logged in (the owner types the one-time code).
 // Every signature is SHA-256 with an RFC 3161 timestamp from Certum. Nothing secret is passed on a command line: an
-// optional card PIN (CHARTMATE_WIN_PKCS11_PIN, set in-process by scripts/sign-win-release.mjs) goes through stdin.
+// optional card PIN (CHARTMATE_WIN_PKCS11_PIN, set in-process by scripts/sign-win-release.mjs) reaches libp11's
+// provider as PKCS11_PIN in osslsigncode's environment only (osslsigncode's -pass/-readpass do not reach a provider).
 const { spawnSync } = require('node:child_process');
 const { appendFileSync, existsSync, renameSync, rmSync, readdirSync } = require('node:fs');
 const { basename, dirname, join } = require('node:path');
@@ -64,14 +65,13 @@ function osslsigncodePlan(env, host) {
     '-pkcs11cert', value(env, 'CHARTMATE_WIN_PKCS11_CERT') ?? DEFAULT_PKCS11_CERT,
     '-key', value(env, 'CHARTMATE_WIN_PKCS11_KEY') ?? DEFAULT_PKCS11_KEY,
     ...(chain ? ['-ac', chain] : []),
-    ...(pin ? ['-readpass', '-'] : []),
     '-h', 'sha256', ...(host.description ? ['-n', host.description] : []), '-ts', CERTUM_TIMESTAMP_URL,
     '-in', host.file, '-out', host.out];
   const useArch = arch && host.hostPlatform === 'darwin' && arch !== host.hostArch;
   return {
     command: useArch ? '/usr/bin/arch' : osslsigncode,
     args: useArch ? [`-${arch}`, osslsigncode, ...args] : args,
-    input: pin ? `${pin}\n` : undefined,
+    env: pin ? { PKCS11_PIN: pin } : {},
   };
 }
 
@@ -101,8 +101,8 @@ function moduleArchs(module) {
   return r.status === 0 ? r.stdout.trim().split(/\s+/) : null;
 }
 
-function run(command, args, input) {
-  const r = spawnSync(command, args, { input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+function run(command, args, extraEnv = {}) {
+  const r = spawnSync(command, args, { env: { ...process.env, ...extraEnv }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   return { ok: r.status === 0, output: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? String(r.error) : ''}` };
 }
 
@@ -129,7 +129,7 @@ async function signFile(file, opts = {}) {
         moduleArchs: moduleArchs(env.CHARTMATE_WIN_PKCS11_MODULE.trim()), exists: existsSync,
       });
       rmSync(tmp, { force: true });
-      result = run(plan.command, plan.args, plan.input);
+      result = run(plan.command, plan.args, { ...plan.env });
       if (result.ok) renameSync(tmp, file);
       else rmSync(tmp, { force: true });
     } else {

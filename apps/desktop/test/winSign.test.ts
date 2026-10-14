@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
-type Plan = { command: string; args: string[]; input?: string };
+type Plan = { command: string; args: string[]; env: Record<string, string> };
 type Host = { file: string; out: string; description?: string; hostPlatform: string; hostArch: string; moduleArchs: string[] | null; exists: (p: string) => boolean };
 const { signtoolArgs, osslsigncodePlan, isTransient, signFile } = require('../build/win-sign.cjs') as {
   signtoolArgs: (o: { thumbprint?: string; file: string; description?: string }) => string[];
@@ -45,15 +45,12 @@ describe('osslsigncode + PKCS#11 backend', () => {
     expect(after(p.args, '-ts')).toBe('http://time.certum.pl');
     expect(after(p.args, '-in')).toBe('/r/Chartmate.exe');
     expect(after(p.args, '-out')).toBe('/r/.Chartmate.exe.signed');
-    expect(p.input).toBeUndefined();
-    expect(p.args).not.toContain('-readpass');
+    expect(p.env).toEqual({});
   });
 
-  it('a PIN goes through stdin, never onto the command line', () => {
+  it('a PIN goes to the PKCS#11 provider through the child environment, never onto the command line', () => {
     const p = osslsigncodePlan({ ...env, CHARTMATE_WIN_PKCS11_PIN: '123456' }, host());
-    expect(p.args).toContain('-readpass');
-    expect(after(p.args, '-readpass')).toBe('-');
-    expect(p.input).toBe('123456\n');
+    expect(p.env).toEqual({ PKCS11_PIN: '123456' });
     expect(p.args.join(' ')).not.toContain('123456');
   });
 
@@ -96,7 +93,7 @@ describe('retry policy', () => {
 describe('signFile guards', () => {
   it('refuses to run without a Certum configuration, or in CI mode before the login exported a thumbprint', async () => {
     await expect(signFile('/nope.exe', { env: {} })).rejects.toThrow(/not configured/);
-    await expect(signFile('/nope.exe', { env: { CHARTMATE_WIN_PUBLISHER_NAME: 'x', CERTUM_USERNAME: 'u', CERTUM_OTP_URI: 'otpauth://x' } }))
+    await expect(signFile('/nope.exe', { env: { CHARTMATE_WIN_PUBLISHER_NAME: 'x', CHARTMATE_CERTUM_USERNAME: 'u', CHARTMATE_CERTUM_OTP_URI: 'otpauth://x' } }))
       .rejects.toThrow(/login\.ps1/);
   });
 });
