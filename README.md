@@ -49,50 +49,51 @@ your computer (see [Data location](#data-location)).
 ## Self-host
 
 Run Chartmate on your own server and use it from any browser. Every release publishes a Docker image for
-`linux/amd64` and `linux/arm64` to this repository's GitHub Container Registry package,
-`ghcr.io/<owner>/<repo>` in lowercase (see **Packages** on the repository page). Tags: `X.Y.Z`, `X.Y`, `X`
-and `latest`; a pre-release only gets its full version (`X.Y.Z-beta.1`). Pulling needs no login once the
-package is public (a new package starts out private until a maintainer changes its visibility; meanwhile,
-`docker login ghcr.io` with a personal access token (classic) that has the `read:packages` scope).
+`linux/amd64` and `linux/arm64` to GitHub Container Registry as `ghcr.io/gedigi/chartmate`. Tags: `X.Y.Z`,
+`X.Y`, `X` and `latest`; a pre-release only gets its full version (`X.Y.Z-beta.1`).
 
-### Quick start (Docker Compose)
+### Quick try
 
-Put [`compose.yaml`](compose.yaml) and [`.env.example`](.env.example) in a directory, then:
+One line, no files:
 
 ```sh
-cp .env.example .env   # set CHARTMATE_IMAGE, e.g. ghcr.io/<owner>/<repo>:latest
+docker run -d --name chartmate -p 127.0.0.1:8787:8787 -v chartmate-data:/data ghcr.io/gedigi/chartmate
+```
+
+Open http://localhost:8787. If port 8787 is already taken (for example by `pnpm dev`), use another host port,
+such as `-p 127.0.0.1:8788:8787`, and open that one. Your data lives in the `chartmate-data` volume. Remove
+the container with `docker rm -f chartmate` (the volume, and your data, stays until you delete it with
+`docker volume rm chartmate-data`).
+
+### Recommended install (Docker Compose)
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/gedigi/chartmate/main/compose.yaml
 docker compose up -d
 ```
 
 Open http://localhost:8787. `docker compose ps` shows the container as `healthy` once it is up.
 
+This is the same image with the hardening on (read-only root filesystem, a tmpfs on `/tmp`, no Linux
+capabilities, `no-new-privileges`), a restart policy (`unless-stopped`) and a healthcheck. No `.env` is
+needed. Create one only to set a password, change the port or use Postgres; fetch the annotated template the
+same way and edit it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/gedigi/chartmate/main/.env.example -o .env
+```
+
 - Data lives in the `chartmate-data` volume (SQLite at `/data/chartmate.db`).
 - The port is published on `127.0.0.1` only. To reach it from other machines, set `CHARTMATE_BIND=0.0.0.0`
   in `.env`, and set a password (see [Security](#security)). Ports Docker publishes bypass host firewalls
   such as ufw, so `0.0.0.0` really is every interface. `CHARTMATE_PORT` changes the host port.
-- The container runs as a non-root user with a read-only root filesystem, no Linux capabilities and
-  `no-new-privileges`. It writes only to `/data`, plus SQLite's temporary files (large sorts, `VACUUM`) to a
-  tmpfs on `/tmp`.
-- To run your own build instead: `docker build -t chartmate:local .` and `CHARTMATE_IMAGE=chartmate:local`.
-
-### Plain `docker run`
-
-```sh
-docker run -d --name chartmate --restart unless-stopped --read-only --tmpfs /tmp \
-  --cap-drop ALL --security-opt no-new-privileges:true \
-  -p 127.0.0.1:8787:8787 -v chartmate-data:/data ghcr.io/<owner>/<repo>:latest
-```
-
-The image sets `HOST=0.0.0.0` so the published port is reachable, runs as the `node` user (uid/gid 1000)
-and has a built-in healthcheck on `/api/health` (it honors `PORT`). With `--read-only`, always add
-`--tmpfs /tmp`: without it, queries that spill to SQLite temporary files fail. A named volume just works; a
-bind-mounted host directory must be writable by uid 1000:
-
-```sh
-mkdir -p ./chartmate-data && sudo chown 1000:1000 ./chartmate-data
-docker run -d --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
-  -p 127.0.0.1:8787:8787 -v "$PWD/chartmate-data:/data" ghcr.io/<owner>/<repo>:latest
-```
+- The container runs as a non-root user and writes only to `/data`, plus SQLite's temporary files (large
+  sorts, `VACUUM`) to the `/tmp` tmpfs.
+- `CHARTMATE_IMAGE` overrides the image: pin a version (`ghcr.io/gedigi/chartmate:1.2.0`) or run your own
+  build (`docker build -t chartmate:local .`, then `CHARTMATE_IMAGE=chartmate:local`).
+- If the pull is denied, the package may not be public yet (a new package starts out private until a
+  maintainer changes its visibility); until then use `docker login ghcr.io` with a personal access token
+  (classic) that has the `read:packages` scope.
 
 ### Upgrading
 
@@ -100,9 +101,12 @@ docker run -d --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-priv
 docker compose pull && docker compose up -d
 ```
 
+For the quick-try container: `docker pull ghcr.io/gedigi/chartmate && docker rm -f chartmate`, then run the
+same `docker run` line again (the volume keeps your data).
+
 Database migrations run at startup, and data saved by older versions stays loadable. To upgrade on your own
-schedule, pin a version (`ghcr.io/<owner>/<repo>:1.2.0`) instead of `latest`, and take a backup first.
-`docker stop` (SIGTERM) shuts the server down cleanly.
+schedule, pin a version (`CHARTMATE_IMAGE=ghcr.io/gedigi/chartmate:1.2.0` in `.env`) instead of `latest`, and
+take a backup first. `docker stop` (SIGTERM) shuts the server down cleanly.
 
 ### Backups
 
@@ -131,7 +135,7 @@ docker compose start chartmate
 
 ### Postgres
 
-In `.env`, set `POSTGRES_PASSWORD` and uncomment `DATABASE_URL` and `COMPOSE_PROFILES=postgres` (all three
+In `.env` (see above), set `POSTGRES_PASSWORD` and uncomment `DATABASE_URL` and `COMPOSE_PROFILES=postgres` (all three
 are in `.env.example`), then `docker compose up -d`. This starts the `postgres` service with its own volume and
 points Chartmate at it. Data is not copied over from SQLite. Any other Postgres works too: set
 `DATABASE_URL=postgres://user:pass@host:5432/chartmate`.
@@ -162,8 +166,29 @@ chartmate.example.com {
 - The session cookie lasts 30 days. Changing `CHARTMATE_SESSION_SECRET` (or the password, if the secret
   is derived from it) revokes all existing sessions.
 - Images of a public repository carry a signed build provenance attestation:
-  `gh attestation verify oci://ghcr.io/<owner>/<repo>:<version> --repo <owner>/<repo>`. Every image also
+  `gh attestation verify oci://ghcr.io/gedigi/chartmate:<version> --repo gedigi/chartmate`. Every image also
   carries BuildKit provenance and an SPDX SBOM (`docker buildx imagetools inspect <image> --format '{{json .SBOM}}'`).
+
+### Advanced: hardened `docker run`
+
+The Compose file's hardening as a single command:
+
+```sh
+docker run -d --name chartmate --restart unless-stopped --read-only --tmpfs /tmp \
+  --cap-drop ALL --security-opt no-new-privileges:true \
+  -p 127.0.0.1:8787:8787 -v chartmate-data:/data ghcr.io/gedigi/chartmate:latest
+```
+
+The image sets `HOST=0.0.0.0` so the published port is reachable, runs as the `node` user (uid/gid 1000)
+and has a built-in healthcheck on `/api/health` (it honors `PORT`). With `--read-only`, always add
+`--tmpfs /tmp`: without it, queries that spill to SQLite temporary files fail. A named volume just works; a
+bind-mounted host directory must be writable by uid 1000:
+
+```sh
+mkdir -p ./chartmate-data && sudo chown 1000:1000 ./chartmate-data
+docker run -d --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+  -p 127.0.0.1:8787:8787 -v "$PWD/chartmate-data:/data" ghcr.io/gedigi/chartmate:latest
+```
 
 ### Without Docker
 
