@@ -154,7 +154,8 @@ Without Docker, see [Production, locally](#production-locally).
 
 Monorepo (pnpm): `packages/shared` (types, resampling, basket math), `apps/server` (Fastify API),
 `apps/web` (React + KLineChart), `apps/desktop` (Electron app, see [Desktop app](#desktop-app)) and `e2e`
-(Playwright). Contributors and coding agents: see [AGENTS.md](AGENTS.md).
+(Playwright). Contributors: see [CONTRIBUTING.md](CONTRIBUTING.md); for the code itself (and coding agents),
+[AGENTS.md](AGENTS.md).
 
 ## Quick start (development)
 
@@ -577,6 +578,11 @@ corrected history.
 
 ## Custom indicators
 
+To add one, run `pnpm new:indicator <Name>` (add `--pane main` for an overlay on the candles): it creates
+`apps/web/src/chart/indicators/custom/<name>.ts` and a matching test in `apps/web/test/indicators/`, wired to the
+palette, and refuses names already in the picker or files that exist. [CONTRIBUTING.md](CONTRIBUTING.md#add-an-indicator)
+walks through the rest (calculation, catalog fields, colors, screenshots); this section is the reference.
+
 Every file in `apps/web/src/chart/indicators/custom/*.ts` is a custom indicator. Each one must
 `export default` an object `{ template, catalog }` (type `CustomIndicator` from
 `apps/web/src/chart/indicators/types.ts`):
@@ -607,9 +613,9 @@ examples. Restart `pnpm dev` (or rebuild) after adding a file.
 
 `custom/wyckoff.ts` (with its calculation in `wyckoffCalc.ts`) is a port of the Pine Script indicator
 'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colors in a `draw`
-callback. A custom indicator that paints on the canvas itself should take its colors from
-`indicators/colors.ts` (`activeIndicatorColors()`, read at draw time) rather than hardcoding them; a test
-rejects color literals in `src/chart/indicators/`. **License:** these two files (and their tests) are covered by the
+callback. Indicator code never hardcodes a color: lines take palette slots (`lineSlots`), and an indicator that
+paints on the canvas itself takes its colors from `indicators/colors.ts` (`activeIndicatorColors()`, read at draw
+time); a test rejects color literals in `src/chart/indicators/`. **License:** these two files (and their tests) are covered by the
 [Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/), not by the project's AGPL-3.0; keep
 their MPL-2.0 headers and attribution when modifying or redistributing them.
 
@@ -752,8 +758,9 @@ locally with `SMOKE_ALLOW_REAL_USERDATA=1`.
 ### CI and releases
 
 `.github/workflows/ci.yml` runs `pnpm audit` (any known vulnerability, in a runtime or build-time dependency,
-fails the build), typecheck, tests, the web build, e2e and the Docker build on pull requests and on pushes to
-`main`. Dependabot opens weekly update pull requests for npm packages, the pinned actions and the Docker base
+fails the build), typecheck, tests, an indicator scaffold check (`pnpm new:indicator`, then typecheck and the
+indicator tests), the web build, e2e and the Docker build on pull requests and on pushes to `main`, and checks the
+DCO sign-off of every pull request commit (`scripts/check-dco.sh`, see [CONTRIBUTING.md](CONTRIBUTING.md)). Dependabot opens weekly update pull requests for npm packages, the pinned actions and the Docker base
 image.
 `.github/workflows/desktop.yml` runs on tags `v*` and on manual dispatch:
 

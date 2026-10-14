@@ -1,6 +1,7 @@
 # Agent guide
 
 How to work on Chartmate. `README.md` is the user-facing reference (features, configuration, desktop app);
+`CONTRIBUTING.md` is the contributor's checklist (setup, checks, DCO sign-off, adding an indicator);
 this file is for whoever changes the code. Keep both accurate: a change that alters behavior, a command, an
 env var or a default updates the README in the same commit.
 
@@ -69,6 +70,7 @@ or an unpackaged smoke run, fetch it once with `node apps/desktop/node_modules/e
 | Docker image | `docker build -t chartmate .` |
 | Docker image smoke test (read-only rootfs + tmpfs, healthcheck, API, UI, SQLite temp files, SIGTERM) | `scripts/docker-smoke.sh chartmate` (another arch: `--platform linux/arm64`) |
 | Re-record provider fixtures (network) | `pnpm --filter @chartmate/server exec tsx scripts/record-fixtures.ts` |
+| Scaffold a custom indicator + its test (see `CONTRIBUTING.md`) | `pnpm new:indicator <Name> [--pane main]` |
 
 Desktop (`apps/desktop`; `pnpm --filter @chartmate/desktop <script>`):
 
@@ -124,6 +126,8 @@ and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by defa
   AGPL-3.0 (MIT, BSD, ISC, Apache-2.0, MPL-2.0 and similar).
 - Never hardcode the GitHub repository URL or owner: use relative links in docs and
   `github.repository` / `GITHUB_REPOSITORY` in workflows and build config.
+- Custom indicators: one file in `apps/web/src/chart/indicators/custom/` (start from `pnpm new:indicator`), colors
+  only through palette slots (`lineSlots`) or `activeIndicatorColors()`; a test rejects color literals there.
 - Commits: small and logical, conventional style as in `git log`: `feat(web): …`, `fix(desktop): …`,
   `docs: …`, `test(shared): …`, `refactor: …`, `style: …`, `ci: …`, `chore: …`; lowercase summary saying
   what changed.
@@ -162,8 +166,9 @@ The renderer is untrusted web content. Read the README's "Security model" before
   QEMU), then pushes the multi-arch self-hosting image (`linux/amd64`, `linux/arm64`) to
   `ghcr.io/<owner>/<repo>` (from `github.repository`, lowercased) as `X.Y.Z`, `X.Y`, `X` and `latest`
   (pre-releases: `X.Y.Z-suffix` only), with provenance and SBOM attestations. Manual dispatch never publishes. `compose.yaml` + `.env.example` at the root are the documented way to run it.
-- `.github/workflows/ci.yml` runs `pnpm audit`, typecheck, tests, the web build, e2e and the Docker build on
-  pull requests and pushes to `main`; the release workflow audits too. Dependabot (`.github/dependabot.yml`)
+- `.github/workflows/ci.yml` runs `pnpm audit`, typecheck, tests, the indicator scaffold check, the web build, e2e
+  and the Docker build on pull requests and pushes to `main`, plus the DCO sign-off check (`scripts/check-dco.sh`)
+  on pull requests; the release workflow audits too. Dependabot (`.github/dependabot.yml`)
   opens weekly update PRs for npm packages, the pinned actions and the digest-pinned Docker base image.
 
 ## Specs and plans
