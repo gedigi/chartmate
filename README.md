@@ -1,9 +1,39 @@
 # Chartmate
 
-A single-user charting app for macOS, Windows or your own server: candlestick charts for stocks and crypto,
-indicators, drawing tools, watchlists, and custom **baskets** (weighted synthetic instruments).
-Free data sources only (Yahoo Finance for stocks, Binance or Coinbase for crypto), cached in
-SQLite or Postgres.
+A beautiful charting app for stocks, crypto and custom baskets. Candlestick charts with pre- and post-market
+data, indicators, drawing tools, a watchlist with sections, and **baskets**: your own weighted indices, charted
+like any symbol. It uses free market data (Yahoo Finance for stocks, Binance or Coinbase for crypto) and keeps
+everything on your machine.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/chartmate-dark.png">
+  <img alt="Chartmate showing a daily candlestick chart with volume, MACD and RSI panes, a long position and the watchlist" src="docs/images/chartmate-light.png">
+</picture>
+
+## Download
+
+Get the latest version from [Releases](../../releases/latest):
+
+| System | File |
+| --- | --- |
+| macOS, Apple silicon | `Chartmate-<version>-mac-arm64.dmg` |
+| macOS, Intel | `Chartmate-<version>-mac-x64.dmg` |
+| Windows, x64 | `Chartmate-<version>-win-x64.exe` |
+| Windows, Arm | `Chartmate-<version>-win-arm64.exe` |
+
+Each release's notes say whether its builds are code-signed. On Windows, an unsigned installer shows a
+SmartScreen warning: choose **More info**, then **Run anyway**. On macOS, an unsigned app has to be opened the
+first time with right-click, then **Open**.
+
+The desktop app needs no account and no server: your charts, drawings, watchlist and baskets are stored on
+your computer (see [Data location](#data-location)).
+
+## Self-host
+
+Run it on your own server and use it from any browser: see [Docker](#docker) and
+[Production, locally](#production-locally). An optional password protects a hosted instance.
+
+## Develop
 
 Monorepo (pnpm): `packages/shared` (types, resampling, basket math), `apps/server` (Fastify API),
 `apps/web` (React + KLineChart), `apps/desktop` (Electron app, see [Desktop app](#desktop-app)) and `e2e`

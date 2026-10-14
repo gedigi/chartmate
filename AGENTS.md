@@ -104,6 +104,8 @@ and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by defa
 
 - American English everywhere: code, comments, UI strings, docs, commit messages.
 - Sentence case for UI labels and headings; no ALL-CAPS labels.
+- Describe Chartmate on its own terms: never name or compare to other charting products in docs, code
+  comments, UI copy, commit messages or release notes.
 - `packages/shared`, `apps/server` and `apps/desktop` are NodeNext ESM: relative imports end in `.js`.
   `apps/web` uses bundler resolution (no extension).
 - Persisted data stays loadable. Layouts, drawings, watchlists and baskets saved by older versions must still
