@@ -17,7 +17,7 @@ import {
   type ExtendOptions, type LabelOptions,
 } from './drawingTemplates';
 import {
-  DEFAULT_WIDTH_BARS, defaultGeometry, endAfterBars, fromPositionPoints, nextBarTime, shiftByBars, sideOf,
+  barIndex, barTime, DEFAULT_WIDTH_BARS, defaultGeometry, endAfterBars, fromPositionPoints, nextBarTime, shiftByBars, sideOf,
   toPositionPoints, validatePrices, type OutcomeBar, type PositionMetrics, type PositionOutcome, type PositionSide,
 } from './position';
 import { positionContext, positionState, registerPositionOverlays } from './positionOverlay';
@@ -62,6 +62,18 @@ export const MAX_HISTORY_PAGES = 40;
 
 /** Most decimals a typed price keeps (crypto quotes can be finer than the symbol precision). */
 export const MAX_PRICE_DECIMALS = 8;
+
+/** A pasted drawing that would cover an identical one is moved this many bars to the right (repeated as needed). */
+export const PASTE_OFFSET_BARS = 5;
+/** A pasted horizontal line that would cover an identical one is moved up by this share of the visible price range. */
+export const PASTE_OFFSET_PRICE_SHARE = 0.05;
+
+/** A copied drawing (in-app clipboard): what is pasted, never its id or its own lock. */
+interface DrawingClip {
+  name: string; points: Point[]; text?: string; styles?: DrawingState['styles'];
+  /** Bar index of each point relative to the earliest one, on the chart it was copied from. */
+  barOffsets: number[];
+}
 
 /**
  * Lock state of the selected drawing: `locked` is the effective lock ("Lock all drawings" or its own lock: read-only,
@@ -1176,6 +1188,129 @@ export class ChartAdapter {
     }
     this.chart.removeOverlay({ id }); // onRemoved clears the selection and fires the change
     return true;
+  }
+
+  // ── copy / paste (in-app clipboard; the system clipboard is never touched) ──
+
+  private clip: DrawingClip | null = null;
+
+  /** The chart's bar duration (the timeframe's; a day before the first load). */
+  private barMs(): number {
+    return this.tf ? tfMs(this.tf) : 86_400_000;
+  }
+
+  /**
+   * Copies the selected drawing (locked or not) to the in-app clipboard: its name, points as shown, text, styles and
+   * options; not its id or lock. False when nothing is selected.
+   */
+  copySelected(): boolean {
+    const id = this.selectedId;
+    if (!id || id === this.drawing?.id) return false;
+    const o = this.userOverlays().find((x) => x.id === id);
+    const points = o ? completePoints(o) : null;
+    if (!o || !points) return false;
+    const bars = this.chart.getDataList();
+    const barMs = this.barMs();
+    const idx = points.map((p) => (bars.length > 0 ? barIndex(bars, p.timestamp, barMs) : Math.floor(p.timestamp / barMs)));
+    const first = Math.min(...idx);
+    const clip: DrawingClip = { name: o.name, points: points.map((p) => ({ ...p })), barOffsets: idx.map((i) => i - first) };
+    if (typeof o.extendData === 'string') clip.text = o.extendData;
+    const styles = normalizeOverlayStyles(o.name, o.styles);
+    if (styles) clip.styles = structuredClone(styles);
+    this.clip = clip;
+    return true;
+  }
+
+  /**
+   * Pastes the copied drawing as a new one on the current chart, selected and saved like a newly drawn drawing
+   * (daily-anchored on a daily+ stock chart; locked only while "Lock all" is on). Placement:
+   * - same times and prices, so a copy lands where it was copied from, also on another symbol or timeframe;
+   * - outside the loaded data (its time span misses the bars and the space right of them), it keeps its width in
+   *   bars and is centered on the visible range; when its prices miss the visible bars' low…high, they are scaled
+   *   (percentages kept) to center on that range;
+   * - while an identical drawing is in the way (e.g. the original), it moves PASTE_OFFSET_BARS bars to the right
+   *   (horizontal lines: up by PASTE_OFFSET_PRICE_SHARE of the visible price range), so repeated pastes cascade.
+   * The drawing being placed is canceled first. False (nothing pasted) with an empty clipboard or before the
+   * current symbol's drawings and data are in.
+   */
+  pasteDrawing(): boolean {
+    const clip = this.clip;
+    if (!clip || this.destroyed || this.pendingRestore !== null || this.dataSymbol === null) return false;
+    this.cancelDrawing();
+    const bars = this.chart.getDataList();
+    const barMs = this.barMs();
+    let points = clip.points.map((p) => ({ ...p }));
+    const range = this.chart.getVisibleRange?.();
+    if (bars.length > 0 && range) {
+      const last = bars.length - 1;
+      const from = Math.min(Math.max(range.from, 0), last);
+      const to = Math.max(Math.min(range.to, bars.length), from + 1);
+      const times = points.map((p) => p.timestamp);
+      const end = barTime(bars, Math.max(last, range.realTo - 1), barMs);
+      if (Math.max(...times) < bars[0]!.timestamp || Math.min(...times) > end) {
+        const span = Math.max(...clip.barOffsets);
+        const start = Math.round((range.realFrom + range.realTo - 1) / 2 - span / 2);
+        points = points.map((p, i) => ({ ...p, timestamp: barTime(bars, start + clip.barOffsets[i]!, barMs) }));
+      }
+      let low = Infinity;
+      let high = -Infinity;
+      for (let i = from; i < to; i++) {
+        low = Math.min(low, bars[i]!.low);
+        high = Math.max(high, bars[i]!.high);
+      }
+      const values = points.map((p) => p.value);
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      if (low > 0 && Number.isFinite(high) && min > 0 && (max < low || min > high)) {
+        const factor = (low + high) / (min + max);
+        points = points.map((p) => ({ ...p, value: roundPrice(p.value * factor, this.pricePrecision) }));
+      }
+      points = this.clearOfCopies(clip.name, points, low, high);
+    }
+    const create: OverlayCreate = { name: clip.name, points, lock: this.lockAll, mode: this.baseMode(), ...this.handlers };
+    if (clip.text !== undefined) create.extendData = clip.text;
+    const styles = toOverlayStyles(sanitizeDrawingStyles(clip.styles));
+    if (this.lockAll) create.styles = { ...styles, point: this.lockedPoint() };
+    else if (styles) create.styles = styles;
+    const id = this.chart.createOverlay(create);
+    if (typeof id !== 'string') return false;
+    this.anchorAfterEdit(id);
+    this.emitChange();
+    this.selectOverlay(id);
+    if (isPositionTool(clip.name)) this.ensurePositionHistory();
+    return true;
+  }
+
+  /** `points` moved (see pasteDrawing) until no drawing named `name` covers them exactly. */
+  private clearOfCopies(name: string, points: Point[], low: number, high: number): Point[] {
+    const others = this.userOverlays().filter((o) => o.name === name).map(completePoints).filter((p): p is Point[] => p !== null);
+    const flat = name === 'horizontalStraightLine';
+    const covered = (pts: Point[]) => others.some((o) => (flat ? o[0]!.value === pts[0]!.value : samePoints(o, pts)));
+    const bars = this.chart.getDataList();
+    const barMs = this.barMs();
+    const tick = 10 ** -this.pricePrecision;
+    const step = Number.isFinite(high - low) ? Math.max(tick, roundPrice((high - low) * PASTE_OFFSET_PRICE_SHARE, this.pricePrecision)) : tick;
+    let next = points;
+    for (let n = 0; n < 1000 && covered(next); n++) {
+      next = flat
+        ? next.map((p) => ({ ...p, value: roundPrice(p.value + step, this.pricePrecision) }))
+        : next.map((p) => ({ ...p, timestamp: barTime(bars, barIndex(bars, p.timestamp, barMs) + PASTE_OFFSET_BARS, barMs) }));
+    }
+    return next;
+  }
+
+  /** Selects overlay `id` as a click would (its handles show, the style bar opens). */
+  private selectOverlay(id: string): void {
+    const o = this.userOverlays().find((x) => x.id === id) as (Overlay & { paneId?: string }) | undefined;
+    const store = (this.chart as unknown as { getChartStore?: () => { setClickOverlayInfo?: (...a: unknown[]) => void } }).getChartStore?.();
+    try {
+      store?.setClickOverlayInfo?.(
+        { paneId: o?.paneId ?? CANDLE_PANE, overlay: o ?? null, figureType: 'none', figureIndex: -1, figure: null },
+        (x: Overlay) => x.onSelected?.({ chart: this.chart, overlay: x } as Parameters<NonNullable<Overlay['onSelected']>>[0]),
+        (x: Overlay) => x.onDeselected?.({ chart: this.chart, overlay: x } as Parameters<NonNullable<Overlay['onDeselected']>>[0]),
+      );
+    } catch { /* internal API changed: our own state below still selects */ }
+    if (this.selectedId !== id) this.select(id);
   }
 
   /** Magnet (weak) snapping for drawings started from now on. */
