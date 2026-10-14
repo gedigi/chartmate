@@ -1,0 +1,28 @@
+**/node_modules
+**/dist
+# Local SQLite data dirs only (anchored, so source dirs named `data` are still copied).
+/data
+/apps/server/data
+**/*.db
+.git
+.claude
+.superpowers
+test-results
+playwright-report
+.env
+*.md
+!README.md
+.task-*
+# Desktop (Electron) app: not part of the server image
+/apps/desktop
+/assets
+# Not needed to build the image (keeps the build cache stable when they change)
+/.github
+/docs
+/e2e
+/scripts
+# ...except the indicator scaffold (and its types): the web build typechecks its test, which imports it.
+!/scripts/new-indicator.mjs
+!/scripts/new-indicator.d.mts
+compose.yaml
+.env.*

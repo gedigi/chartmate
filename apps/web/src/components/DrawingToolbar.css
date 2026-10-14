@@ -1,0 +1,63 @@
+/* DrawingToolbar: a flat pill floating in the 52px .left-toolbar column of the chart sheet (vertically centered). */
+.left-toolbar { position: relative; min-height: 0; }
+.drawing-toolbar {
+  position: absolute;
+  left: 8px;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  max-height: calc(100% - 16px);
+  display: flex;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.dt-scroll {
+  flex: 1;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 0;
+}
+.dt-scroll::-webkit-scrollbar { display: none; }
+.dt-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  min-height: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.dt-btn:hover:not(:disabled) { background: var(--bg-hover); border-color: transparent; color: var(--text); }
+.dt-btn[aria-pressed='true'], .dt-btn[aria-pressed='true']:hover:not(:disabled) { background: var(--accent-soft); border-color: transparent; color: var(--accent-fg); }
+.dt-btn:disabled { opacity: 0.4; cursor: default; }
+.dt-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.dt-sep { flex: none; width: 18px; height: 1px; margin: 4px 0; background: var(--border-strong); }
+
+.dt-popover {
+  position: absolute;
+  left: 40px;
+  z-index: 20;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px;
+  margin-left: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+}
+.dt-popover input { width: 160px; }
+.dt-popover .dt-ok { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }

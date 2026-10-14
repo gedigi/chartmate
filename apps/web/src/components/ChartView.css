@@ -1,0 +1,248 @@
+/* ChartView: .chart-area = indicator chip strip (in flow) + .chart-stage (canvas host + overlays) */
+.chart-area { display: flex; flex-direction: column; }
+.chart-stage { position: relative; flex: 1; min-height: 0; }
+.chart-host { position: absolute; inset: 0; }
+.chart-init-error { position: absolute; inset: 0; color: var(--error); }
+
+.chart-notice, .chart-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.chart-notice { background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border-strong); }
+
+.chart-toast {
+  position: absolute;
+  top: 8px;
+  right: 72px; /* left of the price axis; the OHLC legend sits top-left */
+  z-index: 6;
+  max-width: min(420px, calc(100% - 96px));
+  background: var(--bg-elevated);
+  color: var(--error);
+  border: 1px solid var(--error);
+  box-shadow: var(--shadow-md);
+}
+
+.chart-notice-dismiss {
+  background: none;
+  border: none;
+  box-shadow: none;
+  min-height: 0;
+  padding: 0 2px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.chart-notice-dismiss:hover { color: var(--text); }
+
+/* Notices, stale badge and the connection banner: bottom-left stack above the x-axis, clear of the OHLC legend. */
+.chart-overlay-bottom-left {
+  position: absolute;
+  bottom: 32px;
+  left: 8px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: min(480px, calc(100% - 80px));
+  pointer-events: none;
+}
+.chart-overlay-bottom-left > * { pointer-events: auto; }
+
+.chart-banner {
+  padding: 5px 10px;
+  box-shadow: var(--shadow-md);
+  border-radius: var(--radius);
+  font-size: 12px;
+  background: var(--bg-elevated);
+  color: var(--error);
+  border: 1px solid var(--error);
+}
+
+/* Opaque: nothing of the previous symbol may show through. */
+.chart-error-panel { position: absolute; inset: 0; z-index: 7; background: var(--bg); color: var(--error); text-align: center; padding: 16px; }
+.chart-error-panel button { color: var(--text); }
+
+.chart-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 4;
+  color: var(--text-muted);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+/* Style bar of the selected drawing (top center of the chart). */
+.drawing-style-bar {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+}
+.drawing-style-bar button, .drawing-style-bar select, .drawing-style-bar input { min-height: 26px; }
+/*
+ * Drawing color: a quiet swatch button (like the lock toggle) opening a small popover of theme palette swatches. The
+ * selected swatch is drawn like a drawing's handle on the chart: a smaller dot inside a ring of its own color.
+ */
+.color-picker { position: relative; display: inline-flex; }
+.drawing-style-bar .color-picker-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+}
+.drawing-style-bar .color-picker-button:hover:not(:disabled),
+.drawing-style-bar .color-picker-button[aria-expanded='true'] { background: var(--bg-hover); border-color: transparent; }
+.color-picker-button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.color-picker-button:disabled { cursor: default; opacity: 0.5; }
+.color-picker-chip {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  /* A hairline keeps a swatch close to the surface color (white on dark, ink on light) visible. */
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--text) 16%, transparent);
+}
+.color-picker-popover {
+  position: absolute;
+  top: calc(100% + 11px);
+  left: -6px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  animation: color-picker-in 110ms ease-out;
+}
+@keyframes color-picker-in { from { opacity: 0; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .color-picker-popover { animation: none; } }
+.color-picker-list { display: flex; flex-direction: column; gap: 4px; }
+.color-picker-row { display: grid; grid-template-columns: repeat(6, 26px); gap: 4px; }
+.color-swatch {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.color-swatch-fill {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--text) 16%, transparent);
+  transition: width 120ms ease-out, height 120ms ease-out;
+}
+.color-swatch:hover .color-swatch-fill { width: 20px; height: 20px; }
+.color-swatch.selected .color-swatch-fill { width: 12px; height: 12px; }
+.color-swatch.selected::before {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+.color-swatch:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { .color-swatch-fill { transition: none; } }
+.drawing-style-bar .color-picker-reset {
+  min-height: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 7px 7px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+}
+.drawing-style-bar .color-picker-reset:hover { background: var(--bg-hover); color: var(--text); }
+.color-picker-reset:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.drawing-style-bar select { height: 26px; }
+.drawing-style-locked { font-size: 12px; color: var(--text-muted); padding: 0 2px; white-space: nowrap; }
+.drawing-style-sep { flex: none; align-self: center; width: 1px; height: 16px; background: var(--border-strong); }
+/* The drawing's own lock: a quiet icon toggle (like the drawing toolbar's buttons), tinted while locked. */
+.drawing-style-bar .drawing-style-lock {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-muted);
+}
+.drawing-style-bar .drawing-style-lock:hover { background: var(--bg-hover); border-color: transparent; color: var(--text); }
+.drawing-style-bar .drawing-style-lock[aria-pressed='true'],
+.drawing-style-bar .drawing-style-lock[aria-pressed='true']:hover { background: var(--accent-soft); border-color: transparent; color: var(--accent-fg); }
+.drawing-style-lock:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.position-lock { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.drawing-style-price { position: relative; display: inline-flex; }
+.drawing-style-toggle { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; white-space: nowrap; cursor: pointer; }
+.drawing-style-price input { width: 110px; height: 26px; font-variant-numeric: tabular-nums; }
+.drawing-style-price input[aria-invalid='true'] { border-color: var(--error); }
+.drawing-style-error {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  white-space: nowrap;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  border: 1px solid var(--error);
+  color: var(--error);
+  box-shadow: var(--shadow-md);
+}
+
+/* Long / short position settings: rows of fields that wrap on narrow charts. */
+.drawing-style-bar.position-bar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  /* Sized to its rows (an absolutely positioned box at left: 50% would otherwise shrink to half the chart). */
+  width: max-content;
+  max-width: calc(100% - 16px);
+  font-size: 12px;
+}
+.position-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.position-bar .drawing-style-price input { width: 92px; }
+.position-bar .position-narrow input { width: 56px; }
+.position-side { font-weight: 600; min-width: 38px; }
+.position-summary { color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.position-outcome { font-variant-numeric: tabular-nums; }
+.position-default { height: 26px; font-size: 12px; white-space: nowrap; }
+.position-field { align-items: center; gap: 3px; }
+.position-caption { color: var(--text-muted); white-space: nowrap; }
+.position-bar .drawing-style-error { z-index: 1; }

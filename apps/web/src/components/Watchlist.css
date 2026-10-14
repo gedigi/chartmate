@@ -1,0 +1,166 @@
+/*
+ * Watchlist ("ticker rail"): flat rows on the panel, hairline separators. Each row: symbol | sparkline | price | change
+ * pill, then the pre / post line (or the name) | the 30-day range gauge. The open symbol has a quiet fill.
+ */
+.watchlist { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 0 8px; gap: 0; }
+.watchlist .panel-title { margin: 0; }
+.watchlist-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 10px 8px 16px; }
+.wl-add-section {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 12px; min-height: 26px; padding: 2px 8px;
+  border-color: transparent; background: transparent; color: var(--text-muted); border-radius: 8px;
+}
+.wl-add-section:hover:not(:disabled) { color: var(--text); border-color: transparent; background: var(--bg-hover); }
+.watchlist > .symbol-search { margin: 0 10px 6px; }
+.watchlist .symbol-search input { width: 100%; height: 30px; border-radius: 9px; background-color: var(--bg); border-color: var(--border); }
+.watchlist-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+
+.watchlist-row { position: relative; font-size: 13px; transition: background-color 120ms var(--ease); }
+.watchlist-row + .watchlist-row::before {
+  content: ''; position: absolute; left: 16px; right: 16px; top: 0; border-top: 1px solid var(--border); pointer-events: none;
+}
+.wl-select {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--wl-spark-w, 52px) 74px 62px;
+  grid-template-rows: 20px 16px;
+  column-gap: 6px;
+  row-gap: 2px;
+  align-items: center;
+  padding: 8px 14px 8px 16px;
+  cursor: pointer;
+}
+.watchlist-row:hover { background: var(--bg-hover); }
+.watchlist-row:hover::before, .watchlist-row:hover + .watchlist-row::before { border-color: transparent; }
+.wl-select:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--focus-ring); }
+/* The open symbol: a quiet fill (flat, no glow, no marker). */
+.watchlist-row.current { background: var(--bg-selected); }
+.watchlist-row.current::before, .watchlist-row.current + .watchlist-row::before { border-color: transparent; }
+.watchlist-row.dragging { opacity: 0.4; }
+.watchlist-row.drag-over, .watchlist-section.drag-over { box-shadow: inset 0 2px 0 var(--accent); }
+.watchlist-row.drag-over-after, .watchlist-section.drag-over-after { box-shadow: inset 0 -2px 0 var(--accent); }
+.watchlist-section.drop-into { box-shadow: inset 0 0 0 1px var(--accent); }
+
+.wl-symbol { grid-column: 1; grid-row: 1; font-weight: 650; letter-spacing: -0.005em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wl-spark { grid-column: 2; grid-row: 1; display: flex; justify-content: center; }
+.wl-price { grid-column: 3; grid-row: 1; justify-self: end; font-weight: 550; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wl-change {
+  grid-column: 4; grid-row: 1; justify-self: end; min-width: 58px; padding: 2px 6px; border-radius: 6px; text-align: right;
+  font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-muted); background: var(--bg-hover);
+}
+.wl-change.up { color: var(--up-fg); background: var(--up-tint); }
+.wl-change.down { color: var(--down-fg); background: var(--down-tint); }
+/* Second line, left: the pre / post-market line ("Pre 231.40 +0.82%") or the name. The slot is on every row. */
+.wl-ext-slot, .wl-name { grid-column: 1 / 3; grid-row: 2; min-width: 0; height: 16px; overflow: hidden; font-size: 11px; line-height: 16px; white-space: nowrap; }
+.wl-name { color: var(--text-muted); text-overflow: ellipsis; }
+.wl-ext { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text); }
+.wl-ext-label { color: var(--text-muted); }
+.wl-ext-change { color: var(--text-muted); }
+.wl-ext-change.up { color: var(--up-fg); }
+.wl-ext-change.down { color: var(--down-fg); }
+.wl-gauge { grid-column: 3 / 5; grid-row: 2; justify-self: end; display: flex; align-items: center; height: 16px; }
+
+/*
+ * The rail is resizable (.right-sidebar is the `sidebar` container). Narrow: the sparkline goes first, then the 30-day
+ * gauge, so the symbol and name keep their room. Wide: more air between the columns; the numbers keep their widths and
+ * the extra space goes to the symbol, the name and the sparkline (sized in Watchlist.tsx, watchlistSparkWidth).
+ */
+@container sidebar (max-width: 289px) {
+  .wl-select { grid-template-columns: minmax(0, 1fr) 74px 62px; }
+  .wl-spark { display: none; }
+  .wl-price { grid-column: 2; }
+  .wl-change { grid-column: 3; }
+  .wl-ext-slot, .wl-name { grid-column: 1 / 2; }
+  .wl-gauge { grid-column: 2 / 4; }
+}
+@container sidebar (max-width: 249px) {
+  .wl-select { padding-inline: 12px 10px; column-gap: 4px; }
+  .watchlist-row + .watchlist-row::before { left: 12px; right: 12px; }
+  .wl-gauge { display: none; }
+  .wl-ext-slot, .wl-name { grid-column: 1 / -1; }
+}
+@container sidebar (min-width: 400px) {
+  .wl-select { grid-template-columns: minmax(0, 1fr) var(--wl-spark-w, 52px) 80px 64px; column-gap: 12px; padding-inline: 18px 16px; }
+  .watchlist-row + .watchlist-row::before { left: 18px; right: 18px; }
+  .watchlist-head { padding-left: 18px; }
+}
+
+.range-gauge, .day-gauge { display: block; overflow: visible; }
+.rg-track { stroke: var(--border-strong); stroke-width: 1; }
+.rg-mark { fill: var(--text-muted); }
+.rg-mark.up { fill: var(--up); }
+.rg-mark.down { fill: var(--down); }
+
+.wl-remove {
+  position: absolute; right: 8px; top: 9px; width: 20px; height: 20px; padding: 0;
+  min-height: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-elevated); color: var(--text-muted);
+  cursor: pointer; opacity: 0; line-height: 1;
+}
+.watchlist-row:hover .wl-remove, .watchlist-row:focus-within .wl-remove, .wl-remove:focus-visible { opacity: 1; }
+.wl-remove:hover:not(:disabled) { color: var(--down-fg); border-color: var(--down); background: var(--bg-elevated); }
+
+/* Section header rows: chevron, sentence-case title, count on the right. */
+.watchlist-section { position: relative; display: flex; align-items: center; height: 32px; margin-top: 6px; padding: 0 10px 0 8px; }
+.watchlist-section:first-child { margin-top: 0; }
+.watchlist-section.dragging { opacity: 0.4; }
+.wl-section-head { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; margin: 0; font-size: 12.5px; font-weight: 600; color: var(--text); }
+.wl-section-toggle {
+  flex: none; display: flex; align-items: center; justify-content: center; width: 22px; height: 24px; padding: 0;
+  min-height: 0; border: none; border-radius: 6px; background: transparent; color: var(--text-subtle); font: inherit; cursor: pointer;
+}
+.wl-section-toggle:hover, .wl-section-toggle:focus-visible { background: var(--bg-hover); color: var(--text); }
+.wl-section-toggle:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--focus-ring); }
+.wl-chevron { display: block; flex: none; }
+.wl-section-title { flex: 1; min-width: 0; padding: 6px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: none; }
+.wl-section-count { flex: none; margin-left: auto; padding: 0 4px; color: var(--text-subtle); font-weight: 500; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.wl-section-input { width: 100%; font: inherit; font-size: 12.5px; padding: 3px 6px; min-height: 26px; }
+.wl-section-menu {
+  flex: none; width: 22px; height: 22px; min-height: 0; padding: 0; border: none; border-radius: 6px; background: transparent;
+  color: var(--text-muted); cursor: pointer; opacity: 0; line-height: 1;
+}
+.watchlist-section:hover .wl-section-menu, .watchlist-section:focus-within .wl-section-menu,
+.wl-section-menu[aria-expanded='true'] { opacity: 1; }
+.wl-section-menu:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
+.wl-section-popup {
+  position: absolute; right: 8px; top: 100%; z-index: 20; display: flex; flex-direction: column; min-width: 170px;
+  padding: 4px; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--bg-elevated);
+}
+.wl-section-popup [role='menuitem'] {
+  min-height: 0; border: none; background: transparent; text-align: left; padding: 6px 8px; border-radius: 7px; font-size: 13px; font-weight: 400;
+}
+.wl-section-popup [role='menuitem']:hover, .wl-section-popup [role='menuitem']:focus-visible { background: var(--bg-hover); }
+.watchlist-error { color: var(--error); font-size: 12px; padding: 0 16px; }
+.watchlist-empty { color: var(--text-muted); font-size: 12px; padding: 8px 16px; }
+
+/* Symbol detail panel at the bottom of the rail. */
+.symbol-details { flex: none; display: flex; flex-direction: column; gap: 12px; padding: 14px 16px 16px; border-top: 1px solid var(--border); }
+.sd-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.sd-ticker { font: 650 19px/1.1 var(--font-display); letter-spacing: -0.02em; }
+.sd-name { color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sd-status { display: flex; align-items: center; gap: 7px; color: var(--text-muted); font-size: 11.5px; }
+.sd-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-subtle); }
+.sd-dot.live { background: var(--up); }
+.sd-note { margin: 0; color: var(--text-muted); font-size: 12px; }
+.sd-retry { min-height: 22px; padding: 1px 8px; font-size: 12px; border-radius: 6px; }
+.sd-range { display: flex; flex-direction: column; gap: 6px; }
+.sd-range-label { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-muted); }
+.sd-range-label .num { color: var(--text); }
+.sd-range-ends { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--text-subtle); font-variant-numeric: tabular-nums; }
+.day-gauge { width: 100%; height: 15px; }
+.dg-move { fill: var(--text-muted); opacity: 0.6; }
+.dg-move.up { fill: var(--up); }
+.dg-move.down { fill: var(--down); }
+.dg-needle { stroke: var(--text-muted); stroke-width: 1.5; }
+.dg-needle.up { stroke: var(--up); }
+.dg-needle.down { stroke: var(--down); }
+.sd-stats { display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; margin: 0; }
+.sd-stat { display: flex; justify-content: space-between; align-items: baseline; height: 24px; border-bottom: 1px solid var(--border); font-size: 11.5px; color: var(--text-muted); }
+.sd-stat dt { margin: 0; white-space: nowrap; }
+.sd-stat dd { margin: 0; white-space: nowrap; color: var(--text); font-variant-numeric: tabular-nums; }
+@container sidebar (min-width: 440px) {
+  .symbol-details { padding-inline: 18px; }
+  .sd-stats { grid-template-columns: repeat(3, 1fr); column-gap: 24px; }
+}
+/* Narrow: one stat per line, so a label and its value never collide. */
+@container sidebar (max-width: 279px) {
+  .sd-stats { grid-template-columns: 1fr; }
+  .sd-head { flex-wrap: wrap; row-gap: 2px; }
+}

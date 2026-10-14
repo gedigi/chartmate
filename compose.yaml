@@ -1,0 +1,62 @@
+# Chartmate, self-hosted. Copy .env.example to .env, set CHARTMATE_IMAGE (and a password if the port is
+# reachable from other machines), then:
+#
+#   docker compose up -d    # SQLite in the chartmate-data volume
+#
+# Postgres: the optional `postgres` profile adds a Postgres service; enable it and DATABASE_URL in .env (see
+# .env.example), or run `docker compose --profile postgres up -d` with DATABASE_URL set.
+#
+# Upgrade: docker compose pull && docker compose up -d
+name: chartmate
+
+services:
+  chartmate:
+    # The image this repository publishes to GitHub Container Registry: ghcr.io/<owner>/<repo>:<tag>.
+    image: ${CHARTMATE_IMAGE:?set CHARTMATE_IMAGE in .env, e.g. ghcr.io/<owner>/<repo>:latest}
+    restart: unless-stopped
+    ports:
+      # Loopback only by default: put a reverse proxy in front, or set CHARTMATE_BIND=0.0.0.0 (with a password).
+      # Ports Docker publishes bypass host firewalls such as ufw.
+      - "${CHARTMATE_BIND:-127.0.0.1}:${CHARTMATE_PORT:-8787}:8787"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-sqlite:/data/chartmate.db}
+      CHARTMATE_PASSWORD: ${CHARTMATE_PASSWORD:-}
+      CHARTMATE_SESSION_SECRET: ${CHARTMATE_SESSION_SECRET:-}
+      CHARTMATE_TRUST_PROXY: ${CHARTMATE_TRUST_PROXY:-}
+      CHARTMATE_PROVIDERS: ${CHARTMATE_PROVIDERS:-live}
+      CRYPTO_PROVIDER: ${CRYPTO_PROVIDER:-binance}
+      BINANCE_BASE_URL: ${BINANCE_BASE_URL:-}
+    volumes:
+      - chartmate-data:/data
+    # Persistent writes go only to /data; SQLite's temp files (large sorts, VACUUM) to the /tmp tmpfs.
+    # The image's own healthcheck (/api/health) applies.
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+
+  postgres:
+    profiles: [postgres]
+    # Pinned by digest; Dependabot (docker-compose ecosystem) keeps it current.
+    image: postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chartmate
+      POSTGRES_DB: chartmate
+      # Required for the postgres profile (the postgres image refuses to initialize without one).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chartmate -d chartmate"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  chartmate-data:
+  postgres-data:

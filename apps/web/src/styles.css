@@ -1,0 +1,478 @@
+/*
+ * Design tokens ("Luminous, flat"). Colors per theme; the chart reads the ones listed in THEME_CSS_VARS
+ * (src/chart/theme.ts, whose THEME_TOKENS fallback must stay equal: a parity test checks it). Keep each theme block
+ * free of var() for those. Flat: solid surfaces and hairlines only — no glass, blur, glow or drop shadows.
+ *   surfaces  --bg-panel (the ground: app background and title bar) < --bg (the chart sheet) < --bg-raised (watchlist,
+ *             tool pill, legend chips) < --bg-elevated (inputs, menus, dialogs)
+ *   text      --text > --text-muted (secondary, ≥ 4.5:1) > --text-subtle (placeholders, disabled)
+ *   market    one family per direction, the SAME color everywhere (candles, volume / MACD / AO bars, positions,
+ *             watchlist, baskets, sparklines): --up / --down strong; --up-soft / --down-soft the opaque soft tone of rising
+ *             MACD / AO bars (softTone() in src/chart/color.ts, hue-locked, never an alpha); --up-fg / --down-fg as small
+ *             text (≥ 4.5:1 incl. a tinted pill); --up-tint / --down-tint pill backgrounds
+ *   chart     --grid, --crosshair (dashed crosshair), --cross-bg (crosshair chips), --level (muted dashed reference
+ *             lines), --last-price (the neutral last price line and capsule)
+ *   accent    --accent (sky: drawings, focus, active tool); --iris (the secondary accent)
+ */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0c0f18;
+  --bg-panel: #07090f;
+  --bg-raised: #10131d;
+  --bg-elevated: #141826;
+  --bg-hover: #181c29;
+  --bg-active: #1f2433;
+  --bg-inset: #0e111b;
+  /* The selected list row (current watchlist symbol): a quiet sky-graphite fill. */
+  --bg-selected: #131a28;
+  --border: #1c202c;
+  --border-strong: #2a3040;
+  --grid: #121620;
+  --text: #e9ecf4;
+  --text-muted: #8f97ab;
+  --text-subtle: #5f677b;
+  --accent: #7cc4ff;
+  --accent-hover: #9cd3ff;
+  --accent-text: #06131f;
+  --accent-fg: #8ecdff;
+  --accent-soft: rgb(124 196 255 / 0.14);
+  --iris: #a99bff;
+  --focus-ring: #7cc4ff;
+  --cross-bg: #e9ecf4;
+  --crosshair: #5b6171;
+  --level: #474e60;
+  --last-price: #e9ecf4;
+  --field-bg: #0a0d15;
+  --field-border: #232838;
+  --up: #3ccfd0;
+  --down: #e76a88;
+  --up-soft: #009293;
+  --down-soft: #ae3e5c;
+  --up-fg: #3ccfd0;
+  --down-fg: #e76a88;
+  --up-tint: rgb(60 207 208 / 0.13);
+  --down-tint: rgb(231 106 136 / 0.13);
+  --warn-bg: #3a2f12;
+  --warn-text: #f5c96a;
+  --error: #e76a88;
+  --badge-stock: #3f8fe8;
+  --badge-crypto: #e08a1e;
+  --badge-basket: #8b78f0;
+  --scrim: rgb(4 6 10 / 0.55);
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #fafbfd;
+  --bg-panel: #e7eaf1;
+  --bg-raised: #f4f5f9;
+  --bg-elevated: #ffffff;
+  --bg-hover: #eaecf2;
+  --bg-active: #dfe3ec;
+  --bg-inset: #dde1ea;
+  --bg-selected: #e9eff8;
+  --border: #e1e4eb;
+  --border-strong: #c9ceda;
+  --grid: #eef0f4;
+  --text: #131726;
+  --text-muted: #545c6f;
+  --text-subtle: #8a91a3;
+  --accent: #1f6fc8;
+  --accent-hover: #1a62b0;
+  --accent-text: #ffffff;
+  --accent-fg: #1a64b8;
+  --accent-soft: rgb(31 111 200 / 0.11);
+  --iris: #5b49e0;
+  --focus-ring: #1f6fc8;
+  --cross-bg: #131726;
+  --crosshair: #a6abb8;
+  --level: #b9bdc9;
+  --last-price: #131726;
+  --field-bg: #ffffff;
+  --field-border: #d3d8e2;
+  --up: #0b9da0;
+  --down: #c43d68;
+  --up-soft: #4fbec0;
+  --down-soft: #ec6b8e;
+  --up-fg: #006c6e;
+  --down-fg: #ae2757;
+  --up-tint: rgb(11 157 160 / 0.12);
+  --down-tint: rgb(196 61 104 / 0.1);
+  --warn-bg: #fff4d6;
+  --warn-text: #8a5a00;
+  --error: #ae2757;
+  --badge-stock: #1f6fc8;
+  --badge-crypto: #a35800;
+  --badge-basket: #6a55e0;
+  --scrim: rgb(19 23 38 / 0.28);
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+}
+
+:root {
+  --sidebar-w: 320px;
+  --topbar-h: 44px;
+  --gutter: 8px;
+  --radius-sm: 5px;
+  --radius: 7px;
+  --radius-lg: 10px;
+  --radius-sheet: 12px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --control-h: 28px;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  /* System fonts only (no web fonts: strict CSP, offline desktop app); every stack ends in sans-serif. */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI Variable Text', 'Segoe UI', system-ui, Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-display: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--bg-panel); color: var(--text); }
+::selection { background: var(--accent-soft); }
+:root[data-theme='light'] ::selection { background: rgb(31 111 200 / 0.2); }
+/* Numbers line up wherever they live (prices, changes, axis-like readouts). */
+.num, input, .tabs button, .segmented button { font-variant-numeric: tabular-nums; }
+
+/* Thin, quiet scrollbars. */
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Controls: flat — a solid fill and a hairline, no shadow. */
+button, select, input {
+  font: inherit;
+  color: inherit;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  min-height: var(--control-h);
+  transition: background-color 120ms var(--ease), border-color 120ms var(--ease), color 120ms var(--ease), box-shadow 120ms var(--ease);
+}
+button { cursor: pointer; font-weight: 500; line-height: 1.2; border-color: var(--field-border); }
+button:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--border-strong); }
+button:active:not(:disabled) { background: var(--bg-active); }
+button:disabled { opacity: 0.45; cursor: default; }
+button[aria-pressed='true'], button[aria-selected='true'], button[aria-current='page'] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+button.primary:hover:not(:disabled), button[aria-pressed='true']:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+input, select { background-color: var(--field-bg); border-color: var(--field-border); }
+input { padding: 4px 8px; }
+input::placeholder { color: var(--text-subtle); }
+input:hover:not(:disabled):not(:focus), select:hover:not(:disabled) { border-color: var(--border-strong); }
+input:focus, select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 26px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238f97ab' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+}
+input[type='color'] { padding: 2px; cursor: pointer; }
+input[type='color']::-webkit-color-swatch-wrapper { padding: 0; }
+input[type='color']::-webkit-color-swatch { border: none; border-radius: 4px; }
+input[type='checkbox'] { min-height: 0; accent-color: var(--accent); }
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* Text fields and selects show focus with the border + halo above; checkboxes and color swatches keep the ring. */
+input:not([type='checkbox']):not([type='color']):focus-visible, select:focus-visible { outline: none; }
+input[type='checkbox']:focus-visible, input[type='color']:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+kbd {
+  font: 500 11px/1 var(--font-sans);
+  color: var(--text-muted);
+  padding: 3px 5px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+/*
+ * Shell: the top bar on the ground; below it the chart sheet and the watchlist panel, each a flat rounded surface
+ * inset by the gutter (no shadows, hairline edges).
+ */
+.app-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) var(--sidebar-w);
+  grid-template-areas: 'top top' 'main side';
+  height: 100%;
+  min-width: 768px;
+  background: var(--bg-panel);
+}
+.app-shell.sidebar-collapsed { grid-template-columns: minmax(0, 1fr) 0; }
+.top-bar { grid-area: top; }
+.chart-main, .baskets-main { grid-area: main; min-height: 0; min-width: 0; overflow: hidden; }
+.chart-main {
+  margin: 0 0 var(--gutter) var(--gutter);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sheet);
+}
+.app-shell.sidebar-collapsed .chart-main { margin-right: var(--gutter); }
+.baskets-main { margin: 0 var(--gutter) var(--gutter); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sheet); }
+.app-shell.view-baskets .baskets-main { grid-column: 1 / -1; overflow: auto; }
+.right-sidebar {
+  grid-area: side;
+  container: sidebar / inline-size;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0 var(--gutter) var(--gutter);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sheet);
+  overflow: hidden;
+}
+
+/*
+ * The sidebar's resize handle covers the gutter between the chart and the sidebar (the side area's left margin) plus
+ * 1 px of each panel's edge, a 10 px target. It is invisible until hovered: then a hairline sits in the middle of the gap, accent while dragging, ring on keyboard focus.
+ */
+.sidebar-resizer {
+  grid-area: side;
+  justify-self: start;
+  position: relative;
+  z-index: 2;
+  width: calc(var(--gutter) + 2px);
+  margin: 0 0 var(--gutter) -1px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.sidebar-resizer::after {
+  content: '';
+  position: absolute;
+  top: var(--radius-sheet);
+  bottom: var(--radius-sheet);
+  left: calc(50% - 1px);
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background-color 120ms var(--ease);
+}
+.sidebar-resizer:hover::after { background: var(--border-strong); transition-delay: 80ms; }
+.sidebar-resizer[data-dragging]::after, .sidebar-resizer:active::after { background: var(--accent); transition-delay: 0s; }
+.sidebar-resizer:focus-visible::after { top: 0; bottom: 0; background: var(--focus-ring); transition-delay: 0s; }
+@media (prefers-reduced-motion: reduce) { .sidebar-resizer::after { transition: none; } }
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  min-height: var(--topbar-h);
+  padding: 6px 10px;
+  background: var(--bg-panel);
+  min-width: 0;
+}
+.top-bar > * { flex-shrink: 0; }
+
+/*
+ * Desktop app only (<html data-shell>, set on the app://chartmate origin by src/desktopShell.ts): the window is
+ * frameless and the top bar is its title bar. Its empty areas drag the window (double-click zooms / maximizes,
+ * natively); every control on it, and anything that can overlap it (dialogs, the symbol search dropdown), opts out.
+ * macOS: room on the left for the traffic lights (apps/desktop/src/lib/titleBar.ts TRAFFIC_LIGHT_POSITION), none in
+ * full screen where they are hidden. Windows: room on the right for the caption button overlay (Window Controls
+ * Overlay env() values, with the standard 3 × 46 px as fallback).
+ */
+:root[data-shell] .top-bar { -webkit-app-region: drag; }
+:root[data-shell] .top-bar :is(button, input, select, textarea, a, label, [role='button'], [role='group'], [tabindex]),
+:root[data-shell] .top-bar :is(.tabs, .symbol-search, .timeframe-bar, .top-bar-end),
+:root[data-shell] .top-bar .symbol-label,
+:root[data-shell] :is(.modal-backdrop, .modal, .search-dropdown, .sidebar-resizer, .drawing-style-bar, .color-picker-popover) { -webkit-app-region: no-drag; }
+/* Loading / connection-error screens have no top bar: the whole message area moves the window (button excepted). */
+:root[data-shell] .center-message { -webkit-app-region: drag; }
+:root[data-shell] .center-message :is(button, a, input) { -webkit-app-region: no-drag; }
+:root[data-shell='mac'] .top-bar { padding-left: 80px; }
+:root[data-shell='windows'] .top-bar {
+  padding-right: calc(10px + 100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 138px)));
+}
+/* Set by the desktop main process while the window is in native full screen. */
+:root[data-shell='mac'][data-fullscreen] .top-bar { padding-left: 10px; }
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 2px;
+  font: 650 16px/1 var(--font-display);
+  letter-spacing: -0.025em;
+}
+.brand img { display: block; }
+
+/* Segmented controls: a flat track, the selected item a solid chip. */
+.tabs, .segmented {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.tabs button, .segmented button {
+  min-height: 24px;
+  padding: 2px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.tabs button:hover:not(:disabled), .segmented button:hover:not(:disabled) { background: var(--bg-hover); border-color: transparent; color: var(--text); }
+.tabs button[aria-current='page'], .segmented button[aria-pressed='true'] {
+  background: var(--bg-active);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.tabs button[aria-current='page']:hover:not(:disabled), .segmented button[aria-pressed='true']:hover:not(:disabled) { background: var(--bg-active); border-color: var(--border-strong); }
+:root[data-theme='light'] .tabs button[aria-current='page'], :root[data-theme='light'] .segmented button[aria-pressed='true'] { background: var(--bg-elevated); }
+
+.timeframe-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* The symbol label takes the free space between the search and the timeframes (and gives it up first: its name truncates). */
+.top-bar > .symbol-label { flex: 1 1 0; min-width: 48px; display: flex; align-items: baseline; gap: 8px; padding: 0 2px; white-space: nowrap; overflow: hidden; }
+.symbol-label strong { font-size: 14px; font-weight: 650; letter-spacing: -0.01em; }
+.symbol-name { min-width: 0; color: var(--text-muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; }
+.top-bar-grow { flex: 1 1 0; min-width: 0; }
+.symbol-label + .top-bar-grow { display: none; }
+.top-bar-end { display: flex; align-items: center; gap: 2px; }
+.indicators-button { display: inline-flex; align-items: center; gap: 6px; height: 30px; border-radius: 9px; background: var(--bg-raised); border-color: var(--border); font-size: 12px; }
+.indicators-button svg { color: var(--text-muted); }
+.top-bar select { height: 30px; border-radius: 9px; background-color: var(--bg-raised); border-color: var(--border); font-size: 12px; }
+.top-bar .segmented button { min-height: 24px; padding: 2px 7px; }
+.top-bar-sep { width: 1px; height: 20px; background: var(--border-strong); margin: 0 4px; }
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+.icon-button:hover:not(:disabled) { background: var(--bg-hover); border-color: transparent; color: var(--text); }
+.icon-button[aria-pressed='true'] { background: var(--bg-raised); border-color: var(--border); color: var(--text); }
+.icon-button[aria-pressed='true']:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--border); color: var(--text); }
+
+/* Symbol search: the ⌘K field; its results read like a command palette. */
+.symbol-search { position: relative; }
+.symbol-search input {
+  width: 160px;
+  padding-left: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.75' fill='none' stroke='%238f97ab' stroke-width='1.5'/%3E%3Cpath d='M10.5 10.5L14 14' stroke='%238f97ab' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 9px center;
+}
+.top-bar .symbol-search input { width: 200px; height: 30px; border-radius: 9px; background-color: var(--bg-raised); border-color: var(--border); padding-right: 40px; }
+.top-bar .symbol-search input:focus { background-color: var(--field-bg); border-color: var(--accent); }
+.symbol-search-kbd { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.symbol-search input:focus ~ .symbol-search-kbd { display: none; }
+.search-dropdown {
+  position: fixed;
+  z-index: 50;
+  margin-top: 6px;
+  width: 440px;
+  max-height: 440px;
+  overflow: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+}
+.search-dropdown ul { list-style: none; margin: 0; padding: 6px; }
+.search-dropdown li { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 9px; cursor: pointer; }
+.search-dropdown li.active { background: var(--accent-soft); }
+.search-ticker { font-weight: 650; min-width: 70px; }
+.search-name { flex: 1; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.search-status { padding: 10px 14px; color: var(--text-muted); }
+.search-status.error, .form-error { color: var(--error); }
+.search-status-subtle { padding: 2px 14px; font-size: 11px; }
+.search-results-stale { opacity: 0.6; }
+.badge { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; background: transparent; }
+.badge-stock { color: var(--badge-stock); }
+.badge-crypto { color: var(--badge-crypto); }
+.badge-basket { color: var(--badge-basket); }
+
+/* Chart view inside the sheet: the drawing tool pill column | chart area (owned by ChartView) */
+.chart-view { display: grid; grid-template-columns: 52px minmax(0, 1fr); height: 100%; }
+.chart-area { position: relative; min-width: 0; min-height: 0; }
+.placeholder { display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
+.watchlist.placeholder, .baskets-page.placeholder { align-items: flex-start; justify-content: flex-start; flex-direction: column; padding: 8px; }
+.panel-title { font: 600 14px/1.2 var(--font-sans); letter-spacing: -0.01em; color: var(--text); margin: 0 0 8px; }
+
+.stale-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.center-message { height: 100%; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; color: var(--text-muted); }
+
+/* Login */
+.login-screen {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-panel);
+}
+.login-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 300px;
+  padding: 28px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.login-card h1 { margin: 0 0 8px; font: 650 20px/1.2 var(--font-display); letter-spacing: -0.025em; }
+.login-brand { display: flex; align-items: center; gap: 8px; }
+.login-brand img { display: block; }
+.login-card input, .login-card button { min-height: 34px; }
+
+@media (max-width: 1100px) {
+  .symbol-name, .brand { display: none; }
+}
+
+/* Visually hidden, still announced by screen readers. */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Small, non-blocking indicator while layout saves fail (they are retried with backoff). */
+.save-status {
+  position: fixed; left: 8px; bottom: 8px; z-index: 50; padding: 4px 10px; border-radius: 999px;
+  background: var(--warn-bg); color: var(--warn-text); font-size: 11px; font-weight: 500; pointer-events: auto;
+}
+
+/* Sparklines (watchlist, baskets): a dotted baseline at the first value, the series, a dot on the last value. */
+.sparkline { display: block; overflow: visible; }
+.sparkline polyline.up { stroke: var(--up); }
+.sparkline polyline.down { stroke: var(--down); }
+.sparkline-base { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 1 2; }
+.sparkline-end.up { fill: var(--up); }
+.sparkline-end.down { fill: var(--down); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}

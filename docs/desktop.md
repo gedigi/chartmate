@@ -1,0 +1,405 @@
+# Chartmate desktop app
+
+`apps/desktop` packages the Chartmate server and web UI as a desktop app (product name **Chartmate**) for macOS
+and Windows, built with Electron 44. The self-hosted server is unchanged; the desktop app embeds it. For users,
+the [README](../README.md#desktop-app) covers downloading, the data location and the environment it honors; this
+page is for whoever builds, signs or changes the app. Paths are relative to `apps/desktop/` unless they say
+otherwise.
+
+- [How it works](#how-it-works)
+- [Build and run](#build-and-run)
+- [Smoke tests](#smoke-tests)
+- [Network and environment](#network-and-environment)
+- [Security model](#security-model)
+- [Signing, notarization, updates](#signing-notarization-updates)
+- [Renaming the product](#renaming-the-product)
+
+## How it works
+
+- **No network listener.** The Fastify app (`buildApp` from `apps/server`) runs inside the Electron main process
+  and never calls `listen()`. `net.Server.prototype.listen` is guarded (`src/lib/listenGuard.ts`) and throws for
+  every call. The one exception is narrow and audited: during an auto-update install on macOS (signed builds
+  only), electron-updater must hand the downloaded zip to Squirrel.Mac over a short-lived HTTP server. For that
+  case only, the guard is armed once the download has **completed**, right as electron-updater starts that
+  hand-over. The window lasts 60 s and allows a single listener, which must be on `127.0.0.1`/`::1` with an
+  ephemeral port. Every allowed or refused listener is written to the log.
+- **The app:// scheme.** The window loads `app://chartmate/`, a privileged custom scheme:
+  - `/api/*` goes to `fastify.inject`, with the same 1 MB body limit as the server;
+  - everything else is a read-only static file from the built web UI, with an SPA fallback for HTML navigations.
+
+  The web client already uses relative `/api/...` URLs, so the same bundle works in the browser and on desktop.
+- **SQLite without a native module.** The desktop build uses Node's built-in `node:sqlite` (Node 24.21 inside
+  Electron 44, no flag needed) through a small adapter for Kysely's own `SqliteDialect`
+  (`apps/desktop/src/lib/nodeSqlite.ts`). better-sqlite3 and pg are never bundled (the bundle script fails if
+  they are). The server's DB-backed test suites also run against this dialect (`apps/desktop` `pnpm test`).
+- **One file.** esbuild bundles the desktop main process and the whole server into a single minified
+  `dist/main.cjs` (~2.5 MB). The package holds only that file, the web build and the icon, in an asar archive with
+  maximum compression and English locales only. It has no `node_modules`.
+- **Frameless window.** The web top bar is the title bar. On macOS the native traffic lights sit on it; on
+  Windows the native caption buttons (minimize, maximize, close, snap layouts) are drawn over its right end in
+  the top bar's colors, following the theme through the page's `<meta name="theme-color">` (no IPC). Linux
+  keeps the native frame.
+
+## Build and run
+
+```sh
+pnpm install --frozen-lockfile --ignore-scripts
+node apps/desktop/node_modules/electron/install.js   # Electron binary (skipped by --ignore-scripts); once
+pnpm --filter @chartmate/desktop start      # build the web UI, bundle, run unpackaged (DevTools enabled)
+pnpm --filter @chartmate/desktop pack:dir   # unpacked app only, e.g. release/mac-arm64/Chartmate.app
+pnpm --filter @chartmate/desktop dist:mac   # release/Chartmate-<v>-mac-{arm64,x64}.{dmg,zip}
+pnpm --filter @chartmate/desktop dist:win   # release/Chartmate-<v>-win-{x64,arm64}.{exe,zip}; needs Windows or CI
+pnpm --filter @chartmate/desktop test       # unit + security tests (protocol, guards, allowlist, fuses, workflows …)
+```
+
+Building the NSIS installer on Apple-silicon Macs fails unless Rosetta is installed, because electron-builder's
+`makensis` is an x86_64 binary. Build Windows installers in CI.
+
+## Smoke tests
+
+```sh
+pnpm --filter @chartmate/desktop bundle && pnpm --filter @chartmate/desktop smoke     # unpackaged app
+
+# packaged app: the shipped build + a TEST-ONLY inspectable copy of it
+cd apps/desktop
+node smoke/prepare-inspectable.mjs release/mac-arm64/Chartmate.app release/test-only
+SMOKE_APP="$PWD/release/test-only/Chartmate TEST-ONLY.app" \
+SMOKE_HARDENED_APP="$PWD/release/mac-arm64/Chartmate.app" \
+SMOKE_EXPECT_UNSIGNED=1 \
+SMOKE_ALLOW_REAL_USERDATA=1 pnpm smoke     # see below; EXPECT_UNSIGNED: 1 = unsigned build, 0 = signed
+SMOKE_LIVE=1 pnpm smoke                                                       # + live providers (internet)
+```
+
+`app.spec.ts` uses the fixture providers unless `SMOKE_PROVIDERS=live`. The packaged example needs a packaged
+app first (`pack:dir` or `dist:mac`).
+
+A packaged build refuses to start with a debugging or weakening switch (see [Security model](#security-model)), so no
+test harness can attach to it. `smoke/prepare-inspectable.mjs` therefore builds a separate copy for the
+functional tests:
+
+- the copy is named `… TEST-ONLY` and carries a `TEST-ONLY-NOT-FOR-DISTRIBUTION.txt` marker;
+- its only code difference is that the switch guard is compiled out (`bundle.mjs --test-inspectable`);
+- on macOS, asar integrity stays on: the Info.plist hash is updated and the copy is re-signed ad hoc;
+- on Windows, the copy turns asar integrity validation off, because the hash lives in a PE resource.
+
+The functional tests (`app.spec.ts`) drive that copy over CDP. `packaged-hardening.spec.ts` checks the
+**unmodified** artifact; CI runs it on macOS and on Windows, where it also covers the `/switch` syntax:
+
+- it opens no listening socket;
+- it refuses `--remote-debugging-port=0`, `--inspect` and the other refused switches, naming them on stderr and
+  in an error box, with no CDP or debugger endpoint and no listener at all;
+- it refuses the forbidden environment variables in the same way;
+- `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` have no effect;
+- it ignores `CHARTMATE_USER_DATA_DIR`;
+- a tampered `app.asar` refuses to start (macOS);
+- the updater is present only in signed builds (`SMOKE_EXPECT_UNSIGNED`).
+
+Because packaged builds ignore `CHARTMATE_USER_DATA_DIR`, this spec runs against the real per-user data directories:
+the current one, plus those of any `previousProductNames`. For that reason it only runs in CI (`CI=true`) or
+locally with `SMOKE_ALLOW_REAL_USERDATA=1`.
+
+- It moves the directories aside to `*.smoke-backup` first and moves them back afterwards, retrying while
+  Windows still holds file handles.
+- Nothing is deleted: the directory the run created is renamed to `*.smoke-trash-<timestamp>`.
+- Don't run it while Chartmate is open.
+
+## Network and environment
+
+The desktop app honors only `CHARTMATE_PROVIDERS`, `CRYPTO_PROVIDER`, `BINANCE_BASE_URL` (https only) and
+`CHARTMATE_DISABLE_UPDATES=1` from the environment (`src/lib/desktopConfig.ts`, `src/lib/updatePolicy.ts`), plus
+`CHARTMATE_USER_DATA_DIR` in development runs. Everything else that concerns the network surface or storage is
+fixed: no listener, no login, SQLite in the per-user data directory.
+
+A packaged build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY` or `SSLKEYLOGFILE` is set.
+Node applies the first during pre-execution, before any app code runs, so the app cannot undo it, and the second
+would let TLS session keys be logged. `NODE_USE_SYSTEM_CA` is allowed: provider requests ignore it (see below).
+
+`NODE_EXTRA_CA_CERTS` is dropped by Electron itself: the `EnableNodeOptionsEnvironmentVariable` fuse covers it
+along with `NODE_OPTIONS`. The guard still refuses it if it ever got through.
+
+Independently of that, provider requests never use Node's global dispatcher. They go through an explicit undici
+`Agent` (`src/lib/directFetch.ts`) that connects directly, ignoring `HTTP(S)_PROXY`, and trusts only Node's
+bundled root CAs (`tls.rootCertificates`). Real Node and Electron child processes prove this
+(`test/directFetch.test.ts`).
+
+Provider traffic is therefore **direct-only**. Corporate HTTP proxies are not supported, and neither are
+TLS-inspecting middleboxes, which need their own root certificate. On such networks the desktop app cannot reach
+the market data providers; use the self-hosted server there instead.
+
+## Security model
+
+The renderer is treated as untrusted web content, and the main process exposes nothing to it except `app://chartmate`.
+
+- **Auth is disabled** on desktop. No port is listening, and the only client is the app's own sandboxed
+  renderer. A password would only put a login screen in front of a single-user local app.
+- **Window settings** (`src/lib/hardening.ts`, pinned by a snapshot test):
+  - `sandbox`, `contextIsolation` and `webSecurity` are on;
+  - Node is off everywhere, including workers and subframes;
+  - there is no preload script and no `webview`;
+  - spellcheck and experimental features are off;
+  - DevTools are available only in unpackaged runs. In a packaged build, DevTools are also closed if they ever
+    open, and the menu has no DevTools item.
+- **Sandboxing and crashes**: `app.enableSandbox()` is called before ready, and only a single instance can run. A
+  crashed renderer is reloaded at most 3 times per minute. After that, a static error page is shown once, and if
+  that page crashes too, the window is closed with an error dialog. There is never a reload loop.
+- **Command-line switches and environment** (`src/boot.ts`, the first module evaluated): a packaged build exits
+  with code 1 if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE` or `NODE_EXTRA_CA_CERTS` is set (see
+  [Network and environment](#network-and-environment)), or any of these switches is present (`--x`, `-x`, and `/x`
+  on Windows):
+
+  | Group | Switches |
+  |---|---|
+  | Debugging and automation | `--remote-debugging-port`, `--remote-debugging-pipe`, `--remote-debugging-address`, `--remote-debugging-targets`, `--remote-allow-origins`, `--auto-open-devtools-for-tabs`, `--enable-automation` |
+  | Node inspector and V8 | `--inspect*`, `--js-flags` |
+  | Sandbox and process model | `--no-sandbox`, `--disable-gpu-sandbox`, `--disable-setuid-sandbox`, `--disable-seccomp-filter-sandbox`, `--disable-namespace-sandbox`, `--no-zygote`, `--single-process`, `--in-process-gpu` |
+  | Web security and engine features | `--disable-web-security`, `--disable-site-isolation-trials`, `--allow-file-access(-from-files)`, `--allow-running-insecure-content`, `--reduce-security-for-testing`, `--unsafely-treat-insecure-origin-as-secure`, `--enable-features`, `--disable-features`, `--force-fieldtrials`, `--force-fieldtrial-params`, `--enable-blink-features`, `--disable-blink-features`, `--enable-experimental-web-platform-features`, `--enable-unsafe-webgpu`, `--enable-unsafe-swiftshader` |
+  | TLS | `--ignore-certificate-errors(-spki-list)`, `--allow-insecure-localhost`, `--ssl-key-log-file`, `--ssl-version-min`, `--ssl-version-max`, `--cipher-suite-blacklist` |
+  | Proxy, DNS and capture | `--proxy-server`, `--proxy-pac-url`, `--proxy-bypass-list`, `--proxy-auto-detect`, `--winhttp-proxy-resolver`, `--host-resolver-rules`, `--host-rules`, `--log-net-log` |
+  | Foreign code | `--load-extension`, `--renderer-cmd-prefix`, `--utility-cmd-prefix`, `--gpu-launcher`, `--browser-subprocess-path` |
+  | Profile relocation | `--user-data-dir`, `--disk-cache-dir` |
+
+  Chromium switches have no fuse; the fuses below cover the Node equivalents.
+- **CSP**: every `app://` response sets it as a header:
+
+  ```
+  default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self';
+  connect-src 'self'; media-src 'none'; worker-src 'none'; frame-src 'none'; child-src 'none';
+  manifest-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none';
+  require-trusted-types-for 'script'; trusted-types 'none'
+  ```
+
+  There is no `'unsafe-inline'` or `'unsafe-eval'`. React `style` props and KLineChart set styles through the
+  CSSOM, which CSP does not restrict. The pre-paint theme script is the external `/theme-init.js`. Trusted Types are
+  enforced with no policy allowed: the app never writes HTML strings into the DOM, and the smoke test checks that
+  the chart, the baskets view and the search render without a violation. Responses also carry `nosniff`,
+  `X-Frame-Options: DENY`, `no-referrer`, COOP/CORP `same-origin` and a deny-all `Permissions-Policy`.
+- **Navigation**: `will-navigate`, `will-frame-navigate` and `will-redirect` are canceled unless the target is
+  `app://chartmate`. Every `window.open` is denied, and webviews cannot attach. These rules are applied to every
+  `WebContents` through `web-contents-created`.
+- **Permissions and devices** (permission request and check handlers, device permissions, display capture, the
+  HID/serial/USB pickers): all denied, and downloads are blocked. These rules apply to **every** session, including
+  ones created later, through `session-created`.
+- **Renderer network**: `webRequest.onBeforeRequest` cancels every request that is not `app://chartmate`. `devtools:`
+  is also allowed in development.
+- **Main-process network**: `globalThis.fetch` is wrapped by an allowlist on top of the direct, CA-pinned undici
+  transport described above. It allows HTTPS only, exact hosts and
+  the default port, and it follows redirects itself so that every hop is checked. On a redirect to another
+  origin it drops the `Authorization`, `Cookie` and `Proxy-Authorization` headers. The allowed hosts are:
+  - `query1/query2.finance.yahoo.com` and `finance.yahoo.com`, found by observing live traffic;
+  - `guce.yahoo.com` and `consent.yahoo.com`, for the EU consent flow (from the yahoo-finance2 source);
+  - the configured Binance host, or `api.exchange.coinbase.com`.
+
+  Fixture mode allows nothing.
+- **Fuses** (flipped in the `afterPack` hook with `@electron/fuses`):
+  - RunAsNode: off;
+  - EnableCookieEncryption: on;
+  - EnableNodeOptionsEnvironmentVariable: off;
+  - EnableNodeCliInspectArguments: off;
+  - EnableEmbeddedAsarIntegrityValidation: on;
+  - OnlyLoadAppFromAsar: on;
+  - LoadBrowserProcessSpecificV8Snapshot: off;
+  - GrantFileProtocolExtraPrivileges: off.
+- **Unused features**: the app never uses `remote`, `file://` or `shell.openExternal`.
+
+## Signing, notarization, updates
+
+Signing is configured only through environment variables or CI secrets. `build/signing.cjs` decides, per
+platform, whether a build is signed. Without the secrets, the build is unsigned and still succeeds.
+
+- **macOS**:
+  - Signing: set `CSC_LINK` (a base64 `.p12`) and `CSC_KEY_PASSWORD`.
+  - Notarization: also set `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`.
+  - A signed build signs the `.dmg` itself too. In CI, when notarization is configured, the packaging step then
+    notarizes and staples each `.dmg` (`xcrun notarytool submit --wait`, `xcrun stapler staple`) and checks it
+    with `spctl -a -t open --context context:primary-signature`, so Gatekeeper accepts the download as well as
+    the app inside it. A local `dist:mac` notarizes only the app.
+  - The hardened runtime is on. The only entitlement is `com.apple.security.cs.allow-jit`, which V8 needs. Because
+    there are no native modules, there is no `disable-library-validation`.
+- **Windows**: one of these (checked in this order):
+  - Azure Trusted Signing: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`,
+    `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT`, `AZURE_TRUSTED_SIGNING_PROFILE`,
+    `AZURE_PUBLISHER_NAME`.
+  - A Certum SimplySign cloud certificate, see [Windows signing with Certum](#windows-signing-with-certum).
+  - A `.p12` certificate: `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`. Certificates issued today keep their key in
+    hardware or a cloud HSM, so this only fits older certificates.
+- **Auto-update** (`electron-updater`, GitHub provider) is **off by default**.
+  - **Unsigned builds**: the updater is compiled out entirely, whatever `product.json` says. There is no
+    `updater.cjs` in the package and no updater code path in `main.cjs`.
+  - **Signed builds**: the updater runs only when all of these hold:
+    - `autoUpdate` is `true` in `product.json`;
+    - the build ships an `app-update.yml`;
+    - `CHARTMATE_DISABLE_UPDATES` is not set to `1`.
+  - **How updates are verified**:
+    - Windows: electron-updater checks the installer's Authenticode signature against the `publisherName` pinned
+      in `app-update.yml`. The app refuses to update if that field is missing.
+    - macOS: Squirrel.Mac checks that the new app's code signature satisfies the running app's designated
+      requirement. This is also the only case that opens a listener (the loopback exception described under
+      [How it works](#how-it-works)).
+  - **Pre-releases**: a full release only ever updates to full releases; a pre-release build (`1.1.0-beta.1`) also
+    to newer pre-releases (`src/lib/updatePolicy.ts`).
+  - **Network**: the updater's own session may reach only the GitHub hosts.
+
+### Windows signing with Certum
+
+A Certum cloud certificate keeps its key in Certum's HSM. SimplySign Desktop exposes it while it is logged in,
+and you log it in with a one-time code from the SimplySign phone app. Each Windows build is signed in three
+places, each with SHA-256 and a Certum timestamp (`http://time.certum.pl`): `chartmate.exe`, the uninstaller and
+the installer. `latest.yml` and the blockmaps are computed from the signed files.
+
+**1. Buy and activate (once a year).**
+
+- Buy **Open Source Code Signing in the Cloud** from Certum. Chartmate is AGPL, and the certificate names you as
+  "Open Source Developer, *your name*". If you don't qualify, buy **Standard Code Signing in the Cloud**. Do not
+  buy a card-and-reader bundle.
+- Since March 2026 a code-signing certificate lasts at most 460 days, and its key must stay in hardware or a
+  cloud HSM. Renew every year. The open-source certificate allows 5,000 signatures a month, and a release uses
+  about 10.
+- After identity verification, install the SimplySign app on your phone and activate it from the QR code Certum
+  sends you. The QR code holds an `otpauth://totp/…` URI. If you want CI to sign (step 2), also add the QR code to
+  your password manager and copy that URI.
+- Install SimplySign Desktop: Windows, or `brew install --cask simplysign` on macOS (Intel only; it needs Rosetta).
+  Log in with your email and a code from the phone app, then finish Certum's activation. The certificate's
+  subject CN (for example `Open Source Developer, Jane Doe`) is your **publisher name**. Copy it exactly and keep
+  it the same across renewals: installed copies accept updates only from that name.
+
+**2. CI signing (`desktop.yml`, tag builds only).** Set up the repository once:
+
+1. Create an environment named `windows-signing` (Settings, Environments). Under deployment branches and tags,
+   allow only tags matching `v*`. Optionally add yourself as a required reviewer: each signed release then waits
+   for your approval.
+2. Add a tag ruleset (Settings, Rules) for `v*` tags. Restrict creation to yourself, so nobody else can trigger a
+   signing run, and also block updates and deletions.
+3. Set these values. Store the two Certum secrets **only** as `windows-signing` environment secrets, never as
+   repository secrets: any workflow can read repository secrets, and they bypass the environment's rules.
+
+| Name | Where | Value |
+|---|---|---|
+| `CHARTMATE_CERTUM_USERNAME` | `windows-signing` secret | SimplySign account email |
+| `CHARTMATE_CERTUM_OTP_URI` | `windows-signing` secret | the `otpauth://totp/…` URI from the activation QR code |
+| `CHARTMATE_WIN_PUBLISHER_NAME` | repository variable | the certificate subject CN |
+| `CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256` | repository variable | SHA-256 of the SimplySign Desktop installer CI downloads (required) |
+| `CHARTMATE_CERTUM_SIMPLYSIGN_VERSION` | repository variable, optional | that installer's version (default `9.4.4.92`) |
+| `CHARTMATE_CERTUM_SIMPLYSIGN_SIGNER_SHA1` | repository variable, optional | pins the installer's signing certificate thumbprint |
+| `CHARTMATE_CERTUM_TOTP_ALGORITHM` | repository variable, optional | `SHA1`, `SHA256` or `SHA512`, if the QR code's URI does not say |
+
+To get the SHA-256, download
+`https://files.certum.eu/software/SimplySignDesktop/Windows/<version>/SimplySignDesktop-<version>-64-bit-en.msi`.
+On Windows, check that **Properties, Digital Signatures** shows Asseco Data Systems S.A. Then run
+`Get-FileHash -Algorithm SHA256 <file>` (or `shasum -a 256 <file>` on a Mac).
+
+On a tag build, the Windows packaging step runs `scripts/certum/login.ps1`:
+
+1. It downloads SimplySign Desktop and installs it only if the SHA-256 matches and the installer carries a valid,
+   revocation-checked signature whose organization is exactly Asseco Data Systems S.A.
+2. It types your email and a code computed from the seed into the login window, at most twice, so a failing
+   login is never retried in a loop.
+3. It waits for the certificate to appear in the user's certificate store.
+
+The two login secrets are then unset, before any build tool runs. `build/win-sign.cjs` signs with
+`signtool /sha1 <thumbprint>`; signtool gets a minimal environment. Finally `scripts/verify-win-signatures.mjs`
+checks every signature, the SHA-256 digests, the uninstallers (from the hook's log), `app-update.yml`,
+`latest.yml` and the blockmaps.
+
+If the SimplySign login or the sign hook fails, the release still goes out:
+
+- Windows is rebuilt without Certum, and the run shows a warning. The build is unsigned, with no updater, unless
+  another method is configured.
+- The release notes say "Windows signing step failed in CI — sign with `sign:win`".
+- macOS is unaffected.
+- Run step 3 afterwards.
+
+If the files were signed but `verify-win-signatures.mjs` rejects them, the job fails and nothing is published.
+
+Residual risk:
+
+- Any code that runs in the Windows packaging job can reach the secrets that job uses: the login secrets until
+  they are unset, and the live certificate session for the whole build. Anything executed during the build could
+  sign files with your certificate while that session lasts.
+- What actually protects the build:
+  - dependencies are installed with `--ignore-scripts` from the frozen lockfile;
+  - `pnpm audit` runs before packaging;
+  - Dependabot keeps dependencies current;
+  - a required reviewer on `windows-signing` makes you approve each signing run.
+- Unsetting the secrets early only narrows the window; it does not remove the risk.
+
+Limitations:
+
+- SimplySign Desktop has no command-line login, so CI drives its window with keystrokes. A SimplySign update
+  can break that.
+- Certum also rejects outdated clients at login. If that happens, raise `CHARTMATE_CERTUM_SIMPLYSIGN_VERSION` and
+  record the new installer's SHA-256.
+- The seed is a long-lived credential: anyone holding it and your email can sign as you. If it leaks, re-issue
+  the QR code in SimplySign. If you would rather not store it at all, skip this step and use step 3 only.
+- To check the seed, run
+  `(read -rs CHARTMATE_CERTUM_OTP_URI; export CHARTMATE_CERTUM_OTP_URI; node apps/desktop/scripts/certum/totp.mjs)`
+  and paste the URI. The subshell keeps the seed out of your shell. It must print the same code as the phone app;
+  if it differs, set `CHARTMATE_CERTUM_TOTP_ALGORITHM`.
+- `publisherName` pins only the certificate CN. Pinning the full subject would also reject a certificate with
+  the same CN from someone else, but it would break updates as soon as any other subject field changes at
+  renewal. The CN is the default.
+
+**3. Manual signing (fallback, no seed stored anywhere).** After CI has published a tag, possibly with an unsigned
+Windows build, run this on your Mac or a Windows PC:
+
+```sh
+git checkout vX.Y.Z
+# SimplySign Desktop: connect, then type the code from the phone app
+export CHARTMATE_WIN_PUBLISHER_NAME='Open Source Developer, Jane Doe'
+export CHARTMATE_WIN_PKCS11_MODULE=/usr/local/lib/libSimplySignPKCS.dylib   # macOS
+# export CHARTMATE_WIN_CERT_SHA1=<thumbprint>                               # Windows instead (certmgr.msc)
+pnpm --filter @chartmate/desktop sign:win
+```
+
+`sign:win` does the following:
+
+1. Before it publishes anything, it checks:
+   - HEAD is the tag, and the tag is the one on GitHub;
+   - there are no changed or untracked files, and no ignored `.env` files;
+   - the release exists.
+2. It reinstalls `node_modules` from the lockfile, then rebuilds the Windows app for the tag. CI's installers
+   cannot be re-signed in place, because the app and the uninstaller are inside them.
+3. Right before packaging, it asks for the card PIN, if your setup has one. The PIN is passed only to
+   electron-builder, and from there to `osslsigncode` (as `PKCS11_PIN`). The first rejected PIN stops all
+   further signing attempts.
+4. It signs, then verifies everything.
+5. It shows the files and asks before replacing them on the GitHub Release with `gh release upload --clobber`.
+   The repository comes from `gh` or `GITHUB_REPOSITORY`.
+6. It changes the release notes' Windows row to "Certum (SimplySign)" and drops the unsigned notes.
+
+`--no-upload` builds and verifies only.
+
+macOS needs these tools:
+
+- Rosetta (`softwareupdate --install-rosetta`). SimplySign Desktop and electron-builder's NSIS compiler are
+  Intel-only.
+- `gh`, logged in.
+- `osslsigncode` and `libp11` from Homebrew.
+- If `lipo -archs /usr/local/lib/libSimplySignPKCS.dylib` shows no `arm64`, the signing tools have to be Intel
+  builds as well. Install Homebrew under `/usr/local` with `arch -x86_64`, then run
+  `arch -x86_64 /usr/local/bin/brew install osslsigncode libp11`. The hook runs them under Rosetta automatically.
+
+Optional settings:
+
+- `CHARTMATE_WIN_PKCS11_CERT` and `CHARTMATE_WIN_PKCS11_KEY`: PKCS#11 URIs for when the token holds more than one
+  certificate. List the objects with `pkcs11-tool --module <module> -O`.
+- `CHARTMATE_WIN_CERT_CHAIN`: a PEM of Certum's intermediate CA to embed.
+- `CHARTMATE_WIN_VERIFY_CAFILE`: the trust store used for verification.
+- `CHARTMATE_OSSLSIGNCODE`, `CHARTMATE_WIN_PKCS11_PROVIDER`, `CHARTMATE_OSSLSIGNCODE_ARCH`, `CHARTMATE_SIGNTOOL`:
+  tool locations.
+- `CHARTMATE_WIN_SIGN_PASS_ENV`: names of extra variables, comma-separated, that the signing tool may see.
+  Signing tools get only a minimal environment, so a PKCS#11 module that needs its own configuration variable
+  has to be listed here.
+
+Windows needs SimplySign Desktop, the Windows SDK (`signtool`) and `gh`.
+
+## Renaming the product
+
+Edit `apps/desktop/product.json` and nothing else:
+
+- `productName` sets the window title, menu, `.app` and installer names, and the data directory name.
+- `appId` is the bundle id or AppUserModelID.
+- `executableName` names the Windows and Linux executable.
+
+The data directory follows `productName`. To carry users' data over, add the old name to `previousProductNames`.
+On first start the app then moves `chartmate.db` (and its WAL/SHM files) and `window-state.json` from the old directory.
+It never overwrites existing data.

@@ -1,0 +1,179 @@
+name: Docker
+
+# Self-hosting image: ghcr.io/<owner>/<repo> (from github.repository, lowercased), linux/amd64 + linux/arm64.
+#
+# Job layout (least privilege):
+#   test     — tags/dispatch: pnpm audit, typecheck, tests; read-only token.
+#   image    — every run: builds the image for amd64 and arm64 (under QEMU) and smoke-tests each (read-only root
+#              filesystem, healthcheck, API, web UI, SQLite temp files, clean SIGTERM shutdown), and validates
+#              compose.yaml. Never pushes.
+#   publish  — only on a pushed vX.Y.Z or vX.Y.Z-suffix tag (never on manual dispatch, which only builds and
+#              tests): the only job with `packages: write`. Builds and pushes the multi-arch image
+#              with BuildKit provenance + SBOM attestations, then a Sigstore-signed GitHub build provenance
+#              attestation (public repositories only; private ones on non-Enterprise plans cannot create them).
+# publish rebuilds from the same commit and digest-pinned base image that `image` tested (it does not reuse
+# that job's local build).
+# Tags: X.Y.Z, X.Y, X and latest for a vX.Y.Z tag; only X.Y.Z-suffix for a pre-release tag (vX.Y.Z-beta.1).
+# Pull requests only build (ci.yml also runs a plain docker build on every pull request).
+on:
+  push:
+    # GitHub filter globs; the publish job re-checks ^v\d+\.\d+\.\d+(-.+)?$.
+    tags: ['v[0-9]+.[0-9]+.[0-9]+', 'v[0-9]+.[0-9]+.[0-9]+-*']
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - compose.yaml
+      - .env.example
+      - scripts/docker-smoke.sh
+      - .github/workflows/docker.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # No dependency install scripts run (the image build installs the same way).
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      # An image never ships with a known vulnerability in any dependency (prod or dev).
+      - run: pnpm audit
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Emulation only runs the runtime stage's one small RUN for arm64; the build stage runs natively.
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build (linux/amd64, loaded for the smoke test)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: chartmate:smoke
+      - name: Smoke test (linux/amd64)
+        run: scripts/docker-smoke.sh chartmate:smoke
+      - name: Validate compose.yaml
+        env:
+          CHARTMATE_IMAGE: chartmate:smoke
+        run: |
+          docker compose -f compose.yaml config --quiet
+          docker compose -f compose.yaml --profile postgres config --quiet
+      - name: Build (linux/arm64, loaded for the smoke test)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/arm64
+          load: true
+          push: false
+          tags: chartmate:smoke-arm64
+      # Runs under QEMU: proves the arm64 better-sqlite3 binary loads and the server works on that platform.
+      - name: Smoke test (linux/arm64)
+        run: scripts/docker-smoke.sh chartmate:smoke-arm64 --platform linux/arm64
+
+  publish:
+    needs: [test, image]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the tag
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-.+)?$ ]]; then
+            echo "::error::not a release tag: $GITHUB_REF_NAME"
+            exit 1
+          fi
+          # One version for the desktop app, the image and the tag.
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "::error title=Tag does not match the version::tag $GITHUB_REF_NAME, apps/desktop/package.json $version"
+            exit 1
+          fi
+      - name: Image name
+        # Registry paths must be lowercase; the repository is never hardcoded.
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }} # the job token (packages: write), same as secrets.GITHUB_TOKEN
+      - name: Tags, labels and annotations
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        env:
+          # Annotations on the multi-arch index too, so the registry shows the description and source.
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          # Pre-release tags (vX.Y.Z-suffix) only get {{version}}: metadata-action skips X.Y and X for them.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+          # source (the repository URL), revision, version and created come from the GitHub context.
+          labels: |
+            org.opencontainers.image.title=Chartmate
+            org.opencontainers.image.description=Self-hosted charting app for stocks, crypto and custom baskets (server + web UI)
+            org.opencontainers.image.licenses=AGPL-3.0-only
+          annotations: |
+            org.opencontainers.image.title=Chartmate
+            org.opencontainers.image.description=Self-hosted charting app for stocks, crypto and custom baskets (server + web UI)
+            org.opencontainers.image.licenses=AGPL-3.0-only
+      - name: Build and push (linux/amd64 + linux/arm64)
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          # BuildKit attestations stored with the image: SLSA provenance and an SPDX SBOM per platform.
+          provenance: mode=max
+          sbom: true
+      - name: Build provenance attestation (GitHub, Sigstore-signed)
+        if: github.event.repository.private == false
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+          # Storage records exist only for organization-owned repositories.
+          create-storage-record: false

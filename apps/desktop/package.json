@@ -1,0 +1,33 @@
+{
+  "name": "@chartmate/desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chartmate desktop app (Electron): the Chartmate server and web UI in one hardened window, with no network listener.",
+  "license": "AGPL-3.0-only",
+  "author": "Chartmate",
+  "type": "module",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "bundle": "node scripts/bundle.mjs",
+    "start": "pnpm --filter @chartmate/web build && node scripts/bundle.mjs --dev && electron .",
+    "pack:dir": "pnpm --filter @chartmate/web build && node scripts/bundle.mjs && electron-builder --config electron-builder.config.cjs --dir",
+    "dist:mac": "pnpm --filter @chartmate/web build && node scripts/bundle.mjs && electron-builder --config electron-builder.config.cjs --mac --publish never",
+    "dist:win": "pnpm --filter @chartmate/web build && node scripts/bundle.mjs && electron-builder --config electron-builder.config.cjs --win --publish never",
+    "smoke": "playwright test -c smoke/playwright.config.ts",
+    "test": "vitest run && vitest run -c vitest.server-suite.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "smoke:prepare": "node smoke/prepare-inspectable.mjs",
+    "sign:win": "node scripts/sign-win-release.mjs"
+  },
+  "devDependencies": {
+    "@electron/asar": "3.4.1",
+    "@electron/fuses": "2.1.3",
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3",
+    "electron-updater": "6.8.9",
+    "esbuild": "0.28.2",
+    "js-yaml": "4.3.2",
+    "kysely": "0.29.6",
+    "undici": "7.29.1"
+  }
+}

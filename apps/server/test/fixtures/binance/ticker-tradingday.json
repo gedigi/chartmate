@@ -1,0 +1,36 @@
+[
+ {
+  "symbol": "SUIUSDT",
+  "priceChange": "0.04620000",
+  "priceChangePercent": "4.492",
+  "weightedAvgPrice": "1.03654330",
+  "openPrice": "1.02840000",
+  "highPrice": "1.07640000",
+  "lowPrice": "0.99350000",
+  "lastPrice": "1.07460000",
+  "volume": "28357134.10000000",
+  "quoteVolume": "29393397.44782000",
+  "openTime": 1791849600000,
+  "closeTime": 1791935999999,
+  "firstId": 565977158,
+  "lastId": 566196302,
+  "count": 219145
+ },
+ {
+  "symbol": "WALUSDT",
+  "priceChange": "0.00358000",
+  "priceChangePercent": "10.202",
+  "weightedAvgPrice": "0.03660521",
+  "openPrice": "0.03509000",
+  "highPrice": "0.03876000",
+  "lowPrice": "0.03404000",
+  "lastPrice": "0.03867000",
+  "volume": "17481695.10000000",
+  "quoteVolume": "639921.09295200",
+  "openTime": 1791849600000,
+  "closeTime": 1791935999999,
+  "firstId": 22122878,
+  "lastId": 22138120,
+  "count": 15243
+ }
+]

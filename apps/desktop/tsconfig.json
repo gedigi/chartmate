@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "resolveJsonModule": true,
+    "paths": { "@chartmate/shared": ["../../packages/shared/src/index.ts"] }
+  },
+  "include": ["src", "test", "smoke", "scripts", "*.ts", "product.json"]
+}
