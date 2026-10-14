@@ -1,5 +1,5 @@
 import {
-  DRAWING_COLOR_RE, HEX_COLOR_RE, MAX_INDICATOR_LEVEL, MAX_INDICATOR_LEVELS, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_POSITION_PCT, MAX_SECTION_TITLE,
+  DRAWING_COLOR_RE, DRAWING_COLOR_TOKENS, HEX_COLOR_RE, MAX_INDICATOR_LEVEL, MAX_INDICATOR_LEVELS, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_POSITION_PCT, MAX_SECTION_TITLE,
   MAX_TEXT_SIZE, MAX_WATCHLIST_SECTIONS, MAX_WATCHLIST_SYMBOLS, MIN_LINE_WIDTH, MIN_TEXT_SIZE, migrateAppearance, TIMEFRAMES,
   mergeLegacyWatchlist, watchlistProblem,
   type DrawingState, type Layout, type Timeframe, type WatchlistEntry,
@@ -90,8 +90,9 @@ const LayoutSchema = z.object({
   // Tolerant: invalid defaults are dropped on their own, so they can never block saving the rest of the layout.
   positionDefaults: PositionDefaultsSchema.optional().catch(undefined),
   colorDefaultsRev: z.number().int().min(0).max(1_000_000).optional(),
-  // Color of new drawings (the last swatch picked). Tolerant: an invalid value is dropped on its own.
-  drawingColor: DrawingColor.optional().catch(undefined),
+  // Color of new drawings: the last swatch picked, so a palette reference only (no layout ever stored a hex here).
+  // Tolerant: an invalid value is dropped on its own.
+  drawingColor: z.enum(DRAWING_COLOR_TOKENS).optional().catch(undefined),
 }) satisfies z.ZodType<Layout, unknown>;
 
 const DrawingSchema = z.object({

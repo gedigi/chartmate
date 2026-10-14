@@ -178,13 +178,14 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
     }
   });
 
-  it('layout drawingColor: a palette reference or hex; invalid values are dropped without failing the save', async () => {
-    for (const drawingColor of ['palette:0', 'accent', 'down', '#123abc']) {
+  it('layout drawingColor: a palette reference only; anything else is dropped without failing the save', async () => {
+    for (const drawingColor of ['palette:0', 'accent', 'down', 'palette:5']) {
       const r = await putLayout({ ...layout, drawingColor });
       expect(r.statusCode, drawingColor).toBe(200);
       expect((await t.app.inject({ method: 'GET', url: '/api/layouts/default' })).json(), drawingColor).toEqual({ ...layout, drawingColor });
     }
-    for (const drawingColor of ['palette:7', 'blue', 12, '']) {
+    // A hex was never written (the field only ever holds a picked swatch): it is dropped like any invalid value.
+    for (const drawingColor of ['#123abc', 'palette:7', 'blue', 12, '']) {
       const r = await putLayout({ ...layout, drawingColor });
       expect(r.statusCode, String(drawingColor)).toBe(200);
       expect(r.json(), String(drawingColor)).not.toHaveProperty('drawingColor');
