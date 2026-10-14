@@ -332,6 +332,19 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     expect(t.createYAxisFigures({ ...base, overlay: { points: [{ value: 1 }], styles: { chartmateLabel: { onAxis: false } } } })).toEqual([]);
   });
 
+  it('the price text on the line is a bubble in the line\'s own color (not the default drawing color)', () => {
+    const t = tpl('horizontalStraightLine');
+    const bounding = { width: 300, height: 100, left: 0, top: 0, right: 0, bottom: 0 };
+    const base = { chart: chart(2), coordinates: [{ x: 10, y: 40 }], bounding, yAxis: { isFromZero: () => false, isInCandle: () => true } };
+    const styles = { line: { color: '#f27bd0' }, chartmateLabel: { onLine: true, onAxis: true } };
+    const text = t.createPointFigures({ ...base, overlay: { points: [{ value: 5 }], styles } }).find((f: { type: string }) => f.type === 'text');
+    expect(text.styles).toMatchObject({ backgroundColor: '#f27bd0', borderColor: '#f27bd0', color: readableTextOn('#f27bd0') });
+    const pt = tpl('priceLine');
+    const own = pt.createPointFigures({ ...base, chart: { ...chart(2), getDecimalFold: () => ({ format: (x: string) => x }), getThousandsSeparator: () => ({ format: (x: string) => x }) }, overlay: { points: [{ value: 5 }], styles: { line: { color: '#e9ecf4' } } } })
+      .find((f: { type: string }) => f.type === 'text');
+    expect(own.styles).toMatchObject({ backgroundColor: '#e9ecf4', color: readableTextOn('#e9ecf4') });
+  });
+
   it('the axis price label text reads on its fill (dark text on a white or light line)', () => {
     const t = tpl('horizontalStraightLine');
     const bounding = { width: 300, height: 100, left: 0, top: 0, right: 0, bottom: 0 };

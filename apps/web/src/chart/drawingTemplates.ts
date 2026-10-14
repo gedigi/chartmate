@@ -293,7 +293,12 @@ function withLabels(t: Template): Template {
       if (opts.onLine && !hasText && c && text !== null) {
         figures.push({ type: 'text', ignoreEvent: true, attrs: { x: c.x, y: c.y, text, baseline: 'bottom' } } as OverlayFigure);
       }
-      return figures;
+      // The price bubble takes the line's own color (the overlay's text styles are the default drawing color's), with
+      // white or dark glyphs, whichever reads on it.
+      const color = String(lineStyles(p).color ?? THEME_TOKENS.dark.accent);
+      return figures.map((f) => (f.type === 'text'
+        ? { ...f, styles: { ...(f.styles as object | undefined), color: readableTextOn(color), backgroundColor: color, borderColor: color } } as OverlayFigure
+        : f));
     },
     createYAxisFigures(p: FigureParams) {
       const opts = labelOptions(name, p.overlay.styles)!;
