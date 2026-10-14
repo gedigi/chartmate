@@ -9,8 +9,10 @@
 // - pkcs11 (macOS/Linux): osslsigncode + an OpenSSL PKCS#11 provider + the SimplySign PKCS#11 module
 //   (CHARTMATE_WIN_PKCS11_MODULE). SimplySign Desktop must be logged in (the owner types the one-time code).
 // Every signature is SHA-256 with an RFC 3161 timestamp from Certum. Nothing secret is passed on a command line: an
-// optional card PIN (CHARTMATE_WIN_PKCS11_PIN, set in-process by scripts/sign-win-release.mjs) reaches libp11's
-// provider as PKCS11_PIN in osslsigncode's environment only (osslsigncode's -pass/-readpass do not reach a provider).
+// optional card PIN (CHARTMATE_WIN_PKCS11_PIN, which scripts/sign-win-release.mjs puts only into electron-builder's
+// environment) reaches libp11's provider as PKCS11_PIN in osslsigncode's environment (osslsigncode's -pass/-readpass
+// do not reach a provider). Signing tools get a minimal environment (toolEnv), never the build's secrets, and the
+// first rejected PIN stops all further signing attempts.
 const { spawnSync } = require('node:child_process');
 const { appendFileSync, existsSync, renameSync, rmSync, readdirSync } = require('node:fs');
 const { basename, dirname, join } = require('node:path');
@@ -78,7 +80,35 @@ function osslsigncodePlan(env, host) {
 /** Network / timestamp hiccups are retried; anything else (and anything about a PIN: a card locks after 3 bad PINs) is not. */
 function isTransient(output) {
   if (/\bPIN\b|CKR_PIN|login/i.test(output)) return false;
-  return /timestamp|time stamp|connect|timed? ?out|HTTP|0x80072ee2|0x80190/i.test(output);
+  return /timestamp server|time ?stamp(ing)? (server|failed|error)|failed to connect|could not connect|connection (refused|reset|timed out)|timed out|0x80072ee2|0x80190[0-9a-f]{3}|HTTP (error|status) 5\d\d/i
+    .test(output);
+}
+
+/** A wrong, locked or missing PIN. After one, no further signing attempt is made (a card locks after 3 bad PINs). */
+function isPinFailure(output) {
+  return /CKR_PIN_(INCORRECT|INVALID|LOCKED|LEN_RANGE|EXPIRED)|No PIN was entered|Login to token failed|\bPIN\b.*\b(incorrect|invalid|locked|blocked)\b/i.test(output);
+}
+let pinFailed = false;
+/** Test only. */
+function resetPinLatch() {
+  pinFailed = false;
+}
+
+/**
+ * The environment a signing tool gets: only what Windows / a PKCS#11 module needs to run, never the build's
+ * secrets. CHARTMATE_WIN_SIGN_PASS_ENV names extra variables to pass (e.g. a PKCS#11 module's own config).
+ * @param {NodeJS.ProcessEnv} env
+ * @param {Record<string, string>} [extra]
+ */
+function toolEnv(env, extra = {}) {
+  const keep = ['PATH', 'Path', 'PATHEXT', 'SystemRoot', 'SystemDrive', 'windir', 'TEMP', 'TMP', 'TMPDIR', 'USERPROFILE', 'APPDATA',
+    'LOCALAPPDATA', 'ProgramData', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'CommonProgramFiles', 'CommonProgramFiles(x86)',
+    'USERNAME', 'USERDOMAIN', 'COMPUTERNAME', 'HOMEDRIVE', 'HOMEPATH', 'OS', 'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS',
+    'HOME', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'LC_CTYPE',
+    ...String(env.CHARTMATE_WIN_SIGN_PASS_ENV ?? '').split(',').map((k) => k.trim()).filter(Boolean)];
+  const out = {};
+  for (const k of keep) if (typeof env[k] === 'string') out[k] = env[k];
+  return { ...out, ...extra };
 }
 
 /** Newest x64 signtool.exe from the Windows SDK (an ARM64 signtool cannot load the x64 SimplySign minidriver). */
@@ -101,8 +131,8 @@ function moduleArchs(module) {
   return r.status === 0 ? r.stdout.trim().split(/\s+/) : null;
 }
 
-function run(command, args, extraEnv = {}) {
-  const r = spawnSync(command, args, { env: { ...process.env, ...extraEnv }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+function run(command, args, env) {
+  const r = spawnSync(command, args, { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   return { ok: r.status === 0, output: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? String(r.error) : ''}` };
 }
 
@@ -119,6 +149,7 @@ async function signFile(file, opts = {}) {
   if (!backend) throw new Error('Certum signing is not configured (see build/signing.cjs)');
   const thumbprint = value(env, 'CHARTMATE_WIN_CERT_SHA1');
   if (backend === 'ci-login' && !thumbprint) throw new Error('CHARTMATE_WIN_CERT_SHA1 is not set: run scripts/certum/login.ps1 before packaging');
+  if (pinFailed) throw new Error(`not signing ${basename(file)}: an earlier PIN / token login failed, refusing further attempts`);
 
   for (let attempt = 1; ; attempt++) {
     let result;
@@ -129,13 +160,17 @@ async function signFile(file, opts = {}) {
         moduleArchs: moduleArchs(env.CHARTMATE_WIN_PKCS11_MODULE.trim()), exists: existsSync,
       });
       rmSync(tmp, { force: true });
-      result = run(plan.command, plan.args, { ...plan.env });
+      result = run(plan.command, plan.args, toolEnv(env, plan.env));
       if (result.ok) renameSync(tmp, file);
       else rmSync(tmp, { force: true });
     } else {
-      result = run(findSigntool(env), signtoolArgs({ thumbprint, file, description: opts.description }));
+      result = run(findSigntool(env), signtoolArgs({ thumbprint, file, description: opts.description }), toolEnv(env));
     }
     if (result.ok) break;
+    if (isPinFailure(result.output)) {
+      pinFailed = true;
+      throw new Error(`Certum signing failed for ${basename(file)}: PIN / token login rejected; no further attempts will be made:\n${result.output.trim()}`);
+    }
     if (attempt >= 3 || !isTransient(result.output)) {
       throw new Error(`Certum signing failed for ${basename(file)} (${backend}):\n${result.output.trim()}`);
     }
@@ -158,4 +193,6 @@ async function sign(configuration) {
   await signFile(configuration.path, { description: configuration.name });
 }
 
-module.exports = { sign, signFile, signtoolArgs, osslsigncodePlan, isTransient, DEFAULT_PKCS11_CERT, DEFAULT_PKCS11_KEY };
+module.exports = {
+  sign, signFile, signtoolArgs, osslsigncodePlan, isTransient, isPinFailure, resetPinLatch, toolEnv, findSigntool, DEFAULT_PKCS11_CERT, DEFAULT_PKCS11_KEY,
+};
