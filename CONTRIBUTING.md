@@ -49,21 +49,11 @@ Write the failing test first, then the code; a bug fix comes with a regression t
 - **UI changes**: attach screenshots of the running app in **both** the dark and the light theme.
 - **Dependencies**: only licenses compatible with AGPL-3.0 (MIT, BSD, ISC, Apache-2.0, MPL-2.0 and similar).
 
-## License and sign-off
+## License
 
-Chartmate is licensed under the [GNU AGPL-3.0-only](LICENSE). By contributing, you agree that your contribution is
-licensed under the same license.
-
-Every commit must be signed off under the [Developer Certificate of Origin](https://developercertificate.org/)
-(DCO): a `Signed-off-by:` line certifying that you wrote the change, or otherwise have the right to submit it under
-the project's license. `git commit -s` adds it from your Git name and email:
-
-```
-Signed-off-by: Your Name <you@example.com>
-```
-
-The email must match the commit's author email. CI checks every commit of a pull request
-(`scripts/check-dco.sh`). Forgot it? `git rebase --signoff main` and force-push the branch.
+Chartmate is licensed under the [GNU AGPL-3.0-only](LICENSE). Contributions are accepted under that same license
+(inbound = outbound): by opening a pull request you license your contribution under AGPL-3.0-only. No contributor
+license agreement or commit sign-off is required.
 
 Porting an existing indicator? Only port code whose license allows it, keep its license header and attribution,
 and say so in the pull request (the Wyckoff indicator is an MPL-2.0 example).

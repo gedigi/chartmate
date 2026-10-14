@@ -1,7 +1,7 @@
 # Agent guide
 
 How to work on Chartmate. `README.md` is the user-facing reference (features, configuration, desktop app);
-`CONTRIBUTING.md` is the contributor's checklist (setup, checks, DCO sign-off, adding an indicator);
+`CONTRIBUTING.md` is the contributor's checklist (setup, checks, licensing, adding an indicator);
 this file is for whoever changes the code. Keep both accurate: a change that alters behavior, a command, an
 env var or a default updates the README in the same commit.
 
@@ -167,8 +167,7 @@ The renderer is untrusted web content. Read the README's "Security model" before
   `ghcr.io/<owner>/<repo>` (from `github.repository`, lowercased) as `X.Y.Z`, `X.Y`, `X` and `latest`
   (pre-releases: `X.Y.Z-suffix` only), with provenance and SBOM attestations. Manual dispatch never publishes. `compose.yaml` + `.env.example` at the root are the documented way to run it.
 - `.github/workflows/ci.yml` runs `pnpm audit`, typecheck, tests, the indicator scaffold check, the web build, e2e
-  and the Docker build on pull requests and pushes to `main`, plus the DCO sign-off check (`scripts/check-dco.sh`)
-  on pull requests; the release workflow audits too. Dependabot (`.github/dependabot.yml`)
+  and the Docker build on pull requests and pushes to `main`; the release workflow audits too. Dependabot (`.github/dependabot.yml`)
   opens weekly update PRs for npm packages, the pinned actions and the digest-pinned Docker base image.
 
 ## Specs and plans

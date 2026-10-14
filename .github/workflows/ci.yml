@@ -51,21 +51,6 @@ jobs:
             test-results
           retention-days: 7
 
-  # Developer Certificate of Origin: every commit of a pull request is signed off (CONTRIBUTING.md).
-  dco:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: scripts/check-dco.sh "$BASE_SHA..$HEAD_SHA"
-
   docker:
     runs-on: ubuntu-latest
     timeout-minutes: 20

@@ -19,7 +19,7 @@
 - [ ] UI / chart changes: dark and light screenshots attached above.
 - [ ] No color literals: colors come from palette slots (`lineSlots`), theme tokens or `activeIndicatorColors()`.
 - [ ] Docs: the README (and CONTRIBUTING / AGENTS where relevant) reflects any change in behavior, commands, env vars or defaults.
-- [ ] Every commit is signed off (`git commit -s`, DCO) and uses the conventional style (`feat(web): …`).
+- [ ] Commits use the conventional style (`feat(web): …`).
 
 ### New indicator
 

@@ -760,9 +760,8 @@ locally with `SMOKE_ALLOW_REAL_USERDATA=1`.
 
 `.github/workflows/ci.yml` runs `pnpm audit` (any known vulnerability, in a runtime or build-time dependency,
 fails the build), typecheck, tests, an indicator scaffold check (`pnpm new:indicator`, then typecheck and the
-indicator tests), the web build, e2e and the Docker build on pull requests and on pushes to `main`, and checks the
-DCO sign-off of every pull request commit (`scripts/check-dco.sh`, see [CONTRIBUTING.md](CONTRIBUTING.md)). Dependabot opens weekly update pull requests for npm packages, the pinned actions and the Docker base
-image.
+indicator tests), the web build, e2e and the Docker build on pull requests and on pushes to `main`. Dependabot
+opens weekly update pull requests for npm packages, the pinned actions and the Docker base image.
 `.github/workflows/desktop.yml` runs on tags `v*` and on manual dispatch:
 
 - **Permissions**: the workflows default to a read-only token, and every action is pinned to a commit SHA.
