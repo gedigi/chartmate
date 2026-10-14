@@ -1,5 +1,6 @@
 import type { LineStyleKind } from '@chartmate/shared';
 import { getOverlayClass, registerOverlay, type OverlayFigure, type OverlayTemplate } from 'klinecharts';
+import { readableTextOn } from './contrast';
 import { THEME_TOKENS } from './theme';
 
 /**
@@ -306,7 +307,8 @@ function withLabels(t: Template): Template {
         ignoreEvent: true,
         attrs: { x: fromZero ? 0 : p.bounding.width, y: c.y, text, align: fromZero ? 'left' : 'right', baseline: 'middle' },
         styles: {
-          color: '#ffffff', backgroundColor: color, borderColor: color, borderSize: 1, borderRadius: 2,
+          // White or dark, whichever reads on the line color (a white / ink drawing color included).
+          color: readableTextOn(color), backgroundColor: color, borderColor: color, borderSize: 1, borderRadius: 2,
           paddingLeft: 4, paddingRight: 4, paddingTop: 2, paddingBottom: 2,
         },
       } as OverlayFigure];

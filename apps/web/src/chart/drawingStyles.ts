@@ -1,5 +1,5 @@
 import {
-  isHexColor, isPositionTool, MAX_LINE_WIDTH, MAX_TEXT_SIZE, MIN_LINE_WIDTH, MIN_TEXT_SIZE,
+  isDrawingColor, isDrawingColorToken, isHexColor, isPositionTool, MAX_LINE_WIDTH, MAX_TEXT_SIZE, MIN_LINE_WIDTH, MIN_TEXT_SIZE,
   type DrawingLineStyle, type DrawingStyles, type LineStyleKind,
 } from '@chartmate/shared';
 import type { DeepPartial, OverlayStyle } from 'klinecharts';
@@ -14,6 +14,29 @@ export const DRAWING_DASH = [6, 4];
 export const TEXT_TOOL = 'simpleAnnotation';
 
 export type TextStyle = NonNullable<DrawingStyles['text']>;
+
+/**
+ * Key of a drawing's palette reference ('palette:2', 'accent', …) inside its KLineChart styles (ignored by KLineChart
+ * itself): the drawn colors are the reference resolved for the active theme, this key keeps what is saved, so a theme
+ * switch can redraw it. Null (or missing) when the drawing has a plain hex color.
+ */
+export const COLOR_REF_KEY = 'chartmateColor';
+
+/** Drawing color (palette reference or hex) → the hex drawn in the active theme (see resolveDrawingColor). */
+export type ColorResolver = (color: string) => string;
+/** Callers whose colors are all hex (the adapter always passes the theme's resolver). */
+const asIs: ColorResolver = (c) => c;
+
+/** Overlay styles plus the palette reference of `color`, when it is one. */
+function withColorRef<T extends object>(styles: T, color: string): T {
+  return isDrawingColorToken(color) ? { ...styles, [COLOR_REF_KEY]: color } : styles;
+}
+
+/** The palette reference held in KLineChart overlay styles, if any. */
+function colorRef(styles: unknown): string | undefined {
+  const ref = (styles as Record<string, unknown> | null | undefined)?.[COLOR_REF_KEY];
+  return isDrawingColorToken(ref) ? ref : undefined;
+}
 
 const intIn = (v: unknown, lo: number, hi: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
 
@@ -57,21 +80,23 @@ export function klineLine(style: LineStyleKind, size: number, dashed: number[] =
   };
 }
 
-export function lineToOverlay(l: DrawingLineStyle): DeepPartial<OverlayStyle> {
-  return { line: { color: l.color, size: l.size, ...klineLine(l.style, l.size) } as DeepPartial<OverlayStyle['line']> };
+export function lineToOverlay(l: DrawingLineStyle, resolve: ColorResolver = asIs): DeepPartial<OverlayStyle> {
+  return withColorRef({ line: { color: resolve(l.color), size: l.size, ...klineLine(l.style, l.size) } as DeepPartial<OverlayStyle['line']> }, l.color);
 }
 
 /** A text annotation's color is its bubble (background, border, pointer); the glyphs are white or dark, whichever reads on it. */
-export function textToOverlay(t: TextStyle): DeepPartial<OverlayStyle> {
-  return {
-    text: { size: t.size, color: readableTextOn(t.color), backgroundColor: t.color, borderColor: t.color },
-    line: { color: t.color },
-    polygon: { color: t.color, borderColor: t.color },
-  };
+export function textToOverlay(t: TextStyle, resolve: ColorResolver = asIs): DeepPartial<OverlayStyle> {
+  const c = resolve(t.color);
+  return withColorRef({
+    text: { size: t.size, color: readableTextOn(c), backgroundColor: c, borderColor: c },
+    line: { color: c },
+    polygon: { color: c, borderColor: c },
+  }, t.color);
 }
 
-export function toOverlayStyles(s: DrawingStyles | undefined): DeepPartial<OverlayStyle> | undefined {
-  let out: Record<string, unknown> | undefined = s?.text ? textToOverlay(s.text) : s?.line ? lineToOverlay(s.line) : undefined;
+/** KLineChart overlay styles of stored drawing styles, palette references resolved with `resolve`. */
+export function toOverlayStyles(s: DrawingStyles | undefined, resolve: ColorResolver = asIs): DeepPartial<OverlayStyle> | undefined {
+  let out: Record<string, unknown> | undefined = s?.text ? textToOverlay(s.text, resolve) : s?.line ? lineToOverlay(s.line, resolve) : undefined;
   // Price-label options and channel extend options ride along in the overlay styles
   // (KLineChart ignores the keys; our templates read them).
   if (s?.label) out = { ...out, [LABEL_STYLE_KEY]: { ...s.label } };
@@ -99,20 +124,26 @@ function readExtend(e: unknown): ExtendStyle | undefined {
   return out.left !== undefined || out.right !== undefined ? out : undefined;
 }
 
-/** Reads the normalized line style out of KLineChart overlay styles (null when absent/invalid). */
+/** A stored / drawn color as saved: palette references as they are, hex lowercased. */
+const normColor = (c: string): string => (isHexColor(c) ? c.toLowerCase() : c);
+
+/**
+ * Reads the normalized line style out of KLineChart overlay styles or stored styles (null when absent/invalid). The
+ * color is the palette reference riding along (COLOR_REF_KEY) when there is one, else the line's own color.
+ */
 export function readLine(styles: unknown): DrawingLineStyle | null {
   const l = (styles as { line?: Record<string, unknown> } | null | undefined)?.line;
-  if (!l || !isHexColor(l.color) || !intIn(l.size, MIN_LINE_WIDTH, MAX_LINE_WIDTH)) return null;
+  if (!l || !isDrawingColor(l.color) || !intIn(l.size, MIN_LINE_WIDTH, MAX_LINE_WIDTH)) return null;
   if (l.style !== 'solid' && l.style !== 'dashed' && l.style !== 'dotted') return null;
   // Normalized ('dotted') or KLineChart form (dotted = dashed with a dot pattern, see klineLine).
   const style: LineStyleKind = isDottedLine(l) ? 'dotted' : l.style;
-  return { color: l.color.toLowerCase(), size: l.size, style };
+  return { color: colorRef(styles) ?? normColor(l.color), size: l.size, style };
 }
 
 export function readText(styles: unknown): TextStyle | null {
   const t = (styles as { text?: Record<string, unknown> } | null | undefined)?.text;
   if (!t || !isHexColor(t.backgroundColor) || !intIn(t.size, MIN_TEXT_SIZE, MAX_TEXT_SIZE)) return null;
-  return { color: t.backgroundColor.toLowerCase(), size: t.size };
+  return { color: colorRef(styles) ?? t.backgroundColor.toLowerCase(), size: t.size };
 }
 
 /** Normalized styles of an overlay (only what the app lets the user change), or undefined. */
@@ -163,7 +194,7 @@ export function sanitizeDrawingStyles(s: unknown): DrawingStyles | undefined {
   const line = readLine(s);
   if (line) out.line = line;
   const t = (s as { text?: Record<string, unknown> }).text;
-  if (t && isHexColor(t.color) && intIn(t.size, MIN_TEXT_SIZE, MAX_TEXT_SIZE)) out.text = { color: t.color.toLowerCase(), size: t.size };
+  if (t && isDrawingColor(t.color) && intIn(t.size, MIN_TEXT_SIZE, MAX_TEXT_SIZE)) out.text = { color: normColor(t.color), size: t.size };
   const label = readLabel((s as { label?: unknown }).label);
   if (label) out.label = label;
   const extend = readExtend((s as { extend?: unknown }).extend);

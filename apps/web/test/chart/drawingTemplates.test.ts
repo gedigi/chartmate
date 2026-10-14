@@ -1,3 +1,4 @@
+import { readableTextOn } from '../../src/chart/contrast';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The real KLineChart overlay classes (pure JS, no canvas needed); registerOverlay is captured.
@@ -329,6 +330,16 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     const axis = t.createYAxisFigures({ ...base, overlay: { points: [{ value: 84123.4 }], styles: null } });
     expect(axis).toEqual([expect.objectContaining({ type: 'text', attrs: expect.objectContaining({ text: '84,123.40', y: 40, x: 300, align: 'right' }) })]);
     expect(t.createYAxisFigures({ ...base, overlay: { points: [{ value: 1 }], styles: { chartmateLabel: { onAxis: false } } } })).toEqual([]);
+  });
+
+  it('the axis price label text reads on its fill (dark text on a white or light line)', () => {
+    const t = tpl('horizontalStraightLine');
+    const bounding = { width: 300, height: 100, left: 0, top: 0, right: 0, bottom: 0 };
+    const base = { chart: chart(2), coordinates: [{ x: 10, y: 40 }], bounding, yAxis: { isFromZero: () => false } };
+    const label = (color: string) => t.createYAxisFigures({ ...base, overlay: { points: [{ value: 5 }], styles: { line: { color } } } })[0].styles;
+    expect(label('#e9ecf4')).toMatchObject({ backgroundColor: '#e9ecf4', color: readableTextOn('#e9ecf4') });
+    expect(readableTextOn('#e9ecf4')).not.toBe('#ffffff');
+    expect(label('#131726')).toMatchObject({ backgroundColor: '#131726', color: readableTextOn('#131726') });
   });
 
   it('horizontal line: no text on the line by default, can be turned on; axis label on by default', () => {

@@ -275,6 +275,21 @@ describe('ChartAdapter copy / paste of drawings', () => {
     expect(a.serializeDrawings().slice(4)).toEqual([shift(channel), raised, shift(text), shift(fib)]);
   });
 
+  it('a palette reference is copied as the reference (the copy recolors with the theme too)', async () => {
+    const a = await loadAt(BTC, '1D');
+    const styled = { ...segment, styles: { line: { color: 'palette:3', size: 2, style: 'solid' as const } } };
+    a.restoreDrawings([styled], BTC.id);
+    select(userOverlays()[0]!);
+    a.copySelected();
+    expect(drawingClipboard.get()?.styles).toEqual(styled.styles);
+    a.pasteDrawing();
+    const copy = userOverlays()[1]!;
+    expect((copy.styles as { line: { color: string } }).line.color).toBe('#ff8f5a');
+    a.setTheme('light');
+    expect((copy.styles as { line: { color: string } }).line.color).toBe('#e0621a');
+    expect(a.serializeDrawings()[1]!.styles).toEqual(styled.styles);
+  });
+
   it('a horizontal line is offset in price (a shift in time would not show)', async () => {
     const a = await loadAt(BTC, '1D'); // visible bars: low 99, high 101
     a.restoreDrawings([{ name: 'horizontalStraightLine', points: [{ timestamp: day(3), value: 100 }], lock: false }], BTC.id);

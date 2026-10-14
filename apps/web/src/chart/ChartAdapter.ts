@@ -4,12 +4,12 @@ import {
   type OverlayMode, type OverlayStyle, type Styles,
 } from 'klinecharts';
 import {
-  isIntraday, isPositionTool, nyToUtc, resolvePositionDefaults, tfMs,
+  isDrawingColorToken, isIntraday, isPositionTool, nyToUtc, resolvePositionDefaults, tfMs,
   type ChartType, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker, type PositionDefaults,
   type ThemedAppearance, type SessionMode, type SymbolInfo, type Timeframe,
 } from '@chartmate/shared';
 import {
-  klineLine, lineToOverlay, normalizeOverlayStyles, readLine, readText, sanitizeDrawingStyles, textToOverlay, toOverlayStyles, TEXT_TOOL,
+  COLOR_REF_KEY, klineLine, lineToOverlay, normalizeOverlayStyles, readLine, readText, sanitizeDrawingStyles, textToOverlay, toOverlayStyles, TEXT_TOOL,
   type TextStyle,
 } from './drawingStyles';
 import {
@@ -22,6 +22,7 @@ import {
 } from './position';
 import { positionContext, positionState, registerPositionOverlays } from './positionOverlay';
 import { drawingClipboard, type DrawingClip } from './drawingClipboard';
+import { DEFAULT_DRAWING_COLOR, drawingSwatches, resolveDrawingColor, type DrawingSwatch } from './drawingColors';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
 import { catalogEntry, defaultLineColor, effectiveLevels } from './indicators/catalog';
 import { indicatorColorContext } from './indicators/colors';
@@ -259,6 +260,37 @@ export class ChartAdapter {
     return resolveAppearance(this.theme, this.appearance).drawing;
   }
 
+  /**
+   * The default drawing style as a drawing would store it: the appearance's own color (a hex) when set, else the accent
+   * as a palette reference (so the picker marks the accent swatch, and it follows the theme).
+   */
+  private storedDefaultDrawing(): DrawingLineStyle {
+    const d = this.defaultDrawing();
+    return this.appearance?.[this.theme]?.drawing ? d : { ...d, color: DEFAULT_DRAWING_COLOR };
+  }
+
+  /** Drawing color (palette reference or hex) → the color drawn in the active theme. */
+  private readonly resolveColor = (c: string): string => resolveDrawingColor(c, this.theme, this.appearance);
+
+  /** The drawing color picker's swatches in the active theme (the up / down ones follow the candle colors). */
+  drawingSwatches(): DrawingSwatch[] {
+    return drawingSwatches(this.theme, this.appearance);
+  }
+
+  /**
+   * Redraws the drawings colored by a palette reference in the active theme's colors (theme or appearance change).
+   * Not an edit: nothing is saved (what is saved, the reference, did not change).
+   */
+  private refreshColorRefs(): void {
+    for (const o of this.userOverlays()) {
+      if (!isDrawingColorToken((o.styles as Record<string, unknown> | null)?.[COLOR_REF_KEY])) continue;
+      const text = o.name === TEXT_TOOL ? readText(o.styles) : null;
+      const line = text ? null : readLine(o.styles);
+      const styles = text ? textToOverlay(text, this.resolveColor) : line ? lineToOverlay(line, this.resolveColor) : null;
+      if (styles) this.chart.overrideOverlay({ id: o.id, styles });
+    }
+  }
+
   /** Indicators that paint themselves (Wyckoff) read the theme and appearance at draw time from this context. */
   private updateIndicatorColors(): void {
     indicatorColorContext.theme = this.theme;
@@ -378,6 +410,7 @@ export class ChartAdapter {
     this.chart.setStyles(this.styles());
     for (const o of this.chart.getOverlays({ groupId: MARKERS })) this.chart.overrideOverlay({ id: o.id, styles: markerStyles(t) });
     this.refreshLockedLook();
+    this.refreshColorRefs();
     // Indicator lines without a color override carry the palette of the theme they were written in: rewrite
     // them (width / style overrides kept; user colors are never touched).
     for (const i of this.chart.getIndicators()) {
@@ -387,6 +420,7 @@ export class ChartAdapter {
       if (styles?.lines) this.chart.overrideIndicator({ id: i.id, name: i.name, styles: { lines: styles.lines } });
     }
     this.refreshThemedBars();
+    this.emitSelection(); // the style bar's swatches show this theme's colors
   }
 
   /**
@@ -417,6 +451,8 @@ export class ChartAdapter {
     this.chart.setStyles(this.styles());
     this.refreshThemedBars();
     this.refreshLockedLook();
+    this.refreshColorRefs();
+    this.emitSelection();
   }
 
   /** Global target / stop distances of new long / short positions (missing / invalid → app defaults); placed positions keep their prices. */
@@ -985,7 +1021,7 @@ export class ChartAdapter {
     if (!id || id === this.drawing?.id) return null;
     const o = this.userOverlays().find((x) => x.id === id);
     if (!o) return null;
-    const d = this.defaultDrawing();
+    const d = this.storedDefaultDrawing();
     if (o.name === TEXT_TOOL) {
       const style = readText(o.styles) ?? { color: d.color, size: DEFAULT_TEXT_SIZE };
       return { id: o.id, kind: 'text', style, ...this.lockOf(o) };
@@ -1136,14 +1172,39 @@ export class ChartAdapter {
     const sel = this.getSelectedDrawing();
     if (!sel || sel.locked || sel.kind === 'position') return;
     const styles = sel.kind === 'text'
-      ? textToOverlay({ ...sel.style, ...(patch as Partial<TextStyle>) })
-      : lineToOverlay({ ...sel.style, ...(patch as Partial<DrawingLineStyle>) });
+      ? textToOverlay({ ...sel.style, ...(patch as Partial<TextStyle>) }, this.resolveColor)
+      : lineToOverlay({ ...sel.style, ...(patch as Partial<DrawingLineStyle>) }, this.resolveColor);
+    // A hex replacing a palette reference: drop the reference (KLineChart merges styles; null replaces the key).
+    const o = this.userOverlays().find((x) => x.id === sel.id);
+    const hadRef = (o?.styles as Record<string, unknown> | null | undefined)?.[COLOR_REF_KEY] != null;
+    if (hadRef && !(COLOR_REF_KEY in styles)) (styles as Record<string, unknown>)[COLOR_REF_KEY] = null;
     // Label options are re-sent with the style (never lost, whatever KLineChart's style merging does).
     if (sel.kind === 'line' && sel.label) (styles as Record<string, unknown>)[LABEL_STYLE_KEY] = { ...sel.label };
     if (sel.kind === 'line' && sel.extend) (styles as Record<string, unknown>)[EXTEND_STYLE_KEY] = { ...sel.extend };
     this.chart.overrideOverlay({ id: sel.id, styles });
     this.emitChange();
     this.emitSelection();
+  }
+
+  /** Gives the selected drawing the default color (see storedDefaultDrawing); saved like any drawing edit. */
+  resetSelectedColor(): void {
+    this.setSelectedStyle({ color: this.storedDefaultDrawing().color });
+  }
+
+  /** Color new drawings start with (a palette reference; undefined or invalid → they follow the default drawing style). */
+  private newDrawingColor: string | undefined;
+
+  /** Sets the color new drawings start with: the last swatch picked (layout `drawingColor`); undefined resets it. */
+  setNewDrawingColor(c: string | undefined): void {
+    this.newDrawingColor = isDrawingColorToken(c) ? c : undefined;
+  }
+
+  /** Own styles of a new drawing of `tool`: the sticky color with the default width / dash (none for positions). */
+  private newDrawingStyles(tool: string): DeepPartial<OverlayStyle> | undefined {
+    const color = this.newDrawingColor;
+    if (!color || isPositionTool(tool)) return undefined;
+    if (tool === TEXT_TOOL) return textToOverlay({ color, size: DEFAULT_TEXT_SIZE }, this.resolveColor);
+    return lineToOverlay({ ...this.defaultDrawing(), color }, this.resolveColor);
   }
 
   private emitChange(): void {
@@ -1168,6 +1229,8 @@ export class ChartAdapter {
     this.cancelDrawing();
     const create: OverlayCreate = { name: tool, mode: this.strongMagnet ? 'strong_magnet' : this.baseMode(), ...this.handlers };
     if (opts?.text !== undefined) create.extendData = opts.text;
+    const styles = this.newDrawingStyles(tool);
+    if (styles) create.styles = styles;
     const id = this.chart.createOverlay(create);
     if (typeof id === 'string') {
       this.drawing = opts?.onEnd ? { id, onEnd: opts.onEnd } : { id };
@@ -1275,7 +1338,7 @@ export class ChartAdapter {
     this.withSilence(() => {
       const create: OverlayCreate = { name: clip.name, points, lock: this.lockAll, mode: this.baseMode(), ...this.handlers };
       if (clip.text !== undefined) create.extendData = clip.text;
-      const styles = toOverlayStyles(sanitizeDrawingStyles(clip.styles));
+      const styles = toOverlayStyles(sanitizeDrawingStyles(clip.styles), this.resolveColor);
       if (this.lockAll) create.styles = { ...styles, point: this.lockedPoint() };
       else if (styles) create.styles = styles;
       const created = this.chart.createOverlay(create);
@@ -1497,7 +1560,7 @@ export class ChartAdapter {
         const lock = this.lockAll || own;
         const create: OverlayCreate = { name: d.name, points: display, lock, ...this.handlers };
         if (d.text !== undefined) create.extendData = d.text;
-        const styles = toOverlayStyles(sanitizeDrawingStyles(d.styles));
+        const styles = toOverlayStyles(sanitizeDrawingStyles(d.styles), this.resolveColor);
         if (lock) create.styles = { ...styles, point: this.lockedPoint() };
         else if (styles) create.styles = styles;
         const id = this.chart.createOverlay(create);

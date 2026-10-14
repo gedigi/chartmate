@@ -1177,6 +1177,110 @@ describe('ChartAdapter', () => {
       expect(out[1]!.styles).toEqual({ line: { color: '#ff0000', size: 2, style: 'solid' } });
     });
 
+    describe('palette references', () => {
+      const ref = (o: FakeOverlay) => (o.styles as Record<string, unknown> | null)?.chartmateColor;
+      const drawn = (o: FakeOverlay) => (o.styles as { line: { color: string } }).line.color;
+
+      it('a referenced drawing is drawn in the theme color, recolors on a theme switch and saves the reference', async () => {
+        const a = await loaded();
+        const changed = vi.fn();
+        a.onDrawingsChange(changed);
+        a.restoreDrawings([
+          { ...seg, name: 'priceLine', points: [{ timestamp: DAY, value: 1 }], styles: { line: { color: 'palette:2', size: 2, style: 'dashed' }, label: { onAxis: false } } },
+          { ...seg, styles: { line: { color: '#ff0000', size: 1, style: 'solid' } } },
+          { name: 'simpleAnnotation', points: [{ timestamp: DAY, value: 1 }], lock: false, text: 'hi', styles: { text: { color: 'text', size: 14 } } },
+        ]);
+        const [line, hex, text] = userOverlays();
+        expect(drawn(line!)).toBe('#3fc8e4');
+        expect(ref(line!)).toBe('palette:2');
+        expect(drawn(hex!)).toBe('#ff0000');
+        expect((text!.styles as { text: { backgroundColor: string } }).text.backgroundColor).toBe(THEME_TOKENS.dark.text);
+        a.setTheme('light');
+        expect(drawn(line!)).toBe('#0a8ea6');
+        expect(line!.styles).toMatchObject({ line: { size: 2, style: 'dashed', dashedValue: [6, 4] }, chartmateLabel: { onAxis: false } });
+        expect(drawn(hex!)).toBe('#ff0000'); // a hex (saved before references) stays exactly as it was
+        expect((text!.styles as { text: { backgroundColor: string; color: string } }).text).toMatchObject({ backgroundColor: THEME_TOKENS.light.text });
+        expect(changed).not.toHaveBeenCalled(); // a theme switch is not an edit
+        expect(a.serializeDrawings().map((d) => d.styles)).toEqual([
+          { line: { color: 'palette:2', size: 2, style: 'dashed' }, label: { onAxis: false } },
+          { line: { color: '#ff0000', size: 1, style: 'solid' } },
+          { text: { color: 'text', size: 14 } },
+        ]);
+      });
+
+      it('up / down references follow the candle colors of the appearance', async () => {
+        const a = await loaded();
+        a.restoreDrawings([{ ...seg, styles: { line: { color: 'up', size: 1, style: 'solid' } } }]);
+        const [o] = userOverlays();
+        expect(drawn(o!)).toBe(THEME_TOKENS.dark.up);
+        a.setAppearance({ dark: { upColor: '#00ff00' } });
+        expect(drawn(o!)).toBe('#00ff00');
+      });
+
+      it('the selection reports the reference; picking a hex again drops it', async () => {
+        const a = await loaded();
+        a.restoreDrawings([seg]);
+        const [o] = userOverlays();
+        o!.onSelected?.({ overlay: o });
+        expect(a.getSelectedDrawing()).toMatchObject({ style: { color: 'accent', size: 1, style: 'solid' } }); // unstyled: the default
+        a.setSelectedStyle({ color: 'palette:4' });
+        expect(drawn(o!)).toBe('#f27bd0');
+        expect(a.getSelectedDrawing()).toMatchObject({ style: { color: 'palette:4' } });
+        a.setSelectedStyle({ color: '#123456' });
+        expect(ref(o!)).toBeNull();
+        expect(a.getSelectedDrawing()).toMatchObject({ style: { color: '#123456' } });
+        expect(a.serializeDrawings()[0]!.styles).toEqual({ line: { color: '#123456', size: 1, style: 'solid' } });
+      });
+
+      it('the selection is re-emitted on a theme switch (the swatches recolor)', async () => {
+        const a = await loaded();
+        const selection = vi.fn();
+        a.onSelectionChange(selection);
+        a.restoreDrawings([seg]);
+        const [o] = userOverlays();
+        o!.onSelected?.({ overlay: o });
+        selection.mockClear();
+        a.setTheme('light');
+        expect(selection).toHaveBeenCalledTimes(1);
+        expect(a.drawingSwatches()[0]).toEqual({ token: 'accent', color: THEME_TOKENS.light.accent, name: 'Sky' });
+      });
+
+      it('new drawings take the sticky color; text too; positions never; unset → no styles of their own', () => {
+        const a = make();
+        a.setAppearance({ dark: { drawing: { color: '#abcdef', size: 2, style: 'dashed' } } });
+        a.setNewDrawingColor('palette:0');
+        a.startDrawing('rayLine');
+        expect(chart().createOverlay.mock.calls.at(-1)![0]).toMatchObject({
+          styles: { line: { color: '#f2b861', size: 2, style: 'dashed' }, chartmateColor: 'palette:0' },
+        });
+        a.startDrawing('simpleAnnotation', { text: 'x' });
+        expect(chart().createOverlay.mock.calls.at(-1)![0]).toMatchObject({
+          styles: { text: { backgroundColor: '#f2b861', size: 12 }, chartmateColor: 'palette:0' },
+        });
+        a.startDrawing('longPosition');
+        expect(chart().createOverlay.mock.calls.at(-1)![0]).not.toHaveProperty('styles');
+        a.setNewDrawingColor(undefined);
+        a.startDrawing('rayLine');
+        expect(chart().createOverlay.mock.calls.at(-1)![0]).not.toHaveProperty('styles');
+        a.setNewDrawingColor('nonsense');
+        a.startDrawing('rayLine');
+        expect(chart().createOverlay.mock.calls.at(-1)![0]).not.toHaveProperty('styles');
+      });
+
+      it('resetSelectedColor gives the drawing the default color (the appearance one, else the accent reference)', async () => {
+        const a = await loaded();
+        a.restoreDrawings([{ ...seg, styles: { line: { color: 'palette:1', size: 3, style: 'solid' } } }]);
+        const [o] = userOverlays();
+        o!.onSelected?.({ overlay: o });
+        a.resetSelectedColor();
+        expect(a.serializeDrawings()[0]!.styles).toEqual({ line: { color: 'accent', size: 3, style: 'solid' } });
+        a.setAppearance({ dark: { drawing: { color: '#abcdef', size: 1, style: 'solid' } } });
+        a.setSelectedStyle({ color: 'palette:1' });
+        a.resetSelectedColor();
+        expect(a.serializeDrawings()[0]!.styles).toEqual({ line: { color: '#abcdef', size: 3, style: 'solid' } });
+      });
+    });
+
     it('no style bar while a drawing is being placed; locked drawings are read-only; deselect closes it', async () => {
       const a = await loaded();
       const selection = vi.fn();
