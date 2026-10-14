@@ -1,6 +1,9 @@
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error plain ESM script without types
-import { commonName, latestYmlProblems, parseOsslVerify, signatureProblems, signLogProblems } from '../scripts/verify-win-signatures.mjs';
+import {
+  appUpdateProblems, commonName, latestYmlProblems, parseOsslVerify, parseSigntoolVerify, signatureProblems, signLogProblems, zipExtractCommand,
+} from '../scripts/verify-win-signatures.mjs';
 // @ts-expect-error plain ESM script without types
 import { rewriteReleaseNotes, windowsAssets } from '../scripts/sign-win-release.mjs';
 
@@ -54,6 +57,30 @@ describe('verify-win-signatures', () => {
     expect(signLogProblems(log.slice(0, 2).concat(log[3]!), ['C-1.0.0-win.exe'], exes)).toEqual(['sign log: the uninstaller of C-1.0.0-win.exe was not signed']);
     expect(signLogProblems([line('C:\\r\\win-unpacked\\chartmate.exe')], [], ['win-unpacked/chartmate.exe'])).toEqual([]);
     expect(signLogProblems([], [], ['win-unpacked/chartmate.exe'])).toEqual(['sign log: win-unpacked/chartmate.exe was not signed by the hook']);
+  });
+});
+
+describe('verify-win-signatures: tools and updater config', () => {
+  it('extracts zip entries with the system bsdtar on Windows (full path) and macOS, unzip on Linux', () => {
+    expect(zipExtractCommand('win32', { SystemRoot: 'C:\\Windows' }, 'a.zip', 'chartmate.exe'))
+      .toEqual({ command: join('C:\\Windows', 'System32', 'tar.exe'), args: ['-xOf', 'a.zip', 'chartmate.exe'] });
+    expect(zipExtractCommand('darwin', {}, 'a.zip', 'x')).toEqual({ command: '/usr/bin/tar', args: ['-xOf', 'a.zip', 'x'] });
+    expect(zipExtractCommand('linux', {}, 'a.zip', 'x')).toEqual({ command: 'unzip', args: ['-p', 'a.zip', 'x'] });
+  });
+
+  it('parses signtool verify /pa /v', () => {
+    const out = 'Hash of file (sha256): ABC\nThe signature is timestamped: Mon Oct 14\nSuccessfully verified: a.exe';
+    expect(parseSigntoolVerify(out, 0)).toEqual({ ok: true, timestamped: true, sha256: true });
+    expect(parseSigntoolVerify('Hash of file (sha1): ABC\nSuccessfully verified: a.exe', 0)).toEqual({ ok: true, timestamped: false, sha256: false });
+    expect(parseSigntoolVerify('SignTool Error: No signature found.', 1).ok).toBe(false);
+  });
+
+  it('app-update.yml must pin the publisher', () => {
+    expect(appUpdateProblems('win-unpacked', 'provider: github\npublisherName:\n  - Jane Doe\n', 'Jane Doe')).toEqual([]);
+    expect(appUpdateProblems('win-unpacked', 'provider: github\npublisherName: Jane Doe\n', 'Jane Doe')).toEqual([]);
+    expect(appUpdateProblems('win-unpacked', 'provider: github\n', 'Jane Doe')).toHaveLength(1);
+    expect(appUpdateProblems('win-unpacked', 'publisherName:\n  - Someone\n', 'Jane Doe')).toHaveLength(1);
+    expect(appUpdateProblems('win-unpacked', null, 'Jane Doe')).toHaveLength(1);
   });
 });
 

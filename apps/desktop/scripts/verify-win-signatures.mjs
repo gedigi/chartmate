@@ -4,7 +4,8 @@
 // - every installer's uninstaller was signed before it was embedded (from the sign hook's log, since electron-builder
 //   deletes the uninstaller after embedding it);
 // - latest.yml lists exactly the installers on disk, with matching sizes and SHA-512 (so it describes the final signed
-//   files), and each installer has its blockmap.
+//   files), and each installer has its blockmap;
+// - each unpacked app's app-update.yml pins the publisher (electron-updater refuses updates without it).
 // Windows uses Get-AuthenticodeSignature (the check electron-updater itself relies on); macOS/Linux use
 // `osslsigncode verify` (CHARTMATE_WIN_VERIFY_CAFILE overrides its trust store).
 //
@@ -18,6 +19,7 @@ import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const require = createRequire(import.meta.url);
+const { findSigntool } = require('../build/win-sign.cjs');
 
 /** The CN of a subject DN printed as "O=Test,CN=Jane Doe" (osslsigncode) or "CN=Jane Doe, O=Test" (Windows). */
 export function commonName(subject) {
@@ -77,14 +79,25 @@ export function signLogProblems(logLines, installers, appExes) {
   return problems;
 }
 
+/** Reads `signtool verify /pa /v` output (file digest algorithm, timestamp, overall result). */
+export function parseSigntoolVerify(output, status) {
+  return {
+    ok: status === 0 && /Successfully verified/i.test(output),
+    timestamped: /The signature is timestamped:/i.test(output),
+    sha256: /Hash of file \(sha256\):/i.test(output),
+  };
+}
+
 function verifyFile(file) {
   if (process.platform === 'win32') {
+    // Get-AuthenticodeSignature is what electron-updater checks (status + signer subject); signtool adds the digest.
     const ps = `$s = Get-AuthenticodeSignature -LiteralPath $env:VERIFY_FILE; ` +
-      `[pscustomobject]@{ Status = [string]$s.Status; Subject = $s.SignerCertificate.Subject; Ts = [bool]$s.TimeStamperCertificate; ` +
-      `Alg = $s.SignerCertificate.SignatureAlgorithm.FriendlyName } | ConvertTo-Json -Compress`;
+      `[pscustomobject]@{ Status = [string]$s.Status; Subject = $s.SignerCertificate.Subject; Ts = [bool]$s.TimeStamperCertificate } | ConvertTo-Json -Compress`;
     const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { encoding: 'utf8', env: { ...process.env, VERIFY_FILE: file } });
     const j = JSON.parse(r.stdout || '{}');
-    return { ok: j.Status === 'Valid', cn: commonName(j.Subject ?? ''), timestamped: j.Ts === true, sha256: undefined };
+    const st = spawnSync(findSigntool(process.env), ['verify', '/pa', '/v', file], { encoding: 'utf8' });
+    const v = parseSigntoolVerify(`${st.stdout ?? ''}${st.stderr ?? ''}`, st.status);
+    return { ok: j.Status === 'Valid' && v.ok, cn: commonName(j.Subject ?? ''), timestamped: j.Ts === true && v.timestamped, sha256: v.sha256 };
   }
   const tool = process.env.CHARTMATE_OSSLSIGNCODE?.trim() || 'osslsigncode';
   const ca = process.env.CHARTMATE_WIN_VERIFY_CAFILE?.trim();
@@ -92,11 +105,27 @@ function verifyFile(file) {
   return parseOsslVerify(`${r.stdout}${r.stderr}`, r.status);
 }
 
+/**
+ * How to print one zip entry to stdout: bsdtar on macOS (/usr/bin/tar) and Windows (%SystemRoot%\System32\tar.exe,
+ * by full path so a tar.exe from Git or MSYS earlier in PATH is never used), unzip on Linux.
+ */
+export function zipExtractCommand(platform, env, zip, entry) {
+  if (platform === 'win32') return { command: join(env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe'), args: ['-xOf', zip, entry] };
+  if (platform === 'darwin') return { command: '/usr/bin/tar', args: ['-xOf', zip, entry] };
+  return { command: 'unzip', args: ['-p', zip, entry] };
+}
+
+/** Problems with an unpacked app's resources/app-update.yml: the updater must pin the publisher. */
+export function appUpdateProblems(label, text, publisher) {
+  if (text == null) return [`${label}: resources/app-update.yml is missing (the signed build would have no updater config)`];
+  const names = [require('js-yaml').load(text)?.publisherName ?? []].flat();
+  return names.includes(publisher) ? [] : [`${label}: app-update.yml publisherName is ${JSON.stringify(names)}, expected "${publisher}"`];
+}
+
 function extractFromZip(zip, entry, dir) {
   const out = join(dir, `${basename(zip)}-${entry}`);
-  const r = process.platform === 'linux'
-    ? spawnSync('unzip', ['-p', zip, entry], { maxBuffer: 1 << 30 })
-    : spawnSync('tar', ['-xOf', zip, entry], { maxBuffer: 1 << 30 });
+  const { command, args } = zipExtractCommand(process.platform, process.env, zip, entry);
+  const r = spawnSync(command, args, { maxBuffer: 1 << 30 });
   if (r.status !== 0) throw new Error(`cannot extract ${entry} from ${basename(zip)}`);
   writeFileSync(out, r.stdout);
   return out;
@@ -117,6 +146,10 @@ export function verifyRelease(dir, { publisher, signLog, exeName = 'chartmate.ex
   const check = (label, file) => problems.push(...signatureProblems(label, verifyFile(file), publisher));
   for (const i of installers) check(i, join(dir, i));
   for (const u of unpacked) check(`${u}/${exeName}`, join(dir, u, exeName));
+  for (const u of unpacked) {
+    const yml = join(dir, u, 'resources', 'app-update.yml');
+    problems.push(...appUpdateProblems(u, existsSync(yml) ? readFileSync(yml, 'utf8') : null, publisher));
+  }
   const tmp = mkdtempSync(join(tmpdir(), 'chartmate-verify-'));
   try {
     for (const z of zips) check(`${z}:${exeName}`, extractFromZip(join(dir, z), exeName, tmp));
