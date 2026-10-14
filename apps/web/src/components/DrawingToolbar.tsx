@@ -8,7 +8,7 @@ import './DrawingToolbar.css';
 export type DrawingControls = Pick<
   ChartAdapter,
   'startDrawing' | 'cancelDrawing' | 'clearDrawings' | 'drawingCount' | 'removeSelected' | 'copySelected' | 'pasteDrawing' | 'canPaste' | 'getSelectedDrawing' | 'setMagnet' | 'setLockAll' | 'onLockAllChange'
-  | 'setMagnetOverride' | 'setShiftConstraint' | 'deselect' | 'onSelectionChange'
+  | 'setMagnetOverride' | 'setShiftConstraint' | 'deselect' | 'onSelectionChange' | 'clearMeasure'
 >;
 
 export interface DrawingToolbarProps {
@@ -129,6 +129,7 @@ function isOtherWidget(target: EventTarget | null): boolean {
  * the copy (in-app clipboard), Escape cancels the active tool, holding ⌘ (macOS) / Ctrl
  * snaps the drawing being placed or dragged to OHLC values, Option/Alt+T starts a trend line and Option/Alt+H a
  * horizontal line (see TOOL_SHORTCUTS), holding Shift keeps trend lines / rays / extended lines / channels horizontal.
+ * With no tool active, a Shift press on the chart measures (handled by the adapter); Escape removes the measure.
  */
 export function DrawingToolbar({ controls, disabled: disabledProp = false, ticker }: DrawingToolbarProps): JSX.Element {
   const [active, setActiveState] = useState<Active>(null);
@@ -245,6 +246,7 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
         if (!isTyping(e.target) && !isInPopup(e.target) && !e.defaultPrevented) {
           cancel();
           controlsRef.current?.deselect(); // closes the drawing style bar
+          controlsRef.current?.clearMeasure(); // removes the Shift measure
         }
         return;
       }

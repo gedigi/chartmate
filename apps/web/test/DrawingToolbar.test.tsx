@@ -22,6 +22,7 @@ function makeControls() {
     setMagnetOverride: vi.fn(),
     setShiftConstraint: vi.fn(),
     deselect: vi.fn(),
+    clearMeasure: vi.fn(),
     onLockAllChange: vi.fn((cb: (locked: boolean) => void) => { lockCb = cb; return () => { lockCb = null; }; }),
     onSelectionChange: vi.fn((cb: (s: { locked: boolean } | null) => void) => { selCb = cb; return () => { selCb = null; }; }),
   };
@@ -133,6 +134,16 @@ describe('DrawingToolbar', () => {
     expect(c.deselect).not.toHaveBeenCalled();
     fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(c.deselect).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape clears the Shift measure unless typing or in a popup', () => {
+    const { c } = makeControls();
+    render(<><input aria-label="field" /><div role="menu"><span tabIndex={0}>menu item</span></div><DrawingToolbar controls={c} ticker="AAPL" /></>);
+    fireEvent.keyDown(screen.getByLabelText('field'), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByText('menu item'), { key: 'Escape' });
+    expect(c.clearMeasure).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(c.clearMeasure).toHaveBeenCalledTimes(1);
   });
 
   it('Escape inside a dialog, modal, listbox or popup closes only that, never deselecting the drawing', () => {

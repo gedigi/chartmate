@@ -257,6 +257,13 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, onR
     };
   }, [adapter, symbol]);
 
+  // A finished Shift measure, read out to screen readers (the chart itself is a canvas).
+  const [measureText, setMeasureText] = useState('');
+  useEffect(() => {
+    setMeasureText('');
+    return adapter?.onMeasureChange((m) => setMeasureText(m ? `Measure: ${m.lines.join(', ')}` : ''));
+  }, [adapter]);
+
   useEffect(() => adapter?.onDrawingsChange(() => {
     const s = symbolRef.current;
     if (drawingsForRef.current !== s) return; // never overwrite drawings we have not loaded
@@ -294,6 +301,7 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, onR
         <IndicatorChips layout={layout} setLayout={setLayout} theme={theme} />
         <div className="chart-stage">
           <div className="chart-host" ref={hostRef} data-testid="chart-host" />
+          <div className="sr-only" role="status" data-testid="measure-readout">{measureText}</div>
           <DrawingStyleBar
             controls={adapter} onUsePositionDefaults={(positionDefaults) => setLayout((l) => ({ ...l, positionDefaults }))}
             onPickColor={(drawingColor) => setLayout((l) => (l.drawingColor === drawingColor ? l : { ...l, drawingColor }))}

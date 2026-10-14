@@ -36,6 +36,9 @@ const fake = vi.hoisted(() => {
     setMagnetOverride = vi.fn();
     setSelectedStyle = vi.fn();
     deselect = vi.fn();
+    clearMeasure = vi.fn();
+    measureCb: ((m: { lines: string[] } | null) => void) | null = null;
+    onMeasureChange = vi.fn((cb: (m: { lines: string[] } | null) => void) => { this.measureCb = cb; return () => { this.measureCb = null; }; });
     /** Every subscriber (the style bar and the drawing toolbar both listen), like the real adapter. */
     selectionCbs = new Set<(s: unknown) => void>();
     selectionCb: ((s: unknown) => void) | null = (s) => { for (const cb of this.selectionCbs) cb(s); };
@@ -103,6 +106,17 @@ afterEach(() => {
 });
 
 describe('ChartView', () => {
+  it('announces a finished Shift measure to screen readers (and nothing once it is cleared)', () => {
+    renderView();
+    const readout = screen.getByTestId('measure-readout');
+    expect(readout).toHaveAttribute('role', 'status');
+    expect(readout).toHaveTextContent('');
+    act(() => adapter().measureCb?.({ lines: ['+1.50 (+0.46%)', '12 bars, 3d 4h'] }));
+    expect(readout).toHaveTextContent('Measure: +1.50 (+0.46%), 12 bars, 3d 4h');
+    act(() => adapter().measureCb?.(null));
+    expect(readout).toHaveTextContent('');
+  });
+
   it('keeps the two-column structure', () => {
     renderView();
     const root = screen.getByTestId('chart-view');
