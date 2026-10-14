@@ -1,5 +1,5 @@
 import type { SymbolInfo } from '@chartmate/shared';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface FakeOverlay {
   id: string; name: string; groupId: string; points: Array<{ timestamp: number; value: number }>; lock: boolean;
@@ -86,12 +86,19 @@ beforeEach(() => {
   document.body.appendChild(el);
   reached = vi.fn<(e: MouseEvent) => void>();
   inner.addEventListener('mousedown', reached);
+  // Animation frames run at once unless a test queues them.
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 1; });
+  vi.stubGlobal('cancelAnimationFrame', () => {});
 });
 
 const chart = () => k.state.chart;
+/** Adapters of the current test: destroyed after it, so none keeps listening on the document. */
+const live: Array<InstanceType<typeof ChartAdapter>> = [];
+afterEach(() => { for (const a of live.splice(0)) a.destroy(); el.remove(); vi.unstubAllGlobals(); });
 /** An adapter with 30 daily bars: bar i closes at 100 + i (high +2, low −2), volume 1000. */
 function make() {
   const a = new ChartAdapter(el, { theme: 'dark' });
+  live.push(a);
   for (let i = 0; i < 30; i++) {
     const c = 100 + i;
     chart().data.push({ timestamp: T0 + i * DAY, open: c - 1, high: c + 2, low: c - 2, close: c, volume: 1000 });
@@ -291,5 +298,70 @@ describe('measure (pointer)', () => {
     a.destroy();
     expect(() => move(145, 180)).not.toThrow();
     expect(chart().overrideOverlay).not.toHaveBeenCalledWith(expect.objectContaining({ points: expect.anything() }));
+  });
+
+  it('a Shift press that starts a measure deselects the selected drawing and blurs a focused field, like a click', () => {
+    const a = make();
+    a.startDrawing('segment');
+    const o = chart().overlays.at(-1)! as FakeOverlay & { onSelected?: (e: unknown) => void };
+    o.points = [{ timestamp: T0, value: 100 }, { timestamp: T0 + DAY, value: 101 }];
+    o.onDrawEnd?.({ overlay: o });
+    o.onSelected?.({ overlay: o });
+    expect(a.getSelectedDrawing()).not.toBeNull();
+    const field = document.createElement('input');
+    document.body.appendChild(field);
+    field.focus();
+    expect(document.activeElement).toBe(field);
+    down(25, 200, { shiftKey: true });
+    expect(a.getMeasurement()?.phase).toBe('dragging');
+    expect(a.getSelectedDrawing()).toBeNull();
+    expect(document.activeElement).not.toBe(field);
+    field.remove();
+  });
+
+  it('a Shift press over a marker still measures (markers are not drawings)', () => {
+    const a = make();
+    k.state.hover = { id: 'm1', groupId: 'markers' };
+    down(25, 200, { shiftKey: true });
+    expect(reached).not.toHaveBeenCalled();
+    expect(a.getMeasurement()?.phase).toBe('dragging');
+  });
+
+  it('moves update the measure at most once per animation frame (the latest position)', () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb));
+    make();
+    down(25, 200, { shiftKey: true });
+    const before = chart().overrideOverlay.mock.calls.length;
+    move(55, 190);
+    move(95, 180);
+    move(145, 170);
+    expect(chart().overrideOverlay.mock.calls.length).toBe(before);
+    expect(frames).toHaveLength(1);
+    frames.shift()!(0);
+    expect(chart().overrideOverlay.mock.calls.length).toBe(before + 1);
+    expect(measures()[0]!.points[1]).toEqual({ timestamp: T0 + 14 * DAY, value: 130 });
+    // The release lands exactly where the mouse is, whatever frame is pending.
+    move(205, 160);
+    up(205, 160);
+    expect(measures()[0]!.points[1]).toEqual({ timestamp: T0 + 20 * DAY, value: 140 });
+    frames.shift()?.(0); // a stale frame changes nothing
+    expect(measures()[0]!.points[1]).toEqual({ timestamp: T0 + 20 * DAY, value: 140 });
+  });
+});
+
+describe('measure (older bars prepended)', () => {
+  it('keeps its bars, volume and label: indexes come from the bar times', () => {
+    const a = make();
+    a.startMeasure({ index: 2, value: 100 });
+    a.updateMeasure({ index: 14, value: 110 });
+    a.finishMeasure();
+    chart().data.unshift(...Array.from({ length: 5 }, (_, i) => ({ timestamp: T0 - (5 - i) * DAY, open: 90, high: 91, low: 89, close: 90, volume: 7 })));
+    const m = a.getMeasurement()!;
+    expect(m.start.index).toBe(7);
+    expect(m.end.index).toBe(19);
+    expect(m.stats).toMatchObject({ bars: 12, volume: 13_000 });
+    a.setTheme('light');
+    expect(view().lines).toEqual(['+10.00 (+10.00%)', '12 bars, 12d', 'Vol 13.0K']);
   });
 });

@@ -542,6 +542,7 @@ export class ChartAdapter {
   private onBarsAdded(): void {
     if (this.destroyed) return;
     this.ensurePositionHistory();
+    this.refreshMeasure(); // older bars shift the indexes: bars / volume are recounted from the bar times
     // The selected position's outcome follows new bars (polling / backfill).
     if (this.selectedId && this.userOverlays().some((o) => o.id === this.selectedId && isPositionTool(o.name))) this.emitSelection();
     if (this.markers.length === 0) return;
@@ -1700,13 +1701,28 @@ export class ChartAdapter {
   private measure: { id: string; start: MeasurePoint; end: MeasurePoint; phase: MeasurePhase; downAt: { x: number; y: number } | null } | null = null;
   private readonly measureListeners = new Set<(m: Measurement | null) => void>();
   private measureTracking = false;
+  /** The latest mouse move not yet applied, and its animation frame (moves update the measure once per frame). */
+  private pendingMove: MouseEvent | null = null;
+  private moveFrame: number | null = null;
+
+  /**
+   * The ends of the measurement with their bar indexes recomputed from their times: the times are what is kept, so
+   * older bars loaded in front (which shift every index) never stale the bar count, volume or label.
+   */
+  private measureEnds(m: { start: MeasurePoint; end: MeasurePoint }): { start: MeasurePoint; end: MeasurePoint } {
+    const bars = this.chart.getDataList();
+    if (bars.length === 0) return { start: m.start, end: m.end };
+    const at = (p: MeasurePoint): MeasurePoint => ({ ...p, index: barIndex(bars, p.timestamp, this.barMs()) });
+    return { start: at(m.start), end: at(m.end) };
+  }
 
   /** The current measurement, or null. */
   getMeasurement(): Measurement | null {
     const m = this.measure;
     if (!m) return null;
-    const stats = measureStats(m.start, m.end, this.chart.getDataList());
-    return { phase: m.phase, start: m.start, end: m.end, stats, lines: measureLines(stats, this.pricePrecision) };
+    const { start, end } = this.measureEnds(m);
+    const stats = measureStats(start, end, this.chart.getDataList());
+    return { phase: m.phase, start, end, stats, lines: measureLines(stats, this.pricePrecision) };
   }
 
   /** Fired when a measurement is finished (with it) or cleared (null); not on every move. Returns an unsubscribe. */
@@ -1726,7 +1742,8 @@ export class ChartAdapter {
     return { index: p.index, timestamp: barTime(this.chart.getDataList(), p.index, this.barMs()), value: p.value };
   }
 
-  private measureView(start: MeasurePoint, end: MeasurePoint): MeasureView {
+  private measureView(ends: { start: MeasurePoint; end: MeasurePoint }): MeasureView {
+    const { start, end } = this.measureEnds(ends);
     const stats = measureStats(start, end, this.chart.getDataList());
     const a = resolveAppearance(this.theme, this.appearance);
     return {
@@ -1747,7 +1764,7 @@ export class ChartAdapter {
     const id = this.chart.createOverlay({
       name: MEASURE_OVERLAY, groupId: MEASURE, lock: true, mode: 'normal',
       points: [{ timestamp: start.timestamp, value: start.value }, { timestamp: start.timestamp, value: start.value }],
-      extendData: this.measureView(start, start),
+      extendData: this.measureView({ start, end: start }),
     });
     if (typeof id !== 'string') return false;
     this.measure = { id, start, end: start, phase: 'dragging', downAt: null };
@@ -1762,7 +1779,7 @@ export class ChartAdapter {
     this.chart.overrideOverlay({
       id: m.id,
       points: [{ timestamp: m.start.timestamp, value: m.start.value }, { timestamp: m.end.timestamp, value: m.end.value }],
-      extendData: this.measureView(m.start, m.end),
+      extendData: this.measureView(m),
     });
   }
 
@@ -1793,7 +1810,7 @@ export class ChartAdapter {
   /** Recolors the measurement (theme / candle colors changed). */
   private refreshMeasure(): void {
     const m = this.measure;
-    if (m) this.chart.overrideOverlay({ id: m.id, extendData: this.measureView(m.start, m.end) });
+    if (m) this.chart.overrideOverlay({ id: m.id, extendData: this.measureView(m) });
   }
 
   /** True while the mouse is over a drawing (a Shift press there drags it, kept horizontal). */
@@ -1801,7 +1818,7 @@ export class ChartAdapter {
     const store = (this.chart as unknown as { getChartStore?: () => { getHoverOverlayInfo?: () => { overlay?: { groupId?: string } | null } } }).getChartStore?.();
     try {
       const o = store?.getHoverOverlayInfo?.()?.overlay;
-      return o != null && o.groupId !== MEASURE;
+      return o != null && o.groupId !== MEASURE && o.groupId !== MARKERS;
     } catch {
       return false;
     }
@@ -1848,6 +1865,10 @@ export class ChartAdapter {
         e.preventDefault();
         this.measure!.downAt = { x: e.clientX, y: e.clientY };
         this.startMeasureTracking();
+        // What KLineChart's click would have done: the selected drawing is deselected and a focused field loses focus.
+        this.deselect();
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && active !== document.body && !this.el.contains(active)) active.blur();
         return true;
       }
     }
@@ -1856,11 +1877,27 @@ export class ChartAdapter {
   }
 
   private readonly onMeasureMove = (e: MouseEvent): void => {
-    const p = this.measure && this.measure.phase !== 'done' ? this.measurePointAt(e, true) : null;
+    this.pendingMove = e;
+    if (this.moveFrame === null) this.moveFrame = requestAnimationFrame(this.applyMove);
+  };
+
+  private readonly applyMove = (): void => {
+    this.moveFrame = null;
+    const e = this.pendingMove;
+    this.pendingMove = null;
+    const p = e && this.measure && this.measure.phase !== 'done' ? this.measurePointAt(e, true) : null;
     if (p) this.updateMeasure(p);
   };
 
+  /** Drops the move waiting for its frame (a release or a click sets the end itself). */
+  private dropPendingMove(): void {
+    this.pendingMove = null;
+    if (this.moveFrame !== null) cancelAnimationFrame(this.moveFrame);
+    this.moveFrame = null;
+  }
+
   private readonly onMeasureUp = (e: MouseEvent): void => {
+    this.dropPendingMove();
     const m = this.measure;
     if (!m || m.phase !== 'dragging' || e.button !== 0) return;
     const d = m.downAt;
@@ -1886,6 +1923,7 @@ export class ChartAdapter {
   }
 
   private stopMeasureTracking(): void {
+    this.dropPendingMove();
     if (!this.measureTracking) return;
     this.measureTracking = false;
     document.removeEventListener('mousemove', this.onMeasureMove, true);
