@@ -30,8 +30,107 @@ your computer (see [Data location](#data-location)).
 
 ## Self-host
 
-Run it on your own server and use it from any browser: see [Docker](#docker) and
-[Production, locally](#production-locally). An optional password protects a hosted instance.
+Run Chartmate on your own server and use it from any browser. Every release publishes a Docker image for
+`linux/amd64` and `linux/arm64` to this repository's GitHub Container Registry package,
+`ghcr.io/<owner>/<repo>` in lowercase (see **Packages** on the repository page). Tags: `X.Y.Z`, `X.Y`, `X`
+and `latest`; a pre-release only gets its full version (`X.Y.Z-beta.1`).
+
+### Quick start (Docker Compose)
+
+Put [`compose.yaml`](compose.yaml) and [`.env.example`](.env.example) in a directory, then:
+
+```sh
+cp .env.example .env   # set CHARTMATE_IMAGE, e.g. ghcr.io/<owner>/<repo>:latest
+docker compose up -d
+```
+
+Open http://localhost:8787. `docker compose ps` shows the container as `healthy` once it is up.
+
+- Data lives in the `chartmate-data` volume (SQLite at `/data/chartmate.db`).
+- The port is published on `127.0.0.1` only. To reach it from other machines, set `CHARTMATE_BIND=0.0.0.0`
+  in `.env`, and set a password (see [Security](#security)). `CHARTMATE_PORT` changes the host port.
+- The container runs as a non-root user with a read-only root filesystem, no Linux capabilities and
+  `no-new-privileges`; it writes only to `/data`.
+- To run your own build instead: `docker build -t chartmate:local .` and `CHARTMATE_IMAGE=chartmate:local`.
+
+### Plain `docker run`
+
+```sh
+docker run -d --name chartmate --restart unless-stopped \
+  -p 127.0.0.1:8787:8787 -v chartmate-data:/data ghcr.io/<owner>/<repo>:latest
+```
+
+The image sets `HOST=0.0.0.0` so the published port is reachable, runs as the `node` user (uid/gid 1000)
+and has a built-in healthcheck on `/api/health` (it honors `PORT`). `--read-only` works too. A named volume
+just works; a bind-mounted host directory must be writable by uid 1000:
+
+```sh
+mkdir -p ./chartmate-data && sudo chown 1000:1000 ./chartmate-data
+docker run -d -p 127.0.0.1:8787:8787 -v "$PWD/chartmate-data:/data" ghcr.io/<owner>/<repo>:latest
+```
+
+### Upgrading
+
+```sh
+docker compose pull && docker compose up -d
+```
+
+Database migrations run at startup, and data saved by older versions stays loadable. To upgrade on your own
+schedule, pin a version (`ghcr.io/<owner>/<repo>:1.2.0`) instead of `latest`, and take a backup first.
+`docker stop` (SIGTERM) shuts the server down cleanly.
+
+### Backups
+
+SQLite: stop the container and archive the volume (Compose names it `chartmate_chartmate-data`):
+
+```sh
+docker compose stop chartmate
+docker run --rm -v chartmate_chartmate-data:/data:ro -v "$PWD:/backup" alpine \
+  tar czf "/backup/chartmate-$(date +%F).tgz" -C /data .
+docker compose start chartmate
+```
+
+To restore, stop the container and extract the archive into the volume the same way
+(`tar xzf /backup/chartmate-<date>.tgz -C /data`, with the volume mounted read-write). With Postgres,
+use `docker compose exec postgres pg_dump -U chartmate chartmate > chartmate.sql`.
+
+### Postgres
+
+In `.env`, set `POSTGRES_PASSWORD` and uncomment `DATABASE_URL` and `COMPOSE_PROFILES=postgres` (all three
+are in `.env.example`), then `docker compose up -d`. This starts the `postgres` service with its own volume and
+points Chartmate at it. Data is not copied over from SQLite. Any other Postgres works too: set
+`DATABASE_URL=postgres://user:pass@host:5432/chartmate`.
+
+### Behind a reverse proxy (HTTPS)
+
+Terminate HTTPS in a reverse proxy (Caddy, nginx, Traefik, …) on the same host, forwarding to
+`127.0.0.1:8787`, and set `CHARTMATE_TRUST_PROXY=1` (the number of proxy hops, or `true`, or the proxy's
+IP/CIDR). Chartmate then takes the client IP and the `https` scheme from the `X-Forwarded-*` headers, so the
+login rate limits apply per client and the session cookie is marked `Secure`. With Caddy, for example:
+
+```
+chartmate.example.com {
+  reverse_proxy 127.0.0.1:8787
+}
+```
+
+### Security
+
+- Set `CHARTMATE_PASSWORD` whenever the instance is reachable from anything but your own machine; it turns on
+  a login page. Use a strong password, and serve the instance over HTTPS only.
+- Set `CHARTMATE_SESSION_SECRET` to a random value (`openssl rand -hex 32`). If unset, the secret is derived
+  from the password, so a leaked session cookie would let someone guess the password offline.
+- Login attempts are rate limited: 10 failures per IP per 15 minutes, plus a global limit of 100
+  failures per 15 minutes. The global limit means a determined attacker can lock *you* out for a while.
+- Behind a reverse proxy set `CHARTMATE_TRUST_PROXY`, otherwise every client appears to come from the
+  proxy's IP and they all share one rate-limit budget, and the session cookie is not marked `Secure`.
+- The session cookie lasts 30 days. Changing `CHARTMATE_SESSION_SECRET` (or the password, if the secret
+  is derived from it) revokes all existing sessions.
+- Images of a public repository carry a signed build provenance attestation:
+  `gh attestation verify oci://ghcr.io/<owner>/<repo>:<version> --repo <owner>/<repo>`. Every image also
+  carries BuildKit provenance and an SPDX SBOM (`docker buildx imagetools inspect <image> --format '{{json .SBOM}}'`).
+
+Without Docker, see [Production, locally](#production-locally).
 
 ## Develop
 
@@ -71,49 +170,6 @@ default; set `HOST=0.0.0.0` to reach it from other machines (the Docker image al
 started, so for anything you care about use an absolute path, e.g.
 `DATABASE_URL=sqlite:/home/me/chartmate/chartmate.db pnpm --filter @chartmate/server start` (the directory is created
 if missing).
-
-## Docker
-
-```sh
-docker build -t chartmate .
-docker run -p 8787:8787 -v chartmate-data:/data chartmate
-```
-
-The image sets `HOST=0.0.0.0` so the published port is reachable. It runs as the non-root `node` user (uid/gid 1000), stores SQLite at `/data/chartmate.db` (mount a
-volume on `/data`) and has a built-in healthcheck on
-`/api/health` (it honors `PORT`).
-
-A named volume (as above) just works. If you bind-mount a host directory instead, it must be writable by
-uid 1000, otherwise the server cannot create the database:
-
-```sh
-mkdir -p ./chartmate-data && sudo chown 1000:1000 ./chartmate-data
-docker run -p 8787:8787 -v "$PWD/chartmate-data:/data" chartmate
-```
-
-## Hosted setup (Postgres + password)
-
-```sh
-docker run -d -p 8787:8787 \
-  -e DATABASE_URL=postgres://user:pass@db-host:5432/chartmate \
-  -e CHARTMATE_PASSWORD='a-long-random-passphrase' \
-  -e CHARTMATE_SESSION_SECRET="$(openssl rand -hex 32)" \
-  -e CHARTMATE_TRUST_PROXY=1 \
-  chartmate
-```
-
-Put it behind an HTTPS reverse proxy. Notes on login security:
-
-- Setting `CHARTMATE_PASSWORD` turns on a login page. Use a strong password.
-- Set `CHARTMATE_SESSION_SECRET` to a random value (as above). If unset, the secret is derived from the
-  password, so a leaked session cookie would let someone guess the password offline.
-- Login attempts are rate limited: 10 failures per IP per 15 minutes, plus a global limit of 100
-  failures per 15 minutes. The global limit means a determined attacker can lock *you* out for a while.
-- Behind a reverse proxy set `CHARTMATE_TRUST_PROXY`, otherwise every client appears to come from the
-  proxy's IP and they all share one rate-limit budget.
-- The session cookie lasts 30 days. Changing `CHARTMATE_SESSION_SECRET` (or the password, if the secret
-  is derived from it) revokes all existing sessions.
-- Serve over HTTPS only.
 
 ## Environment variables
 
@@ -670,7 +726,8 @@ locally with `SMOKE_ALLOW_REAL_USERDATA=1`.
 
 `.github/workflows/ci.yml` runs `pnpm audit` (any known vulnerability, in a runtime or build-time dependency,
 fails the build), typecheck, tests, the web build, e2e and the Docker build on pull requests and on pushes to
-`main`. Dependabot opens weekly update pull requests for npm packages and the pinned actions.
+`main`. Dependabot opens weekly update pull requests for npm packages, the pinned actions and the Docker base
+image.
 `.github/workflows/desktop.yml` runs on tags `v*` and on manual dispatch:
 
 - **Permissions**: the workflows default to a read-only token, and every action is pinned to a commit SHA.
@@ -685,6 +742,12 @@ fails the build), typecheck, tests, the web build, e2e and the Docker build on p
   - the NSIS installer and zip for Windows x64 and arm64.
 
   The release notes say whether each platform's build is signed.
+
+`.github/workflows/docker.yml` publishes the [self-hosting image](#self-host) on the same `v*` tags: after
+`pnpm audit`, typecheck, tests and a smoke test of the image (`scripts/docker-smoke.sh`: read-only root
+filesystem, healthcheck, API, web UI, clean shutdown), the `publish` job (the only one with `packages: write`)
+pushes `linux/amd64` + `linux/arm64` to `ghcr.io/<owner>/<repo>` with provenance and SBOM attestations. Pull
+requests that touch the image only build it.
 
 Unsigned releases are allowed (no certificates yet). Expect Gatekeeper and SmartScreen warnings, and install
 updates manually.

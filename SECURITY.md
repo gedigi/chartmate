@@ -12,5 +12,5 @@ reproduce it, and the impact you expect.
 ## Scope
 
 The security model is described in the README: the hosted setup's login and session handling under
-[Hosted setup](README.md#hosted-setup-postgres--password), and the desktop app's hardening under
+[Self-host: Security](README.md#security), and the desktop app's hardening under
 [Security model](README.md#security-model).
