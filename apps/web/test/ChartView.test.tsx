@@ -385,6 +385,18 @@ describe('ChartView', () => {
     expect(reset({ ...LAYOUT, drawingColor: 'palette:0' })).toEqual(LAYOUT);
   });
 
+  it('re-picking the swatch the drawing already has still sets the layout drawingColor', async () => {
+    const setLayout = vi.fn();
+    render(<ChartView layout={LAYOUT} setLayout={setLayout} symbolInfo={AAPL} theme="dark" />);
+    await flush();
+    act(() => adapter().selectionCb?.({ id: 'a', kind: 'line', style: { color: 'palette:0', size: 1, style: 'solid' }, locked: false, ownLock: false }));
+    fireEvent.click(screen.getByRole('button', { name: 'Drawing color' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Gold' }));
+    expect(adapter().setSelectedStyle).not.toHaveBeenCalled();
+    const pick = setLayout.mock.calls.at(-1)![0] as (l: Layout) => Layout;
+    expect(pick(LAYOUT)).toEqual({ ...LAYOUT, drawingColor: 'palette:0' });
+  });
+
   it('passes indicator line widths / styles / bar colors to the adapter', async () => {
     const vol = { name: 'VOL', pane: 'sub' as const, calcParams: [5, 10, 20], visible: true, lineWidths: [2], lineStyles: ['dashed' as const], barColors: { up: '#00ff00', down: '#ff0000' } };
     const { rerenderWith } = renderView({ ...LAYOUT, indicators: [vol] });

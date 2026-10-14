@@ -123,7 +123,11 @@ export function DrawingStyleBar({ controls, onUsePositionDefaults, onPickColor, 
     <div className="drawing-style-bar" role="toolbar" aria-label="Drawing style">
       <DrawingColorPicker
         key={sel.id} value={sel.style.color} swatches={controls.drawingSwatches()} disabled={locked}
-        onPick={(token) => { controls.setSelectedStyle({ color: token }); onPickColor?.(token); }}
+        onPick={(token) => {
+          // Re-picking the drawing's own swatch changes nothing on it, but still makes it the color of new drawings.
+          if (token !== sel.style.color) controls.setSelectedStyle({ color: token });
+          onPickColor?.(token);
+        }}
         onReset={() => { controls.resetSelectedColor(); onResetColor?.(); }}
       />
       {sel.kind === 'line' ? (

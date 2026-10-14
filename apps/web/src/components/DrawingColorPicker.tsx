@@ -1,5 +1,5 @@
 import { isDrawingColorToken } from '@chartmate/shared';
-import { useEffect, useId, useRef, useState, type JSX, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FocusEvent, type JSX, type KeyboardEvent } from 'react';
 import type { DrawingSwatch } from '../chart/drawingColors';
 
 /** A swatch as the picker lays it out: a palette reference, or the drawing's own (custom) hex. */
@@ -20,6 +20,7 @@ export function DrawingColorPicker({ value, swatches, disabled, onPick, onReset 
   value: string;
   swatches: DrawingSwatch[];
   disabled: boolean;
+  /** A swatch was picked, also the one the drawing already has (it still becomes the default of new drawings). */
   onPick: (token: string) => void;
   /** "Reset to default": the drawing and new drawings go back to the default color. */
   onReset: () => void;
@@ -29,6 +30,8 @@ export function DrawingColorPicker({ value, swatches, disabled, onPick, onReset 
   const rootRef = useRef<HTMLSpanElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const optionRefs = useRef<Array<HTMLDivElement | null>>([]);
+  /** A pointer is down inside the picker (a click there may move the focus to nothing first, see onFocusOut). */
+  const pressedInside = useRef(false);
   const listId = useId();
 
   const custom = !isDrawingColorToken(value);
@@ -56,15 +59,40 @@ export function DrawingColorPicker({ value, swatches, disabled, onPick, onReset 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
-      if (!(e.target instanceof Node) || !rootRef.current?.contains(e.target)) setOpen(false);
+      const inside = e.target instanceof Node && rootRef.current?.contains(e.target) === true;
+      pressedInside.current = inside;
+      if (!inside) setOpen(false);
     };
+    const onUp = () => { pressedInside.current = false; };
     document.addEventListener('pointerdown', onDown, true);
-    return () => document.removeEventListener('pointerdown', onDown, true);
+    // After the click handlers (bubble phase, deferred): the press is over.
+    const onUpLater = () => setTimeout(onUp, 0);
+    document.addEventListener('pointerup', onUpLater, true);
+    document.addEventListener('pointercancel', onUp, true);
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true);
+      document.removeEventListener('pointerup', onUpLater, true);
+      document.removeEventListener('pointercancel', onUp, true);
+      pressedInside.current = false;
+    };
   }, [open]);
 
   const pick = (o: Option) => {
-    if (o.token !== null && o.token !== value) onPick(o.token);
+    if (o.token !== null) onPick(o.token);
     close(true);
+  };
+
+  /**
+   * The focus left a part of the picker: close when it went outside. Focus moves within the picker are ignored, and so
+   * is a move to nothing while a pointer is down inside: Safari and Firefox on macOS do not focus a clicked button, so
+   * the swatch loses the focus to nothing before the click on Reset (or another swatch) arrives.
+   */
+  const onFocusOut = (e: FocusEvent<HTMLSpanElement>) => {
+    if (!open) return;
+    const to = e.relatedTarget;
+    if (to instanceof Node && rootRef.current?.contains(to)) return;
+    if (to === null && pressedInside.current) return;
+    setOpen(false);
   };
 
   const rowOf = (i: number) => (i < theme.length ? 0 : 1);
@@ -100,8 +128,7 @@ export function DrawingColorPicker({ value, swatches, disabled, onPick, onReset 
   };
 
   return (
-    <span className="color-picker" ref={rootRef} onKeyDown={onRootKeyDown}
-      onBlur={(e) => { if (open && !(e.relatedTarget instanceof Node && rootRef.current?.contains(e.relatedTarget))) setOpen(false); }}>
+    <span className="color-picker" ref={rootRef} onKeyDown={onRootKeyDown} onBlur={onFocusOut}>
       <button
         ref={buttonRef} type="button" className="color-picker-button" aria-label="Drawing color"
         title={`Color: ${current?.name ?? value}`} disabled={disabled}

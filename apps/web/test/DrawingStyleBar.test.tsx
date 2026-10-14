@@ -344,6 +344,56 @@ describe('DrawingStyleBar', () => {
       expect(trigger()).toHaveFocus();
     });
 
+    it('picking the swatch the drawing already has still makes it the default of new drawings', () => {
+      const { c, onPickColor } = setup({ ...LINE, style: { ...LINE.style, color: 'palette:1' } });
+      fireEvent.click(trigger());
+      fireEvent.click(screen.getByRole('option', { name: 'Violet' }));
+      expect(c.setSelectedStyle).not.toHaveBeenCalled(); // nothing to change on the drawing
+      expect(onPickColor).toHaveBeenCalledWith('palette:1');
+      // By keyboard too.
+      fireEvent.click(trigger());
+      fireEvent.keyDown(document.activeElement!, { key: 'Enter' });
+      expect(onPickColor).toHaveBeenCalledTimes(2);
+    });
+
+    it('focus: moving inside the popover keeps it open; clicks that do not focus (Safari / Firefox on macOS) still land', () => {
+      const { c, onResetColor } = setup();
+      fireEvent.click(trigger());
+      const sky = screen.getByRole('option', { name: 'Sky' });
+      const reset = screen.getByRole('button', { name: 'Reset to default' });
+      // Tab from the swatches to Reset: the focus stays inside.
+      fireEvent.focusOut(sky, { relatedTarget: reset });
+      expect(list()).not.toBeNull();
+      // A click on Reset that does not focus it: the swatch loses the focus to nothing while the pointer is down inside.
+      fireEvent.pointerDown(reset);
+      fireEvent.focusOut(sky, { relatedTarget: null });
+      expect(list()).not.toBeNull();
+      fireEvent.pointerUp(reset);
+      fireEvent.click(reset);
+      expect(c.resetSelectedColor).toHaveBeenCalledTimes(1);
+      expect(onResetColor).toHaveBeenCalledTimes(1);
+      // Same for a swatch click.
+      fireEvent.click(trigger());
+      const gold = screen.getByRole('option', { name: 'Gold' });
+      fireEvent.pointerDown(gold);
+      fireEvent.focusOut(screen.getByRole('option', { name: 'Sky' }), { relatedTarget: null });
+      fireEvent.click(gold);
+      expect(c.setSelectedStyle).toHaveBeenLastCalledWith({ color: 'palette:0' });
+    });
+
+    it('focus leaving the picker (Tab out, or to nothing without a press inside) closes it', () => {
+      setup();
+      const outside = document.createElement('button');
+      document.body.append(outside);
+      fireEvent.click(trigger());
+      fireEvent.focusOut(screen.getByRole('button', { name: 'Reset to default' }), { relatedTarget: outside });
+      expect(list()).toBeNull();
+      fireEvent.click(trigger());
+      fireEvent.focusOut(screen.getByRole('option', { name: 'Sky' }), { relatedTarget: null });
+      expect(list()).toBeNull();
+      outside.remove();
+    });
+
     it('an old hex color is shown as a marked "Custom" swatch and left untouched', () => {
       const { c } = setup({ ...LINE, style: { ...LINE.style, color: '#3fc8e4' } }); // equal to Cyan, still custom
       fireEvent.click(trigger());
