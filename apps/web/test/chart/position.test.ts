@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  centerLabel, defaultGeometry, distancePct, distanceTicks, endAfterBars, evaluateOutcome, formatPct, fromPositionPoints,
+  barIndex, barTime, centerLabel, defaultGeometry, distancePct, distanceTicks, endAfterBars, evaluateOutcome, formatPct, fromPositionPoints,
   nextBarTime, outcomeLabel, positionMetrics, pressedMove, shiftByBars, priceFromPct, priceFromTicks, sideOf, stopLabel, targetLabel,
   toPositionPoints, validatePrices, type PositionGeometry,
 } from '../../src/chart/position';
@@ -289,5 +289,13 @@ describe('bar helpers', () => {
     expect(shiftByBars(ts, 30, 20, 0, 10)).toBe(10);
     expect(shiftByBars(ts, 40, 10, 30, 10)).toBe(60);
     expect(shiftByBars([], 100, 0, 30, 10)).toBe(130);
+  });
+
+  it('barIndex / barTime convert between times and bar indexes, extrapolated outside the data', () => {
+    expect(barIndex(ts, 20, 10)).toBe(2);
+    expect(barIndex(ts, 25, 10)).toBe(2);
+    expect(barIndex(ts, -20, 10)).toBe(-2);
+    expect(barIndex(ts, 70, 10)).toBe(7);
+    expect([-2, 0, 3, 7].map((i) => barTime(ts, i, 10))).toEqual([-20, 0, 30, 70]);
   });
 });

@@ -232,8 +232,11 @@ export function outcomeLabel(o: PositionOutcome, formatTime: (ts: number) => str
 
 type Stamped = ReadonlyArray<{ timestamp: number }>;
 
-/** Index of the bar containing `ts` (the last bar at or before it); outside the data in whole bars (floored). */
-function indexOf(bars: Stamped, ts: number, barMs: number): number {
+/**
+ * Index of the bar containing `ts` (the last bar at or before it); outside the data in whole bars (floored).
+ * `bars` must not be empty.
+ */
+export function barIndex(bars: Stamped, ts: number, barMs: number): number {
   const i = upperBound(bars, ts) - 1;
   if (i < 0) return -Math.ceil((bars[0]!.timestamp - ts) / barMs);
   const last = bars.length - 1;
@@ -241,7 +244,8 @@ function indexOf(bars: Stamped, ts: number, barMs: number): number {
   return i;
 }
 
-function timeAt(bars: Stamped, idx: number, barMs: number): number {
+/** Time of bar `idx` (inverse of barIndex), extrapolated with the bar duration outside the data. `bars` must not be empty. */
+export function barTime(bars: Stamped, idx: number, barMs: number): number {
   const last = bars.length - 1;
   if (idx < 0) return bars[0]!.timestamp + idx * barMs;
   if (idx > last) return bars[last]!.timestamp + (idx - last) * barMs;
@@ -251,7 +255,7 @@ function timeAt(bars: Stamped, idx: number, barMs: number): number {
 /** The time `n` bars after the bar containing `start` (no copy of the bar list is made). */
 export function endAfterBars(bars: Stamped, start: number, n: number, barMs: number): number {
   if (bars.length === 0) return start + n * barMs;
-  return timeAt(bars, indexOf(bars, start, barMs) + n, barMs);
+  return barTime(bars, barIndex(bars, start, barMs) + n, barMs);
 }
 
 /** The start of the bar after the one containing `ts` (e.g. Monday after a Friday for stocks). */
@@ -262,7 +266,7 @@ export function nextBarTime(bars: Stamped, ts: number, barMs: number): number {
 /** `ts` moved by as many bars as lie between `from` and `to`. */
 export function shiftByBars(bars: Stamped, ts: number, from: number, to: number, barMs: number): number {
   if (bars.length === 0) return ts + (to - from);
-  return timeAt(bars, indexOf(bars, ts, barMs) + indexOf(bars, to, barMs) - indexOf(bars, from, barMs), barMs);
+  return barTime(bars, barIndex(bars, ts, barMs) + barIndex(bars, to, barMs) - barIndex(bars, from, barMs), barMs);
 }
 
 // ── drag rules ──
