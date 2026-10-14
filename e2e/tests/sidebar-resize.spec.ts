@@ -1,7 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 
+/** The shell's `--sidebar-w` (an inline custom property). The e2e tsconfig has no DOM lib, hence the narrow cast. */
 const sidebarWidth = (page: Page) =>
-  page.locator('.app-shell').evaluate((el) => getComputedStyle(el).getPropertyValue('--sidebar-w').trim());
+  page.locator('.app-shell').evaluate((el) =>
+    (el as unknown as { style: { getPropertyValue(name: string): string } }).style.getPropertyValue('--sidebar-w').trim());
 
 test('the watchlist sidebar resizes by dragging its edge, keeps the width after a reload, and resets on double-click', async ({ page }) => {
   await page.goto('/');
