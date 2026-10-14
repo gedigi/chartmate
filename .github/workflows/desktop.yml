@@ -190,8 +190,15 @@ jobs:
             echo "| macOS (arm64, x64) | ${MAC_SIGNING} |"
             echo "| Windows (x64, arm64) | ${WIN_SIGNING} |"
             echo
+            if [ "$MAC_SIGNING" = unsigned ]; then
+              echo "**macOS build is unsigned.** Gatekeeper warns on first launch: right-click the app, then **Open**."
+              echo
+            fi
+            if [ "$WIN_SIGNING" = unsigned ]; then
+              echo "**Windows build is unsigned.** SmartScreen warns on first launch: choose **More info**, then **Run anyway**."
+              echo
+            fi
             if [ "$MAC_SIGNING" = unsigned ] || [ "$WIN_SIGNING" = unsigned ]; then
-              echo "**Unsigned build(s).** macOS Gatekeeper and Windows SmartScreen will warn on first launch."
               echo "Unsigned builds contain no auto-updater: install new versions manually from this page."
             fi
           } > notes.md
