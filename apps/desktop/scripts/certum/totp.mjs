@@ -1,7 +1,8 @@
 // RFC 6238 TOTP for the SimplySign login in CI. The SimplySign activation QR code is a standard otpauth:// URI;
 // the same seed the SimplySign phone app holds produces the same one-time codes here.
 //
-// CLI (used by login.ps1): reads CHARTMATE_CERTUM_OTP_URI (an otpauth:// URI, or a bare base32 seed) from the environment and
+// CLI: reads the otpauth:// URI (or a bare base32 seed) from stdin with --stdin (login.ps1), else from
+// CHARTMATE_CERTUM_OTP_URI (a manual check), and
 // prints the current code. When fewer than `--min-remaining` seconds (default 5) are left in the current period it
 // waits for the next one, so the code is still valid when SimplySign checks it. Never prints the seed.
 // CHARTMATE_CERTUM_TOTP_ALGORITHM (SHA1 | SHA256 | SHA512) overrides the algorithm.
@@ -75,10 +76,18 @@ export function waitForFreshWindow(period, timeMs, minRemainingS) {
   return remaining < minRemainingS * 1000 ? remaining + 250 : 0;
 }
 
+async function readStdin() {
+  const chunks = [];
+  for await (const c of process.stdin) chunks.push(c);
+  return Buffer.concat(chunks).toString('utf8').trim();
+}
+
 async function main() {
   const arg = process.argv.find((a) => a.startsWith('--min-remaining='));
   const minRemaining = arg ? Number(arg.split('=')[1]) : 5;
-  const params = parseOtp(process.env.CHARTMATE_CERTUM_OTP_URI, process.env.CHARTMATE_CERTUM_TOTP_ALGORITHM);
+  // --stdin: the URI arrives on stdin (login.ps1), so it is never in this process's environment.
+  const source = process.argv.includes('--stdin') ? await readStdin() : process.env.CHARTMATE_CERTUM_OTP_URI;
+  const params = parseOtp(source, process.env.CHARTMATE_CERTUM_TOTP_ALGORITHM);
   const wait = waitForFreshWindow(params.period, Date.now(), minRemaining);
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   process.stdout.write(`${totp(params, Date.now())}\n`);

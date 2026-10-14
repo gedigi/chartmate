@@ -25,6 +25,13 @@ $version = if ([string]::IsNullOrWhiteSpace($env:CHARTMATE_CERTUM_SIMPLYSIGN_VER
 if ($version -notmatch '^\d+(\.\d+){1,3}$') { throw "invalid CHARTMATE_CERTUM_SIMPLYSIGN_VERSION" }
 $totpScript = Join-Path $PSScriptRoot 'totp.mjs'
 
+# The secrets live only in these locals from here on: they are cleared from the process environment before msiexec,
+# SimplySign Desktop or any other child process starts, and the seed reaches totp.mjs on stdin only.
+$certumUser = $env:CHARTMATE_CERTUM_USERNAME.Trim()
+$certumOtpUri = $env:CHARTMATE_CERTUM_OTP_URI.Trim()
+[Environment]::SetEnvironmentVariable('CHARTMATE_CERTUM_USERNAME', $null, 'Process')
+[Environment]::SetEnvironmentVariable('CHARTMATE_CERTUM_OTP_URI', $null, 'Process')
+
 # 1. Download and verify the installer: its SHA-256 must equal the pinned value, and it must carry a valid
 #    Authenticode signature (chain built and revocation-checked) whose subject O is exactly Asseco Data Systems S.A.
 #    (Certum's operator); optionally the signer certificate thumbprint is pinned too.
@@ -88,10 +95,10 @@ for ($attempt = 1; $attempt -le 2 -and -not $cert; $attempt++) {
   }
   if (-not $active) { throw 'SimplySign Desktop login window did not appear' }
   Start-Sleep -Milliseconds 800
-  [System.Windows.Forms.SendKeys]::SendWait((Escape-SendKeys $env:CHARTMATE_CERTUM_USERNAME.Trim()))
+  [System.Windows.Forms.SendKeys]::SendWait((Escape-SendKeys $certumUser))
   [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
   # The code is computed at the last moment, with at least 8 s of validity left.
-  $code = (& node $totpScript --min-remaining=8)
+  $code = ($certumOtpUri | & node $totpScript --stdin --min-remaining=8)
   if ($LASTEXITCODE -ne 0 -or $code -notmatch '^\d{6,10}$') { throw 'could not compute the SimplySign one-time code' }
   if (-not ($shell.AppActivate($proc.Id) -or $shell.AppActivate('SimplySign Desktop'))) { throw 'SimplySign Desktop lost focus before the one-time code could be typed' }
   [System.Windows.Forms.SendKeys]::SendWait($code)
@@ -104,3 +111,5 @@ if (-not $cert) { throw "no code-signing certificate for '$publisher' appeared i
 
 Log "certificate mounted: $($cert.Subject), valid until $($cert.NotAfter.ToString('yyyy-MM-dd'))"
 Set-Content -Path $OutFile -Value $cert.Thumbprint -NoNewline -Encoding ascii
+$certumUser = $null
+$certumOtpUri = $null
