@@ -358,8 +358,8 @@ the daily bars and the quote.
 
 **Resizing.** Drag the sidebar's left edge (a hairline appears on hover) to make it wider or narrower; the chart
 follows live. The width ranges from 240 px to half the window, and never leaves the chart narrower than 480 px.
-With the handle focused, **←/→** resize by 16 px, **Home/End** jump to the narrowest/widest, and **Enter** or a
-double-click restores the default 320 px. The width is a per-device preference stored in the browser
+With the handle focused, **←/→** resize by 16 px (64 px with **Shift**), **Home/End** jump to the
+narrowest/widest, and **Enter** or a double-click restores the default 320 px. The width is a per-device preference stored in the browser
 (`chartmate.sidebar.width`), not in the saved layout; it is re-clamped when the window is resized, and hiding the
 watchlist keeps it. Narrow rails drop the sparkline first, then the 30-day gauge, so names keep their room; wide
 rails give the extra space to names and a longer sparkline, and the detail panel shows its stats in three columns.
