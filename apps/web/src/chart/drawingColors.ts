@@ -1,4 +1,4 @@
-import { DRAWING_COLOR_TOKENS, isHexColor, type DrawingColorToken, type ThemedAppearance } from '@chartmate/shared';
+import { isHexColor, type DrawingColorToken, type ThemedAppearance } from '@chartmate/shared';
 import { indicatorPaletteColor, resolveAppearance, themeTokens, type ThemeName } from './theme';
 
 /** Color of new drawings until the user picks one (and after "Reset to default"). */
@@ -39,7 +39,16 @@ function swatchName(token: DrawingColorToken, theme: ThemeName): string {
   }
 }
 
-/** The picker's swatches for `theme`, in DRAWING_COLOR_TOKENS order (theme colors first, then the palette hues). */
+/**
+ * Order of the picker's two rows: the theme colors with up / down at the end of the first, then the palette hues
+ * arranged so the cyan and pink ones never sit next to (or under) up and down, which they could be mistaken for.
+ */
+export const SWATCH_ORDER: readonly DrawingColorToken[] = [
+  'accent', 'text', 'muted', 'up', 'down',
+  'palette:4', 'palette:2', 'palette:3', 'palette:0', 'palette:1', 'palette:5',
+];
+
+/** The picker's swatches for `theme`, in SWATCH_ORDER (theme colors first, then the palette hues). */
 export function drawingSwatches(theme: ThemeName, appearance?: ThemedAppearance): DrawingSwatch[] {
-  return DRAWING_COLOR_TOKENS.map((token) => ({ token, color: resolveDrawingColor(token, theme, appearance), name: swatchName(token, theme) }));
+  return SWATCH_ORDER.map((token) => ({ token, color: resolveDrawingColor(token, theme, appearance), name: swatchName(token, theme) }));
 }

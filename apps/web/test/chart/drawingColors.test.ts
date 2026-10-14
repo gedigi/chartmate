@@ -38,7 +38,7 @@ describe('drawing colors', () => {
   it('swatches: every token once, in order, resolved and named per theme', () => {
     for (const theme of ['dark', 'light'] as const) {
       const s = drawingSwatches(theme);
-      expect(s.map((x) => x.token)).toEqual(DRAWING_COLOR_TOKENS);
+      expect([...s.map((x) => x.token)].sort()).toEqual([...DRAWING_COLOR_TOKENS].sort());
       for (const x of s) expect(x.color).toBe(resolveDrawingColor(x.token, theme));
       expect(new Set(s.map((x) => x.name)).size).toBe(s.length);
       expect(new Set(s.map((x) => x.color)).size).toBe(s.length);
@@ -46,7 +46,14 @@ describe('drawing colors', () => {
     expect(drawingSwatches('dark').find((x) => x.token === 'text')!.name).toBe('White');
     expect(drawingSwatches('light').find((x) => x.token === 'text')!.name).toBe('Black');
     expect(drawingSwatches('dark').map((x) => x.name)).toEqual([
-      'Sky', 'White', 'Gray', 'Up color', 'Down color', 'Gold', 'Violet', 'Cyan', 'Orange', 'Pink', 'Blue',
+      'Sky', 'White', 'Gray', 'Up color', 'Down color', 'Pink', 'Cyan', 'Orange', 'Gold', 'Violet', 'Blue',
     ]);
+    // Up / down end the first row; the cyan and pink hues are neither beside nor under them.
+    const order = drawingSwatches('dark').map((x) => x.token);
+    const below = (t: string) => order[order.indexOf(t as never) + 5];
+    expect(order.slice(3, 5)).toEqual(['up', 'down']);
+    expect([below('up'), below('down')]).toEqual(['palette:0', 'palette:1']); // gold, violet
+    // Cyan and pink are in the first two columns of the palette row, away from up / down (columns 4 and 5).
+    for (const t of ['palette:2', 'palette:4']) expect(order.indexOf(t as never) - 5).toBeLessThan(2);
   });
 });

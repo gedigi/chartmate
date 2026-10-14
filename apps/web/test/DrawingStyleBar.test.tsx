@@ -323,7 +323,7 @@ describe('DrawingStyleBar', () => {
       expect(trigger()).toHaveAttribute('aria-expanded', 'true');
       const options = within(list()!).getAllByRole('option');
       expect(options.map((o) => o.getAttribute('aria-label'))).toEqual([
-        'Sky', 'White', 'Gray', 'Up color', 'Down color', 'Gold', 'Violet', 'Cyan', 'Orange', 'Pink', 'Blue',
+        'Sky', 'White', 'Gray', 'Up color', 'Down color', 'Pink', 'Cyan', 'Orange', 'Gold', 'Violet', 'Blue',
       ]);
       expect(options.filter((o) => o.getAttribute('aria-selected') === 'true').map((o) => o.getAttribute('aria-label'))).toEqual(['Sky']);
       expect(within(list()!).getAllByRole('group').map((g) => g.getAttribute('aria-label'))).toEqual(['Theme colors', 'Palette']);
@@ -416,7 +416,7 @@ describe('DrawingStyleBar', () => {
       key('ArrowRight');
       expect(focused()).toBe('Gray');
       key('ArrowDown');
-      expect(focused()).toBe('Cyan');
+      expect(focused()).toBe('Orange');
       key('ArrowUp');
       expect(focused()).toBe('Gray');
       key('End');
@@ -427,9 +427,10 @@ describe('DrawingStyleBar', () => {
       expect(focused()).toBe('Blue');
       key('Home');
       key('ArrowDown');
+      expect(focused()).toBe('Pink');
       key('Enter');
-      expect(c.setSelectedStyle).toHaveBeenLastCalledWith({ color: 'palette:0' });
-      expect(onPickColor).toHaveBeenLastCalledWith('palette:0');
+      expect(c.setSelectedStyle).toHaveBeenLastCalledWith({ color: 'palette:4' });
+      expect(onPickColor).toHaveBeenLastCalledWith('palette:4');
       expect(trigger()).toHaveFocus();
       // Escape closes the popover only (it does not reach the chart, which would deselect the drawing).
       fireEvent.click(trigger());
