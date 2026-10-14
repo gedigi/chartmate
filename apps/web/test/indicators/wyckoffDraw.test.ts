@@ -4,7 +4,7 @@ import { compositeOver } from '../../src/chart/color';
 import { contrastRatio } from '../../src/chart/contrast';
 import { indicatorColorContext, indicatorColors } from '../../src/chart/indicators/colors';
 import wyckoffIndicator, {
-  barcolorRects, drawWyckoff, trendBarColor, wyckoffBarResults, wyckoffStyle, type WyckoffBarResult,
+  barcolorRects, currentWyckoffStyle, drawWyckoff, trendBarColor, wyckoffBarResults, wyckoffStyle, type WyckoffBarResult,
 } from '../../src/chart/indicators/custom/wyckoff';
 import { INDICATOR_PALETTE, THEME_TOKENS } from '../../src/chart/theme';
 
@@ -115,6 +115,20 @@ describe('drawWyckoff', () => {
     expect(light).not.toEqual(dark);
     expect(light).toContain(THEME_TOKENS.light.up);
     expect(dark).toContain(THEME_TOKENS.dark.up);
+  });
+
+  it('memoizes the style per theme / appearance object: same object while they hold, rebuilt when either changes', () => {
+    const first = currentWyckoffStyle();
+    expect(currentWyckoffStyle()).toBe(first);
+    indicatorColorContext.theme = 'light';
+    const light = currentWyckoffStyle();
+    expect(light).not.toBe(first);
+    expect(light.signal.accumulation).toBe(THEME_TOKENS.light.up);
+    expect(currentWyckoffStyle()).toBe(light);
+    indicatorColorContext.appearance = { light: { upColor: '#33aaff' } };
+    const custom = currentWyckoffStyle();
+    expect(custom).not.toBe(light);
+    expect(custom.signal.accumulation).toBe('#33aaff');
   });
 
   it('follows the user\'s custom up / down colors', () => {

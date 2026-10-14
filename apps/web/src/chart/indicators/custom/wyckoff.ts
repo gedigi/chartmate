@@ -5,11 +5,12 @@
 // License 2.0 (https://mozilla.org/MPL/2.0/).
 // Original Pine Script® source © faytterro.
 
+import type { ThemedAppearance } from '@chartmate/shared';
 import type { CandleType, Chart, IndicatorDrawParams, KLineData } from 'klinecharts';
 import { compositeOver, zoneTint } from '../../color';
 import { readableTextOnAll } from '../../contrast';
-import { CHART_FONT } from '../../theme';
-import { activeIndicatorColors, type IndicatorColors } from '../colors';
+import { CHART_FONT, themeTokens, type ThemeName } from '../../theme';
+import { indicatorColorContext, indicatorColors, type IndicatorColors } from '../colors';
 import { wyckoff, type WyckoffBox, type WyckoffBoxKind, type WyckoffSignal, type WyckoffTone, type WyckoffTrend } from '../wyckoffCalc';
 import type { CustomIndicator } from '../types';
 
@@ -62,14 +63,21 @@ export function wyckoffStyle(c: IndicatorColors): WyckoffStyle {
   };
 }
 
-let styleCache: { key: string; style: WyckoffStyle } | null = null;
+let styleCache: { theme: ThemeName; appearance: ThemedAppearance | undefined; tokens: object; style: WyckoffStyle } | null = null;
 
-/** wyckoffStyle of the chart's current palette (memoized: it runs on every repaint). */
-function currentStyle(): WyckoffStyle {
-  const c = activeIndicatorColors();
-  const key = JSON.stringify(c);
-  if (styleCache?.key !== key) styleCache = { key, style: wyckoffStyle(c) };
-  return styleCache.style;
+/**
+ * wyckoffStyle of the chart's current palette. Memoized on identities (it runs on every repaint): the theme, the
+ * appearance object (replaced, never mutated, on every change) and the theme's token object (replaced when the CSS
+ * tokens are re-read).
+ */
+export function currentWyckoffStyle(): WyckoffStyle {
+  const { theme, appearance } = indicatorColorContext;
+  const tokens = themeTokens(theme);
+  const hit = styleCache;
+  if (hit && hit.theme === theme && hit.appearance === appearance && hit.tokens === tokens) return hit.style;
+  const style = wyckoffStyle(indicatorColors(theme, appearance));
+  styleCache = { theme, appearance, tokens, style };
+  return style;
 }
 
 /** Color of a bar recolored by `trend` (doji count as with the trend). */
@@ -157,7 +165,7 @@ export function drawWyckoff({ ctx, chart, indicator, xAxis, yAxis }: IndicatorDr
   const from = Math.max(0, Math.floor(realFrom) - 1);
   const to = Math.min(data.length, result.length, Math.ceil(realTo) + 1);
   if (to <= from) return true;
-  const style = currentStyle();
+  const style = currentWyckoffStyle();
   const family = fontFamily(chart);
   const styles = chart.getStyles();
 
