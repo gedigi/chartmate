@@ -49,12 +49,14 @@ describe('default line colors (per-theme categorical palette)', () => {
     expect([...INDICATOR_PALETTE.light]).toEqual(LIGHT);
   });
 
-  it('every catalog line takes the palette color of its documented slot, in both themes', () => {
-    for (const e of CATALOG) {
-      expect(SLOTS[e.name], `${e.name} mapping is documented`).toBeDefined();
-      expect(defaultLineColors(e.name, 'dark'), e.name).toEqual(SLOTS[e.name]!.map((s) => DARK[s - 1]));
-      expect(defaultLineColors(e.name, 'light'), e.name).toEqual(SLOTS[e.name]!.map((s) => LIGHT[s - 1]));
-      expect(defaultLineColors(e.name, 'dark')).toHaveLength(e.lines.length);
+  // Pins the shipped indicators; an added indicator pins its own slots in its test (see scripts/new-indicator.mjs).
+  it('every shipped indicator line takes the palette color of its documented slot, in both themes', () => {
+    for (const [name, slots] of Object.entries(SLOTS)) {
+      const e = catalogEntry(name);
+      expect(e, `${name} is in the catalog`).toBeDefined();
+      expect(defaultLineColors(name, 'dark'), name).toEqual(slots.map((s) => DARK[s - 1]));
+      expect(defaultLineColors(name, 'light'), name).toEqual(slots.map((s) => LIGHT[s - 1]));
+      expect(slots, name).toHaveLength(e!.lines.length);
     }
   });
 

@@ -62,8 +62,10 @@ describe('collectCustomIndicators', () => {
     expect(warn.mock.calls[0]![0]).toMatch(/bad\.ts: catalog\.paramLabels must have one label per default param; skipped/);
   });
 
+  // Containment, not equality: adding an indicator to ./custom must not require editing this test.
   it('ships VWAP, ATR and WYCKOFF from ./custom; ATR uses the price precision', () => {
-    expect(CUSTOM_INDICATORS.map((c) => c.template.name)).toEqual(['ATR', 'VWAP', 'WYCKOFF']);
-    expect([...PRICE_PRECISION_INDICATORS]).toEqual(['ATR']);
+    expect(CUSTOM_INDICATORS.map((c) => c.template.name)).toEqual(expect.arrayContaining(['ATR', 'VWAP', 'WYCKOFF']));
+    expect(PRICE_PRECISION_INDICATORS.has('ATR')).toBe(true);
+    expect(PRICE_PRECISION_INDICATORS.has('VWAP')).toBe(false);
   });
 });
