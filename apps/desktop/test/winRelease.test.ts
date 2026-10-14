@@ -1,11 +1,13 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error plain ESM script without types
-import {
-  appUpdateProblems, commonName, latestYmlProblems, parseOsslVerify, parseSigntoolVerify, signatureProblems, signLogProblems, zipExtractCommand,
-} from '../scripts/verify-win-signatures.mjs';
+import * as verifyScript from '../scripts/verify-win-signatures.mjs';
 // @ts-expect-error plain ESM script without types
 import { buildAffectingIgnored, rewriteReleaseNotes, windowsAssets } from '../scripts/sign-win-release.mjs';
+
+const {
+  appUpdateProblems, commonName, latestYmlProblems, parseOsslVerify, parseSigntoolVerify, signatureProblems, signLogProblems, zipExtractCommand,
+} = verifyScript;
 
 describe('verify-win-signatures', () => {
   it('reads the CN from both DN orders, with commas in the name', () => {
