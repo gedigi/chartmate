@@ -22,3 +22,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # Keeps the digest-pinned Postgres image in compose.yaml current.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly

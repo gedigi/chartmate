@@ -16,6 +16,7 @@ services:
     restart: unless-stopped
     ports:
       # Loopback only by default: put a reverse proxy in front, or set CHARTMATE_BIND=0.0.0.0 (with a password).
+      # Ports Docker publishes bypass host firewalls such as ufw.
       - "${CHARTMATE_BIND:-127.0.0.1}:${CHARTMATE_PORT:-8787}:8787"
     environment:
       DATABASE_URL: ${DATABASE_URL:-sqlite:/data/chartmate.db}
@@ -26,16 +27,12 @@ services:
       CRYPTO_PROVIDER: ${CRYPTO_PROVIDER:-binance}
     volumes:
       - chartmate-data:/data
-    # The app writes only to /data.
+    # Persistent writes go only to /data; SQLite's temp files (large sorts, VACUUM) to the /tmp tmpfs.
+    # The image's own healthcheck (/api/health) applies.
     read_only: true
+    tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
-      interval: 30s
-      timeout: 5s
-      start_period: 15s
-      retries: 3
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,7 +40,8 @@ services:
 
   postgres:
     profiles: [postgres]
-    image: postgres:17-bookworm
+    # Pinned by digest; Dependabot (docker-compose ecosystem) keeps it current.
+    image: postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
     restart: unless-stopped
     environment:
       POSTGRES_USER: chartmate
