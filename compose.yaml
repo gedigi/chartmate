@@ -1,7 +1,8 @@
-# Chartmate, self-hosted. Copy .env.example to .env, set CHARTMATE_IMAGE (and a password if the port is
-# reachable from other machines), then:
+# Chartmate, self-hosted. Download this file and run:
 #
-#   docker compose up -d    # SQLite in the chartmate-data volume
+#   docker compose up -d    # SQLite in the chartmate-data volume, then open http://localhost:8787
+#
+# No .env is needed. Create one (see .env.example) only to set a password, change the port or use Postgres.
 #
 # Postgres: the optional `postgres` profile adds a Postgres service; enable it and DATABASE_URL in .env (see
 # .env.example), or run `docker compose --profile postgres up -d` with DATABASE_URL set.
@@ -11,8 +12,8 @@ name: chartmate
 
 services:
   chartmate:
-    # The image this repository publishes to GitHub Container Registry: ghcr.io/<owner>/<repo>:<tag>.
-    image: ${CHARTMATE_IMAGE:?set CHARTMATE_IMAGE in .env, e.g. ghcr.io/<owner>/<repo>:latest}
+    # The published image. CHARTMATE_IMAGE overrides it (a pinned version, or your own build).
+    image: ${CHARTMATE_IMAGE:-ghcr.io/gedigi/chartmate:latest}
     restart: unless-stopped
     ports:
       # Loopback only by default: put a reverse proxy in front, or set CHARTMATE_BIND=0.0.0.0 (with a password).
