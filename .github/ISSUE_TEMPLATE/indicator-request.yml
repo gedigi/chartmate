@@ -1,0 +1,49 @@
+name: Indicator request
+description: Suggest an indicator for the indicator picker.
+title: "Indicator: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Want to build it yourself? `pnpm new:indicator <Name>` scaffolds it; see "Add an indicator" in CONTRIBUTING.md.
+  - type: input
+    id: name
+    attributes:
+      label: Indicator
+      description: Its usual name (and abbreviation).
+      placeholder: Keltner channels (KC)
+    validations:
+      required: true
+  - type: dropdown
+    id: pane
+    attributes:
+      label: Where it draws
+      options:
+        - On the candles (overlay)
+        - In its own pane (oscillator)
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: formula
+    attributes:
+      label: Definition
+      description: The formula, or a reference that defines it (paper, book, public documentation). Include the default params.
+    validations:
+      required: true
+  - type: textarea
+    id: use
+    attributes:
+      label: How you use it
+      description: What it helps you see, and which markets and timeframes you use it on.
+  - type: textarea
+    id: levels
+    attributes:
+      label: Reference levels and params
+      description: Conventional levels (e.g. 70 / 30), param ranges, anything session- or timeframe-specific.
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I would like to open a pull request for it.
