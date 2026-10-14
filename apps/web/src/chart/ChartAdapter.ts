@@ -24,6 +24,7 @@ import { positionContext, positionState, registerPositionOverlays } from './posi
 import { drawingClipboard, type DrawingClip } from './drawingClipboard';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
 import { catalogEntry, defaultLineColor, effectiveLevels } from './indicators/catalog';
+import { indicatorColorContext } from './indicators/colors';
 import { CUSTOM_INDICATORS, PRICE_PRECISION_INDICATORS } from './indicators/extensions';
 import { levelsDraw, levelsRange } from './indicators/levels';
 import { registerCustomIndicators } from './indicators/register';
@@ -35,7 +36,7 @@ import { textColoredLegends } from './barLegends';
 import { solidBarFigures } from './solidBars';
 import { axisTickLabels, countdownText, crosshairDate, hasCountdown } from './timeLabels';
 import {
-  candleStyles, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeSoftTone, themeTokens,
+  candleStyles, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, defaultIndicatorCircles, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeSoftTone, themeTokens,
   type ThemeName,
 } from './theme';
 
@@ -222,6 +223,7 @@ export class ChartAdapter {
     this.theme = opts.theme;
     refreshThemeTokens(opts.theme); // chart colors come from the CSS tokens (constants as fallback)
     this.updatePositionColors();
+    this.updateIndicatorColors();
     positionContext.defaults = resolvePositionDefaults(undefined);
     positionContext.endFor = (start) => this.positionEnd(start);
     positionContext.minEnd = (start) => nextBarTime(this.chart.getDataList(), start, positionContext.barMs);
@@ -241,8 +243,13 @@ export class ChartAdapter {
     return {
       ...base,
       candle: { ...base.candle, ...candle, priceMark: { ...base.candle?.priceMark, ...candle.priceMark } },
-      // Default histogram bars follow the resolved candle colors (custom ones included).
-      indicator: { ...base.indicator, bars: [{ style: 'fill', borderSize: 0, ...defaultIndicatorBars(this.theme, this.appearance) }] },
+      // Default histogram bars and SAR dots follow the resolved candle colors (custom ones included).
+      indicator: {
+        ...base.indicator,
+        bars: [{ style: 'fill', borderSize: 0, ...defaultIndicatorBars(this.theme, this.appearance) }],
+        circles: [defaultIndicatorCircles(this.theme, this.appearance)],
+        ohlc: defaultIndicatorBars(this.theme, this.appearance),
+      },
       // Unstyled drawings follow the appearance's default drawing style (theme accent when unset).
       overlay: overlayStyles(this.defaultDrawing()),
     };
@@ -250,6 +257,12 @@ export class ChartAdapter {
 
   private defaultDrawing(): DrawingLineStyle {
     return resolveAppearance(this.theme, this.appearance).drawing;
+  }
+
+  /** Indicators that paint themselves (Wyckoff) read the theme and appearance at draw time from this context. */
+  private updateIndicatorColors(): void {
+    indicatorColorContext.theme = this.theme;
+    indicatorColorContext.appearance = this.appearance;
   }
 
   /** Position zones / labels: the candle up / down colors of the active theme, muted gray for neutral parts. */
@@ -361,6 +374,7 @@ export class ChartAdapter {
     this.theme = t;
     refreshThemeTokens(t);
     this.updatePositionColors();
+    this.updateIndicatorColors();
     this.chart.setStyles(this.styles());
     for (const o of this.chart.getOverlays({ groupId: MARKERS })) this.chart.overrideOverlay({ id: o.id, styles: markerStyles(t) });
     this.refreshLockedLook();
@@ -399,6 +413,7 @@ export class ChartAdapter {
   setAppearance(a: ThemedAppearance | undefined): void {
     this.appearance = a;
     this.updatePositionColors();
+    this.updateIndicatorColors();
     this.chart.setStyles(this.styles());
     this.refreshThemedBars();
     this.refreshLockedLook();
@@ -560,8 +575,8 @@ export class ChartAdapter {
     // Histogram bars are always filled (MACD / AO outline rising bars by default): rising ones in the soft tone.
     const created = this.chart.getIndicators().find((i) => i.id === id);
     const figures = solidBarFigures(created?.figures, (c) => themeSoftTone(this.theme, c));
-    // Bar values in the legend take the up / down TEXT tones (never the faint soft tone of a rising bar).
-    const legends = created?.figures?.some((f) => f.type === 'bar') ? { createTooltipDataSource: this.barLegends } : {};
+    // Bar and SAR dot values in the legend take the up / down TEXT tones (never the faint soft tone of a rising bar).
+    const legends = created?.figures?.some((f) => f.type === 'bar' || f.type === 'circle') ? { createTooltipDataSource: this.barLegends } : {};
     if (figures || 'createTooltipDataSource' in legends) this.chart.overrideIndicator({ id, name: spec.name, ...(figures ? { figures } : {}), ...legends });
     if (hasOverrides(overrides)) this.overrides.set(id, overrides);
     return id;

@@ -197,7 +197,12 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   `#3ccfd0` / `#e76a88`, light `#0b9da0` / `#c43d68`), used by candles, volume, MACD and AO bars, positions,
   the watchlist, baskets and sparklines. Volume / MACD / AO bars without their own colors follow the active
   theme's candle colors, custom ones included. Rising MACD / AO bars use an opaque soft tone of the same hue;
-  the legend shows histogram values in the readable up / down text colors.
+  the legend shows histogram values in the readable up / down text colors. Parabolic SAR dots use the same up
+  / down colors. Indicator lines take a per-theme categorical palette (six colors, none of them green or red).
+  The Wyckoff overlay paints with the same palette: accumulation boxes, events and trend bars in the up
+  family, distribution in the down family, sideways ranges in a muted gray, plain pivots in the palette's
+  gold; bars against the trend take the trend color's soft tone. Everything follows the theme toggle and your
+  custom up / down colors.
   Stored colors equal to the defaults of earlier versions are reset once, so they follow the current
   defaults (indicator line colors that are all the old palette too); colors you picked yourself are kept.
 - **Readable labels**: labels drawn on a color (crosshair, text annotations, the last price label in candle
@@ -497,7 +502,9 @@ examples. Restart `pnpm dev` (or rebuild) after adding a file.
 
 `custom/wyckoff.ts` (with its calculation in `wyckoffCalc.ts`) is a port of the Pine Script indicator
 'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colors in a `draw`
-callback. **License:** these two files (and their tests) are covered by the
+callback. A custom indicator that paints on the canvas itself should take its colors from
+`indicators/colors.ts` (`activeIndicatorColors()`, read at draw time) rather than hardcoding them; a test
+rejects color literals in `src/chart/indicators/`. **License:** these two files (and their tests) are covered by the
 [Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/), not by the project's AGPL-3.0; keep
 their MPL-2.0 headers and attribution when modifying or redistributing them.
 

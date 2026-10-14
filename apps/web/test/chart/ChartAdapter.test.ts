@@ -833,6 +833,45 @@ describe('ChartAdapter', () => {
       ]);
     });
 
+    it('SAR dots (circle figures) and the OHLC fallback follow the theme / custom up / down colors, never KLineChart\'s green / red', () => {
+      const a = make();
+      a.setTheme('light');
+      let ind = chart().setStyles.mock.calls.at(-1)![0].indicator;
+      expect(ind.circles).toEqual([{ style: 'fill', borderSize: 0, upColor: THEME_TOKENS.light.up, downColor: THEME_TOKENS.light.down, noChangeColor: THEME_TOKENS.light.muted }]);
+      expect(ind.ohlc).toEqual({ upColor: THEME_TOKENS.light.up, downColor: THEME_TOKENS.light.down, noChangeColor: THEME_TOKENS.light.muted });
+      a.setTheme('dark');
+      a.setAppearance({ dark: { upColor: '#3366ff' } });
+      ind = chart().setStyles.mock.calls.at(-1)![0].indicator;
+      expect(ind.circles[0]).toMatchObject({ upColor: '#3366ff', downColor: THEME_TOKENS.dark.down });
+    });
+
+    it('SAR legends are rebuilt so the dot value reads in the up / down text tone', () => {
+      const a = make();
+      const create = chart().createIndicator.getMockImplementation()!;
+      chart().createIndicator.mockImplementationOnce((v, stack) => {
+        const id = create(v, stack);
+        Object.assign(chart().indicators.find((i) => i.id === id)!, { figures: [{ key: 'sar', type: 'circle' }] });
+        return id;
+      });
+      chart().overrideIndicator.mockClear();
+      a.addIndicator({ name: 'SAR', pane: 'main' });
+      expect(chart().overrideIndicator.mock.calls.at(-1)![0]).toHaveProperty('createTooltipDataSource', expect.any(Function));
+    });
+
+    it('keeps the indicator color context (read by self-painting indicators at draw time) on the active theme and appearance', async () => {
+      const { indicatorColorContext } = await import('../../src/chart/indicators/colors');
+      const a = make();
+      expect(indicatorColorContext).toEqual({ theme: 'dark', appearance: undefined });
+      a.setTheme('light');
+      expect(indicatorColorContext.theme).toBe('light');
+      const appearance = { light: { upColor: '#3366ff' } };
+      a.setAppearance(appearance);
+      expect(indicatorColorContext.appearance).toBe(appearance);
+      a.setAppearance(undefined);
+      a.setTheme('dark');
+      expect(indicatorColorContext).toEqual({ theme: 'dark', appearance: undefined });
+    });
+
     it('default indicator bars follow the custom candle colors of the active theme (chart styles and reset indicators)', () => {
       const a = make();
       const reset = a.addIndicator({ name: 'VOL', pane: 'sub', barColors: { up: '#00ff00', down: '#ff0000' } });

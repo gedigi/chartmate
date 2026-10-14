@@ -202,6 +202,14 @@ export function defaultIndicatorBars(theme: ThemeName, appearance?: ThemedAppear
 }
 
 /**
+ * Default dots of circle figures (Parabolic SAR: up below the price, down above it): the same opaque candle up / down
+ * colors as the histogram bars (KLineChart's own are a translucent green / red outside the palette).
+ */
+export function defaultIndicatorCircles(theme: ThemeName, appearance?: ThemedAppearance): { style: 'fill'; borderSize: number; upColor: string; downColor: string; noChangeColor: string } {
+  return { style: 'fill', borderSize: 0, ...defaultIndicatorBars(theme, appearance) };
+}
+
+/**
  * Color of indicator reference levels (dashed oscillator levels such as RSI 30 / 70): the theme's opaque, muted
  * `level` token, quieter than any data line.
  */
@@ -422,6 +430,11 @@ export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
       // Default histogram bars: filled, opaque, in the exact candle up / down colors (rising MACD / AO bars get the
       // soft tone, see solidBars.ts).
       bars: [{ style: 'fill', borderSize: 0, ...defaultIndicatorBars(theme) }],
+      // SAR dots in the same colors; the OHLC fallback (a price overlay moved off the candle pane) and text figures
+      // never show KLineChart's own green / red / blue.
+      circles: [defaultIndicatorCircles(theme)],
+      ohlc: defaultIndicatorBars(theme),
+      texts: [{ color: t.text, family: CHART_FONT }],
       tooltip: { title: { color: t.text, family: CHART_FONT, size: 12, weight: '600', marginLeft: 10 }, legend },
       lastValueMark: { show: false },
     },
