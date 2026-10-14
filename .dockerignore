@@ -16,3 +16,10 @@ playwright-report
 # Desktop (Electron) app: not part of the server image
 /apps/desktop
 /assets
+# Not needed to build the image (keeps the build cache stable when they change)
+/.github
+/docs
+/e2e
+/scripts
+compose.yaml
+.env.*

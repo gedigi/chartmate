@@ -17,3 +17,8 @@ updates:
     groups:
       actions:
         patterns: ['*']
+  # Keeps the digest-pinned Node base image of the Docker image current (security patches).
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
