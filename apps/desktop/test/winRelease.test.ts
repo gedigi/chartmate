@@ -5,7 +5,7 @@ import {
   appUpdateProblems, commonName, latestYmlProblems, parseOsslVerify, parseSigntoolVerify, signatureProblems, signLogProblems, zipExtractCommand,
 } from '../scripts/verify-win-signatures.mjs';
 // @ts-expect-error plain ESM script without types
-import { rewriteReleaseNotes, windowsAssets } from '../scripts/sign-win-release.mjs';
+import { buildAffectingIgnored, rewriteReleaseNotes, windowsAssets } from '../scripts/sign-win-release.mjs';
 
 describe('verify-win-signatures', () => {
   it('reads the CN from both DN orders, with commas in the name', () => {
@@ -104,6 +104,19 @@ describe('sign-win-release', () => {
     expect(out).toContain('| macOS (arm64, x64) | Developer ID + notarized |');
     expect(out).not.toMatch(/unsigned/i);
     expect(out).toContain('Chartmate is licensed under the AGPL-3.0.');
+  });
+
+  it('drops the "signing failed in CI" note once the signed build is uploaded', () => {
+    const failed = notes('Developer ID + notarized').replace('**Windows build is unsigned.**',
+      '**Windows signing failed in CI** — sign with `sign:win`. Until then the Windows build below is unsigned.\n\n**Windows build is unsigned.**');
+    const out = rewriteReleaseNotes(failed, 'Certum (SimplySign)');
+    expect(out).not.toContain('signing failed');
+    expect(out).not.toMatch(/unsigned/i);
+  });
+
+  it('refuses ignored files that would change the build (.env files), not the example or node_modules', () => {
+    expect(buildAffectingIgnored(['.env', 'apps/server/.env.local', '.env.example', 'node_modules/x/.env', 'apps/desktop/dist/main.cjs', '']))
+      .toEqual(['.env', 'apps/server/.env.local']);
   });
 
   it('keeps the no-updater line while macOS is still unsigned', () => {

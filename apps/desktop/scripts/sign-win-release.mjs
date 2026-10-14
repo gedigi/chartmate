@@ -11,6 +11,9 @@
 // (scripts/verify-win-signatures.mjs); then, after you confirm, replaces the Windows assets of the GitHub Release
 // (`gh release upload --clobber`) and updates the release notes' signing row.
 //
+// Before publishing it checks: HEAD is the tag, the tree is clean (no untracked files, no ignored .env files), the
+// local tag equals the tag on GitHub, and the release exists. It always reinstalls node_modules from the lockfile.
+//
 // Options: --tag=vX.Y.Z (default: v<package.json version>), --no-upload (build + verify only; any commit),
 //          --yes (do not ask before uploading).
 import { spawnSync } from 'node:child_process';
@@ -35,9 +38,15 @@ export function windowsAssets(names) {
 export function rewriteReleaseNotes(body, method) {
   let out = body.replace(/^(\| Windows \([^)]*\) \| )[^|\n]*( \|)$/m, `$1${method}$2`);
   out = out.replace(/\*\*Windows build is unsigned\.\*\*[^\n]*\n(\n)?/, '');
+  out = out.replace(/\*\*Windows signing failed in CI\*\*[^\n]*\n(\n)?/, '');
   const macUnsigned = /^\| macOS \([^)]*\) \| unsigned \|$/m.test(out);
   if (!macUnsigned) out = out.replace(/Unsigned builds contain no auto-updater[^\n]*\n?(\n)?/, '');
   return out.replace(/\n{3,}/g, '\n\n');
+}
+
+/** Ignored files that would change the build (`git ls-files --others --ignored --exclude-standard` output). */
+export function buildAffectingIgnored(paths) {
+  return paths.filter((p) => /(^|\/)\.env(\..+)?$/.test(p) && !/(^|\/)\.env\.example$/.test(p) && !/(^|\/)node_modules\//.test(p));
 }
 
 function sh(command, args, opts = {}) {
@@ -78,22 +87,33 @@ async function main() {
   }
   const publisher = process.env.CHARTMATE_WIN_PUBLISHER_NAME.trim();
 
-  // The build must be exactly the tagged source (only enforced when publishing).
-  const head = sh('git', ['rev-parse', 'HEAD'], { capture: true });
-  if (upload) {
-    const tagged = sh('git', ['rev-parse', `${tag}^{commit}`], { capture: true });
-    if (head !== tagged) throw new Error(`HEAD is not ${tag}: run it from a checkout of the tag (git checkout ${tag})`);
-    if (sh('git', ['status', '--porcelain', '--untracked-files=no'], { capture: true }) !== '') throw new Error('the working tree has changes');
-  }
   const repo = process.env.GITHUB_REPOSITORY?.trim() || sh('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], { capture: true });
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error(`cannot tell the GitHub repository (got "${repo}"); set GITHUB_REPOSITORY=owner/name`);
-  if (upload) sh('gh', ['release', 'view', tag, '--repo', repo, '--json', 'tagName'], { capture: true });
 
-  const env = { ...process.env, CHARTMATE_PUBLISH: 'github', GITHUB_REPOSITORY: repo };
-  if (signing.certum === 'pkcs11' && process.stdin.isTTY && env.CHARTMATE_WIN_PKCS11_PIN === undefined) {
-    // Kept in this process's memory and handed to osslsigncode on stdin only.
-    env.CHARTMATE_WIN_PKCS11_PIN = await ask('SimplySign card PIN (press Enter if your setup does not ask for one): ', { hidden: true });
+  // When publishing, the build must be exactly the tagged source, the tag the one on GitHub, and the release must exist.
+  if (upload) {
+    const head = sh('git', ['rev-parse', 'HEAD'], { capture: true });
+    const tagged = sh('git', ['rev-parse', `${tag}^{commit}`], { capture: true });
+    if (head !== tagged) throw new Error(`HEAD is not ${tag}: run it from a checkout of the tag (git checkout ${tag})`);
+    if (sh('git', ['status', '--porcelain'], { capture: true }) !== '') throw new Error('the working tree has changes or untracked files');
+    const ignored = buildAffectingIgnored(sh('git', ['ls-files', '--others', '--ignored', '--exclude-standard'], { capture: true }).split('\n'));
+    if (ignored.length) throw new Error(`files that would change the build are present (move them away first): ${ignored.join(', ')}`);
+    const remote = spawnSync('gh', ['api', `repos/${repo}/commits/refs/tags/${tag}`, '-q', '.sha'], { encoding: 'utf8' }).stdout?.trim() || null;
+    if (remote !== tagged) throw new Error(`local ${tag} (${tagged.slice(0, 12)}) is not the ${tag} on GitHub (${remote?.slice(0, 12) ?? 'missing'})`);
+    const view = spawnSync('gh', ['release', 'view', tag, '--repo', repo, '--json', 'tagName'], { encoding: 'utf8' });
+    if (view.status !== 0) {
+      throw new Error(`there is no GitHub Release ${tag} on ${repo}: push the tag and let desktop.yml publish it first (${(view.stderr ?? '').trim()})`);
+    }
   }
+
+  // node_modules must be exactly the lockfile (no install scripts), as in CI.
+  sh('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], { cwd: resolve(desktop, '..', '..') });
+
+  // The PIN is never part of the general build environment: it is asked for right before electron-builder and given
+  // only to it (and from there, by build/win-sign.cjs, to osslsigncode as PKCS11_PIN).
+  const env = { ...process.env, CHARTMATE_PUBLISH: 'github', GITHUB_REPOSITORY: repo };
+  let pin = env.CHARTMATE_WIN_PKCS11_PIN;
+  delete env.CHARTMATE_WIN_PKCS11_PIN;
 
   const out = resolve(desktop, 'release-win-signed', tag);
   rmSync(out, { recursive: true, force: true });
@@ -106,8 +126,12 @@ async function main() {
     console.log(`\n== Building and signing Chartmate ${tag} for Windows (${signing.method}, ${signing.certum}) ==`);
     sh('pnpm', ['--filter', '@chartmate/web', 'build'], { env });
     sh(process.execPath, ['scripts/bundle.mjs', '--platform=win32'], { env });
+    if (signing.certum === 'pkcs11' && pin === undefined && process.stdin.isTTY) {
+      pin = await ask('SimplySign card PIN (press Enter if your setup does not ask for one): ', { hidden: true });
+    }
     sh(process.execPath, [require.resolve('electron-builder/cli.js'), '--config', 'electron-builder.config.cjs', '--win', '--publish', 'never',
-      `-c.directories.output=${out}`], { env });
+      `-c.directories.output=${out}`], { env: pin ? { ...env, CHARTMATE_WIN_PKCS11_PIN: pin } : env });
+    pin = undefined;
 
     console.log('\n== Verifying ==');
     const problems = verifyRelease(out, { publisher, signLog: env.CHARTMATE_WIN_SIGN_LOG });
