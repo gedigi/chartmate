@@ -65,6 +65,8 @@ export const MAX_PRICE_DECIMALS = 8;
 
 /** A pasted drawing that would cover an identical one is moved this many bars to the right (repeated as needed). */
 export const PASTE_OFFSET_BARS = 5;
+/** Bars left between a pasted long / short position and the identical one it moves past (by its own width). */
+export const PASTE_POSITION_GAP_BARS = 2;
 /** A pasted horizontal line that would cover an identical one is moved up by this share of the visible price range. */
 export const PASTE_OFFSET_PRICE_SHARE = 0.05;
 
@@ -1229,7 +1231,8 @@ export class ChartAdapter {
    *   bars and is centered on the visible range; when its prices miss the visible bars' low…high, they are scaled
    *   (percentages kept) to center on that range;
    * - while an identical drawing is in the way (e.g. the original), it moves PASTE_OFFSET_BARS bars to the right
-   *   (horizontal lines: up by PASTE_OFFSET_PRICE_SHARE of the visible price range), so repeated pastes cascade.
+   *   (long / short positions: their own width plus PASTE_POSITION_GAP_BARS, so boxes and labels never overlap;
+   *   horizontal lines: up by PASTE_OFFSET_PRICE_SHARE of the visible price range), so repeated pastes cascade.
    * The drawing being placed is canceled first. False (nothing pasted) with an empty clipboard or before the
    * current symbol's drawings and data are in.
    */
@@ -1290,11 +1293,13 @@ export class ChartAdapter {
     const barMs = this.barMs();
     const tick = 10 ** -this.pricePrecision;
     const step = Number.isFinite(high - low) ? Math.max(tick, roundPrice((high - low) * PASTE_OFFSET_PRICE_SHARE, this.pricePrecision)) : tick;
+    const idx = points.map((p) => barIndex(bars, p.timestamp, barMs));
+    const shift = isPositionTool(name) ? Math.max(...idx) - Math.min(...idx) + PASTE_POSITION_GAP_BARS : PASTE_OFFSET_BARS;
     let next = points;
     for (let n = 0; n < 1000 && covered(next); n++) {
       next = flat
         ? next.map((p) => ({ ...p, value: roundPrice(p.value + step, this.pricePrecision) }))
-        : next.map((p) => ({ ...p, timestamp: barTime(bars, barIndex(bars, p.timestamp, barMs) + PASTE_OFFSET_BARS, barMs) }));
+        : next.map((p) => ({ ...p, timestamp: barTime(bars, barIndex(bars, p.timestamp, barMs) + shift, barMs) }));
     }
     return next;
   }

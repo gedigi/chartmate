@@ -244,7 +244,8 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   Chartmate only (the system clipboard is untouched) and survives symbol and timeframe switches until the page
   reloads. Placement: the copy keeps its times and prices, so it lands where it was copied from, also on another
   symbol or timeframe; while an identical drawing is in the way (such as the original), it moves 5 bars to the
-  right (a horizontal line moves up by 5 % of the visible price range), so repeated pastes cascade. When its
+  right (a long / short position by its own width plus 2 bars, so boxes and labels never overlap; a horizontal
+  line moves up by 5 % of the visible price range), so repeated pastes cascade. When its
   times miss the loaded bars (and the space right of them), it keeps its width in bars and is centered on the
   visible range; when its prices miss the visible bars' range, they are scaled into it (percentages kept). A
   locked drawing can be copied; the copy is unlocked unless **Lock all drawings** is on. The keys are left to

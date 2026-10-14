@@ -222,7 +222,7 @@ describe('ChartAdapter copy / paste of drawings', () => {
     expect(a.getSelectedDrawing()).toMatchObject({ locked: true, ownLock: false });
   });
 
-  it('long / short positions: entry, target, stop and width are kept', async () => {
+  it('long / short positions: entry, target, stop and width are kept; the copy goes right past the original', async () => {
     const a = await loadAt(BTC, '1D');
     const long = { name: 'longPosition', points: position(day(1), day(9), 100, 104.5, 97.25), lock: false };
     const short = { name: 'shortPosition', points: position(day(3), day(8), 100, 95, 101), lock: false };
@@ -232,11 +232,14 @@ describe('ChartAdapter copy / paste of drawings', () => {
       a.copySelected();
       a.pasteDrawing();
     }
+    // Moved by their own width (8 / 5 bars) plus a 2-bar gap, so boxes and labels never overlap.
     expect(a.serializeDrawings().slice(2)).toEqual([
-      { ...long, points: position(day(6), day(14), 100, 104.5, 97.25) },
-      { ...short, points: position(day(8), day(13), 100, 95, 101) },
+      { ...long, points: position(day(11), day(19), 100, 104.5, 97.25) },
+      { ...short, points: position(day(10), day(15), 100, 95, 101) },
     ]);
     expect(a.getSelectedDrawing()).toMatchObject({ kind: 'position', side: 'short', entry: 100, target: 95, stop: 101 });
+    a.pasteDrawing(); // repeated: past the previous copy too
+    expect(a.serializeDrawings()[4]).toEqual({ ...short, points: position(day(17), day(22), 100, 95, 101) });
   });
 
   it('channels keep their extend options, price lines their label options, text its text and style', async () => {
