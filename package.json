@@ -1,9 +1,20 @@
 {
-  "name": "chartmate", "private": true, "type": "module",
+  "name": "chartmate",
+  "private": true,
+  "type": "module",
   "description": "Self-hosted, single-user charting app for stocks, crypto and custom baskets (pnpm workspace root).",
   "license": "AGPL-3.0-only",
-  "pnpm": { "neverBuiltDependencies": ["better-sqlite3"] },
-  "engines": { "node": ">=22" },
+  "pnpm": {
+    "neverBuiltDependencies": [
+      "better-sqlite3"
+    ],
+    "patchedDependencies": {
+      "app-builder-lib@26.15.3": "patches/app-builder-lib@26.15.3.patch"
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "packageManager": "pnpm@8.15.9",
   "scripts": {
     "build": "pnpm -r build",
@@ -12,5 +23,10 @@
     "dev": "pnpm -r --parallel dev",
     "e2e": "playwright test -c e2e/playwright.config.ts"
   },
-  "devDependencies": { "@playwright/test": "1.64.0", "typescript": "~5.9.3", "vitest": "5.0.3", "@types/node": "^22" }
+  "devDependencies": {
+    "@playwright/test": "1.64.0",
+    "@types/node": "^22",
+    "typescript": "~5.9.3",
+    "vitest": "5.0.3"
+  }
 }

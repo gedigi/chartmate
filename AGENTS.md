@@ -93,6 +93,9 @@ and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by defa
   pass. After any dependency change run `pnpm audit`: it must report no known vulnerabilities (CI and the
   release workflow fail otherwise). An unpatched advisory in a build-only dependency is removed (see
   `.pnpmfile.cjs`) or replaced, never ignored.
+- `patches/` holds pnpm patches for upstream bugs (`pnpm.patchedDependencies` in the root `package.json`):
+  `app-builder-lib` passes the keychain password to `security set-key-partition-list` (upstream passes the
+  `.p12` password, which breaks macOS signing in CI). Re-check each patch when bumping that dependency.
 - Unit tests never touch the network; providers are tested against recorded fixtures.
 - e2e uses its own database per port (`test-results/e2e-<port>.db`), so parallel worktrees just pick different
   `E2E_PORT`s.
