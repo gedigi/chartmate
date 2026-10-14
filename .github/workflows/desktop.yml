@@ -101,9 +101,13 @@ jobs:
   package-win:
     needs: test
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
+    # Tag pushes run in the `windows-signing` environment, which alone holds the Certum secrets (restricted to v*
+    # tags, optionally with a required reviewer). Other runs use no environment and build unsigned.
+    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'windows-signing' || '' }}
     outputs:
       signing: ${{ steps.package.outputs.signing }}
+      sign_failed: ${{ steps.package.outputs.sign_failed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -119,8 +123,8 @@ jobs:
       - name: Bundle, package, sign (Windows)
         id: package
         # The hosted Windows runner is slow at extracting and zipping the two Electron distributions
-        # (observed 19-25 minutes for x64 + arm64).
-        timeout-minutes: 50
+        # (observed 19-25 minutes for x64 + arm64); a failed Certum signing rebuilds once, unsigned.
+        timeout-minutes: 80
         working-directory: apps/desktop
         shell: bash
         env:
@@ -139,23 +143,46 @@ jobs:
           CHARTMATE_WIN_PUBLISHER_NAME: ${{ vars.CHARTMATE_WIN_PUBLISHER_NAME }}
           CHARTMATE_CERTUM_SIMPLYSIGN_VERSION: ${{ vars.CHARTMATE_CERTUM_SIMPLYSIGN_VERSION }}
           CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256: ${{ vars.CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256 }}
+          CHARTMATE_CERTUM_SIMPLYSIGN_SIGNER_SHA1: ${{ vars.CHARTMATE_CERTUM_SIMPLYSIGN_SIGNER_SHA1 }}
+          CHARTMATE_CERTUM_TOTP_ALGORITHM: ${{ vars.CHARTMATE_CERTUM_TOTP_ALGORITHM }}
           CHARTMATE_PUBLISH: github
         run: |
           set -euo pipefail
-          node scripts/bundle.mjs --platform=win32
-          certum="$(node -p "require('./build/signing.cjs').signingFor(process.env, 'win32').certum")"
-          if [ "$certum" = ci-login ]; then
-            pwsh -NoProfile -NonInteractive -File scripts/certum/login.ps1 -OutFile "$RUNNER_TEMP/certum-thumbprint"
-            CHARTMATE_WIN_CERT_SHA1="$(cat "$RUNNER_TEMP/certum-thumbprint")"
-            export CHARTMATE_WIN_CERT_SHA1
-            export CHARTMATE_WIN_SIGN_LOG="$RUNNER_TEMP/certum-sign-log.jsonl"
+          sign_failed=false
+          if [ "$(node -p "require('./build/signing.cjs').signingFor(process.env, 'win32').certum")" = ci-login ]; then
+            if pwsh -NoProfile -NonInteractive -File scripts/certum/login.ps1 -OutFile "$RUNNER_TEMP/certum-thumbprint"; then
+              CHARTMATE_WIN_CERT_SHA1="$(cat "$RUNNER_TEMP/certum-thumbprint")"
+              export CHARTMATE_WIN_CERT_SHA1
+              export CHARTMATE_WIN_SIGN_LOG="$RUNNER_TEMP/certum-sign-log.jsonl"
+            else
+              sign_failed=true
+            fi
           fi
-          pnpm exec electron-builder --config electron-builder.config.cjs --win --publish never
-          if [ "$certum" != null ]; then
-            # Every installer, uninstaller and chartmate.exe signed by the publisher and timestamped; latest.yml matches.
-            node scripts/verify-win-signatures.mjs release ${CHARTMATE_WIN_SIGN_LOG:+--sign-log="$CHARTMATE_WIN_SIGN_LOG"}
+          # The login secrets end here: bundle.mjs, electron-builder, its dependencies and signtool never see them.
+          # With the thumbprint exported, signing.cjs resolves to the signtool backend (publisher + thumbprint).
+          unset CHARTMATE_CERTUM_USERNAME CHARTMATE_CERTUM_OTP_URI
+          build() {
+            rm -rf release
+            node scripts/bundle.mjs --platform=win32 || return 1
+            pnpm exec electron-builder --config electron-builder.config.cjs --win --publish never || return 1
+            if [ "$(node -p "require('./build/signing.cjs').signingFor(process.env, 'win32').certum")" != null ]; then
+              # Every installer, uninstaller and chartmate.exe signed by the publisher and timestamped; latest.yml matches.
+              node scripts/verify-win-signatures.mjs release ${CHARTMATE_WIN_SIGN_LOG:+--sign-log="$CHARTMATE_WIN_SIGN_LOG"} || return 1
+            fi
+          }
+          if [ "$sign_failed" = false ] && ! build; then
+            [ -n "${CHARTMATE_WIN_CERT_SHA1:-}" ] || exit 1  # not a Certum signing problem: fail as before
+            sign_failed=true
+          fi
+          if [ "$sign_failed" = true ]; then
+            # Signing in CI failed: still ship the release (macOS included), with an unsigned Windows build that has
+            # no updater. The owner signs it afterwards with `pnpm --filter @chartmate/desktop sign:win`.
+            echo "::warning title=Windows signing failed::Certum SimplySign signing failed in CI; building Windows unsigned. Sign it with sign:win (README, Windows signing with Certum)."
+            unset CHARTMATE_WIN_CERT_SHA1 CHARTMATE_WIN_SIGN_LOG
+            build
           fi
           echo "signing=$(node -p "require('./build/signing.cjs').signingFor(process.env, 'win32').method")" >> "$GITHUB_OUTPUT"
+          echo "sign_failed=$sign_failed" >> "$GITHUB_OUTPUT"
       - name: Close SimplySign Desktop
         if: always()
         shell: pwsh
@@ -202,6 +229,7 @@ jobs:
           TAG: ${{ github.ref_name }}
           MAC_SIGNING: ${{ needs.package-mac.outputs.signing }}
           WIN_SIGNING: ${{ needs.package-win.outputs.signing }}
+          WIN_SIGN_FAILED: ${{ needs.package-win.outputs.sign_failed }}
         run: |
           set -euo pipefail
           prerelease=()
@@ -216,6 +244,10 @@ jobs:
             echo
             if [ "$MAC_SIGNING" = unsigned ]; then
               echo "**macOS build is unsigned.** Gatekeeper warns on first launch: right-click the app, then **Open**."
+              echo
+            fi
+            if [ "$WIN_SIGN_FAILED" = true ]; then
+              echo "**Windows signing failed in CI** — sign with \`sign:win\`. Until then the Windows build below is unsigned."
               echo
             fi
             if [ "$WIN_SIGNING" = unsigned ]; then

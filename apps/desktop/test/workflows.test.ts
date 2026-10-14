@@ -95,16 +95,22 @@ describe('desktop.yml secret scoping and release', () => {
     // The publisher name is not secret (a variable, so logs and notes are not masked) and is always present.
     expect(pkg.env!.CHARTMATE_WIN_PUBLISHER_NAME).toBe('${{ vars.CHARTMATE_WIN_PUBLISHER_NAME }}');
   });
-  it('Certum: CI logs in before packaging, then verifies every signature, latest.yml and the sign log', () => {
+  it('Certum: CI logs in first, unsets the login secrets before any build tool runs, then verifies', () => {
     const steps = wf.jobs['package-win'].steps as Step[];
     const run = steps.find((s) => s.name === 'Bundle, package, sign (Windows)')!.run!;
     const login = run.indexOf('scripts/certum/login.ps1');
+    const unset = run.indexOf('unset CHARTMATE_CERTUM_USERNAME CHARTMATE_CERTUM_OTP_URI');
+    const bundle = run.indexOf('node scripts/bundle.mjs');
     const build = run.indexOf('electron-builder --config');
     const verify = run.indexOf('scripts/verify-win-signatures.mjs release');
     expect(login).toBeGreaterThan(0);
-    expect(build).toBeGreaterThan(login);
+    // The seed never reaches bundle.mjs, electron-builder (and its dependencies) or signtool.
+    expect(unset).toBeGreaterThan(login);
+    expect(bundle).toBeGreaterThan(unset);
+    expect(build).toBeGreaterThan(unset);
     expect(verify).toBeGreaterThan(build);
-    expect(run).toMatch(/\[ "\$certum" = ci-login \]/);
+    const beforeUnset = run.slice(0, unset).split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+    expect(beforeUnset).not.toMatch(/bundle\.mjs|electron-builder|pnpm /);
     expect(run).toContain('export CHARTMATE_WIN_CERT_SHA1');
     expect(run).toContain('--sign-log=');
     expect(run).toMatch(/set -euo pipefail/);
@@ -112,6 +118,24 @@ describe('desktop.yml secret scoping and release', () => {
     const close = steps.find((s) => s.name === 'Close SimplySign Desktop')!;
     expect(close).toMatchObject({ if: 'always()' });
     expect(close.env).toBeUndefined();
+  });
+  it('Certum: a failed login or signing still ships the release, with an unsigned Windows build and a warning', () => {
+    const job = wf.jobs['package-win'];
+    const run = (job.steps as Step[]).find((s) => s.name === 'Bundle, package, sign (Windows)')!.run!;
+    expect(run).toMatch(/if pwsh [^\n]*login\.ps1[^\n]*; then/);
+    expect(run).toContain('sign_failed=true');
+    expect(run).toContain('::warning title=Windows signing failed::');
+    expect(run).toMatch(/unset CHARTMATE_WIN_CERT_SHA1 CHARTMATE_WIN_SIGN_LOG\n\s*build/);
+    expect(run).toContain('echo "sign_failed=$sign_failed" >> "$GITHUB_OUTPUT"');
+    expect(job.outputs.sign_failed).toBe('${{ steps.package.outputs.sign_failed }}');
+    const notes = (wf.jobs.release.steps as Step[]).find((s) => /Create the GitHub Release/.test(s.name ?? ''))!;
+    expect(notes.env!.WIN_SIGN_FAILED).toBe('${{ needs.package-win.outputs.sign_failed }}');
+    expect(notes.run).toContain('Windows signing failed in CI');
+    expect(notes.run).toContain('sign:win');
+  });
+  it('Certum: tag builds run in the windows-signing environment, other runs in none', () => {
+    expect(wf.jobs['package-win'].environment).toBe("${{ startsWith(github.ref, 'refs/tags/v') && 'windows-signing' || '' }}");
+    for (const job of Object.keys(wf.jobs).filter((j) => j !== 'package-win')) expect(wf.jobs[job].environment, job).toBeUndefined();
   });
   it('the release notes report the Windows signing method computed by build/signing.cjs', () => {
     expect(wf.jobs['package-win'].outputs.signing).toBe('${{ steps.package.outputs.signing }}');
