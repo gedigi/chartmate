@@ -161,23 +161,34 @@ jobs:
           # The login secrets end here: bundle.mjs, electron-builder, its dependencies and signtool never see them.
           # With the thumbprint exported, signing.cjs resolves to the signtool backend (publisher + thumbprint).
           unset CHARTMATE_CERTUM_USERNAME CHARTMATE_CERTUM_OTP_URI
+          # build: 0 = ok, 3 = the Certum sign hook failed, 2 = signature verification failed, 1 = anything else.
           build() {
             rm -rf release
             node scripts/bundle.mjs --platform=win32 || return 1
-            pnpm exec electron-builder --config electron-builder.config.cjs --win --publish never || return 1
+            if ! pnpm exec electron-builder --config electron-builder.config.cjs --win --publish never 2>&1 | tee "$RUNNER_TEMP/electron-builder.log"; then
+              grep -qE 'Certum signing failed|refusing further attempts' "$RUNNER_TEMP/electron-builder.log" && return 3
+              return 1
+            fi
             if [ "$(node -p "require('./build/signing.cjs').signingFor(process.env, 'win32').certum")" != null ]; then
               # Every installer, uninstaller and chartmate.exe signed by the publisher and timestamped; latest.yml matches.
-              node scripts/verify-win-signatures.mjs release ${CHARTMATE_WIN_SIGN_LOG:+--sign-log="$CHARTMATE_WIN_SIGN_LOG"} || return 1
+              node scripts/verify-win-signatures.mjs release ${CHARTMATE_WIN_SIGN_LOG:+--sign-log="$CHARTMATE_WIN_SIGN_LOG"} || return 2
             fi
           }
-          if [ "$sign_failed" = false ] && ! build; then
-            [ -n "${CHARTMATE_WIN_CERT_SHA1:-}" ] || exit 1  # not a Certum signing problem: fail as before
-            sign_failed=true
+          if [ "$sign_failed" = false ]; then
+            rc=0
+            build || rc=$?
+            if [ "$rc" = 2 ]; then
+              # Signed, but the result does not check out: never publish it, and never paper over it with a fallback.
+              echo "::error title=Windows signature verification failed::see the problems listed above"
+              exit 1
+            fi
+            if [ "$rc" = 3 ]; then sign_failed=true; elif [ "$rc" != 0 ]; then exit 1; fi
           fi
           if [ "$sign_failed" = true ]; then
-            # Signing in CI failed: still ship the release (macOS included), with an unsigned Windows build that has
-            # no updater. The owner signs it afterwards with `pnpm --filter @chartmate/desktop sign:win`.
-            echo "::warning title=Windows signing failed::Certum SimplySign signing failed in CI; building Windows unsigned. Sign it with sign:win (README, Windows signing with Certum)."
+            # Only the SimplySign login or the sign hook failed: still ship the release (macOS included). Windows is
+            # rebuilt without Certum (unsigned unless another method is configured) and the owner signs it afterwards
+            # with `pnpm --filter @chartmate/desktop sign:win`.
+            echo "::warning title=Windows signing step failed::Certum SimplySign login or signing failed in CI; rebuilding Windows without it. Sign it with sign:win (README, Windows signing with Certum)."
             unset CHARTMATE_WIN_CERT_SHA1 CHARTMATE_WIN_SIGN_LOG
             build
           fi
@@ -247,7 +258,7 @@ jobs:
               echo
             fi
             if [ "$WIN_SIGN_FAILED" = true ]; then
-              echo "**Windows signing failed in CI** — sign with \`sign:win\`. Until then the Windows build below is unsigned."
+              echo "**Windows signing step failed in CI** — sign with \`sign:win\`."
               echo
             fi
             if [ "$WIN_SIGNING" = unsigned ]; then

@@ -38,7 +38,7 @@ export function windowsAssets(names) {
 export function rewriteReleaseNotes(body, method) {
   let out = body.replace(/^(\| Windows \([^)]*\) \| )[^|\n]*( \|)$/m, `$1${method}$2`);
   out = out.replace(/\*\*Windows build is unsigned\.\*\*[^\n]*\n(\n)?/, '');
-  out = out.replace(/\*\*Windows signing failed in CI\*\*[^\n]*\n(\n)?/, '');
+  out = out.replace(/\*\*Windows signing (step )?failed in CI\*\*[^\n]*\n(\n)?/, '');
   const macUnsigned = /^\| macOS \([^)]*\) \| unsigned \|$/m.test(out);
   if (!macUnsigned) out = out.replace(/Unsigned builds contain no auto-updater[^\n]*\n?(\n)?/, '');
   return out.replace(/\n{3,}/g, '\n\n');

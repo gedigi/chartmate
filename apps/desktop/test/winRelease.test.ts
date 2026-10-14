@@ -110,9 +110,9 @@ describe('sign-win-release', () => {
 
   it('drops the "signing failed in CI" note once the signed build is uploaded', () => {
     const failed = notes('Developer ID + notarized').replace('**Windows build is unsigned.**',
-      '**Windows signing failed in CI** — sign with `sign:win`. Until then the Windows build below is unsigned.\n\n**Windows build is unsigned.**');
+      '**Windows signing step failed in CI** — sign with `sign:win`.\n\n**Windows build is unsigned.**');
     const out = rewriteReleaseNotes(failed, 'Certum (SimplySign)');
-    expect(out).not.toContain('signing failed');
+    expect(out).not.toMatch(/signing (step )?failed/);
     expect(out).not.toMatch(/unsigned/i);
   });
 

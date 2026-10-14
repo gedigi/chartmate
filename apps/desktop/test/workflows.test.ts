@@ -119,19 +119,27 @@ describe('desktop.yml secret scoping and release', () => {
     expect(close).toMatchObject({ if: 'always()' });
     expect(close.env).toBeUndefined();
   });
-  it('Certum: a failed login or signing still ships the release, with an unsigned Windows build and a warning', () => {
+  it('Certum: only a failed login or sign hook falls back (Windows rebuilt without Certum); a failed verification fails', () => {
     const job = wf.jobs['package-win'];
     const run = (job.steps as Step[]).find((s) => s.name === 'Bundle, package, sign (Windows)')!.run!;
     expect(run).toMatch(/if pwsh [^\n]*login\.ps1[^\n]*; then/);
-    expect(run).toContain('sign_failed=true');
-    expect(run).toContain('::warning title=Windows signing failed::');
+    // The sign hook's own failure messages mark a hook failure (3); verification failure is 2 and exits the job.
+    expect(run).toMatch(/grep -qE 'Certum signing failed\|refusing further attempts' [^\n]* && return 3/);
+    expect(run).toContain('verify-win-signatures.mjs release');
+    expect(run).toMatch(/\|\| return 2/);
+    expect(run).toMatch(/if \[ "\$rc" = 2 \]; then[\s\S]*?::error title=Windows signature verification failed::[\s\S]*?exit 1/);
+    expect(run).toMatch(/if \[ "\$rc" = 3 \]; then sign_failed=true; elif \[ "\$rc" != 0 \]; then exit 1; fi/);
+    expect(run).toContain('::warning title=Windows signing step failed::');
     expect(run).toMatch(/unset CHARTMATE_WIN_CERT_SHA1 CHARTMATE_WIN_SIGN_LOG\n\s*build/);
     expect(run).toContain('echo "sign_failed=$sign_failed" >> "$GITHUB_OUTPUT"');
     expect(job.outputs.sign_failed).toBe('${{ steps.package.outputs.sign_failed }}');
     const notes = (wf.jobs.release.steps as Step[]).find((s) => /Create the GitHub Release/.test(s.name ?? ''))!;
     expect(notes.env!.WIN_SIGN_FAILED).toBe('${{ needs.package-win.outputs.sign_failed }}');
-    expect(notes.run).toContain('Windows signing failed in CI');
+    expect(notes.run).toContain('Windows signing step failed in CI');
     expect(notes.run).toContain('sign:win');
+    // "Unsigned" is claimed only from the method actually used (a fallback may still be signed another way).
+    const failedBlock = /if \[ "\$WIN_SIGN_FAILED" = true \]; then[\s\S]*?fi/.exec(notes.run!)![0];
+    expect(failedBlock).not.toMatch(/unsigned/i);
   });
   it('Certum: tag builds run in the windows-signing environment, other runs in none', () => {
     expect(wf.jobs['package-win'].environment).toBe("${{ startsWith(github.ref, 'refs/tags/v') && 'windows-signing' || '' }}");
