@@ -1,5 +1,5 @@
 import {
-  HEX_COLOR_RE, MAX_INDICATOR_LEVEL, MAX_INDICATOR_LEVELS, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_POSITION_PCT, MAX_SECTION_TITLE,
+  DRAWING_COLOR_RE, HEX_COLOR_RE, MAX_INDICATOR_LEVEL, MAX_INDICATOR_LEVELS, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_POSITION_PCT, MAX_SECTION_TITLE,
   MAX_TEXT_SIZE, MAX_WATCHLIST_SECTIONS, MAX_WATCHLIST_SYMBOLS, MIN_LINE_WIDTH, MIN_TEXT_SIZE, migrateAppearance, TIMEFRAMES,
   mergeLegacyWatchlist, watchlistProblem,
   type DrawingState, type Layout, type Timeframe, type WatchlistEntry,
@@ -13,6 +13,12 @@ const Hex = z.string().regex(HEX_COLOR_RE, 'color must be #rrggbb');
 const LineWidth = z.number().int().min(MIN_LINE_WIDTH).max(MAX_LINE_WIDTH);
 const LineStyle = z.enum(['solid', 'dashed', 'dotted']);
 const LineStyleSchema = z.object({ color: Hex, size: LineWidth, style: LineStyle });
+/**
+ * A drawing's own color: '#rrggbb' (every drawing saved before palette references) or a theme palette reference
+ * ('accent', 'text', 'muted', 'up', 'down', 'palette:0'…'palette:5') the web app resolves per theme.
+ */
+const DrawingColor = z.string().regex(DRAWING_COLOR_RE, 'color must be #rrggbb or a palette reference');
+const DrawingLineStyleSchema = z.object({ color: DrawingColor, size: LineWidth, style: LineStyle });
 
 const AppearanceSchema = z.object({
   upColor: Hex.optional(),
@@ -46,13 +52,13 @@ const PositionDefaultsSchema = z.object({ targetPct: Pct, stopPct: Pct });
  * dropped on its own so valid parts survive; if no valid part remains, styles are dropped.
  */
 const DrawingStylesSchema = z.object({
-  line: LineStyleSchema.optional().catch(undefined),
-  text: z.object({ color: Hex, size: z.number().int().min(MIN_TEXT_SIZE).max(MAX_TEXT_SIZE) }).optional().catch(undefined),
+  line: DrawingLineStyleSchema.optional().catch(undefined),
+  text: z.object({ color: DrawingColor, size: z.number().int().min(MIN_TEXT_SIZE).max(MAX_TEXT_SIZE) }).optional().catch(undefined),
   label: z.object({ onLine: z.boolean().optional(), onAxis: z.boolean().optional() }).optional().catch(undefined),
   extend: z.object({ left: z.boolean().optional(), right: z.boolean().optional() }).optional().catch(undefined),
 }).transform((s) => {
   const out: {
-    line?: z.infer<typeof LineStyleSchema>; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean };
+    line?: z.infer<typeof DrawingLineStyleSchema>; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean };
     extend?: { left?: boolean; right?: boolean };
   } = {};
   if (s.line) out.line = s.line;
@@ -84,6 +90,8 @@ const LayoutSchema = z.object({
   // Tolerant: invalid defaults are dropped on their own, so they can never block saving the rest of the layout.
   positionDefaults: PositionDefaultsSchema.optional().catch(undefined),
   colorDefaultsRev: z.number().int().min(0).max(1_000_000).optional(),
+  // Color of new drawings (the last swatch picked). Tolerant: an invalid value is dropped on its own.
+  drawingColor: DrawingColor.optional().catch(undefined),
 }) satisfies z.ZodType<Layout, unknown>;
 
 const DrawingSchema = z.object({

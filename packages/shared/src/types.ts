@@ -48,6 +48,10 @@ export type ChartType = 'candle'|'ohlc'|'line'|'area';
 export const MAX_INDICATORS = 30;
 /** Candle body style (chart type 'candle'): filled, hollow, hollow up candles only, hollow down candles only. */
 export type CandleBodyStyle = 'solid'|'hollow'|'hollow_up'|'hollow_down';
+/**
+ * A drawing's line style. `color` is a #rrggbb hex (drawings saved before palette references, or the appearance's
+ * default) or a DrawingColorToken resolved against the active theme when drawn.
+ */
 export interface DrawingLineStyle { color: string; size: number; style: LineStyleKind }
 /**
  * Chart appearance of one theme. Every field is optional: unset fields follow the theme's defaults.
@@ -83,6 +87,11 @@ export interface Layout {
    * clears colors equal to an older default once and then stores its current revision.
    */
   colorDefaultsRev?: number;
+  /**
+   * Color of new drawings: the last swatch picked in a drawing's style bar ("Reset to default" removes it; missing →
+   * the appearance's default drawing color). A DrawingColorToken, so one value suits both themes.
+   */
+  drawingColor?: string;
 }
 
 /** Long / short position drawing tools. */
@@ -172,6 +181,20 @@ export function parseSymbolId(id: string): { assetClass: AssetClass; code: strin
 /** '#rrggbb'. */
 export const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 export const isHexColor = (s: unknown): s is string => typeof s === 'string' && HEX_COLOR_RE.test(s);
+/**
+ * Theme palette references a drawing color can hold instead of a hex: the accent, the text and muted neutrals, the
+ * candle up / down colors and the six indicator palette slots. The web app resolves them to the active theme's
+ * colors when drawing, so a drawing recolors with the theme.
+ */
+export const DRAWING_COLOR_TOKENS = [
+  'accent', 'text', 'muted', 'up', 'down', 'palette:0', 'palette:1', 'palette:2', 'palette:3', 'palette:4', 'palette:5',
+] as const;
+export type DrawingColorToken = typeof DRAWING_COLOR_TOKENS[number];
+const DRAWING_COLOR_TOKEN_RE = /^(?:accent|text|muted|up|down|palette:[0-5])$/;
+export const isDrawingColorToken = (s: unknown): s is DrawingColorToken => typeof s === 'string' && DRAWING_COLOR_TOKEN_RE.test(s);
+/** A drawing color: a palette token or '#rrggbb'. */
+export const DRAWING_COLOR_RE = /^(?:accent|text|muted|up|down|palette:[0-5]|#[0-9a-fA-F]{6})$/;
+export const isDrawingColor = (s: unknown): s is string => typeof s === 'string' && DRAWING_COLOR_RE.test(s);
 export const MIN_LINE_WIDTH = 1;
 export const MAX_LINE_WIDTH = 4;
 export const MIN_TEXT_SIZE = 10;

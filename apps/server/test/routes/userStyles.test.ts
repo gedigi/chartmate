@@ -156,4 +156,45 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
     expect(r.json()[0].styles).toEqual({ line: { color: '#ff0000', size: 2, style: 'solid' } });
     expect(r.json()[1].styles).toEqual({ text: { color: '#00ff00', size: 14 } });
   });
+  it('drawing styles: palette references are accepted next to hex colors (old drawings round-trip unchanged)', async () => {
+    const base = { name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false };
+    const drawings = [
+      // Saved before palette references: a plain hex stays exactly as it was.
+      { ...base, styles: { line: { color: '#ff0000', size: 3, style: 'dashed' } } },
+      { ...base, styles: { line: { color: 'palette:3', size: 1, style: 'solid' } } },
+      { ...base, styles: { line: { color: 'accent', size: 2, style: 'dotted' }, label: { onAxis: false } } },
+      { ...base, name: 'simpleAnnotation', text: 'hi', styles: { text: { color: 'up', size: 14 } } },
+      { ...base, name: 'simpleAnnotation', text: 'hi', styles: { text: { color: '#00ff00', size: 18 } } },
+    ];
+    const r = await putDrawings(drawings);
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual(drawings);
+    expect((await t.app.inject({ method: 'GET', url: '/api/drawings/stock:AAPL' })).json()).toEqual(drawings);
+    // Anything else (unknown token, out-of-range slot, CSS names) is an invalid color: that part is dropped.
+    for (const color of ['palette:6', 'palette:x', 'Accent', 'bg', 'red', '#fff', 'accent;']) {
+      const bad = await putDrawings([{ ...base, styles: { line: { color, size: 1, style: 'solid' }, label: { onLine: false } } }]);
+      expect(bad.statusCode, color).toBe(200);
+      expect(bad.json()[0].styles, color).toEqual({ label: { onLine: false } });
+    }
+  });
+
+  it('layout drawingColor: a palette reference or hex; invalid values are dropped without failing the save', async () => {
+    for (const drawingColor of ['palette:0', 'accent', 'down', '#123abc']) {
+      const r = await putLayout({ ...layout, drawingColor });
+      expect(r.statusCode, drawingColor).toBe(200);
+      expect((await t.app.inject({ method: 'GET', url: '/api/layouts/default' })).json(), drawingColor).toEqual({ ...layout, drawingColor });
+    }
+    for (const drawingColor of ['palette:7', 'blue', 12, '']) {
+      const r = await putLayout({ ...layout, drawingColor });
+      expect(r.statusCode, String(drawingColor)).toBe(200);
+      expect(r.json(), String(drawingColor)).not.toHaveProperty('drawingColor');
+    }
+    // A layout saved before the field existed still loads as it was.
+    expect((await putLayout(layout)).json()).toEqual(layout);
+  });
+
+  it('the appearance default drawing color stays a hex (the appearance dialog edits it)', async () => {
+    const r = await putLayout({ ...layout, appearance: { dark: { drawing: { color: 'accent', size: 1, style: 'solid' } } } });
+    expect(r.statusCode).toBe(400);
+  });
 });
