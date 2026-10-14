@@ -763,7 +763,8 @@ image.
 - **`test` job**: runs without any secrets.
 - **`package-mac` and `package-win` jobs**: build, sign and smoke-test on each OS. Signing secrets are visible only
   to the packaging step of their own OS. On tag builds, the Certum secrets come from the `windows-signing`
-  environment. If Windows signing fails, the release still ships, with an unsigned Windows build and a note.
+  environment. If the SimplySign login or the sign hook fails, the release still ships, with Windows rebuilt
+  without Certum and a note. A failed signature verification fails the job.
 - **`release` job** (tags only): the only job with `contents: write`. It creates the GitHub Release for the tag
   (a pre-release only for suffixed tags such as `v1.2.0-beta.1`) and attaches:
   - the dmg and zip for macOS arm64 and x64;
@@ -966,9 +967,10 @@ the installer. `latest.yml` and the blockmaps are computed from the signed files
    allow only tags matching `v*`. Optionally add yourself as a required reviewer: each signed release then waits
    for your approval. Environments need a public repository or a paid plan; without one, CI cannot read the
    secrets, builds Windows unsigned, and you sign with `sign:win` (step 3).
-2. Add a tag ruleset (Settings, Rules) that lets only you create `v*` tags, so nobody else can trigger a signing
-   run. Updating and deleting `v*` tags is already blocked.
-3. Set these values:
+2. Add a tag ruleset (Settings, Rules) for `v*` tags. Restrict creation to yourself, so nobody else can trigger a
+   signing run, and also block updates and deletions.
+3. Set these values. Store the two Certum secrets **only** as `windows-signing` environment secrets, never as
+   repository secrets: any workflow can read repository secrets, and they bypass the environment's rules.
 
 | Name | Where | Value |
 |---|---|---|
@@ -998,12 +1000,27 @@ The two login secrets are then unset, before any build tool runs. `build/win-sig
 checks every signature, the SHA-256 digests, the uninstallers (from the hook's log), `app-update.yml`,
 `latest.yml` and the blockmaps.
 
-If the login, the signing or the verification fails, the release still goes out:
+If the SimplySign login or the sign hook fails, the release still goes out:
 
-- Windows is rebuilt unsigned, without an updater, and the run shows a warning.
-- The release notes say "Windows signing failed in CI — sign with `sign:win`".
+- Windows is rebuilt without Certum, and the run shows a warning. The build is unsigned, with no updater, unless
+  another method is configured.
+- The release notes say "Windows signing step failed in CI — sign with `sign:win`".
 - macOS is unaffected.
 - Run step 3 afterwards.
+
+If the files were signed but `verify-win-signatures.mjs` rejects them, the job fails and nothing is published.
+
+Residual risk:
+
+- Any code that runs in the Windows packaging job can reach the secrets that job uses: the login secrets until
+  they are unset, and the live certificate session for the whole build. Anything executed during the build could
+  sign files with your certificate while that session lasts.
+- What actually protects the build:
+  - dependencies are installed with `--ignore-scripts` from the frozen lockfile;
+  - `pnpm audit` runs before packaging;
+  - Dependabot keeps dependencies current;
+  - a required reviewer on `windows-signing` makes you approve each signing run.
+- Unsetting the secrets early only narrows the window; it does not remove the risk.
 
 Limitations:
 
