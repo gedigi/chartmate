@@ -238,6 +238,15 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   solid/dashed/dotted; text annotations: color and font size). Styles are saved with the drawing; drawings
   without their own style follow the default drawing style. Legacy drawings with non-hex colors (or other
   unsupported style values) fall back to the default style on their next save.
+- **Drawing colors**: the color button opens a small set of swatches taken from the theme: sky (the accent),
+  white / black, gray, the candle up and down colors, and the six indicator hues (gold, violet, cyan, orange,
+  pink, blue). A drawing stores the swatch it uses, not a fixed color, so it recolors when you switch between the
+  dark and light themes (up / down follow your own candle colors). Arrow keys move between swatches, Enter or
+  Space picks, Escape closes. The swatch you pick becomes the color of every new drawing (all tools, both
+  themes) until you choose **Reset to default** in the popover, which gives the drawing and new drawings the
+  default drawing color again (sky, or the one set in Chart appearance). Drawings saved with a plain color
+  before swatches existed keep it exactly, shown as a marked **Custom** swatch until you pick another.
+  Long / short positions have no color of their own: they always use the candle up / down colors.
 - **⌘ magnet**: hold **⌘** (macOS) or **Ctrl** (other systems) while placing or dragging a drawing to snap
   it to the nearest open/high/low/close (strong magnet); releasing the key returns to the toolbar's magnet
   setting.
