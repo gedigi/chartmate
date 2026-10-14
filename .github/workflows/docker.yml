@@ -4,16 +4,21 @@ name: Docker
 #
 # Job layout (least privilege):
 #   test     — tags/dispatch: pnpm audit, typecheck, tests; read-only token.
-#   image    — every run: builds the image, smoke-tests it (read-only root filesystem, healthcheck, API, web UI,
-#              clean SIGTERM shutdown), validates compose.yaml, and builds both architectures. Never pushes.
-#   publish  — version tags only: the only job with `packages: write`. Builds and pushes the multi-arch image
+#   image    — every run: builds the image for amd64 and arm64 (under QEMU) and smoke-tests each (read-only root
+#              filesystem, healthcheck, API, web UI, SQLite temp files, clean SIGTERM shutdown), and validates
+#              compose.yaml. Never pushes.
+#   publish  — only on a pushed vX.Y.Z or vX.Y.Z-suffix tag (never on manual dispatch, which only builds and
+#              tests): the only job with `packages: write`. Builds and pushes the multi-arch image
 #              with BuildKit provenance + SBOM attestations, then a Sigstore-signed GitHub build provenance
 #              attestation (public repositories only; private ones on non-Enterprise plans cannot create them).
+# publish rebuilds from the same commit and digest-pinned base image that `image` tested (it does not reuse
+# that job's local build).
 # Tags: X.Y.Z, X.Y, X and latest for a vX.Y.Z tag; only X.Y.Z-suffix for a pre-release tag (vX.Y.Z-beta.1).
 # Pull requests only build (ci.yml also runs a plain docker build on every pull request).
 on:
   push:
-    tags: ['v*']
+    # GitHub filter globs; the publish job re-checks ^v\d+\.\d+\.\d+(-.+)?$.
+    tags: ['v[0-9]+.[0-9]+.[0-9]+', 'v[0-9]+.[0-9]+.[0-9]+-*']
   workflow_dispatch:
   pull_request:
     paths:
@@ -70,7 +75,7 @@ jobs:
           load: true
           push: false
           tags: chartmate:smoke
-      - name: Smoke test
+      - name: Smoke test (linux/amd64)
         run: scripts/docker-smoke.sh chartmate:smoke
       - name: Validate compose.yaml
         env:
@@ -78,16 +83,21 @@ jobs:
         run: |
           docker compose -f compose.yaml config --quiet
           docker compose -f compose.yaml --profile postgres config --quiet
-      - name: Build (linux/amd64 + linux/arm64)
+      - name: Build (linux/arm64, loaded for the smoke test)
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/arm64
+          load: true
           push: false
+          tags: chartmate:smoke-arm64
+      # Runs under QEMU: proves the arm64 better-sqlite3 binary loads and the server works on that platform.
+      - name: Smoke test (linux/arm64)
+        run: scripts/docker-smoke.sh chartmate:smoke-arm64 --platform linux/arm64
 
   publish:
     needs: [test, image]
-    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -99,6 +109,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Check the tag
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-.+)?$ ]]; then
+            echo "::error::not a release tag: $GITHUB_REF_NAME"
+            exit 1
+          fi
       - name: Image name
         # Registry paths must be lowercase; the repository is never hardcoded.
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
