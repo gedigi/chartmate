@@ -33,7 +33,8 @@ LABEL org.opencontainers.image.title="Chartmate" \
       org.opencontainers.image.description="Self-hosted charting app for stocks, crypto and custom baskets (server + web UI)" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 # The app needs only the node binary: drop npm, npx, corepack and yarn (less to patch, less attack surface).
-# /data is the only directory the app writes to, so the root filesystem can be mounted read-only.
+# /data is the only persistent directory the app writes to; SQLite's temp files (large sorts, VACUUM) go to
+# TMPDIR. With a read-only root filesystem, mount a tmpfs on /tmp (compose.yaml does).
 RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
            /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-* \
  && mkdir -p /data && chown node:node /data
@@ -41,7 +42,8 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8787 \
     DATABASE_URL=sqlite:/data/chartmate.db \
-    CHARTMATE_WEB_DIST=/app/web
+    CHARTMATE_WEB_DIST=/app/web \
+    TMPDIR=/tmp
 WORKDIR /app
 # App files stay root-owned (read-only for the node user).
 COPY --from=build /out/node_modules ./node_modules
