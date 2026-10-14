@@ -150,7 +150,12 @@ export function migrateAppearance(a: unknown): ThemedAppearance | undefined {
  * a legacy 'parallelStraightLine' is extended both ways).
  */
 export interface DrawingStyles {
-  line?: DrawingLineStyle; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean };
+  line?: DrawingLineStyle;
+  /**
+   * A color of its own (palette reference or hex) without a `line` / `text` style: the width / dash (font size of
+   * text) keep following the default drawing style. New drawings colored by the last picked swatch get only this.
+   */
+  color?: string; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean };
   extend?: { left?: boolean; right?: boolean };
 }
 /**

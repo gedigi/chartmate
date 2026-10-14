@@ -9,7 +9,7 @@ import {
   type ThemedAppearance, type SessionMode, type SymbolInfo, type Timeframe,
 } from '@chartmate/shared';
 import {
-  COLOR_REF_KEY, klineLine, lineToOverlay, normalizeOverlayStyles, readLine, readText, sanitizeDrawingStyles, textToOverlay, toOverlayStyles, TEXT_TOOL,
+  COLOR_ONLY_KEY, COLOR_REF_KEY, colorToOverlay, klineLine, lineToOverlay, normalizeOverlayStyles, readLine, readOwnColor, readText, sanitizeDrawingStyles, textToOverlay, toOverlayStyles, TEXT_TOOL,
   type TextStyle,
 } from './drawingStyles';
 import {
@@ -261,12 +261,16 @@ export class ChartAdapter {
   }
 
   /**
-   * The default drawing style as a drawing would store it: the appearance's own color (a hex) when set, else the accent
-   * as a palette reference (so the picker marks the accent swatch, and it follows the theme).
+   * The default drawing style as a drawing would store it: the appearance's own color when set, else the accent as a
+   * palette reference (so the picker marks the accent swatch, and it follows the theme). An appearance hex equal to a
+   * swatch of the active theme (the appearance dialog saves the shown accent next to an edited width) is that swatch's
+   * reference; any other hex stays a custom color.
    */
   private storedDefaultDrawing(): DrawingLineStyle {
     const d = this.defaultDrawing();
-    return this.appearance?.[this.theme]?.drawing ? d : { ...d, color: DEFAULT_DRAWING_COLOR };
+    if (!this.appearance?.[this.theme]?.drawing) return { ...d, color: DEFAULT_DRAWING_COLOR };
+    const swatch = this.drawingSwatches().find((s) => s.color === d.color.toLowerCase());
+    return swatch ? { ...d, color: swatch.token } : d;
   }
 
   /** Drawing color (palette reference or hex) → the color drawn in the active theme. */
@@ -284,6 +288,11 @@ export class ChartAdapter {
   private refreshColorRefs(): void {
     for (const o of this.userOverlays()) {
       if (!isDrawingColorToken((o.styles as Record<string, unknown> | null)?.[COLOR_REF_KEY])) continue;
+      const own = !readLine(o.styles) && !readText(o.styles) ? readOwnColor(o.styles) : undefined;
+      if (own) {
+        this.chart.overrideOverlay({ id: o.id, styles: colorToOverlay(own, this.resolveColor) });
+        continue;
+      }
       const text = o.name === TEXT_TOOL ? readText(o.styles) : null;
       const line = text ? null : readLine(o.styles);
       const styles = text ? textToOverlay(text, this.resolveColor) : line ? lineToOverlay(line, this.resolveColor) : null;
@@ -1023,7 +1032,7 @@ export class ChartAdapter {
     if (!o) return null;
     const d = this.storedDefaultDrawing();
     if (o.name === TEXT_TOOL) {
-      const style = readText(o.styles) ?? { color: d.color, size: DEFAULT_TEXT_SIZE };
+      const style = readText(o.styles) ?? { color: readOwnColor(o.styles) ?? d.color, size: DEFAULT_TEXT_SIZE };
       return { id: o.id, kind: 'text', style, ...this.lockOf(o) };
     }
     const side = sideOf(o.name);
@@ -1039,7 +1048,7 @@ export class ChartAdapter {
         metrics, outcome,
       };
     }
-    const style = readLine(o.styles) ?? { ...d };
+    const style = readLine(o.styles) ?? { ...d, color: readOwnColor(o.styles) ?? d.color };
     const sel: SelectedDrawing = { id: o.id, kind: 'line', style, ...this.lockOf(o) };
     const value = o.points[0]?.value;
     if (HORIZONTAL_DRAWINGS.has(o.name) && typeof value === 'number') sel.price = { value, precision: this.pricePrecision };
@@ -1171,13 +1180,25 @@ export class ChartAdapter {
   setSelectedStyle(patch: Partial<DrawingLineStyle> | Partial<TextStyle>): void {
     const sel = this.getSelectedDrawing();
     if (!sel || sel.locked || sel.kind === 'position') return;
+    const o = this.userOverlays().find((x) => x.id === sel.id);
+    const ownStyle = sel.kind === 'text' ? readText(o?.styles) !== null : readLine(o?.styles) !== null;
+    const keys = Object.keys(patch);
+    if (!ownStyle && keys.length === 1 && keys[0] === 'color' && typeof patch.color === 'string') {
+      // A drawing without a style of its own gets only a color: its width / dash (font size) keep following the
+      // default drawing style.
+      this.chart.overrideOverlay({ id: sel.id, styles: colorToOverlay(patch.color, this.resolveColor) });
+      this.emitChange();
+      this.emitSelection();
+      return;
+    }
     const styles = sel.kind === 'text'
       ? textToOverlay({ ...sel.style, ...(patch as Partial<TextStyle>) }, this.resolveColor)
       : lineToOverlay({ ...sel.style, ...(patch as Partial<DrawingLineStyle>) }, this.resolveColor);
     // A hex replacing a palette reference: drop the reference (KLineChart merges styles; null replaces the key).
-    const o = this.userOverlays().find((x) => x.id === sel.id);
-    const hadRef = (o?.styles as Record<string, unknown> | null | undefined)?.[COLOR_REF_KEY] != null;
-    if (hadRef && !(COLOR_REF_KEY in styles)) (styles as Record<string, unknown>)[COLOR_REF_KEY] = null;
+    const prev = o?.styles as Record<string, unknown> | null | undefined;
+    if (prev?.[COLOR_REF_KEY] != null && !(COLOR_REF_KEY in styles)) (styles as Record<string, unknown>)[COLOR_REF_KEY] = null;
+    // The style is now its own: the color-only marker goes.
+    if (prev?.[COLOR_ONLY_KEY] != null) (styles as Record<string, unknown>)[COLOR_ONLY_KEY] = null;
     // Label options are re-sent with the style (never lost, whatever KLineChart's style merging does).
     if (sel.kind === 'line' && sel.label) (styles as Record<string, unknown>)[LABEL_STYLE_KEY] = { ...sel.label };
     if (sel.kind === 'line' && sel.extend) (styles as Record<string, unknown>)[EXTEND_STYLE_KEY] = { ...sel.extend };
@@ -1186,9 +1207,25 @@ export class ChartAdapter {
     this.emitSelection();
   }
 
-  /** Gives the selected drawing the default color (see storedDefaultDrawing); saved like any drawing edit. */
+  /**
+   * "Reset to default" of the selected drawing's color, saved like any drawing edit: a drawing with only a color of its
+   * own drops it and follows the default drawing style again; one with its own width / dash keeps them and takes the
+   * default color (see storedDefaultDrawing).
+   */
   resetSelectedColor(): void {
-    this.setSelectedStyle({ color: this.storedDefaultDrawing().color });
+    const sel = this.getSelectedDrawing();
+    if (!sel || sel.locked || sel.kind === 'position') return;
+    const o = this.userOverlays().find((x) => x.id === sel.id);
+    const ownStyle = sel.kind === 'text' ? readText(o?.styles) !== null : readLine(o?.styles) !== null;
+    if (ownStyle) {
+      this.setSelectedStyle({ color: this.storedDefaultDrawing().color });
+      return;
+    }
+    // Null drops the keys (KLineChart merges styles): the chart's overlay defaults apply again.
+    const cleared = { line: null, text: null, polygon: null, [COLOR_ONLY_KEY]: null, [COLOR_REF_KEY]: null };
+    this.chart.overrideOverlay({ id: sel.id, styles: cleared as unknown as DeepPartial<OverlayStyle> });
+    this.emitChange();
+    this.emitSelection();
   }
 
   /** Color new drawings start with (a palette reference; undefined or invalid → they follow the default drawing style). */
@@ -1199,12 +1236,14 @@ export class ChartAdapter {
     this.newDrawingColor = isDrawingColorToken(c) ? c : undefined;
   }
 
-  /** Own styles of a new drawing of `tool`: the sticky color with the default width / dash (none for positions). */
+  /**
+   * Own styles of a new drawing of `tool`: only the sticky color (DrawingStyles.color), so its width / dash (font size)
+   * keep following the default drawing style; none for positions.
+   */
   private newDrawingStyles(tool: string): DeepPartial<OverlayStyle> | undefined {
     const color = this.newDrawingColor;
     if (!color || isPositionTool(tool)) return undefined;
-    if (tool === TEXT_TOOL) return textToOverlay({ color, size: DEFAULT_TEXT_SIZE }, this.resolveColor);
-    return lineToOverlay({ ...this.defaultDrawing(), color }, this.resolveColor);
+    return colorToOverlay(color, this.resolveColor);
   }
 
   private emitChange(): void {

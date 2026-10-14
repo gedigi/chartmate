@@ -53,19 +53,22 @@ const PositionDefaultsSchema = z.object({ targetPct: Pct, stopPct: Pct });
  */
 const DrawingStylesSchema = z.object({
   line: DrawingLineStyleSchema.optional().catch(undefined),
+  // A color of its own without a line style: width and dash follow the default drawing style.
+  color: DrawingColor.optional().catch(undefined),
   text: z.object({ color: DrawingColor, size: z.number().int().min(MIN_TEXT_SIZE).max(MAX_TEXT_SIZE) }).optional().catch(undefined),
   label: z.object({ onLine: z.boolean().optional(), onAxis: z.boolean().optional() }).optional().catch(undefined),
   extend: z.object({ left: z.boolean().optional(), right: z.boolean().optional() }).optional().catch(undefined),
 }).transform((s) => {
   const out: {
-    line?: z.infer<typeof DrawingLineStyleSchema>; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean };
+    line?: z.infer<typeof DrawingLineStyleSchema>; color?: string; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean };
     extend?: { left?: boolean; right?: boolean };
   } = {};
   if (s.line) out.line = s.line;
+  if (s.color) out.color = s.color;
   if (s.text) out.text = s.text;
   if (s.label && (s.label.onLine !== undefined || s.label.onAxis !== undefined)) out.label = s.label;
   if (s.extend && (s.extend.left !== undefined || s.extend.right !== undefined)) out.extend = s.extend;
-  return out.line || out.text || out.label || out.extend ? out : undefined;
+  return out.line || out.color || out.text || out.label || out.extend ? out : undefined;
 });
 
 const IndicatorSchema = z.object({

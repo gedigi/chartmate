@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { resolveDrawingColor } from '../../src/chart/drawingColors';
 import {
-  COLOR_REF_KEY, lineToOverlay, normalizeOverlayStyles, readLine, readText, sanitizeDrawingStyles, textToOverlay, toOverlayStyles,
+  COLOR_ONLY_KEY, COLOR_REF_KEY, colorToOverlay, lineToOverlay, normalizeOverlayStyles, readLine, readText, sanitizeDrawingStyles, textToOverlay, toOverlayStyles,
 } from '../../src/chart/drawingStyles';
 import { INDICATOR_PALETTE, THEME_TOKENS } from '../../src/chart/theme';
 import { readableTextOn } from '../../src/chart/contrast';
@@ -59,5 +59,34 @@ describe('drawing styles with palette references', () => {
   it('a reference key that is not a valid token is ignored (the drawn hex is read)', () => {
     const o = { line: { color: '#123456', size: 1, style: 'solid' }, [COLOR_REF_KEY]: 'bogus' };
     expect(readLine(o)).toEqual({ color: '#123456', size: 1, style: 'solid' });
+  });
+
+  it('a color of its own only: the colors are set, width / dash / font size are left to the chart defaults', () => {
+    const o = colorToOverlay('palette:2', dark) as Record<string, any>;
+    expect(o.line).toEqual({ color: INDICATOR_PALETTE.dark[2] });
+    expect(o.text).toEqual({ color: readableTextOn(INDICATOR_PALETTE.dark[2]), backgroundColor: INDICATOR_PALETTE.dark[2], borderColor: INDICATOR_PALETTE.dark[2] });
+    expect(o[COLOR_ONLY_KEY]).toBe('palette:2');
+    expect(readLine(o)).toBeNull();
+    expect(readText(o)).toBeNull();
+    expect(normalizeOverlayStyles('segment', o)).toEqual({ color: 'palette:2' });
+    expect(normalizeOverlayStyles('simpleAnnotation', o)).toEqual({ color: 'palette:2' });
+    expect(normalizeOverlayStyles('priceLine', { ...o, chartmateLabel: { onLine: false } })).toEqual({ color: 'palette:2', label: { onLine: false } });
+    // A hex works the same (no reference).
+    const h = colorToOverlay('#ABCDEF', dark) as Record<string, any>;
+    expect(h.line).toEqual({ color: '#abcdef' });
+    expect(h[COLOR_REF_KEY]).toBeNull();
+    expect(normalizeOverlayStyles('segment', h)).toEqual({ color: '#abcdef' });
+    // A full line style wins over a stale own-color key.
+    const full = { ...lineToOverlay({ color: '#ff0000', size: 2, style: 'solid' }), [COLOR_ONLY_KEY]: 'palette:2' };
+    expect(normalizeOverlayStyles('segment', full)).toEqual({ line: { color: '#ff0000', size: 2, style: 'solid' } });
+  });
+
+  it('stored color-only styles round-trip through sanitize / toOverlayStyles', () => {
+    expect(sanitizeDrawingStyles({ color: 'down', extend: { right: true } })).toEqual({ color: 'down', extend: { right: true } });
+    expect(sanitizeDrawingStyles({ color: 'palette:7' })).toBeUndefined();
+    const o = toOverlayStyles({ color: 'down' }, light) as Record<string, any>;
+    expect(o.line).toEqual({ color: THEME_TOKENS.light.down });
+    expect(o[COLOR_ONLY_KEY]).toBe('down');
+    expect(normalizeOverlayStyles('rayLine', o)).toEqual({ color: 'down' });
   });
 });

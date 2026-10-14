@@ -178,6 +178,22 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
     }
   });
 
+  it('drawing styles: a color of its own alone (width / dash follow the default), with options; invalid is dropped', async () => {
+    const base = { name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false };
+    const drawings = [
+      { ...base, styles: { color: 'palette:1' } },
+      { ...base, name: 'priceLine', styles: { color: '#123456', label: { onLine: false } } },
+      { ...base, name: 'simpleAnnotation', text: 'hi', styles: { color: 'up' } },
+    ];
+    const r = await putDrawings(drawings);
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual(drawings);
+    const bad = await putDrawings([{ ...base, styles: { color: 'palette:9' } }, { ...base, styles: { color: 'nope', extend: { left: true } } }]);
+    expect(bad.statusCode).toBe(200);
+    expect(bad.json()[0]).not.toHaveProperty('styles');
+    expect(bad.json()[1].styles).toEqual({ extend: { left: true } });
+  });
+
   it('layout drawingColor: a palette reference only; anything else is dropped without failing the save', async () => {
     for (const drawingColor of ['palette:0', 'accent', 'down', 'palette:5']) {
       const r = await putLayout({ ...layout, drawingColor });

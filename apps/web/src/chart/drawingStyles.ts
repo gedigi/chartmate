@@ -22,6 +22,12 @@ export type TextStyle = NonNullable<DrawingStyles['text']>;
  */
 export const COLOR_REF_KEY = 'chartmateColor';
 
+/**
+ * Key of a drawing's color of its own when it has no line / text style (DrawingStyles.color): only the colors are set
+ * in its KLineChart styles, so width / dash / font size keep following the chart's default drawing style.
+ */
+export const COLOR_ONLY_KEY = 'chartmateOwnColor';
+
 /** Drawing color (palette reference or hex) → the hex drawn in the active theme (see resolveDrawingColor). */
 export type ColorResolver = (color: string) => string;
 /** Callers whose colors are all hex (the adapter always passes the theme's resolver). */
@@ -94,9 +100,32 @@ export function textToOverlay(t: TextStyle, resolve: ColorResolver = asIs): Deep
   }, t.color);
 }
 
+/**
+ * KLineChart styles of a color of its own (DrawingStyles.color): line, text bubble and polygon colors only (sizes and
+ * dashes are left to the chart's overlay defaults). The palette reference is reset when the color is a hex.
+ */
+export function colorToOverlay(color: string, resolve: ColorResolver = asIs): DeepPartial<OverlayStyle> {
+  const c = resolve(color);
+  return {
+    line: { color: c },
+    text: { color: readableTextOn(c), backgroundColor: c, borderColor: c },
+    polygon: { color: c, borderColor: c },
+    [COLOR_ONLY_KEY]: normColor(color),
+    [COLOR_REF_KEY]: isDrawingColorToken(color) ? color : null,
+  } as DeepPartial<OverlayStyle>;
+}
+
+/** The color of its own (DrawingStyles.color) held in KLineChart overlay styles, if any. */
+export function readOwnColor(styles: unknown): string | undefined {
+  const c = (styles as Record<string, unknown> | null | undefined)?.[COLOR_ONLY_KEY];
+  return isDrawingColor(c) ? normColor(c) : undefined;
+}
+
 /** KLineChart overlay styles of stored drawing styles, palette references resolved with `resolve`. */
 export function toOverlayStyles(s: DrawingStyles | undefined, resolve: ColorResolver = asIs): DeepPartial<OverlayStyle> | undefined {
-  let out: Record<string, unknown> | undefined = s?.text ? textToOverlay(s.text, resolve) : s?.line ? lineToOverlay(s.line, resolve) : undefined;
+  let out: Record<string, unknown> | undefined = s?.text ? textToOverlay(s.text, resolve)
+    : s?.line ? lineToOverlay(s.line, resolve)
+      : s?.color ? colorToOverlay(s.color, resolve) : undefined;
   // Price-label options and channel extend options ride along in the overlay styles
   // (KLineChart ignores the keys; our templates read them).
   if (s?.label) out = { ...out, [LABEL_STYLE_KEY]: { ...s.label } };
@@ -154,11 +183,17 @@ export function normalizeOverlayStyles(name: string, styles: unknown): DrawingSt
   }
   if (name === TEXT_TOOL) {
     const text = readText(styles);
-    return text ? { text } : undefined;
+    if (text) return { text };
+    const color = readOwnColor(styles);
+    return color ? { color } : undefined;
   }
   const out: DrawingStyles = {};
   const line = readLine(styles);
   if (line) out.line = line;
+  else {
+    const color = readOwnColor(styles);
+    if (color) out.color = color;
+  }
   // Label options: only those that differ from the drawing's defaults are kept.
   const defaults = LABEL_DEFAULTS[name];
   const own = readLabel((styles as Record<string, unknown> | null | undefined)?.[LABEL_STYLE_KEY]);
@@ -177,7 +212,7 @@ export function normalizeOverlayStyles(name: string, styles: unknown): DrawingSt
     if (ownExtend.right !== undefined && ownExtend.right !== extendDefaults.right) extend.right = ownExtend.right;
     if (extend.left !== undefined || extend.right !== undefined) out.extend = extend;
   }
-  return out.line || out.label || out.extend ? out : undefined;
+  return out.line || out.color || out.label || out.extend ? out : undefined;
 }
 
 /** '#RRGGBB' / '#rgb' → '#rrggbb'; anything else → fallback. */
@@ -195,9 +230,11 @@ export function sanitizeDrawingStyles(s: unknown): DrawingStyles | undefined {
   if (line) out.line = line;
   const t = (s as { text?: Record<string, unknown> }).text;
   if (t && isDrawingColor(t.color) && intIn(t.size, MIN_TEXT_SIZE, MAX_TEXT_SIZE)) out.text = { color: normColor(t.color), size: t.size };
+  const color = (s as { color?: unknown }).color;
+  if (isDrawingColor(color)) out.color = normColor(color);
   const label = readLabel((s as { label?: unknown }).label);
   if (label) out.label = label;
   const extend = readExtend((s as { extend?: unknown }).extend);
   if (extend) out.extend = extend;
-  return out.line || out.text || out.label || out.extend ? out : undefined;
+  return out.line || out.color || out.text || out.label || out.extend ? out : undefined;
 }

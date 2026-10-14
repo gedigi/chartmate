@@ -1217,7 +1217,7 @@ describe('ChartAdapter', () => {
         expect(drawn(o!)).toBe('#00ff00');
       });
 
-      it('the selection reports the reference; picking a hex again drops it', async () => {
+      it('a color picked on a drawing without a style of its own is stored alone: width / dash keep following the default', async () => {
         const a = await loaded();
         a.restoreDrawings([seg]);
         const [o] = userOverlays();
@@ -1225,11 +1225,38 @@ describe('ChartAdapter', () => {
         expect(a.getSelectedDrawing()).toMatchObject({ style: { color: 'accent', size: 1, style: 'solid' } }); // unstyled: the default
         a.setSelectedStyle({ color: 'palette:4' });
         expect(drawn(o!)).toBe('#f27bd0');
-        expect(a.getSelectedDrawing()).toMatchObject({ style: { color: 'palette:4' } });
+        expect((o!.styles as { line: Record<string, unknown> }).line).not.toHaveProperty('size');
+        expect(a.getSelectedDrawing()).toMatchObject({ style: { color: 'palette:4', size: 1, style: 'solid' } });
+        expect(a.serializeDrawings()[0]!.styles).toEqual({ color: 'palette:4' });
+        // The default width / dash changes: the drawing follows it (it reports the new default), keeping its color.
+        a.setAppearance({ dark: { drawing: { color: '#abcdef', size: 3, style: 'dashed' } } });
+        expect(a.getSelectedDrawing()).toMatchObject({ style: { color: 'palette:4', size: 3, style: 'dashed' } });
+        expect(drawn(o!)).toBe('#f27bd0');
         a.setSelectedStyle({ color: '#123456' });
         expect(ref(o!)).toBeNull();
         expect(a.getSelectedDrawing()).toMatchObject({ style: { color: '#123456' } });
-        expect(a.serializeDrawings()[0]!.styles).toEqual({ line: { color: '#123456', size: 1, style: 'solid' } });
+        expect(a.serializeDrawings()[0]!.styles).toEqual({ color: '#123456' });
+        // Changing the width makes the whole line style its own.
+        a.setSelectedStyle({ size: 2 });
+        expect(a.serializeDrawings()[0]!.styles).toEqual({ line: { color: '#123456', size: 2, style: 'dashed' } });
+        a.setSelectedStyle({ color: 'palette:0' });
+        expect(a.serializeDrawings()[0]!.styles).toEqual({ line: { color: 'palette:0', size: 2, style: 'dashed' } });
+      });
+
+      it('color-only text annotations and channels recolor with the theme and keep their options', async () => {
+        const a = await loaded();
+        a.restoreDrawings([
+          { name: 'simpleAnnotation', points: [{ timestamp: DAY, value: 1 }], lock: false, text: 'hi', styles: { color: 'palette:5' } },
+          { name: 'parallelChannel', points: [{ timestamp: DAY, value: 1 }, { timestamp: 2 * DAY, value: 2 }, { timestamp: DAY, value: 0.5 }], lock: false, styles: { color: 'up', extend: { right: true } } },
+        ]);
+        const [text, channel] = userOverlays();
+        expect((text!.styles as { text: { backgroundColor: string } }).text.backgroundColor).toBe('#6f9dff');
+        a.setTheme('light');
+        expect((text!.styles as { text: { backgroundColor: string } }).text.backgroundColor).toBe('#2f62d6');
+        expect(drawn(channel!)).toBe(THEME_TOKENS.light.up);
+        text!.onSelected?.({ overlay: text });
+        expect(a.getSelectedDrawing()).toMatchObject({ kind: 'text', style: { color: 'palette:5', size: 12 } });
+        expect(a.serializeDrawings().map((d) => d.styles)).toEqual([{ color: 'palette:5' }, { color: 'up', extend: { right: true } }]);
       });
 
       it('the selection is re-emitted on a theme switch (the swatches recolor)', async () => {
@@ -1250,12 +1277,14 @@ describe('ChartAdapter', () => {
         a.setAppearance({ dark: { drawing: { color: '#abcdef', size: 2, style: 'dashed' } } });
         a.setNewDrawingColor('palette:0');
         a.startDrawing('rayLine');
-        expect(chart().createOverlay.mock.calls.at(-1)![0]).toMatchObject({
-          styles: { line: { color: '#f2b861', size: 2, style: 'dashed' }, chartmateColor: 'palette:0' },
+        // Only the color: width / dash keep following the default drawing style.
+        expect((chart().createOverlay.mock.calls.at(-1)![0] as { styles: unknown }).styles).toMatchObject({
+          line: { color: '#f2b861' }, chartmateOwnColor: 'palette:0', chartmateColor: 'palette:0',
         });
+        expect((chart().createOverlay.mock.calls.at(-1)![0] as { styles: { line: object } }).styles.line).toEqual({ color: '#f2b861' });
         a.startDrawing('simpleAnnotation', { text: 'x' });
-        expect(chart().createOverlay.mock.calls.at(-1)![0]).toMatchObject({
-          styles: { text: { backgroundColor: '#f2b861', size: 12 }, chartmateColor: 'palette:0' },
+        expect((chart().createOverlay.mock.calls.at(-1)![0] as { styles: { text: object } }).styles.text).toEqual({
+          color: expect.any(String), backgroundColor: '#f2b861', borderColor: '#f2b861',
         });
         a.startDrawing('longPosition');
         expect(chart().createOverlay.mock.calls.at(-1)![0]).not.toHaveProperty('styles');
@@ -1267,17 +1296,41 @@ describe('ChartAdapter', () => {
         expect(chart().createOverlay.mock.calls.at(-1)![0]).not.toHaveProperty('styles');
       });
 
-      it('resetSelectedColor gives the drawing the default color (the appearance one, else the accent reference)', async () => {
+      it('resetSelectedColor: a color-only drawing follows the default again; a styled one takes the default color', async () => {
         const a = await loaded();
-        a.restoreDrawings([{ ...seg, styles: { line: { color: 'palette:1', size: 3, style: 'solid' } } }]);
-        const [o] = userOverlays();
-        o!.onSelected?.({ overlay: o });
+        const changed = vi.fn();
+        a.onDrawingsChange(changed);
+        a.restoreDrawings([{ ...seg, styles: { color: 'palette:1' } }, { ...seg, styles: { line: { color: 'palette:1', size: 3, style: 'solid' } } }]);
+        const [plain, styled] = userOverlays();
+        plain!.onSelected?.({ overlay: plain });
         a.resetSelectedColor();
-        expect(a.serializeDrawings()[0]!.styles).toEqual({ line: { color: 'accent', size: 3, style: 'solid' } });
+        expect(changed).toHaveBeenCalledTimes(1);
+        expect(a.serializeDrawings()[0]).not.toHaveProperty('styles');
+        expect(a.getSelectedDrawing()).toMatchObject({ style: { color: 'accent' } });
+        styled!.onSelected?.({ overlay: styled });
+        a.resetSelectedColor();
+        expect(a.serializeDrawings()[1]!.styles).toEqual({ line: { color: 'accent', size: 3, style: 'solid' } });
         a.setAppearance({ dark: { drawing: { color: '#abcdef', size: 1, style: 'solid' } } });
         a.setSelectedStyle({ color: 'palette:1' });
         a.resetSelectedColor();
-        expect(a.serializeDrawings()[0]!.styles).toEqual({ line: { color: '#abcdef', size: 3, style: 'solid' } });
+        expect(a.serializeDrawings()[1]!.styles).toEqual({ line: { color: '#abcdef', size: 3, style: 'solid' } });
+      });
+
+      it('an appearance drawing color equal to a swatch of the theme is that swatch, not "Custom"', async () => {
+        const a = await loaded();
+        // The appearance dialog stores the shown default (the accent hex) next to an edited width.
+        a.setAppearance({ dark: { drawing: { color: THEME_TOKENS.dark.accent, size: 2, style: 'solid' } } });
+        a.restoreDrawings([seg, { ...seg, styles: { line: { color: 'palette:1', size: 3, style: 'solid' } } }]);
+        const [plain, styled] = userOverlays();
+        plain!.onSelected?.({ overlay: plain });
+        expect(a.getSelectedDrawing()).toMatchObject({ style: { color: 'accent', size: 2 } });
+        styled!.onSelected?.({ overlay: styled });
+        a.resetSelectedColor();
+        expect(a.serializeDrawings()[1]!.styles).toEqual({ line: { color: 'accent', size: 3, style: 'solid' } });
+        // Any other hex stays a custom color.
+        a.setAppearance({ dark: { drawing: { color: '#abcdef', size: 2, style: 'solid' } } });
+        plain!.onSelected?.({ overlay: plain });
+        expect(a.getSelectedDrawing()).toMatchObject({ style: { color: '#abcdef' } });
       });
     });
 
@@ -1811,7 +1864,7 @@ describe('ChartAdapter Shift constraint and price labels', () => {
     expect(a.serializeDrawings()[1]).not.toHaveProperty('styles');
     p!.onSelected?.({ overlay: p });
     a.setSelectedStyle({ color: '#ff0000' }); // a style change keeps the label options
-    expect(a.serializeDrawings()[0]!.styles).toEqual({ line: { color: '#ff0000', size: 1, style: 'solid' }, label: { onLine: false } });
+    expect(a.serializeDrawings()[0]!.styles).toEqual({ color: '#ff0000', label: { onLine: false } });
   });
 
   it('channels expose extend toggles: new finite by default, legacy extended; persisted only when changed', async () => {
@@ -1847,7 +1900,7 @@ describe('ChartAdapter Shift constraint and price labels', () => {
     a.setSelectedExtend({ right: true });
     a.setSelectedStyle({ color: '#ff0000' }); // a style change keeps the extend options
     const saved = a.serializeDrawings();
-    expect(saved[0]).toMatchObject({ name: 'parallelChannel', styles: { line: { color: '#ff0000', size: 1, style: 'solid' }, extend: { right: true } } });
+    expect(saved[0]).toMatchObject({ name: 'parallelChannel', styles: { color: '#ff0000', extend: { right: true } } });
     expect(saved[1]).toEqual({ name: 'parallelStraightLine', points: pts3, lock: false }); // legacy: unchanged, no extend stored
     expect(saved[2]!.styles).toEqual({ extend: { right: true } });
 
