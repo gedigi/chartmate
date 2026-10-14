@@ -1,7 +1,7 @@
 import {
   dispose, init,
   type Chart, type DeepPartial, type IndicatorCreate, type IndicatorDrawCallback, type IndicatorStyle, type KLineData, type Overlay, type OverlayCreate,
-  type OverlayMode, type OverlayStyle, type Styles,
+  type Coordinate, type OverlayMode, type OverlayStyle, type Point as KPoint, type Styles,
 } from 'klinecharts';
 import {
   isDrawingColorToken, isIntraday, isPositionTool, nyToUtc, resolvePositionDefaults, tfMs,
@@ -32,12 +32,16 @@ import { registerCustomIndicators } from './indicators/register';
 import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
 import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
+import {
+  MEASURE_OVERLAY, measureColors, measureLines, measureStats, registerMeasureOverlay, snapValue,
+  type MeasurePoint, type MeasureSnap, type MeasureStats, type MeasureView,
+} from './measure';
 import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS } from './sessionShade';
 import { textColoredLegends } from './barLegends';
 import { solidBarFigures } from './solidBars';
 import { axisTickLabels, countdownText, crosshairDate, hasCountdown } from './timeLabels';
 import {
-  candleStyles, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, defaultIndicatorCircles, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeSoftTone, themeTokens,
+  candleStyles, CHART_FONT, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, defaultIndicatorCircles, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeSoftTone, themeTokens,
   type ThemeName,
 } from './theme';
 
@@ -113,6 +117,15 @@ const CANDLE_PANE = 'candle_pane';
 const DOUBLE_CLICK_MS = 500;
 const DOUBLE_CLICK_PX = 5;
 const MARKERS = 'markers';
+/** Group of the Shift measure overlay (never a user drawing). */
+const MEASURE = 'measure';
+/** A press that moves less than this (px, Manhattan) before its release is a click: the measure then follows the mouse. */
+const MEASURE_CLICK_PX = 4;
+
+/** Where a measurement is: being dragged, following the mouse after a Shift-click, or finished (shown until cleared). */
+export type MeasurePhase = 'dragging' | 'placing' | 'done';
+/** The Shift measure: its two ends, its numbers and its label lines. */
+export interface Measurement { phase: MeasurePhase; start: MeasurePoint; end: MeasurePoint; stats: MeasureStats; lines: string[] }
 /** Bar time of an outcome label: the date (daily+), else date and time in the chart timezone. */
 function barTimeFormat(tf: Timeframe, timezone: string): (ts: number) => string {
   if (!isIntraday(tf)) return (ts) => new Date(ts).toISOString().slice(0, 10);
@@ -219,6 +232,7 @@ export class ChartAdapter {
     registerMarkerOverlay();
     registerDrawingTemplates();
     registerPositionOverlays();
+    registerMeasureOverlay();
     registerCustomIndicators();
     this.el = el;
     this.theme = opts.theme;
@@ -319,6 +333,7 @@ export class ChartAdapter {
     const prevSymbol = this.loadSymbol;
     const prevMapping = this.mapsDailyAnchors();
     this.loader?.dispose(); // its pending results and polling become no-ops while the chart resets below
+    this.clearMeasure();
     this.dataSymbol = null;
     this.loadSymbol = p.symbol.id;
     this.historyPages = 0;
@@ -395,6 +410,7 @@ export class ChartAdapter {
    * the previous symbol's data is neither shown nor polled any more. The next load() starts afresh.
    */
   clear(): void {
+    this.clearMeasure();
     this.loader?.dispose();
     this.loader = null;
     this.dataSymbol = null;
@@ -429,6 +445,7 @@ export class ChartAdapter {
       if (styles?.lines) this.chart.overrideIndicator({ id: i.id, name: i.name, styles: { lines: styles.lines } });
     }
     this.refreshThemedBars();
+    this.refreshMeasure();
     this.emitSelection(); // the style bar's swatches show this theme's colors
   }
 
@@ -461,6 +478,7 @@ export class ChartAdapter {
     this.refreshThemedBars();
     this.refreshLockedLook();
     this.refreshColorRefs();
+    this.refreshMeasure();
     this.emitSelection();
   }
 
@@ -960,6 +978,7 @@ export class ChartAdapter {
 
   private readonly onPressCapture = (e: MouseEvent): void => {
     if (e.button !== 0) return;
+    if (this.measurePress(e)) return;
     const prev = this.lastPress;
     const now = Date.now();
     this.lastPress = { x: e.clientX, y: e.clientY, t: now };
@@ -1257,7 +1276,7 @@ export class ChartAdapter {
   }
 
   private userOverlays(): Overlay[] {
-    return this.chart.getOverlays().filter((o) => o.groupId !== MARKERS && !this.removing.has(o.id));
+    return this.chart.getOverlays().filter((o) => o.groupId !== MARKERS && o.groupId !== MEASURE && !this.removing.has(o.id));
   }
 
   /**
@@ -1266,6 +1285,7 @@ export class ChartAdapter {
    */
   startDrawing(tool: DrawingTool, opts?: { text?: string; onEnd?: () => void }): void {
     this.cancelDrawing();
+    this.clearMeasure();
     const create: OverlayCreate = { name: tool, mode: this.strongMagnet ? 'strong_magnet' : this.baseMode(), ...this.handlers };
     if (opts?.text !== undefined) create.extendData = opts.text;
     const styles = this.newDrawingStyles(tool);
@@ -1670,6 +1690,210 @@ export class ChartAdapter {
     return () => { this.changeListeners.delete(cb); };
   }
 
+  // ── Shift measure ─────────────────────────────────────────────────────────
+  // With no drawing tool active, a Shift press on the candle pane starts a measurement (an ephemeral overlay, never a
+  // drawing): dragging sets its end and the release finishes it; a Shift-click without dragging lets the end follow
+  // the mouse until the next click. The press never reaches KLineChart, so the chart does not pan. A finished
+  // measurement stays until the next press without Shift, the next Shift measure, Escape (clearMeasure), a new drawing
+  // tool or a new load. Points snap like drawings (magnet: weak, ⌘ / Ctrl held: strong).
+
+  private measure: { id: string; start: MeasurePoint; end: MeasurePoint; phase: MeasurePhase; downAt: { x: number; y: number } | null } | null = null;
+  private readonly measureListeners = new Set<(m: Measurement | null) => void>();
+  private measureTracking = false;
+
+  /** The current measurement, or null. */
+  getMeasurement(): Measurement | null {
+    const m = this.measure;
+    if (!m) return null;
+    const stats = measureStats(m.start, m.end, this.chart.getDataList());
+    return { phase: m.phase, start: m.start, end: m.end, stats, lines: measureLines(stats, this.pricePrecision) };
+  }
+
+  /** Fired when a measurement is finished (with it) or cleared (null); not on every move. Returns an unsubscribe. */
+  onMeasureChange(cb: (m: Measurement | null) => void): () => void {
+    this.measureListeners.add(cb);
+    return () => { this.measureListeners.delete(cb); };
+  }
+
+  private emitMeasure(): void {
+    if (this.destroyed) return;
+    const m = this.getMeasurement();
+    for (const cb of this.measureListeners) cb(m);
+  }
+
+  /** Bar `index` (extrapolated outside the data) at `value`. Needs bars. */
+  private measurePoint(p: { index: number; value: number }): MeasurePoint {
+    return { index: p.index, timestamp: barTime(this.chart.getDataList(), p.index, this.barMs()), value: p.value };
+  }
+
+  private measureView(start: MeasurePoint, end: MeasurePoint): MeasureView {
+    const stats = measureStats(start, end, this.chart.getDataList());
+    const a = resolveAppearance(this.theme, this.appearance);
+    return {
+      lines: measureLines(stats, this.pricePrecision),
+      colors: measureColors(stats.up, { up: a.upColor, down: a.downColor, bg: themeTokens(this.theme).bg }),
+      font: CHART_FONT,
+    };
+  }
+
+  /**
+   * Starts a measurement at bar `index` and price `value` (any previous one is replaced); its end follows
+   * updateMeasure until finishMeasure. False (nothing shown) without bars.
+   */
+  startMeasure(p: { index: number; value: number }): boolean {
+    if (this.chart.getDataList().length === 0) return false;
+    this.removeMeasure();
+    const start = this.measurePoint(p);
+    const id = this.chart.createOverlay({
+      name: MEASURE_OVERLAY, groupId: MEASURE, lock: true, mode: 'normal',
+      points: [{ timestamp: start.timestamp, value: start.value }, { timestamp: start.timestamp, value: start.value }],
+      extendData: this.measureView(start, start),
+    });
+    if (typeof id !== 'string') return false;
+    this.measure = { id, start, end: start, phase: 'dragging', downAt: null };
+    return true;
+  }
+
+  /** Moves the end of the measurement being made (a finished one stays). */
+  updateMeasure(p: { index: number; value: number }): void {
+    const m = this.measure;
+    if (!m || m.phase === 'done' || this.chart.getDataList().length === 0) return;
+    m.end = this.measurePoint(p);
+    this.chart.overrideOverlay({
+      id: m.id,
+      points: [{ timestamp: m.start.timestamp, value: m.start.value }, { timestamp: m.end.timestamp, value: m.end.value }],
+      extendData: this.measureView(m.start, m.end),
+    });
+  }
+
+  /** Finishes the measurement (at `p` when given): it stays shown until cleared. */
+  finishMeasure(p?: { index: number; value: number }): void {
+    const m = this.measure;
+    if (!m || m.phase === 'done') return;
+    if (p) this.updateMeasure(p);
+    m.phase = 'done';
+    this.stopMeasureTracking();
+    this.emitMeasure();
+  }
+
+  /** Removes the measurement (Escape, a press without Shift); nothing happens without one. */
+  clearMeasure(): void {
+    if (this.removeMeasure()) this.emitMeasure();
+  }
+
+  private removeMeasure(): boolean {
+    this.stopMeasureTracking();
+    const m = this.measure;
+    if (!m) return false;
+    this.measure = null;
+    this.chart.removeOverlay({ id: m.id });
+    return true;
+  }
+
+  /** Recolors the measurement (theme / candle colors changed). */
+  private refreshMeasure(): void {
+    const m = this.measure;
+    if (m) this.chart.overrideOverlay({ id: m.id, extendData: this.measureView(m.start, m.end) });
+  }
+
+  /** True while the mouse is over a drawing (a Shift press there drags it, kept horizontal). */
+  private hoveringDrawing(): boolean {
+    const store = (this.chart as unknown as { getChartStore?: () => { getHoverOverlayInfo?: () => { overlay?: { groupId?: string } | null } } }).getChartStore?.();
+    try {
+      const o = store?.getHoverOverlayInfo?.()?.overlay;
+      return o != null && o.groupId !== MEASURE;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * The measure point under the mouse: its bar and price (snapped like drawings). Null outside the candle pane's plot
+   * area (indicator panes, axes) unless `clamp`, which moves the point to the nearest edge (drags leaving the pane).
+   */
+  private measurePointAt(e: MouseEvent, clamp = false): { index: number; value: number } | null {
+    const bars = this.chart.getDataList();
+    const dom = this.chart.getDom?.(CANDLE_PANE, 'main');
+    if (!dom || bars.length === 0) return null;
+    const r = dom.getBoundingClientRect();
+    let x = e.clientX - r.left;
+    let y = e.clientY - r.top;
+    if (clamp) {
+      x = Math.min(r.width, Math.max(0, x));
+      y = Math.min(r.height, Math.max(0, y));
+    } else if (x < 0 || y < 0 || x > r.width || y > r.height) {
+      return null;
+    }
+    const pt = (this.chart.convertFromPixel([{ x, y }], { paneId: CANDLE_PANE }) as Array<Partial<KPoint>>)[0];
+    if (typeof pt?.dataIndex !== 'number' || typeof pt.value !== 'number' || !Number.isFinite(pt.value)) return null;
+    const mode: MeasureSnap = this.strongMagnet ? 'strong_magnet' : this.magnet ? 'weak_magnet' : 'normal';
+    const yOf = (v: number) => (this.chart.convertToPixel({ value: v }, { paneId: CANDLE_PANE }) as Partial<Coordinate>).y ?? y;
+    return { index: pt.dataIndex, value: snapValue(pt.value, bars[pt.dataIndex] ?? null, mode, yOf) };
+  }
+
+  /** A left press on the chart (capture phase, before KLineChart): true when the measure took it. */
+  private measurePress(e: MouseEvent): boolean {
+    const m = this.measure;
+    if (m && m.phase !== 'done') {
+      // A click ends a Shift-click measurement (a second press while dragging cannot happen, but is swallowed too).
+      e.stopPropagation();
+      e.preventDefault();
+      if (m.phase === 'placing') this.finishMeasure(this.measurePointAt(e, true) ?? undefined);
+      return true;
+    }
+    if (e.shiftKey && !this.drawing && !this.hoveringDrawing()) {
+      const p = this.measurePointAt(e);
+      if (p && this.startMeasure(p)) {
+        e.stopPropagation();
+        e.preventDefault();
+        this.measure!.downAt = { x: e.clientX, y: e.clientY };
+        this.startMeasureTracking();
+        return true;
+      }
+    }
+    this.clearMeasure();
+    return false;
+  }
+
+  private readonly onMeasureMove = (e: MouseEvent): void => {
+    const p = this.measure && this.measure.phase !== 'done' ? this.measurePointAt(e, true) : null;
+    if (p) this.updateMeasure(p);
+  };
+
+  private readonly onMeasureUp = (e: MouseEvent): void => {
+    const m = this.measure;
+    if (!m || m.phase !== 'dragging' || e.button !== 0) return;
+    const d = m.downAt;
+    const moved = !d || Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) >= MEASURE_CLICK_PX;
+    if (moved) this.finishMeasure(this.measurePointAt(e, true) ?? undefined);
+    else m.phase = 'placing';
+  };
+
+  /** A press outside the chart while the end follows the mouse finishes the measurement where it is. */
+  private readonly onMeasureOutsidePress = (e: MouseEvent): void => {
+    if (this.measure?.phase === 'placing' && !(e.target instanceof Node && this.el.contains(e.target))) this.finishMeasure();
+  };
+
+  private readonly onMeasureBlur = (): void => { this.finishMeasure(); };
+
+  private startMeasureTracking(): void {
+    if (this.measureTracking) return;
+    this.measureTracking = true;
+    document.addEventListener('mousemove', this.onMeasureMove, true);
+    document.addEventListener('mouseup', this.onMeasureUp, true);
+    document.addEventListener('mousedown', this.onMeasureOutsidePress, true);
+    window.addEventListener('blur', this.onMeasureBlur);
+  }
+
+  private stopMeasureTracking(): void {
+    if (!this.measureTracking) return;
+    this.measureTracking = false;
+    document.removeEventListener('mousemove', this.onMeasureMove, true);
+    document.removeEventListener('mouseup', this.onMeasureUp, true);
+    document.removeEventListener('mousedown', this.onMeasureOutsidePress, true);
+    window.removeEventListener('blur', this.onMeasureBlur);
+  }
+
   // ── lifecycle ─────────────────────────────────────────────────────────────
 
   resize(): void {
@@ -1680,6 +1904,9 @@ export class ChartAdapter {
     if (this.destroyed) return;
     this.destroyed = true;
     this.el.removeEventListener('mousedown', this.onPressCapture, true);
+    this.stopMeasureTracking();
+    this.measure = null;
+    this.measureListeners.clear();
     this.loader?.dispose();
     this.loader = null;
     this.changeListeners.clear();
