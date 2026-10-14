@@ -238,6 +238,18 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
 - **Shortcuts**: **⌥T** / **Alt+T** starts a trend line and **⌥H** / **Alt+H** a horizontal line (same as
   clicking the toolbar button; pressing it again cancels). They (and Delete/Backspace) are ignored while any form
   control (field, checkbox, select, button) has the focus or inside a dialog, and are shown in the buttons' tooltips.
+- **Copy and paste**: **⌘C** / **⌘V** (macOS) or **Ctrl+C** / **Ctrl+V** (other systems) copy the selected
+  drawing and paste a copy, which is selected and saved like a newly drawn drawing. Every drawing type works,
+  with its style and options (channel extend, price labels, text, position prices); the clipboard lives in
+  Chartmate only (the system clipboard is untouched) and survives symbol and timeframe switches until the page
+  reloads. Placement: the copy keeps its times and prices, so it lands where it was copied from, also on another
+  symbol or timeframe; while an identical drawing is in the way (such as the original), it moves 5 bars to the
+  right (a horizontal line moves up by 5 % of the visible price range), so repeated pastes cascade. When its
+  times miss the loaded bars (and the space right of them), it keeps its width in bars and is centered on the
+  visible range; when its prices miss the visible bars' range, they are scaled into it (percentages kept). A
+  locked drawing can be copied; the copy is unlocked unless **Lock all drawings** is on. The keys are left to
+  the browser in text fields, editable content, dialogs, popups and behind a modal, when page text is selected,
+  when no drawing is selected (copy) or nothing was copied (paste).
 - **Shift (horizontal)**: hold **Shift** while placing or dragging a trend line, ray, extended line or parallel
   channel to keep it perfectly horizontal: every point takes the anchor's price (the first point while drawing,
   the fixed end while dragging one end), rounded to the symbol's price precision. A channel's width point stays

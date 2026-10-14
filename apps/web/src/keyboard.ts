@@ -21,3 +21,16 @@ export function isApplePlatform(): boolean {
 export function hasCommandModifier(e: { metaKey: boolean; ctrlKey: boolean }): boolean {
   return isApplePlatform() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
 }
+
+/** ⌘C / ⌘V (Apple platforms) or Ctrl+C / Ctrl+V (others), without Shift or Alt: 'copy' / 'paste'; else null. */
+export function clipboardShortcut(e: KeyboardEvent): 'copy' | 'paste' | null {
+  if (e.altKey || e.shiftKey || !hasCommandModifier(e)) return null;
+  const key = e.key.toLowerCase();
+  return key === 'c' ? 'copy' : key === 'v' ? 'paste' : null;
+}
+
+/** True when the page has selected text (⌘C / Ctrl+C then copies that text). */
+export function hasTextSelection(doc: Document = document): boolean {
+  const s = doc.getSelection();
+  return s !== null && s.rangeCount > 0 && !s.isCollapsed;
+}

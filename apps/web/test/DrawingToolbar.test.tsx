@@ -13,6 +13,8 @@ function makeControls() {
     clearDrawings: vi.fn(),
     drawingCount: vi.fn(() => ({ total: 2, locked: 0 })),
     removeSelected: vi.fn(() => true),
+    copySelected: vi.fn(() => true),
+    pasteDrawing: vi.fn(() => true),
     setMagnet: vi.fn(),
     setLockAll: vi.fn(),
     setMagnetOverride: vi.fn(),
@@ -551,5 +553,112 @@ describe('DrawingToolbar Shift (horizontal constraint while placing / dragging)'
     render(<><DrawingToolbar controls={c} ticker="AAPL" /><input aria-label="field" /></>);
     fireEvent.keyDown(screen.getByLabelText('field'), { key: 'Shift', shiftKey: true });
     expect(c.setShiftConstraint).not.toHaveBeenCalledWith(true);
+  });
+});
+
+describe('DrawingToolbar copy / paste (⌘C / ⌘V on Apple platforms, Ctrl+C / Ctrl+V elsewhere)', () => {
+  const setPlatform = (p: string) => vi.spyOn(navigator, 'platform', 'get').mockReturnValue(p);
+  /** Fires the key; true when it was not prevented (the browser's own copy / paste goes ahead). */
+  const press = (target: Element, init: KeyboardEventInit) => fireEvent.keyDown(target, init);
+
+  it('Apple platforms: ⌘C copies the selected drawing and ⌘V pastes it; Ctrl does nothing', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    expect(press(document.body, { key: 'c', code: 'KeyC', metaKey: true })).toBe(false); // handled: prevented
+    expect(c.copySelected).toHaveBeenCalledTimes(1);
+    expect(press(document.body, { key: 'v', code: 'KeyV', metaKey: true })).toBe(false);
+    expect(c.pasteDrawing).toHaveBeenCalledTimes(1);
+    press(document.body, { key: 'c', ctrlKey: true });
+    press(document.body, { key: 'v', ctrlKey: true });
+    press(document.body, { key: 'c', metaKey: true, ctrlKey: true });
+    expect(c.copySelected).toHaveBeenCalledTimes(1);
+    expect(c.pasteDrawing).toHaveBeenCalledTimes(1);
+  });
+
+  it('other platforms: Ctrl+C / Ctrl+V; ⌘ does nothing; Shift or Alt variants are left alone', () => {
+    setPlatform('Win32');
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    press(document.body, { key: 'c', metaKey: true });
+    press(document.body, { key: 'V', ctrlKey: true, shiftKey: true });
+    press(document.body, { key: 'c', ctrlKey: true, altKey: true });
+    expect(c.copySelected).not.toHaveBeenCalled();
+    expect(c.pasteDrawing).not.toHaveBeenCalled();
+    press(document.body, { key: 'c', ctrlKey: true });
+    press(document.body, { key: 'v', ctrlKey: true });
+    expect(c.copySelected).toHaveBeenCalledTimes(1);
+    expect(c.pasteDrawing).toHaveBeenCalledTimes(1);
+  });
+
+  it('nothing selected / nothing copied: the browser keeps its own copy and paste', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    c.copySelected.mockReturnValue(false);
+    c.pasteDrawing.mockReturnValue(false);
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    expect(press(document.body, { key: 'c', metaKey: true })).toBe(true);
+    expect(press(document.body, { key: 'v', metaKey: true })).toBe(true);
+  });
+
+  it('never in text fields, editable content, dialogs, popups or behind a modal, nor when another handler took the key', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    const { unmount } = render(
+      <>
+        <input aria-label="field" />
+        <textarea aria-label="notes" />
+        <div contentEditable aria-label="editable" />
+        <div role="dialog" aria-label="dlg"><span tabIndex={0}>in dialog</span></div>
+        <div role="listbox"><div role="option" aria-selected="false">opt</div></div>
+        <div role="menu"><span>menu item</span></div>
+        <DrawingToolbar controls={c} ticker="AAPL" />
+      </>,
+    );
+    const targets = [
+      screen.getByLabelText('field'), screen.getByLabelText('notes'), screen.getByLabelText('editable'),
+      screen.getByText('in dialog'), screen.getByText('opt'), screen.getByText('menu item'),
+    ];
+    for (const t of targets) {
+      expect(press(t, { key: 'c', metaKey: true }), t.outerHTML).toBe(true);
+      expect(press(t, { key: 'v', metaKey: true }), t.outerHTML).toBe(true);
+    }
+    const taken = new KeyboardEvent('keydown', { key: 'v', metaKey: true, bubbles: true, cancelable: true });
+    taken.preventDefault();
+    document.body.dispatchEvent(taken);
+    expect(c.copySelected).not.toHaveBeenCalled();
+    expect(c.pasteDrawing).not.toHaveBeenCalled();
+    unmount();
+
+    // A modal dialog open anywhere: the keys belong to it.
+    render(<><div aria-modal="true" role="dialog" aria-label="modal" /><DrawingToolbar controls={c} ticker="AAPL" /></>);
+    press(document.body, { key: 'c', metaKey: true });
+    press(document.body, { key: 'v', metaKey: true });
+    expect(c.copySelected).not.toHaveBeenCalled();
+    expect(c.pasteDrawing).not.toHaveBeenCalled();
+  });
+
+  it('selected page text is copied by the browser, not the drawing', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    render(<><p>Some text</p><DrawingToolbar controls={c} ticker="AAPL" /></>);
+    document.getSelection()!.selectAllChildren(screen.getByText('Some text'));
+    expect(document.getSelection()!.isCollapsed).toBe(false);
+    try {
+      expect(press(document.body, { key: 'c', metaKey: true })).toBe(true);
+      expect(c.copySelected).not.toHaveBeenCalled();
+    } finally {
+      document.getSelection()!.removeAllRanges();
+    }
+  });
+
+  it('paste waits for the drawings to load (disabled toolbar); copy still works', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" disabled />);
+    expect(press(document.body, { key: 'v', metaKey: true })).toBe(true);
+    expect(c.pasteDrawing).not.toHaveBeenCalled();
+    press(document.body, { key: 'c', metaKey: true });
+    expect(c.copySelected).toHaveBeenCalledTimes(1);
   });
 });

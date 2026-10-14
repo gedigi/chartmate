@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX, type ReactNode } from 'react';
 import type { ChartAdapter, DrawingTool } from '../chart/ChartAdapter';
-import { isApplePlatform, isInPopup } from '../keyboard';
+import { clipboardShortcut, hasTextSelection, isApplePlatform, isInPopup, isModalOpen } from '../keyboard';
 import { LockIcon } from './LockIcon';
 import './DrawingToolbar.css';
 
 /** The slice of ChartAdapter the toolbar drives. */
 export type DrawingControls = Pick<
   ChartAdapter,
-  'startDrawing' | 'cancelDrawing' | 'clearDrawings' | 'drawingCount' | 'removeSelected' | 'setMagnet' | 'setLockAll' | 'onLockAllChange'
+  'startDrawing' | 'cancelDrawing' | 'clearDrawings' | 'drawingCount' | 'removeSelected' | 'copySelected' | 'pasteDrawing' | 'setMagnet' | 'setLockAll' | 'onLockAllChange'
   | 'setMagnetOverride' | 'setShiftConstraint' | 'deselect' | 'onSelectionChange'
 >;
 
@@ -97,7 +97,8 @@ function isTyping(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
   if (tag === 'INPUT') return !NON_TEXT_INPUTS.has((target as HTMLInputElement).type);
-  return tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+  return tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
+    || target.closest('[contenteditable]:not([contenteditable="false"])') !== null;
 }
 
 /**
@@ -121,7 +122,8 @@ function isOtherWidget(target: EventTarget | null): boolean {
 /**
  * Vertical drawing toolbar (left column of the chart): drawing tools, magnet, lock all, delete selected, clear all
  * (locked drawings are kept).
- * Keyboard: Delete/Backspace removes the selected drawing, Escape cancels the active tool, holding ⌘ (macOS) / Ctrl
+ * Keyboard: Delete/Backspace removes the selected drawing, ⌘C / ⌘V (Ctrl+C / Ctrl+V elsewhere) copies it / pastes
+ * the copy (in-app clipboard), Escape cancels the active tool, holding ⌘ (macOS) / Ctrl
  * snaps the drawing being placed or dragged to OHLC values, Option/Alt+T starts a trend line and Option/Alt+H a
  * horizontal line (see TOOL_SHORTCUTS), holding Shift keeps trend lines / rays / extended lines / channels horizontal.
  */
@@ -175,6 +177,18 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // ⌘C / ⌘V (Ctrl elsewhere): copy the selected drawing / paste the copy (in-app clipboard). Text fields,
+      // dialogs, popups and modals keep the keys; with nothing to copy / paste the browser's own action goes ahead.
+      const clip = clipboardShortcut(e);
+      if (clip) {
+        if (e.defaultPrevented || isTyping(e.target) || isInPopup(e.target) || isModalOpen()) return;
+        const c = controlsRef.current;
+        const done = clip === 'copy'
+          ? !hasTextSelection() && c?.copySelected() === true
+          : !disabledRef.current && c?.pasteDrawing() === true;
+        if (done) e.preventDefault();
+        return;
+      }
       const tool = shortcutTool(e);
       if (tool) {
         if (isFormControl(e.target) || isInPopup(e.target) || disabledRef.current || e.defaultPrevented) return;
