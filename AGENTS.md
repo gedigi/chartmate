@@ -166,8 +166,10 @@ The renderer is untrusted web content. Read the README's "Security model" before
   - `build/signing.cjs` picks the method.
   - `build/win-sign.cjs` is electron-builder's sign hook. It signs `chartmate.exe`, the uninstaller and the
     installer, using signtool by thumbprint or osslsigncode + PKCS#11.
-  - CI logs in with `scripts/certum/login.ps1` on tag builds only. `scripts/verify-win-signatures.mjs` gates the
-    result.
+  - CI logs in with `scripts/certum/login.ps1`, on tag builds only, in the `windows-signing` environment.
+  - The login secrets are unset before any build tool runs.
+  - `scripts/verify-win-signatures.mjs` gates the result.
+  - If login, signing or verification fails, Windows ships unsigned and the release notes say so.
   - `CHARTMATE_WIN_PUBLISHER_NAME` (the certificate CN) is required, because electron-updater pins it.
 - If CI cannot log in, the owner runs `pnpm --filter @chartmate/desktop sign:win` from a checkout of the tag. It
   rebuilds, signs, verifies and replaces the Windows assets of that release. Changes to the signing hook, the

@@ -762,7 +762,8 @@ image.
   runs `pnpm audit` before anything is built.
 - **`test` job**: runs without any secrets.
 - **`package-mac` and `package-win` jobs**: build, sign and smoke-test on each OS. Signing secrets are visible only
-  to the packaging step of their own OS.
+  to the packaging step of their own OS. On tag builds, the Certum secrets come from the `windows-signing`
+  environment. If Windows signing fails, the release still ships, with an unsigned Windows build and a note.
 - **`release` job** (tags only): the only job with `contents: write`. It creates the GitHub Release for the tag
   (a pre-release only for suffixed tags such as `v1.2.0-beta.1`) and attaches:
   - the dmg and zip for macOS arm64 and x64;
@@ -959,43 +960,72 @@ the installer. `latest.yml` and the blockmaps are computed from the signed files
   subject CN (for example `Open Source Developer, Jane Doe`) is your **publisher name**. Copy it exactly and keep
   it the same across renewals: installed copies accept updates only from that name.
 
-**2. CI signing (`desktop.yml`, tag builds only).** Configure the repository:
+**2. CI signing (`desktop.yml`, tag builds only).** Set up the repository once:
 
-| Name | Kind | Value |
+1. Create an environment named `windows-signing` (Settings, Environments). Under deployment branches and tags,
+   allow only tags matching `v*`. Optionally add yourself as a required reviewer: each signed release then waits
+   for your approval. Environments need a public repository or a paid plan; without one, CI cannot read the
+   secrets, builds Windows unsigned, and you sign with `sign:win` (step 3).
+2. Add a tag ruleset (Settings, Rules) that lets only you create `v*` tags, so nobody else can trigger a signing
+   run. Updating and deleting `v*` tags is already blocked.
+3. Set these values:
+
+| Name | Where | Value |
 |---|---|---|
-| `CHARTMATE_CERTUM_USERNAME` | secret | SimplySign account e-mail |
-| `CHARTMATE_CERTUM_OTP_URI` | secret | the `otpauth://totp/…` URI from the activation QR code |
-| `CHARTMATE_WIN_PUBLISHER_NAME` | variable | the certificate subject CN |
-| `CHARTMATE_CERTUM_SIMPLYSIGN_VERSION` | variable, optional | SimplySign Desktop for Windows version to install (default `9.4.4.92`) |
-| `CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256` | variable, optional | pins that installer's SHA-256 |
+| `CHARTMATE_CERTUM_USERNAME` | `windows-signing` secret | SimplySign account e-mail |
+| `CHARTMATE_CERTUM_OTP_URI` | `windows-signing` secret | the `otpauth://totp/…` URI from the activation QR code |
+| `CHARTMATE_WIN_PUBLISHER_NAME` | repository variable | the certificate subject CN |
+| `CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256` | repository variable | SHA-256 of the SimplySign Desktop installer CI downloads (required) |
+| `CHARTMATE_CERTUM_SIMPLYSIGN_VERSION` | repository variable, optional | that installer's version (default `9.4.4.92`) |
+| `CHARTMATE_CERTUM_SIMPLYSIGN_SIGNER_SHA1` | repository variable, optional | pins the installer's signing certificate thumbprint |
+| `CHARTMATE_CERTUM_TOTP_ALGORITHM` | repository variable, optional | `SHA1`, `SHA256` or `SHA512`, if the QR code's URI does not say |
 
-The Windows packaging step then runs `scripts/certum/login.ps1`:
+To get the SHA-256, download
+`https://files.certum.eu/software/SimplySignDesktop/Windows/<version>/SimplySignDesktop-<version>-64-bit-en.msi`.
+On Windows, check that **Properties, Digital Signatures** shows Asseco Data Systems S.A. Then run
+`Get-FileHash -Algorithm SHA256 <file>` (or `shasum -a 256 <file>` on a Mac).
 
-1. It installs SimplySign Desktop, and refuses an installer that is not validly signed by Asseco Data Systems.
-2. It types your e-mail and a code computed from the seed into the login window. It makes at most two attempts,
-   so a bad code cannot lock the account.
+On a tag build, the Windows packaging step runs `scripts/certum/login.ps1`:
+
+1. It downloads SimplySign Desktop and installs it only if the SHA-256 matches and the installer carries a valid,
+   revocation-checked signature whose organization is exactly Asseco Data Systems S.A.
+2. It types your e-mail and a code computed from the seed into the login window, at most twice, so a failing
+   login is never retried in a loop.
 3. It waits for the certificate to appear in the user's certificate store.
 
-`build/win-sign.cjs` then signs with `signtool /sha1 <thumbprint>`. Finally `scripts/verify-win-signatures.mjs`
-checks every signature, the uninstallers (from the hook's log), `latest.yml` and the blockmaps.
+The two login secrets are then unset, before any build tool runs. `build/win-sign.cjs` signs with
+`signtool /sha1 <thumbprint>`; signtool gets a minimal environment. Finally `scripts/verify-win-signatures.mjs`
+checks every signature, the SHA-256 digests, the uninstallers (from the hook's log), `app-update.yml`,
+`latest.yml` and the blockmaps.
+
+If the login, the signing or the verification fails, the release still goes out:
+
+- Windows is rebuilt unsigned, without an updater, and the run shows a warning.
+- The release notes say "Windows signing failed in CI — sign with `sign:win`".
+- macOS is unaffected.
+- Run step 3 afterwards.
 
 Limitations:
 
 - SimplySign Desktop has no command-line login, so CI drives its window with keystrokes. A SimplySign update
   can break that.
-- Certum also rejects outdated clients at login. If that happens, raise `CHARTMATE_CERTUM_SIMPLYSIGN_VERSION`.
+- Certum also rejects outdated clients at login. If that happens, raise `CHARTMATE_CERTUM_SIMPLYSIGN_VERSION` and
+  record the new installer's SHA-256.
 - The seed is a long-lived credential: anyone holding it and your e-mail can sign as you. If it leaks, re-issue
-  the QR code in SimplySign.
+  the QR code in SimplySign. If you would rather not store it at all, skip this step and use step 3 only.
 - To check the seed, run
-  `read -s CHARTMATE_CERTUM_OTP_URI && export CHARTMATE_CERTUM_OTP_URI && node apps/desktop/scripts/certum/totp.mjs`.
-  It must print the same code as the phone app. If it differs, set `CHARTMATE_CERTUM_TOTP_ALGORITHM` (`SHA256`
-  or `SHA1`) to match.
+  `(read -rs CHARTMATE_CERTUM_OTP_URI; export CHARTMATE_CERTUM_OTP_URI; node apps/desktop/scripts/certum/totp.mjs)`
+  and paste the URI. The subshell keeps the seed out of your shell. It must print the same code as the phone app;
+  if it differs, set `CHARTMATE_CERTUM_TOTP_ALGORITHM`.
+- `publisherName` pins only the certificate CN. Pinning the full subject would also reject a certificate with
+  the same CN from someone else, but it would break updates as soon as any other subject field changes at
+  renewal. The CN is the default.
 
 **3. Manual signing (fallback, no seed stored anywhere).** After CI has published a tag, possibly with an unsigned
 Windows build, run this on your Mac or a Windows PC:
 
 ```sh
-git checkout vX.Y.Z && pnpm install --frozen-lockfile --ignore-scripts
+git checkout vX.Y.Z
 # SimplySign Desktop: connect, then type the code from the phone app
 export CHARTMATE_WIN_PUBLISHER_NAME='Open Source Developer, Jane Doe'
 export CHARTMATE_WIN_PKCS11_MODULE=/usr/local/lib/libSimplySignPKCS.dylib   # macOS
@@ -1005,13 +1035,19 @@ pnpm --filter @chartmate/desktop sign:win
 
 `sign:win` does the following:
 
-1. It asks for the card PIN, if your setup has one. The PIN stays in memory.
-2. It rebuilds the Windows app for the tag. CI's installers cannot be re-signed in place, because the app and the
-   uninstaller are inside them.
-3. It signs, then verifies everything.
-4. It shows the files and asks before replacing them on the GitHub Release with `gh release upload --clobber`.
+1. Before it publishes anything, it checks:
+   - HEAD is the tag, and the tag is the one on GitHub;
+   - there are no changed or untracked files, and no ignored `.env` files;
+   - the release exists.
+2. It reinstalls `node_modules` from the lockfile, then rebuilds the Windows app for the tag. CI's installers
+   cannot be re-signed in place, because the app and the uninstaller are inside them.
+3. Right before packaging, it asks for the card PIN, if your setup has one. The PIN is passed only to
+   electron-builder, and from there to `osslsigncode` (as `PKCS11_PIN`). The first rejected PIN stops all
+   further signing attempts.
+4. It signs, then verifies everything.
+5. It shows the files and asks before replacing them on the GitHub Release with `gh release upload --clobber`.
    The repository comes from `gh` or `GITHUB_REPOSITORY`.
-5. It changes the release notes' Windows row to "Certum (SimplySign)".
+6. It changes the release notes' Windows row to "Certum (SimplySign)" and drops the unsigned notes.
 
 `--no-upload` builds and verifies only.
 
@@ -1033,6 +1069,9 @@ Optional settings:
 - `CHARTMATE_WIN_VERIFY_CAFILE`: the trust store used for verification.
 - `CHARTMATE_OSSLSIGNCODE`, `CHARTMATE_WIN_PKCS11_PROVIDER`, `CHARTMATE_OSSLSIGNCODE_ARCH`, `CHARTMATE_SIGNTOOL`:
   tool locations.
+- `CHARTMATE_WIN_SIGN_PASS_ENV`: names of extra variables, comma-separated, that the signing tool may see.
+  Signing tools get only a minimal environment, so a PKCS#11 module that needs its own configuration variable
+  has to be listed here.
 
 Windows needs SimplySign Desktop, the Windows SDK (`signtool`) and `gh`.
 
