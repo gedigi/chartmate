@@ -110,6 +110,17 @@ describe('useLayout (one global indicator set in the default layout)', () => {
     expect(migrateColorDefaults(l)).toBe(l);
   });
 
+  it('the sticky drawing color survives the one-time color migration and a reload; older layouts have none', async () => {
+    const old = { ...saved, colorDefaultsRev: 0, appearance: { dark: { drawing: { color: '#2962ff', size: 1, style: 'solid' as const } } }, drawingColor: 'palette:3' };
+    expect(migrateColorDefaults(old)).toEqual({ ...saved, colorDefaultsRev: COLOR_DEFAULTS_REV, drawingColor: 'palette:3' });
+    const l = { ...saved, drawingColor: 'up' };
+    vi.mocked(api.layouts.get).mockResolvedValue(l);
+    const { result } = renderHook(() => useLayout());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.layout.drawingColor).toBe('up');
+    expect(DEFAULT_LAYOUT).not.toHaveProperty('drawingColor');
+  });
+
   it('withoutLegacyDefaults: an all-default appearance is dropped; a custom drawing width keeps it with the new accent', () => {
     expect(withoutLegacyDefaults({ ...saved, appearance: { dark: { upColor: '#26a69a' } } })).toEqual(saved);
     expect(withoutLegacyDefaults({ ...saved, appearance: { light: { drawing: { color: '#2962FF', size: 3, style: 'dashed' } } } }))

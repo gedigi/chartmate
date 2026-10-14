@@ -2,10 +2,11 @@ import { MAX_LINE_WIDTH, MIN_LINE_WIDTH, type PositionDefaults } from '@chartmat
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react';
 import { MAX_PRICE_DECIMALS, type ChartAdapter, type SelectedDrawing } from '../chart/ChartAdapter';
 import { LINE_STYLES, parseLineStyle } from '../chart/drawingStyles';
+import { DrawingColorPicker } from './DrawingColorPicker';
 import { DrawingLockToggle } from './LockIcon';
 import { PositionStyleBar, type PositionControls } from './PositionStyleBar';
 
-export type DrawingStyleControls = Pick<ChartAdapter, 'onSelectionChange' | 'setSelectedStyle' | 'setSelectedPrice' | 'setSelectedLabel' | 'setSelectedExtend' | 'onPriceEditRequest' | 'setSelectedLock'>
+export type DrawingStyleControls = Pick<ChartAdapter, 'onSelectionChange' | 'setSelectedStyle' | 'setSelectedPrice' | 'setSelectedLabel' | 'setSelectedExtend' | 'onPriceEditRequest' | 'setSelectedLock' | 'drawingSwatches' | 'resetSelectedColor'>
   & PositionControls;
 
 /** `value` with the symbol precision, or with its own decimals (≤ MAX_PRICE_DECIMALS) when it is finer. */
@@ -89,13 +90,18 @@ const WIDTHS = Array.from({ length: MAX_LINE_WIDTH - MIN_LINE_WIDTH + 1 }, (_, i
 const FONT_SIZES = [10, 12, 14, 16, 18, 20, 22, 24];
 
 /**
- * Floating style bar for the selected drawing: color, width and solid/dashed/dotted for lines; color and font size
+ * Floating style bar for the selected drawing: color (theme palette swatches; the pick becomes the color of new
+ * drawings), width and solid/dashed/dotted for lines; color and font size
  * for text annotations, plus the exact price of horizontal lines, price-label toggles of price / horizontal lines and
  * "Extend left / right" of parallel channels; long / short positions get their own settings bar. Every bar ends with the drawing's own lock toggle; locked drawings (own lock
  * or "Lock all drawings") are read-only except that toggle. Hidden while a drawing is being placed. Changes go through the adapter (overrideOverlay) and are saved with the drawings.
  */
-export function DrawingStyleBar({ controls, onUsePositionDefaults }: {
+export function DrawingStyleBar({ controls, onUsePositionDefaults, onPickColor, onResetColor }: {
   controls: DrawingStyleControls | null;
+  /** A swatch was picked for the selected drawing: it becomes the color of new drawings. */
+  onPickColor?: (token: string) => void;
+  /** "Reset to default" in the color popover: new drawings go back to the default color. */
+  onResetColor?: () => void;
   /** "Use as default" of a long / short position: its target / stop distances (%) become the defaults of new positions. */
   onUsePositionDefaults?: (d: PositionDefaults) => void;
 }): JSX.Element | null {
@@ -115,9 +121,10 @@ export function DrawingStyleBar({ controls, onUsePositionDefaults }: {
   const sizes = sel.kind === 'text' && !FONT_SIZES.includes(sel.style.size) ? [...FONT_SIZES, sel.style.size].sort((a, b) => a - b) : FONT_SIZES;
   return (
     <div className="drawing-style-bar" role="toolbar" aria-label="Drawing style">
-      <input
-        type="color" aria-label="Drawing color" title="Color" value={sel.style.color} disabled={locked}
-        onChange={(e) => controls.setSelectedStyle({ color: e.target.value })}
+      <DrawingColorPicker
+        key={sel.id} value={sel.style.color} swatches={controls.drawingSwatches()} disabled={locked}
+        onPick={(token) => { controls.setSelectedStyle({ color: token }); onPickColor?.(token); }}
+        onReset={() => { controls.resetSelectedColor(); onResetColor?.(); }}
       />
       {sel.kind === 'line' ? (
         <>

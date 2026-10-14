@@ -45,6 +45,13 @@ const fake = vi.hoisted(() => {
     setShiftConstraint = vi.fn();
     onPriceEditRequest = vi.fn(() => () => {});
     setPositionDefaults = vi.fn();
+    setNewDrawingColor = vi.fn();
+    drawingSwatches = vi.fn(() => [
+      { token: 'accent', color: '#7cc4ff', name: 'Sky' }, { token: 'text', color: '#e9ecf4', name: 'White' },
+      { token: 'muted', color: '#8f97ab', name: 'Gray' }, { token: 'up', color: '#3ccfd0', name: 'Up color' },
+      { token: 'down', color: '#e76a88', name: 'Down color' }, { token: 'palette:0', color: '#f2b861', name: 'Gold' },
+    ]);
+    resetSelectedColor = vi.fn();
     setSelectedPositionPrices = vi.fn(() => null);
     constructor() { instances.push(this); }
   }
@@ -359,6 +366,25 @@ describe('ChartView', () => {
     expect(update(LAYOUT)).toEqual({ ...LAYOUT, positionDefaults: { targetPct: 3, stopPct: 1 } });
   });
 
+  it('a picked swatch becomes the layout drawingColor (new drawings use it); "Reset to default" removes it', async () => {
+    const setLayout = vi.fn();
+    const { rerender } = render(<ChartView layout={LAYOUT} setLayout={setLayout} symbolInfo={AAPL} theme="dark" />);
+    await flush();
+    expect(adapter().setNewDrawingColor).toHaveBeenLastCalledWith(undefined);
+    act(() => adapter().selectionCb?.({ id: 'a', kind: 'line', style: { color: 'accent', size: 1, style: 'solid' }, locked: false, ownLock: false }));
+    fireEvent.click(screen.getByRole('button', { name: 'Drawing color' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Gold' }));
+    const pick = setLayout.mock.calls.at(-1)![0] as (l: Layout) => Layout;
+    expect(pick(LAYOUT)).toEqual({ ...LAYOUT, drawingColor: 'palette:0' });
+    rerender(<ChartView layout={{ ...LAYOUT, drawingColor: 'palette:0' }} setLayout={setLayout} symbolInfo={AAPL} theme="dark" />);
+    expect(adapter().setNewDrawingColor).toHaveBeenLastCalledWith('palette:0');
+    fireEvent.click(screen.getByRole('button', { name: 'Drawing color' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }));
+    expect(adapter().resetSelectedColor).toHaveBeenCalledTimes(1);
+    const reset = setLayout.mock.calls.at(-1)![0] as (l: Layout) => Layout;
+    expect(reset({ ...LAYOUT, drawingColor: 'palette:0' })).toEqual(LAYOUT);
+  });
+
   it('passes indicator line widths / styles / bar colors to the adapter', async () => {
     const vol = { name: 'VOL', pane: 'sub' as const, calcParams: [5, 10, 20], visible: true, lineWidths: [2], lineStyles: ['dashed' as const], barColors: { up: '#00ff00', down: '#ff0000' } };
     const { rerenderWith } = renderView({ ...LAYOUT, indicators: [vol] });
@@ -396,10 +422,10 @@ describe('ChartView', () => {
     act(() => adapter().selectionCb!({ id: 'ov_1', kind: 'line', style: { color: '#ff0000', size: 2, style: 'solid' } }));
     const bar = screen.getByRole('toolbar', { name: 'Drawing style' });
     expect(bar).toBeInTheDocument();
-    const color = screen.getByLabelText('Drawing color') as HTMLInputElement;
-    expect(color.value).toBe('#ff0000');
-    act(() => { fireInput(color, '#00ff00'); });
-    expect(adapter().setSelectedStyle).toHaveBeenLastCalledWith({ color: '#00ff00' });
+    fireEvent.click(screen.getByRole('button', { name: 'Drawing color' }));
+    expect(screen.getByRole('option', { name: 'Custom #ff0000' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('option', { name: 'Gold' }));
+    expect(adapter().setSelectedStyle).toHaveBeenLastCalledWith({ color: 'palette:0' });
     act(() => { fireChange(screen.getByLabelText('Line width') as HTMLSelectElement, '4'); });
     expect(adapter().setSelectedStyle).toHaveBeenLastCalledWith({ size: 4 });
     act(() => { fireChange(screen.getByLabelText('Line style') as HTMLSelectElement, 'dashed'); });

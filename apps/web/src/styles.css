@@ -295,7 +295,7 @@ kbd {
 :root[data-shell] .top-bar :is(button, input, select, textarea, a, label, [role='button'], [role='group'], [tabindex]),
 :root[data-shell] .top-bar :is(.tabs, .symbol-search, .timeframe-bar, .top-bar-end),
 :root[data-shell] .top-bar .symbol-label,
-:root[data-shell] :is(.modal-backdrop, .modal, .search-dropdown, .sidebar-resizer) { -webkit-app-region: no-drag; }
+:root[data-shell] :is(.modal-backdrop, .modal, .search-dropdown, .sidebar-resizer, .drawing-style-bar, .color-picker-popover) { -webkit-app-region: no-drag; }
 /* Loading / connection-error screens have no top bar: the whole message area moves the window (button excepted). */
 :root[data-shell] .center-message { -webkit-app-region: drag; }
 :root[data-shell] .center-message :is(button, a, input) { -webkit-app-region: no-drag; }

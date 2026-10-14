@@ -143,6 +143,10 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, onR
   useEffect(() => {
     adapter?.setPositionDefaults(JSON.parse(positionDefaultsJson) ?? undefined);
   }, [adapter, positionDefaultsJson]);
+  // Color of new drawings: the last swatch picked in the style bar (global, like the appearance).
+  useEffect(() => {
+    adapter?.setNewDrawingColor(layout.drawingColor);
+  }, [adapter, layout.drawingColor]);
 
   // Data: (re)load on symbol / timeframe / session change. Without info for the current symbol (loading or
   // failed) the chart is blanked and the previous symbol's loader stops: its data must not sit under the new header.
@@ -290,7 +294,11 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, onR
         <IndicatorChips layout={layout} setLayout={setLayout} theme={theme} />
         <div className="chart-stage">
           <div className="chart-host" ref={hostRef} data-testid="chart-host" />
-          <DrawingStyleBar controls={adapter} onUsePositionDefaults={(positionDefaults) => setLayout((l) => ({ ...l, positionDefaults }))} />
+          <DrawingStyleBar
+            controls={adapter} onUsePositionDefaults={(positionDefaults) => setLayout((l) => ({ ...l, positionDefaults }))}
+            onPickColor={(drawingColor) => setLayout((l) => (l.drawingColor === drawingColor ? l : { ...l, drawingColor }))}
+            onResetColor={() => setLayout(({ drawingColor: _reset, ...l }) => l)}
+          />
           {initError && <div className="center-message chart-init-error" role="alert">Chart failed to start: {initError}</div>}
           {symbolFailed && (
             <div className="center-message chart-error-panel" role="alert" data-testid="symbol-error">
