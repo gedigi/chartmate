@@ -78,7 +78,7 @@ export function defaultLineColors(name: string, theme: ThemeName): string[] {
 
 /**
  * Stored line colors of indicator `name` with earlier default palettes resolved, per line: an entry equal to ITS
- * line's old default (any earlier palette generation, either theme; a slot the line used before, LEGACY_LINE_SLOTS;
+ * line's old default (any earlier palette generation, either theme, at the slot the line had then — LEGACY_LINE_SLOTS;
  * rev 0: KLineChart's colors by line index) becomes
  * today's default for that line in the theme of the palette it came from (rev 0 was the dark-first release); any
  * other entry — including an old palette color on another line, i.e. a swapped / reordered palette — is the user's
@@ -88,14 +88,15 @@ export function migrateLegacyLineColors(name: string, colors: readonly string[])
   let custom = false;
   const out = colors.map((raw, i) => {
     const c = raw.toLowerCase();
-    const slot = catalogEntry(name)?.lineSlots?.[i] ?? i;
-    const generation = LEGACY_INDICATOR_PALETTES.find((p) => p.colors[slot] === c);
+    // The slot(s) this line had in the earlier generations: its current slot, unless it moved (LEGACY_LINE_SLOTS);
+    // a moved line's old slot is matched in today's palette too (its default until the move).
+    const moved = LEGACY_LINE_SLOTS[name]?.[i];
+    const slots = moved ?? [catalogEntry(name)?.lineSlots?.[i] ?? i];
+    const generations = moved
+      ? [...LEGACY_INDICATOR_PALETTES, ...(['dark', 'light'] as const).map((theme) => ({ theme, colors: INDICATOR_PALETTE[theme] }))]
+      : LEGACY_INDICATOR_PALETTES;
+    const generation = generations.find((p) => slots.some((s) => p.colors[s] === c));
     if (generation) return defaultLineColor(i, name, generation.theme);
-    // A slot this line used before (LEGACY_LINE_SLOTS), in any palette generation including today's.
-    const oldSlots = LEGACY_LINE_SLOTS[name]?.[i] ?? [];
-    const moved = [...LEGACY_INDICATOR_PALETTES, ...(['dark', 'light'] as const).map((theme) => ({ theme, colors: INDICATOR_PALETTE[theme] }))]
-      .find((p) => oldSlots.some((s) => p.colors[s] === c));
-    if (moved) return defaultLineColor(i, name, moved.theme);
     const rev0 = name === 'VWAP' && i === 0 ? LEGACY_VWAP_COLOR : LEGACY_KLINE_LINE_COLORS[i % LEGACY_KLINE_LINE_COLORS.length];
     if (c === rev0) return defaultLineColor(i, name, 'dark');
     custom = true;

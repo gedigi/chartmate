@@ -196,6 +196,10 @@ describe('useLayout (one global indicator set in the default layout)', () => {
     expect(migrateColorDefaults(rev4(['#3fc8e4'])).colorDefaultsRev).toBe(5);
     // Older palettes at VWAP's old slot too (rev 2 dark cyan).
     expect(migrateColorDefaults({ ...rev4(['#00b3c2']), colorDefaultsRev: 2 }).indicators).toEqual([vwap()]);
+    // Old generations only match at the slot VWAP used then: an old pink pick (rev 1 / rev 2 slot 5, today's VWAP slot)
+    // was never VWAP's default and is kept.
+    expect(migrateColorDefaults({ ...rev4(['#f631aa']), colorDefaultsRev: 2 }).indicators).toEqual([vwap(['#f631aa'])]);
+    expect(migrateColorDefaults({ ...rev4(['#d55181']), colorDefaultsRev: 1 }).indicators).toEqual([vwap(['#d55181'])]);
     // A user pick — including another palette color — is kept.
     expect(migrateColorDefaults(rev4(['#123456'])).indicators).toEqual([vwap(['#123456'])]);
     expect(migrateColorDefaults(rev4(['#f2b861'])).indicators).toEqual([vwap(['#f2b861'])]);
