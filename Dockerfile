@@ -2,7 +2,7 @@
 # Chartmate server + web UI. Multi-arch (linux/amd64, linux/arm64): the build stage runs on the build host's
 # platform (its output is plain JavaScript plus better-sqlite3's bundled prebuilds), only the runtime stage is
 # per-target. The base image is pinned by digest (same in both stages); Dependabot keeps it current.
-FROM --platform=$BUILDPLATFORM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS build
+FROM --platform=$BUILDPLATFORM node:26-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567 AS build
 WORKDIR /repo
 RUN corepack enable
 # Manifests + lockfile first so the dependency layer is cached until they change.
@@ -28,7 +28,7 @@ RUN set -eu; \
       test -f "$pkg/prebuilds/linux-$arch.node"; \
     done
 
-FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS runtime
+FROM node:26-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567 AS runtime
 LABEL org.opencontainers.image.title="Chartmate" \
       org.opencontainers.image.description="Self-hosted charting app for stocks, crypto and custom baskets (server + web UI)" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
