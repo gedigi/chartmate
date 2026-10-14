@@ -355,6 +355,15 @@ bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting
   channel to keep it perfectly horizontal: every point takes the anchor's price (the first point while drawing,
   the fixed end while dragging one end), rounded to the symbol's price precision. A channel's width point stays
   free. Combined with ⌘/Ctrl, the snap picks the anchor price and Shift keeps the line flat.
+- **Measure (Shift)**: with no drawing tool active, hold **Shift** and drag on the price pane to measure from
+  the press to the cursor: a box tinted in the up color (end price at or above the start) or the down color,
+  with the price change and percent, the number of bars and the time span (e.g. "12 bars, 3d 4h"), and the
+  volume over those bars when the symbol has volume. **Shift**-click without dragging starts a measure whose end
+  follows the mouse until the next click. It stays until the next click without Shift, **Escape**, the next
+  measure, a new drawing tool or a symbol / timeframe change. Points snap like drawings (the magnet, or ⌘ / Ctrl
+  held). Bars are the chart's actual bars (sessions, weekends and baskets included); the span is calendar time.
+  A measure is never a drawing: it is not saved, copied, locked or counted, and Clear all leaves it alone.
+  Shift on a drawing still drags it (kept horizontal), and indicator panes and the axes ignore it.
 - **Exact price**: selecting a horizontal line or price line shows a **Price** field in the style bar
   (double-clicking the line focuses it). Type a price (the symbol's precision, or up to 8 decimals) and press
   Enter or leave the field to move the line there; Escape reverts; invalid prices show an error; locked
