@@ -14,13 +14,13 @@ const CERTUM_TIMESTAMP_URL = 'http://time.certum.pl';
 
 /**
  * Certum (SimplySign) cloud certificate. The key never leaves Certum's HSM; one of three backends reaches it:
- * - `ci-login`: CI logs SimplySign Desktop in with CERTUM_USERNAME + CERTUM_OTP_URI (scripts/certum/login.ps1),
- *   which then exports CHARTMATE_WIN_CERT_SHA1 for the `signtool` backend.
+ * - `ci-login`: CI logs SimplySign Desktop in with CHARTMATE_CERTUM_USERNAME + CHARTMATE_CERTUM_OTP_URI
+ *   (scripts/certum/login.ps1), which then exports CHARTMATE_WIN_CERT_SHA1 for the `signtool` backend.
  * - `signtool`: Windows, SimplySign Desktop already logged in; signtool selects the certificate by thumbprint.
  * - `pkcs11`: macOS/Linux, osslsigncode + the PKCS#11 module of SimplySign Desktop (or any SimplySign module).
  * CHARTMATE_WIN_PUBLISHER_NAME (the certificate subject CN) is required: electron-updater pins it.
  */
-const CERTUM_CI_KEYS = ['CERTUM_USERNAME', 'CERTUM_OTP_URI'];
+const CERTUM_CI_KEYS = ['CHARTMATE_CERTUM_USERNAME', 'CHARTMATE_CERTUM_OTP_URI'];
 const CERTUM_KEYS = [...CERTUM_CI_KEYS, 'CHARTMATE_WIN_CERT_SHA1', 'CHARTMATE_WIN_PKCS11_MODULE'];
 const CERTUM_METHOD = 'Certum (SimplySign)';
 

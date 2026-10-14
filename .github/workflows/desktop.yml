@@ -5,7 +5,9 @@ name: Desktop
 # Job layout (least privilege):
 #   test         — typecheck + tests; no secrets, read-only token.
 #   package-mac  — build/sign/notarize on macOS; Apple secrets exist ONLY in the env of the packaging step.
-#   package-win  — build/sign on Windows; Azure/WIN_CSC secrets exist ONLY in the env of the packaging step.
+#   package-win  — build/sign on Windows; Azure/Certum/WIN_CSC secrets exist ONLY in the env of the packaging step.
+#                  Certum (SimplySign) login secrets are passed only on tag builds (each signature counts against
+#                  the certificate's monthly quota, and the TOTP seed is a long-lived credential).
 #   release      — tags only: creates the GitHub Release for the tag and attaches the artifacts (contents: write).
 # Builds without signing secrets are unsigned (allowed); unsigned builds contain no auto-updater at all.
 # The repository is never hardcoded: everything uses github.repository / GITHUB_REPOSITORY.
@@ -131,11 +133,33 @@ jobs:
           AZURE_PUBLISHER_NAME: ${{ secrets.AZURE_PUBLISHER_NAME }}
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          # Certum SimplySign cloud certificate (scripts/certum/login.ps1 + build/win-sign.cjs).
+          CHARTMATE_CERTUM_USERNAME: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.CHARTMATE_CERTUM_USERNAME || '' }}
+          CHARTMATE_CERTUM_OTP_URI: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.CHARTMATE_CERTUM_OTP_URI || '' }}
+          CHARTMATE_WIN_PUBLISHER_NAME: ${{ vars.CHARTMATE_WIN_PUBLISHER_NAME }}
+          CHARTMATE_CERTUM_SIMPLYSIGN_VERSION: ${{ vars.CHARTMATE_CERTUM_SIMPLYSIGN_VERSION }}
+          CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256: ${{ vars.CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256 }}
           CHARTMATE_PUBLISH: github
         run: |
+          set -euo pipefail
           node scripts/bundle.mjs --platform=win32
+          certum="$(node -p "require('./build/signing.cjs').signingFor(process.env, 'win32').certum")"
+          if [ "$certum" = ci-login ]; then
+            pwsh -NoProfile -NonInteractive -File scripts/certum/login.ps1 -OutFile "$RUNNER_TEMP/certum-thumbprint"
+            CHARTMATE_WIN_CERT_SHA1="$(cat "$RUNNER_TEMP/certum-thumbprint")"
+            export CHARTMATE_WIN_CERT_SHA1
+            export CHARTMATE_WIN_SIGN_LOG="$RUNNER_TEMP/certum-sign-log.jsonl"
+          fi
           pnpm exec electron-builder --config electron-builder.config.cjs --win --publish never
+          if [ "$certum" != null ]; then
+            # Every installer, uninstaller and chartmate.exe signed by the publisher and timestamped; latest.yml matches.
+            node scripts/verify-win-signatures.mjs release ${CHARTMATE_WIN_SIGN_LOG:+--sign-log="$CHARTMATE_WIN_SIGN_LOG"}
+          fi
           echo "signing=$(node -p "require('./build/signing.cjs').signingFor(process.env, 'win32').method")" >> "$GITHUB_OUTPUT"
+      - name: Close SimplySign Desktop
+        if: always()
+        shell: pwsh
+        run: Get-Process SimplySignDesktop -ErrorAction SilentlyContinue | Stop-Process -Force
       - name: Smoke test (shipped x64 exe + TEST-ONLY inspectable copy)
         timeout-minutes: 15
         working-directory: apps/desktop

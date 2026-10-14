@@ -44,7 +44,7 @@ describe('signingFor: Certum (SimplySign)', () => {
   const thumb = 'ab'.repeat(20);
 
   it('CI login (username + otpauth URI) signs, as "Certum (SimplySign)"', () => {
-    const s = signingFor({ ...pub, CERTUM_USERNAME: 'me@example.com', CERTUM_OTP_URI: 'otpauth://totp/x?secret=ABC' }, 'win32');
+    const s = signingFor({ ...pub, CHARTMATE_CERTUM_USERNAME: 'me@example.com', CHARTMATE_CERTUM_OTP_URI: 'otpauth://totp/x?secret=ABC' }, 'win32');
     expect(s).toMatchObject({ signed: true, certum: 'ci-login', azure: false, method: 'Certum (SimplySign)' });
   });
 
@@ -55,13 +55,13 @@ describe('signingFor: Certum (SimplySign)', () => {
   });
 
   it('the publisher name is required: a Certum credential without it fails instead of building unsigned', () => {
-    expect(() => signingFor({ CERTUM_USERNAME: 'me', CERTUM_OTP_URI: 'otpauth://x' }, 'win32')).toThrow(/CHARTMATE_WIN_PUBLISHER_NAME/);
+    expect(() => signingFor({ CHARTMATE_CERTUM_USERNAME: 'me', CHARTMATE_CERTUM_OTP_URI: 'otpauth://x' }, 'win32')).toThrow(/CHARTMATE_WIN_PUBLISHER_NAME/);
     expect(() => signingFor({ CHARTMATE_WIN_CERT_SHA1: thumb, CHARTMATE_WIN_PUBLISHER_NAME: ' ' }, 'win32')).toThrow(/PUBLISHER_NAME/);
   });
 
   it('half of the CI login pair fails loudly', () => {
-    expect(() => signingFor({ ...pub, CERTUM_USERNAME: 'me' }, 'win32')).toThrow(/CERTUM_USERNAME and CERTUM_OTP_URI/);
-    expect(() => signingFor({ ...pub, CERTUM_OTP_URI: 'otpauth://x' }, 'win32')).toThrow(/CERTUM_USERNAME and CERTUM_OTP_URI/);
+    expect(() => signingFor({ ...pub, CHARTMATE_CERTUM_USERNAME: 'me' }, 'win32')).toThrow(/CHARTMATE_CERTUM_USERNAME and CHARTMATE_CERTUM_OTP_URI/);
+    expect(() => signingFor({ ...pub, CHARTMATE_CERTUM_OTP_URI: 'otpauth://x' }, 'win32')).toThrow(/CHARTMATE_CERTUM_USERNAME and CHARTMATE_CERTUM_OTP_URI/);
   });
 
   it('a publisher name alone (certificate not set up yet) stays unsigned', () => {

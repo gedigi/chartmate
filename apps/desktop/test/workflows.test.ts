@@ -8,7 +8,7 @@ const yaml = require('js-yaml') as { load(s: string): any };
 const read = (f: string) => readFileSync(new URL(`../../../.github/workflows/${f}`, import.meta.url), 'utf8');
 const files = ['ci.yml', 'desktop.yml'];
 
-type Step = { uses?: string; with?: Record<string, unknown>; env?: Record<string, string>; name?: string; run?: string };
+type Step = { uses?: string; with?: Record<string, unknown>; env?: Record<string, string>; name?: string; run?: string; if?: string };
 
 describe.each(files)('%s', (file) => {
   const text = read(file);
@@ -82,6 +82,44 @@ describe('desktop.yml secret scoping and release', () => {
     expect(run).toMatch(/--prerelease/);
     expect(run).toContain('*-*) prerelease=(--prerelease)'); // only suffixed tags (v1.2.3-beta.1) are pre-releases
     expect(run).toMatch(/unsigned/i);
+  });
+  it('Certum (SimplySign): login secrets only in the Windows packaging step, and only on tag builds', () => {
+    const steps = wf.jobs['package-win'].steps as Step[];
+    const holders = (key: string) => steps.filter((s) => s.env && key in s.env);
+    for (const key of ['CHARTMATE_CERTUM_USERNAME', 'CHARTMATE_CERTUM_OTP_URI']) {
+      expect(holders(key).map((s) => s.name), key).toEqual(['Bundle, package, sign (Windows)']);
+      expect(holders(key)[0]!.env![key]).toBe(`\${{ startsWith(github.ref, 'refs/tags/v') && secrets.${key} || '' }}`);
+    }
+    for (const job of Object.keys(wf.jobs).filter((j) => j !== 'package-win')) expect(secretsOf(job).join(' '), job).not.toMatch(/CERTUM/);
+    const pkg = holders('CHARTMATE_CERTUM_OTP_URI')[0]!;
+    // The publisher name is not secret (a variable, so logs and notes are not masked) and is always present.
+    expect(pkg.env!.CHARTMATE_WIN_PUBLISHER_NAME).toBe('${{ vars.CHARTMATE_WIN_PUBLISHER_NAME }}');
+  });
+  it('Certum: CI logs in before packaging, then verifies every signature, latest.yml and the sign log', () => {
+    const steps = wf.jobs['package-win'].steps as Step[];
+    const run = steps.find((s) => s.name === 'Bundle, package, sign (Windows)')!.run!;
+    const login = run.indexOf('scripts/certum/login.ps1');
+    const build = run.indexOf('electron-builder --config');
+    const verify = run.indexOf('scripts/verify-win-signatures.mjs release');
+    expect(login).toBeGreaterThan(0);
+    expect(build).toBeGreaterThan(login);
+    expect(verify).toBeGreaterThan(build);
+    expect(run).toMatch(/\[ "\$certum" = ci-login \]/);
+    expect(run).toContain('export CHARTMATE_WIN_CERT_SHA1');
+    expect(run).toContain('--sign-log=');
+    expect(run).toMatch(/set -euo pipefail/);
+    // SimplySign Desktop is closed whatever happened, in a step that holds no secrets.
+    const close = steps.find((s) => s.name === 'Close SimplySign Desktop')!;
+    expect(close).toMatchObject({ if: 'always()' });
+    expect(close.env).toBeUndefined();
+  });
+  it('the release notes report the Windows signing method computed by build/signing.cjs', () => {
+    expect(wf.jobs['package-win'].outputs.signing).toBe('${{ steps.package.outputs.signing }}');
+    const step = (wf.jobs.release.steps as Step[]).find((s) => /Create the GitHub Release/.test(s.name ?? ''))!;
+    expect(step.env!.WIN_SIGNING).toBe('${{ needs.package-win.outputs.signing }}');
+    expect(step.run).toContain('| Windows (x64, arm64) | ${WIN_SIGNING} |');
+    const pkgRun = (wf.jobs['package-win'].steps as Step[]).find((s) => s.name === 'Bundle, package, sign (Windows)')!.run!;
+    expect(pkgRun).toContain(`signingFor(process.env, 'win32').method`);
   });
   it('both OS jobs smoke-test the shipped build with the expected signing state', () => {
     for (const job of ['package-mac', 'package-win']) {
