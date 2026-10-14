@@ -254,4 +254,23 @@ describe('App', () => {
       vi.useRealTimers();
     }
   });
+  it('resizes the watchlist sidebar with its separator and keeps the width when it is hidden and shown again', async () => {
+    vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+    const { container } = render(<App />);
+    await screen.findByTestId('chart-view');
+    const shell = container.querySelector('.app-shell') as HTMLElement;
+    const sep = screen.getByRole('separator', { name: 'Resize watchlist' });
+    expect(shell.style.getPropertyValue('--sidebar-w')).toBe('320px');
+    sep.focus();
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(shell.style.getPropertyValue('--sidebar-w')).toBe('336px');
+    expect(localStorage.getItem('chartmate.sidebar.width')).toBe('336');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Toggle watchlist' }));
+    expect(screen.queryByRole('separator', { name: 'Resize watchlist' })).not.toBeInTheDocument();
+    expect(shell).toHaveClass('sidebar-collapsed');
+    await userEvent.click(screen.getByRole('button', { name: 'Toggle watchlist' }));
+    expect(screen.getByRole('separator', { name: 'Resize watchlist' })).toHaveAttribute('aria-valuenow', '336');
+    localStorage.clear();
+  });
 });

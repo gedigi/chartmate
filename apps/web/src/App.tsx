@@ -1,16 +1,18 @@
 import { parseSymbolId, type SymbolId, type SymbolInfo } from '@chartmate/shared';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type JSX } from 'react';
 import { api, errorMessage, setUnauthorizedHandler } from './api/client';
 import { BasketsPage } from './components/BasketsPage';
 import { ChartView } from './components/ChartView';
 import { Login } from './components/Login';
 import { TopBar, type Theme, type View } from './components/TopBar';
+import { SidebarResizer } from './components/SidebarResizer';
 import { SymbolDetails } from './components/SymbolDetails';
 import { Watchlist } from './components/Watchlist';
 import { syncShellThemeColor } from './desktopShell';
 import { onBasketChanged } from './state/useBaskets';
 import { useLayout } from './state/useLayout';
 import { retryDelayMs } from './state/retry';
+import { useSidebarWidth } from './state/sidebarWidth';
 import { readStored, writeStored } from './state/storage';
 
 /** Stored as `chartmate.theme` (see state/storage.ts; public/theme-init.js reads the same key before first paint). */
@@ -122,6 +124,7 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
   const { layout, setLayout, selectSymbol: selectLayoutSymbol, loaded, loadError, retry: retryLayout, saveError: layoutSaveError } = useLayout();
   const [view, setView] = useHashView();
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= SIDEBAR_BREAKPOINT);
+  const sidebar = useSidebarWidth();
   const { state: symbolInfoState, retry: retrySymbolInfo } = useSymbolInfo(layout.symbol);
   const symbolInfo = symbolInfoState.status === 'ready' ? symbolInfoState.info : null;
   const symbolError = symbolInfoState.status === 'error' ? symbolInfoState.message : null;
@@ -139,7 +142,8 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
   const layoutBlocked = !loaded && loadError !== null;
 
   return (
-    <div className={`app-shell view-${view}${sidebarOpen && view === 'chart' ? '' : ' sidebar-collapsed'}`}>
+    <div className={`app-shell view-${view}${sidebarOpen && view === 'chart' ? '' : ' sidebar-collapsed'}`}
+      style={{ '--sidebar-w': `${sidebar.width}px` } as CSSProperties}>
       <TopBar
         view={view}
         onView={setView}
@@ -174,10 +178,14 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
             {!loaded && !layoutBlocked && <div className="center-message">Loading layout…</div>}
           </main>
           {sidebarOpen && !layoutBlocked && (
-            <aside className="right-sidebar">
-              <Watchlist currentSymbol={layout.symbol} onSelect={selectSymbol} />
-              {loaded && <SymbolDetails symbol={layout.symbol} info={symbolInfo} />}
-            </aside>
+            <>
+              <SidebarResizer width={sidebar.width} min={sidebar.min} max={sidebar.max}
+                onPreview={sidebar.preview} onCommit={sidebar.commit} onReset={sidebar.reset} />
+              <aside className="right-sidebar" id="right-sidebar">
+                <Watchlist currentSymbol={layout.symbol} onSelect={selectSymbol} />
+                {loaded && <SymbolDetails symbol={layout.symbol} info={symbolInfo} />}
+              </aside>
+            </>
           )}
         </>
       ) : (

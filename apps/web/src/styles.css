@@ -229,6 +229,7 @@ kbd {
 .app-shell.view-baskets .baskets-main { grid-column: 1 / -1; overflow: auto; }
 .right-sidebar {
   grid-area: side;
+  container: sidebar / inline-size;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -238,6 +239,37 @@ kbd {
   border-radius: var(--radius-sheet);
   overflow: hidden;
 }
+
+/*
+ * The sidebar's resize handle fills the gutter between the chart and the sidebar (the side area's left margin). It is
+ * invisible until hovered: then a hairline sits in the middle of the gap, accent while dragging, ring on keyboard focus.
+ */
+.sidebar-resizer {
+  grid-area: side;
+  justify-self: start;
+  position: relative;
+  z-index: 2;
+  width: var(--gutter);
+  margin-bottom: var(--gutter);
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.sidebar-resizer::after {
+  content: '';
+  position: absolute;
+  top: var(--radius-sheet);
+  bottom: var(--radius-sheet);
+  left: calc(50% - 1px);
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background-color 120ms var(--ease);
+}
+.sidebar-resizer:hover::after { background: var(--border-strong); transition-delay: 80ms; }
+.sidebar-resizer[data-dragging]::after, .sidebar-resizer:active::after { background: var(--accent); transition-delay: 0s; }
+.sidebar-resizer:focus-visible::after { top: 0; bottom: 0; background: var(--focus-ring); transition-delay: 0s; }
+@media (prefers-reduced-motion: reduce) { .sidebar-resizer::after { transition: none; } }
 
 .top-bar {
   display: flex;
@@ -263,7 +295,7 @@ kbd {
 :root[data-shell] .top-bar :is(button, input, select, textarea, a, label, [role='button'], [role='group'], [tabindex]),
 :root[data-shell] .top-bar :is(.tabs, .symbol-search, .timeframe-bar, .top-bar-end),
 :root[data-shell] .top-bar .symbol-label,
-:root[data-shell] :is(.modal-backdrop, .modal, .search-dropdown) { -webkit-app-region: no-drag; }
+:root[data-shell] :is(.modal-backdrop, .modal, .search-dropdown, .sidebar-resizer) { -webkit-app-region: no-drag; }
 /* Loading / connection-error screens have no top bar: the whole message area moves the window (button excepted). */
 :root[data-shell] .center-message { -webkit-app-region: drag; }
 :root[data-shell] .center-message :is(button, a, input) { -webkit-app-region: no-drag; }
