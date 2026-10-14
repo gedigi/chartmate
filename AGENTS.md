@@ -162,6 +162,16 @@ The renderer is untrusted web content. Read the README's "Security model" before
   QEMU), then pushes the multi-arch self-hosting image (`linux/amd64`, `linux/arm64`) to
   `ghcr.io/<owner>/<repo>` (from `github.repository`, lowercased) as `X.Y.Z`, `X.Y`, `X` and `latest`
   (pre-releases: `X.Y.Z-suffix` only), with provenance and SBOM attestations. Manual dispatch never publishes. `compose.yaml` + `.env.example` at the root are the documented way to run it.
+- Windows signing uses a Certum SimplySign cloud certificate (README, "Windows signing with Certum"):
+  - `build/signing.cjs` picks the method.
+  - `build/win-sign.cjs` is electron-builder's sign hook. It signs `chartmate.exe`, the uninstaller and the
+    installer, using signtool by thumbprint or osslsigncode + PKCS#11.
+  - CI logs in with `scripts/certum/login.ps1` on tag builds only. `scripts/verify-win-signatures.mjs` gates the
+    result.
+  - `CHARTMATE_WIN_PUBLISHER_NAME` (the certificate CN) is required, because electron-updater pins it.
+- If CI cannot log in, the owner runs `pnpm --filter @chartmate/desktop sign:win` from a checkout of the tag. It
+  rebuilds, signs, verifies and replaces the Windows assets of that release. Changes to the signing hook, the
+  login script or the secret scoping are security changes.
 - `.github/workflows/ci.yml` runs `pnpm audit`, typecheck, tests, the web build, e2e and the Docker build on
   pull requests and pushes to `main`; the release workflow audits too. Dependabot (`.github/dependabot.yml`)
   opens weekly update PRs for npm packages, the pinned actions and the digest-pinned Docker base image.

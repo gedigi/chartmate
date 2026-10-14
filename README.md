@@ -914,9 +914,13 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
   - Notarization: also set `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`.
   - The hardened runtime is on. The only entitlement is `com.apple.security.cs.allow-jit`, which V8 needs. Because
     there are no native modules, there is no `disable-library-validation`.
-- **Windows**: use Azure Trusted Signing (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`,
-  `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT`, `AZURE_TRUSTED_SIGNING_PROFILE`,
-  `AZURE_PUBLISHER_NAME`) or a certificate (`WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`).
+- **Windows**: one of these (checked in this order):
+  - Azure Trusted Signing: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`,
+    `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT`, `AZURE_TRUSTED_SIGNING_PROFILE`,
+    `AZURE_PUBLISHER_NAME`.
+  - A Certum SimplySign cloud certificate, see [Windows signing with Certum](#windows-signing-with-certum).
+  - A `.p12` certificate: `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`. Certificates issued today keep their key in
+    hardware or a cloud HSM, so this only fits older certificates.
 - **Auto-update** (`electron-updater`, GitHub provider) is **off by default**.
   - **Unsigned builds**: the updater is compiled out entirely, whatever `product.json` says. There is no
     `updater.cjs` in the package and no updater code path in `main.cjs`.
@@ -931,6 +935,106 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
       requirement. This is also the only case that opens a listener (the loopback exception described under
       "How it works").
   - **Network**: the updater's own session may reach only the GitHub hosts.
+
+#### Windows signing with Certum
+
+A Certum cloud certificate keeps its key in Certum's HSM. SimplySign Desktop exposes it while it is logged in,
+and you log it in with a one-time code from the SimplySign phone app. Each Windows build is signed in three
+places, each with SHA-256 and a Certum timestamp (`http://time.certum.pl`): `chartmate.exe`, the uninstaller and
+the installer. `latest.yml` and the blockmaps are computed from the signed files.
+
+**1. Buy and activate (once a year).**
+
+- Buy **Open Source Code Signing in the Cloud** from Certum. Chartmate is AGPL, and the certificate names you as
+  "Open Source Developer, *your name*". If you don't qualify, buy **Standard Code Signing in the Cloud**. Do not
+  buy a card-and-reader bundle.
+- Since March 2026 a code-signing certificate lasts at most 460 days, and its key must stay in hardware or a
+  cloud HSM. Renew every year. The open-source certificate allows 5,000 signatures a month, and a release uses
+  about 10.
+- After identity verification, install the SimplySign app on your phone and activate it from the QR code Certum
+  sends you. The QR code holds an `otpauth://totp/…` URI. If you want CI to sign (step 2), also add the QR code to
+  your password manager and copy that URI.
+- Install SimplySign Desktop: Windows, or `brew install --cask simplysign` on macOS (Intel only; it needs Rosetta).
+  Log in with your e-mail and a code from the phone app, then finish Certum's activation. The certificate's
+  subject CN (for example `Open Source Developer, Jane Doe`) is your **publisher name**. Copy it exactly and keep
+  it the same across renewals: installed copies accept updates only from that name.
+
+**2. CI signing (`desktop.yml`, tag builds only).** Configure the repository:
+
+| Name | Kind | Value |
+|---|---|---|
+| `CHARTMATE_CERTUM_USERNAME` | secret | SimplySign account e-mail |
+| `CHARTMATE_CERTUM_OTP_URI` | secret | the `otpauth://totp/…` URI from the activation QR code |
+| `CHARTMATE_WIN_PUBLISHER_NAME` | variable | the certificate subject CN |
+| `CHARTMATE_CERTUM_SIMPLYSIGN_VERSION` | variable, optional | SimplySign Desktop for Windows version to install (default `9.4.4.92`) |
+| `CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256` | variable, optional | pins that installer's SHA-256 |
+
+The Windows packaging step then runs `scripts/certum/login.ps1`:
+
+1. It installs SimplySign Desktop, and refuses an installer that is not validly signed by Asseco Data Systems.
+2. It types your e-mail and a code computed from the seed into the login window. It makes at most two attempts,
+   so a bad code cannot lock the account.
+3. It waits for the certificate to appear in the user's certificate store.
+
+`build/win-sign.cjs` then signs with `signtool /sha1 <thumbprint>`. Finally `scripts/verify-win-signatures.mjs`
+checks every signature, the uninstallers (from the hook's log), `latest.yml` and the blockmaps.
+
+Limitations:
+
+- SimplySign Desktop has no command-line login, so CI drives its window with keystrokes. A SimplySign update
+  can break that.
+- Certum also rejects outdated clients at login. If that happens, raise `CHARTMATE_CERTUM_SIMPLYSIGN_VERSION`.
+- The seed is a long-lived credential: anyone holding it and your e-mail can sign as you. If it leaks, re-issue
+  the QR code in SimplySign.
+- To check the seed, run
+  `read -s CHARTMATE_CERTUM_OTP_URI && export CHARTMATE_CERTUM_OTP_URI && node apps/desktop/scripts/certum/totp.mjs`.
+  It must print the same code as the phone app. If it differs, set `CHARTMATE_CERTUM_TOTP_ALGORITHM` (`SHA256`
+  or `SHA1`) to match.
+
+**3. Manual signing (fallback, no seed stored anywhere).** After CI has published a tag, possibly with an unsigned
+Windows build, run this on your Mac or a Windows PC:
+
+```sh
+git checkout vX.Y.Z && pnpm install --frozen-lockfile --ignore-scripts
+# SimplySign Desktop: connect, then type the code from the phone app
+export CHARTMATE_WIN_PUBLISHER_NAME='Open Source Developer, Jane Doe'
+export CHARTMATE_WIN_PKCS11_MODULE=/usr/local/lib/libSimplySignPKCS.dylib   # macOS
+# export CHARTMATE_WIN_CERT_SHA1=<thumbprint>                               # Windows instead (certmgr.msc)
+pnpm --filter @chartmate/desktop sign:win
+```
+
+`sign:win` does the following:
+
+1. It asks for the card PIN, if your setup has one. The PIN stays in memory.
+2. It rebuilds the Windows app for the tag. CI's installers cannot be re-signed in place, because the app and the
+   uninstaller are inside them.
+3. It signs, then verifies everything.
+4. It shows the files and asks before replacing them on the GitHub Release with `gh release upload --clobber`.
+   The repository comes from `gh` or `GITHUB_REPOSITORY`.
+5. It changes the release notes' Windows row to "Certum (SimplySign)".
+
+`--no-upload` builds and verifies only.
+
+macOS needs these tools:
+
+- Rosetta (`softwareupdate --install-rosetta`). SimplySign Desktop and electron-builder's NSIS compiler are
+  Intel-only.
+- `gh`, logged in.
+- `osslsigncode` and `libp11` from Homebrew.
+- If `lipo -archs /usr/local/lib/libSimplySignPKCS.dylib` shows no `arm64`, the signing tools have to be Intel
+  builds as well. Install Homebrew under `/usr/local` with `arch -x86_64`, then run
+  `arch -x86_64 /usr/local/bin/brew install osslsigncode libp11`. The hook runs them under Rosetta automatically.
+
+Optional settings:
+
+- `CHARTMATE_WIN_PKCS11_CERT` and `CHARTMATE_WIN_PKCS11_KEY`: PKCS#11 URIs for when the token holds more than one
+  certificate. List the objects with `pkcs11-tool --module <module> -O`.
+- `CHARTMATE_WIN_CERT_CHAIN`: a PEM of Certum's intermediate CA to embed.
+- `CHARTMATE_WIN_VERIFY_CAFILE`: the trust store used for verification.
+- `CHARTMATE_OSSLSIGNCODE`, `CHARTMATE_WIN_PKCS11_PROVIDER`, `CHARTMATE_OSSLSIGNCODE_ARCH`, `CHARTMATE_SIGNTOOL`:
+  tool locations.
+
+Windows needs SimplySign Desktop, the Windows SDK (`signtool`) and `gh`.
 
 ### Renaming the product
 
