@@ -41,7 +41,7 @@ services:
   postgres:
     profiles: [postgres]
     # Pinned by digest; Dependabot (docker-compose ecosystem) keeps it current.
-    image: postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
+    image: postgres:18-bookworm@sha256:afc7e2d441324c0388fa80c3d24f733b4194a4eb7f47dd8ee2b08eb1a24a647c
     restart: unless-stopped
     environment:
       POSTGRES_USER: chartmate
