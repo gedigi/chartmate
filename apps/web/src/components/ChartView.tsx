@@ -1,5 +1,5 @@
 import { isIntraday, parseSymbolId, type DrawingState, type IndicatorState, type Layout, type SymbolId, type SymbolInfo } from '@chartmate/shared';
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { memo, useEffect, useRef, useState, type JSX } from 'react';
 import { api, errorMessage } from '../api/client';
 import { ChartAdapter, type IndicatorSpec } from '../chart/ChartAdapter';
 import { migrateCalcParams } from '../chart/indicators/catalog';
@@ -84,7 +84,7 @@ const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringif
  * stale badge, etc.). The root fills its grid cell; `.chart-view` is itself a 2-column grid.
  * One ChartAdapter lives for the component's lifetime and is driven from `layout`.
  */
-export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, onRetrySymbol, theme }: ChartViewProps): JSX.Element {
+function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, onRetrySymbol, theme }: ChartViewProps): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
   const [adapter, setAdapter] = useState<ChartAdapter | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
@@ -335,3 +335,6 @@ export function ChartView({ layout, setLayout, symbolInfo, symbolError = null, o
     </div>
   );
 }
+
+/** Memoized: resizing the sidebar re-renders the shell, not this. */
+export const ChartView = memo(ChartViewPanel);

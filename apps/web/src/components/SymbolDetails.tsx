@@ -1,5 +1,5 @@
 import type { Bar, SymbolId, SymbolInfo } from '@chartmate/shared';
-import { useEffect, useState, useSyncExternalStore, type JSX } from 'react';
+import { memo, useEffect, useState, useSyncExternalStore, type JSX } from 'react';
 import { api } from '../api/client';
 import { cachedQuote, lastQuote, publishQuotes, subscribeQuotes } from '../state/quoteStore';
 import { compactNumber, MARKET_STATUS_LABEL, marketStatus, symbolStats } from '../state/symbolStats';
@@ -28,7 +28,7 @@ type BarsState = { symbol: SymbolId; status: 'ready'; bars: Bar[] } | { symbol: 
  * low. Everything comes from the existing daily bars and quote endpoints: the quote is the watchlist's when it has
  * a fresh one (shared quote store), else polled here; polling pauses while the page is hidden.
  */
-export function SymbolDetails({ symbol, info }: SymbolDetailsProps): JSX.Element | null {
+function SymbolDetailsPanel({ symbol, info }: SymbolDetailsProps): JSX.Element | null {
   const [bars, setBars] = useState<BarsState | null>(null);
   const [reload, setReload] = useState(0);
   const [now, setNow] = useState(() => Date.now());
@@ -127,3 +127,6 @@ export function SymbolDetails({ symbol, info }: SymbolDetailsProps): JSX.Element
     </section>
   );
 }
+
+/** Memoized: resizing the sidebar re-renders the shell, not this. */
+export const SymbolDetails = memo(SymbolDetailsPanel);

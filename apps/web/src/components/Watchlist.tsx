@@ -1,5 +1,5 @@
 import { MAX_SECTION_TITLE, MAX_WATCHLIST_SECTIONS, type Quote, type QuoteExt, type SymbolId, type SymbolInfo, type WatchlistSection } from '@chartmate/shared';
-import { useEffect, useId, useRef, useState, type CSSProperties, type DragEvent, type JSX, type KeyboardEvent } from 'react';
+import { memo, useEffect, useId, useRef, useState, type CSSProperties, type DragEvent, type JSX, type KeyboardEvent } from 'react';
 import { api } from '../api/client';
 import { publishQuotes } from '../state/quoteStore';
 import { retryDelayMs } from '../state/retry';
@@ -70,11 +70,11 @@ const SPARK_GROW_FROM = 380;
 
 /**
  * Sparkline width for a rail `railWidth` px wide: compact up to the default width, then growing with a share of the
- * extra room (in even steps, capped) so a wide rail fills with chart instead of a gap. Narrow rails hide it in CSS.
+ * extra room (in 8 px steps, so a live resize rarely re-renders the rows; capped) so a wide rail fills with chart instead of a gap. Narrow rails hide it in CSS.
  */
 export function watchlistSparkWidth(railWidth: number): number {
   if (!(railWidth > SPARK_GROW_FROM)) return SPARK_WIDTH;
-  const w = SPARK_WIDTH + Math.round(((railWidth - SPARK_GROW_FROM) * 0.3) / 2) * 2;
+  const w = SPARK_WIDTH + Math.round(((railWidth - SPARK_GROW_FROM) * 0.3) / 8) * 8;
   return Math.min(SPARK_MAX_WIDTH, w);
 }
 
@@ -82,7 +82,7 @@ export function watchlistSparkWidth(railWidth: number): number {
  * Right-sidebar watchlist with live quotes, sparklines, add/remove, reordering and sections. Sections are header
  * rows in the same ordered list: the symbols below a header belong to it until the next header.
  */
-export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Element {
+function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Element {
   const { entries, ids, loaded, error, add, remove, update } = useWatchlist();
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
   const [sparks, setSparks] = useState<Record<string, number[]>>({});
@@ -100,8 +100,8 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
   const requestedInfo = useRef(new Set<string>());
   const focusKey = useRef<FocusKey | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
-  const [railRef, railWidth] = useElementWidth();
-  const sparkWidth = watchlistSparkWidth(railWidth ?? 0);
+  const [railRef, measuredSpark] = useElementWidth(watchlistSparkWidth);
+  const sparkWidth = measuredSpark ?? SPARK_WIDTH;
   const hintId = useId();
   const sectionHintId = useId();
   const headerIdBase = useId();
@@ -535,3 +535,6 @@ export function Watchlist({ currentSymbol, onSelect }: WatchlistProps): JSX.Elem
     </section>
   );
 }
+
+/** Memoized: resizing the sidebar re-renders the shell, not this. */
+export const Watchlist = memo(WatchlistPanel);
