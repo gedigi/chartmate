@@ -16,7 +16,8 @@
     "smoke": "playwright test -c smoke/playwright.config.ts",
     "test": "vitest run && vitest run -c vitest.server-suite.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "smoke:prepare": "node smoke/prepare-inspectable.mjs"
+    "smoke:prepare": "node smoke/prepare-inspectable.mjs",
+    "sign:win": "node scripts/sign-win-release.mjs"
   },
   "devDependencies": {
     "@electron/asar": "3.4.1",

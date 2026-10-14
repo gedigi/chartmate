@@ -59,6 +59,23 @@ describe('electron-builder config', () => {
     });
   });
 
+  it('Certum: signs through build/win-sign.cjs with SHA-256 only, the Certum timestamp and the pinned publisher', () => {
+    const win = buildConfig({ CHARTMATE_WIN_PUBLISHER_NAME: ' Open Source Developer, Jane Doe ', CHARTMATE_WIN_CERT_SHA1: 'ab'.repeat(20) }).win;
+    expect(win.signtoolOptions.sign).toBe(require('../build/win-sign.cjs').sign);
+    expect(win.signtoolOptions.signingHashAlgorithms).toEqual(['sha256']);
+    expect(win.signtoolOptions.publisherName).toBe('Open Source Developer, Jane Doe');
+    expect(win.signtoolOptions.rfc3161TimeStampServer).toBe('http://time.certum.pl');
+    expect(win.azureSignOptions).toBeUndefined();
+    // electron-builder must not look the certificate up itself (it cannot on macOS): the hook does.
+    expect(win.signtoolOptions.certificateSha1).toBeUndefined();
+    expect(win.signtoolOptions.certificateSubjectName).toBeUndefined();
+  });
+
+  it('no sign hook without Certum settings (the unsigned build is unchanged)', () => {
+    expect(cfg.win.signtoolOptions).toBeUndefined();
+    expect(buildConfig({ CHARTMATE_WIN_PUBLISHER_NAME: 'X' }).win.signtoolOptions).toBeUndefined();
+  });
+
   it('GitHub publish settings come from GITHUB_REPOSITORY (never hardcoded) and only when asked', () => {
     expect(buildConfig({ CHARTMATE_PUBLISH: 'github', GITHUB_REPOSITORY: 'someone/somerepo' }).publish)
       .toEqual([{ provider: 'github', owner: 'someone', repo: 'somerepo', releaseType: 'release' }]);
