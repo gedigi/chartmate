@@ -103,6 +103,12 @@ export function tagSessions(bars: Bar[], windows?: SessionWindow[]): Bar[] {
   return out;
 }
 
+/**
+ * Keeps the bars of `mode` ('eth': all; 'rth': regular plus untagged ones). Precondition: `bars` are native bars,
+ * filtered BEFORE any resampling. An untagged native bar (no session, e.g. a cached row stored without one) is kept
+ * in 'rth' on purpose, so `undefined` cannot also mean "mixed": `resample` clears `session` on a bucket mixing
+ * sessions, and filtering such buckets with 'rth' would wrongly keep them.
+ */
 export function filterSession(bars: Bar[], mode: SessionMode): Bar[] {
   if (mode === 'eth') return bars.slice();
   return bars.filter((b) => b.session === undefined || b.session === 'regular');

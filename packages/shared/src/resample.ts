@@ -56,6 +56,7 @@ export function resample(input: Bar[], tf: Timeframe, calendar: Calendar): Bar[]
   let allSimulated = true;
   const flush = () => {
     if (!cur) return;
+    // Mixed sessions: no single tag fits. Filter sessions before resampling (see filterSession), never after.
     if (!uniform) cur.session = undefined;
     if (allSimulated) cur.simulated = true;
   };
