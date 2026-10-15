@@ -309,7 +309,8 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
         <DrawingToolbar controls={adapter} disabled={!drawingReady} ticker={info?.ticker ?? symbol} />
       </div>
       <div className="chart-area">
-        <IndicatorChips layout={layout} setLayout={setLayout} theme={theme} />
+        {/* The chips belong to a chart: hidden while the symbol failed (error or deleted-basket panel). */}
+        {!symbolFailed && <IndicatorChips layout={layout} setLayout={setLayout} theme={theme} />}
         <div className="chart-stage">
           <div className="chart-host" ref={hostRef} data-testid="chart-host" />
           <div className="sr-only" role="status" data-testid="measure-readout">{measureText}</div>

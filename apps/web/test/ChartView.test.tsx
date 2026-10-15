@@ -75,7 +75,7 @@ const LAYOUT: Layout = {
 const adapter = () => fake.instances.at(-1)!;
 const flush = () => act(async () => { await Promise.resolve(); });
 
-function renderView(layout: Layout = LAYOUT, info: SymbolInfo | null = AAPL, extra: { symbolError?: string | null; onRetrySymbol?: () => void } = {}) {
+function renderView(layout: Layout = LAYOUT, info: SymbolInfo | null = AAPL, extra: { symbolError?: string | null; symbolDeleted?: boolean; onRetrySymbol?: () => void } = {}) {
   const setLayout = vi.fn();
   const r = render(<ChartView layout={layout} setLayout={setLayout} symbolInfo={info} theme="dark" {...extra} />);
   return {
@@ -266,6 +266,13 @@ describe('ChartView', () => {
     expect(onRetrySymbol).toHaveBeenCalledTimes(1);
     expect(adapter().load).toHaveBeenCalledTimes(1);
     expect(trendLine()).toBeDisabled();
+    // The indicator chips belong to a chart: hidden while the symbol failed (error or deleted basket).
+    expect(screen.queryByRole('list', { name: /active indicators/i })).not.toBeInTheDocument();
+    rerenderWith({ ...LAYOUT, symbol: 'basket:gone' }, null, { symbolError: 'not found', symbolDeleted: true, onRetrySymbol });
+    expect(screen.getByTestId('symbol-deleted')).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: /active indicators/i })).not.toBeInTheDocument();
+    rerenderWith(LAYOUT, AAPL, { onRetrySymbol });
+    expect(screen.getByRole('list', { name: /active indicators/i })).toBeInTheDocument();
   });
 
   it('shows a loading overlay until the first data of each load arrives', async () => {
