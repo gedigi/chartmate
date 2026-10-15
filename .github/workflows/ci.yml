@@ -76,14 +76,14 @@ jobs:
             test-results
           retention-days: 7
 
-  # The server's DB-backed suites (repos, market, baskets, routes, HTTP) again on Postgres. The image is the one
-  # compose.yaml pins (a test keeps them equal); each test file gets its own schema, files run one at a time.
+  # The server's DB-backed suites (repos, market, baskets, routes, HTTP) again on Postgres. The image is the
+  # one compose.yaml runs (a test keeps them equal); each test file gets its own schema, files run one at a time.
   postgres:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
+        image: postgres:18-trixie
         env:
           POSTGRES_USER: chartmate
           POSTGRES_PASSWORD: chartmate-ci

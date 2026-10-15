@@ -7,13 +7,16 @@
 # Postgres: the optional `postgres` profile adds a Postgres service; enable it and DATABASE_URL in .env (see
 # .env.example), or run `docker compose --profile postgres up -d` with DATABASE_URL set.
 #
-# Upgrade: docker compose pull && docker compose up -d
+# Upgrade: docker compose up -d (it pulls the newest images first; see pull_policy below).
 name: chartmate
 
 services:
   chartmate:
     # The published image. CHARTMATE_IMAGE overrides it (a pinned version or digest, or your own build).
     image: ${CHARTMATE_IMAGE:-ghcr.io/gedigi/chartmate:latest}
+    # Every `docker compose up` checks the registry for a newer image (the tag is rebuilt weekly with OS and
+    # Node.js fixes). For your own local build, set CHARTMATE_PULL_POLICY=never.
+    pull_policy: ${CHARTMATE_PULL_POLICY:-always}
     restart: unless-stopped
     ports:
       # Loopback only by default: put a reverse proxy in front, or set a password first and then
@@ -45,8 +48,11 @@ services:
 
   postgres:
     profiles: [postgres]
-    # Pinned by digest; Dependabot (docker-compose ecosystem) keeps it current.
-    image: postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
+    # Postgres 18 on Debian trixie, by tag: every `docker compose up` pulls the newest 18.x (bug and security
+    # fixes; a minor release reads the same data). A new major is a deliberate upgrade: it cannot open an older
+    # major's data (see "Upgrading from Postgres 17" in the README).
+    image: postgres:18-trixie
+    pull_policy: always
     restart: unless-stopped
     environment:
       POSTGRES_USER: chartmate
@@ -54,9 +60,13 @@ services:
       # Required for the postgres profile (the postgres image refuses to initialize without one).
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      # Postgres 18 keeps its data in a versioned directory inside this mount (18/docker). A volume that still holds
+      # Postgres 17 data (mounted at /var/lib/postgresql/data before) is refused with an error at start, never
+      # opened or overwritten.
+      - postgres-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U chartmate -d chartmate"]
+      # Over TCP: the image's first-start initialization runs a socket-only server that must not count as ready.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U chartmate -d chartmate"]
       interval: 10s
       timeout: 5s
       retries: 5

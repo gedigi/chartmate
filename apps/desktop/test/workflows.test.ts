@@ -93,11 +93,17 @@ describe('ci.yml Postgres job', () => {
   const wf = yaml.load(read('ci.yml'));
   const job = wf.jobs.postgres as { services: { postgres: { image: string } }; steps: Step[] };
 
-  it('runs the server DB suites against a digest-pinned Postgres, the same image compose.yaml pins', () => {
+  it('runs the server DB suites against the Postgres compose.yaml runs: the newest major on trixie, pulled fresh', () => {
     const image = job.services.postgres.image;
-    expect(image).toMatch(/^postgres:[\w.-]+@sha256:[0-9a-f]{64}$/);
+    expect(image).toMatch(/^postgres:\d+-trixie$/);
     const compose = yaml.load(readFileSync(new URL('../../../compose.yaml', import.meta.url), 'utf8'));
     expect(image).toBe(compose.services.postgres.image);
+    expect(compose.services.postgres.pull_policy).toBe('always');
+    // Postgres 18+ layout: one mount at /var/lib/postgresql (data in <major>/docker), so an older major's volume is
+    // refused at start rather than opened.
+    expect(compose.services.postgres.volumes).toEqual(['postgres-data:/var/lib/postgresql']);
+    expect(compose.services.postgres.healthcheck.test).toEqual(['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U chartmate -d chartmate']);
+    expect(compose.services.chartmate.pull_policy).toBe('${CHARTMATE_PULL_POLICY:-always}');
     const step = job.steps.find((s) => s.name === 'Server DB suites on Postgres')!;
     expect(step.env?.CHARTMATE_TEST_DB).toBe('postgres');
     expect(step.env?.TEST_PG_URL).toMatch(/^postgres:\/\/.+@localhost:5432\//);
