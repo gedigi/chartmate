@@ -316,9 +316,14 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
       check for updates" or "Couldn't download the update" after a manual check, "Couldn't install the update"
       after a manual check whose hand-over failed, or after **Restart Now** (an installer that cannot start, or a
       failure that arrived while the dialog was open). Background failures are only logged. The state then goes
-      back to idle and the schedule continues, so the next check retries. A version whose install failed is not
-      offered again until the app restarts, and if the app has not quit 60 s after **Restart Now**, the state is
-      reset the same way.
+      back to idle and the schedule continues, so the next check retries. A version whose install failed is
+      marked for the session: a later download of it does not show the restart prompt, unless on macOS
+      Squirrel.Mac then reports that version ready to install (its own `update-downloaded`), which clears the
+      mark. If the app has not quit 60 s after **Restart Now**, the state is reset and the version marked the same
+      way.
+    - macOS: if Squirrel.Mac reports neither ready nor an error within 10 minutes of the download, the hand-over
+      counts as failed (logged, version marked, schedule resumed). **Check for Updates…** during the hand-over
+      says the update is being prepared, and the outcome is then reported.
     - Once an update is ready, no further check runs: another check would start a second Squirrel.Mac
       hand-over. **Check for Updates…** offers the restart again instead.
   - **The setting**: **Check for Updates Automatically** is saved in `<userData>/update-settings.json`

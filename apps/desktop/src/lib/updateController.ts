@@ -10,7 +10,9 @@ import { allowsPrereleaseUpdates } from './updatePolicy.js';
  * listener for that is single use per hand-over): "Check for Updates…" (macOS) then offers the restart again. An
  * error resets to idle so a later check can retry; it is reported in a dialog only when the user is waiting on the
  * outcome (a manual check, or Restart Now), worded by what failed (check, download or install), never with the raw
- * error. A version whose install failed is not offered again in the same session.
+ * error. A version whose install failed is marked for the session: a later download of it gets no restart prompt,
+ * unless (macOS) Squirrel.Mac then reports it ready to install, which clears the mark. A macOS hand-over with no
+ * outcome within HANDOVER_WATCHDOG_MS counts as failed.
  */
 
 export const STARTUP_CHECK_DELAY_MS = 15_000;
@@ -108,6 +110,13 @@ export function logLine(v: unknown): string {
 /** How long "installing" may last before the app should have quit; then the state resets. */
 export const INSTALL_WATCHDOG_MS = 60_000;
 
+/**
+ * macOS: how long the Squirrel.Mac hand-over (electron-updater's update-downloaded → Squirrel.Mac's own
+ * update-downloaded or an error) may take. Without either event the phase would stay "downloaded" forever, with no
+ * further checks; after this the hand-over counts as failed.
+ */
+export const HANDOVER_WATCHDOG_MS = 10 * 60_000;
+
 const FAILURE: Record<'checking' | 'downloading' | 'installing', { message: string; detail: string }> = {
   checking: { message: 'Couldn’t check for updates', detail: 'Check your internet connection and try again later. Details are in the log.' },
   downloading: { message: 'Couldn’t download the update', detail: 'It will be tried again later. Details are in the log.' },
@@ -147,12 +156,17 @@ export function createUpdateController(o: {
   let notes: string | null = null;
   let timer: unknown = null;
   let watchdog: unknown = null;
+  /** macOS: running from update-downloaded until Squirrel.Mac reports ready (install-ready) or an error. */
+  let handOverWatchdog: unknown = null;
   let restartPromptOpen = false;
   /** The downloaded update can be installed now (Squirrel.Mac has it, or no hand-over is needed). */
   let installReady = false;
   /** An install failure arrived while the restart prompt was open: Restart Now reports it instead of installing. */
   let installFailedWhilePrompting = false;
-  /** Versions whose install failed in this session: not offered again (no dead "Restart Now" every 6 hours). */
+  /**
+   * Versions whose install failed in this session: no restart prompt for them (no dead "Restart Now" every 6 hours),
+   * until Squirrel.Mac reports one ready again (install-ready clears it).
+   */
   const failedVersions = new Set<string>();
 
   const name = () => (version ? `${o.appName} ${version}` : null);
@@ -176,6 +190,11 @@ export function createUpdateController(o: {
     watchdog = null;
   }
 
+  function stopHandOverWatchdog(): void {
+    if (handOverWatchdog !== null) o.timers.clearTimeout(handOverWatchdog);
+    handOverWatchdog = null;
+  }
+
   const remember = (i: UpdateInfoLike) => {
     version = safeVersion(i?.version);
     notes = releaseNotesText(i?.releaseNotes);
@@ -185,6 +204,7 @@ export function createUpdateController(o: {
     const failed: UpdatePhase = phase;
     o.log.error(`updater: ${failed === 'downloaded' ? 'install hand-over' : failed} failed: ${logLine(err)}`);
     stopWatchdog();
+    stopHandOverWatchdog();
     // A failure after the download (macOS: Squirrel.Mac's hand-over; any platform: the install) marks the version.
     if ((failed === 'downloaded' || failed === 'installing') && version) failedVersions.add(version);
     if (failed === 'downloaded' && restartPromptOpen) installFailedWhilePrompting = true;
@@ -277,10 +297,21 @@ export function createUpdateController(o: {
     o.log.info(`updater: update downloaded (${version ?? 'unknown version'})`);
     phase = 'downloaded';
     installReady = false;
-    if (!o.waitForInstallReady) readyToInstall();
+    if (!o.waitForInstallReady) {
+      readyToInstall();
+      return;
+    }
+    stopHandOverWatchdog();
+    handOverWatchdog = o.timers.setTimeout(() => {
+      handOverWatchdog = null;
+      if (phase !== 'downloaded' || installReady) return;
+      // Neither Squirrel.Mac's update-downloaded nor an error: give up on this version for the session.
+      fail(new Error(`hand-over to Squirrel.Mac timed out after ${HANDOVER_WATCHDOG_MS / 60_000} minutes`));
+    }, HANDOVER_WATCHDOG_MS);
   });
   o.updater.on('install-ready', () => {
     if (!o.waitForInstallReady || phase !== 'downloaded') return;
+    stopHandOverWatchdog();
     o.log.info('updater: update handed over and ready to install');
     if (version) failedVersions.delete(version);
     readyToInstall();
@@ -331,8 +362,12 @@ export function createUpdateController(o: {
       switch (phase) {
         case 'downloaded':
           if (!installReady) {
-            // Still being handed over to Squirrel.Mac: report how that ends.
+            // Still being handed over to Squirrel.Mac: say so, and report how that ends.
             manual = true;
+            await info(
+              name() ? `${name()} is being prepared` : `A new version of ${o.appName} is being prepared`,
+              'You’ll be asked to restart when it’s ready to install.',
+            );
             return;
           }
           await promptRestart();

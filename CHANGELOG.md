@@ -12,7 +12,8 @@ app, the Docker image and the release tag share one version number.
   of the release notes. A failed check, download or install you asked for is reported in a dialog.
 - macOS: **Check for Updates…** in the Chartmate menu checks right away, and **Check for Updates Automatically**
   next to it turns the background checks off. An unsigned build says it cannot update itself and offers to open
-  the releases page.
+  the releases page. While a downloaded update is still being prepared for installation, it says so, and gives
+  up on that update after 10 minutes without an answer from macOS.
 - Windows has no update menu (the window has no menu bar): signed builds update in the background. Windows builds
   are unsigned for now and keep updating by hand from the releases page.
 - `CHARTMATE_DISABLE_UPDATES=1` turns updates off entirely.
