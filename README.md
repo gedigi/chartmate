@@ -824,13 +824,16 @@ The directory holds:
 What gets logged:
 
 - **Main process**: lifecycle lines (start, window shown, quit) at INFO, plus warnings (blocked navigations,
-  requests and listeners) and errors.
+  requests and listeners) and errors. Blocked navigations and requests are logged at most 20 times a minute
+  (the page's and the app's own outbound requests counted separately); beyond that, one line at the end of the
+  minute (or at quit) says how many were left out.
 - **Embedded server**: warnings and errors only. Error objects are reduced to type, message and code, with no
   stack, request URLs drop their query strings, and headers are never logged.
 - **Before writing any line**: absolute paths, URL credentials and secret-looking values are scrubbed.
 
 Migrations run before the window loads. `CHARTMATE_USER_DATA_DIR=/abs/path` overrides the directory in
-development runs only; packaged builds ignore it, just as they refuse `--user-data-dir`.
+development runs (`pnpm --filter @chartmate/desktop start`) and in the test-only copy the smoke tests build; the
+released app ignores it (even when its executable is renamed), just as it refuses `--user-data-dir`.
 
 ### Environment
 
@@ -838,10 +841,11 @@ Environment overrides the desktop app honors:
 
 - `CHARTMATE_PROVIDERS` (`live` (the default) or `fixture`);
 - `CRYPTO_PROVIDER`;
-- `BINANCE_BASE_URL` (https only);
+- `BINANCE_BASE_URL`, limited to `https://data-api.binance.vision` (the default), `https://api.binance.com` and
+  `https://api.binance.us`; any other value is ignored (and logged);
 - `CHARTMATE_DISABLE_UPDATES=1` (no update checks or downloads at all, see [Updates](#updates)).
 
-A packaged build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE` or
+A released (hardened) build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE` or
 `NODE_EXTRA_CA_CERTS` is set. Node applies the first during pre-execution, before any app code runs, so the app
 cannot undo it; the second would let TLS session keys be logged; the third would add trusted root certificates
 (Electron normally drops it already). `NODE_USE_SYSTEM_CA` is allowed: provider requests ignore it (see below).

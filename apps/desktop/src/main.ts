@@ -1,7 +1,7 @@
 // Electron main process: the Chartmate server (Fastify, in-process, no listener; see listenGuard.ts for the single
 // macOS update-install exception) + one hardened window that talks
 // to it only through the privileged app:// scheme. Bundled by scripts/bundle.mjs into dist/main.cjs.
-import './boot.js'; // MUST stay first: command-line switch guard + environment sanitizing
+import { hardened } from './boot.js'; // MUST stay first: command-line switch guard + environment sanitizing
 import net from 'node:net';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -13,14 +13,14 @@ import { migrate } from '../../server/src/db/migrations.js';
 import { createRepos } from '../../server/src/db/repos.js';
 import { MarketDataService } from '../../server/src/market/service.js';
 import { createRegistry } from '../../server/src/providers/registry.js';
-import { DB_FILE_NAME, desktopConfig, resolveUserDataDir } from './lib/desktopConfig.js';
+import { configOrExit, DB_FILE_NAME, desktopConfig, resolveUserDataDir } from './lib/desktopConfig.js';
 import {
   APP_ENTRY_URL, APP_HOST, APP_SCHEME, hardenAllSessions, hardenApp, isAppUrl, PRIVILEGED_SCHEMES, secureWebPreferences,
 } from './lib/hardening.js';
 import { createCrashPolicy } from './lib/crashLimiter.js';
 import { installListenGuard } from './lib/listenGuard.js';
 import { serverLoggerOptions } from './lib/serverLog.js';
-import { createRotatingLog } from './lib/logger.js';
+import { createRateLimiter, createRotatingLog } from './lib/logger.js';
 import { menuTemplate } from './lib/menu.js';
 import { createDirectFetch } from './lib/directFetch.js';
 import { createGuardedFetch, installFetchAllowlist, providerHosts } from './lib/netAllowlist.js';
@@ -33,7 +33,7 @@ import type { UpdateController } from './lib/updateController.js';
 import { startUpdatesSafely, unsupportedUpdateMessage, type UpdateMenuState } from './lib/updateMenu.js';
 import { updateAvailability, type UpdateAvailability } from './lib/updatePolicy.js';
 import {
-  BACKGROUND, DEFAULT_SIZE, loadWindowState, MIN_SIZE, saveWindowState, visibleBounds, type WindowState,
+  BACKGROUND, DEFAULT_SIZE, focusOrCreateWindow, loadWindowState, MIN_SIZE, probeTheme, saveWindowState, visibleBounds, type WindowState,
 } from './lib/windowState.js';
 
 declare const __WEB_ROOT_REL__: string;
@@ -47,14 +47,25 @@ declare const __RELEASES_URL__: string;
 declare const __WIN_PUBLISHER_DN__: string;
 
 const t0 = Date.now() - Math.round(process.uptime() * 1000);
+// Not a security gate (renaming the executable flips it; see lib/buildMode.ts): `hardened` from boot.ts is.
 const isPackaged = app.isPackaged;
 
 // Everything the main process creates (DB, WAL/SHM, logs, state) is owner-only.
 process.umask(0o077);
 
 app.setName(product.productName);
-// Packaged builds always use the per-user default (only dev runs and the TEST-ONLY copy honor CHARTMATE_USER_DATA_DIR).
-const userData = resolveUserDataDir(join(app.getPath('appData'), product.productName), process.env, { allowOverride: !isPackaged || __TEST_INSPECTABLE__ });
+// Hardened builds always use the per-user default (only the dev bundle and the TEST-ONLY copy honor CHARTMATE_USER_DATA_DIR).
+// An invalid environment variable stops the app with a short error box instead of an uncaught exception.
+const configExit = (logLine: (m: string) => void) => ({
+  productName: product.productName,
+  log: logLine,
+  showError: (title: string, content: string) => dialog.showErrorBox(title, content), // safe before 'ready'
+  exit: (code: number) => process.exit(code),
+});
+const userData = configOrExit(
+  () => resolveUserDataDir(join(app.getPath('appData'), product.productName), process.env, { allowOverride: !hardened || __TEST_INSPECTABLE__ }),
+  configExit((m) => process.stderr.write(`${m}\n`)), // no log directory yet
+);
 app.setPath('userData', userData);
 app.setPath('sessionData', userData);
 app.setAppLogsPath(join(userData, 'logs'));
@@ -66,29 +77,34 @@ const listenGuard = installListenGuard(net.Server.prototype, { audit: (m) => log
 
 app.enableSandbox();
 protocol.registerSchemesAsPrivileged([...PRIVILEGED_SCHEMES]);
-const hardenOpts = { isPackaged, onBlocked: (what: string, url: string) => log.warn(`blocked ${what} ${url}`) };
+// Blocked requests and navigations are page- or network-triggered: at most 20 lines a minute each, then a summary.
+// The renderer and the outbound allowlist get separate budgets, so a noisy page cannot hide blocked provider traffic.
+const logBlocked = createRateLimiter((m) => log.warn(m), { what: 'blocked renderer' });
+const logOutbound = createRateLimiter((m) => log.warn(m), { what: 'blocked outbound' });
+const hardenOpts = { hardened, onBlocked: (what: string, url: string) => logBlocked(`blocked ${what} ${url}`) };
 hardenApp(app, hardenOpts);
 
-const { config } = desktopConfig({ userData, env: process.env });
+const { config } = configOrExit(
+  () => desktopConfig({ userData, env: process.env, hardened, onIgnored: (m) => log.warn(m) }),
+  configExit((m) => log.error(m)),
+);
 // Outbound network: providers only, HTTPS only, exact hosts, every redirect hop checked.
 const allowed = providerHosts(config);
 // Transport: direct connections (no env proxy) trusting only Node's bundled root CAs, whatever the environment says.
 const directFetch = createDirectFetch();
-const onBlocked = (host: string) => log.warn(`blocked outbound request to ${host}`);
+const onBlocked = (host: string) => logOutbound(`blocked outbound request to ${host}`);
 installFetchAllowlist(globalThis, allowed, { base: directFetch, onBlocked });
 
 let mainWindow: BrowserWindow | null = null;
+/** True once start() has registered the app:// handler and opened the first window. */
+let started = false;
 let shutdown: (() => Promise<void>) | null = null;
 const stateFile = join(userData, 'window-state.json');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (!mainWindow) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  });
+  app.on('second-instance', () => focusOrCreateWindow(mainWindow, { ready: started, create: createWindow }));
   app.whenReady().then(start).catch((err: unknown) => {
     log.error('startup failed', err);
     dialog.showErrorBox(`${product.productName} could not start`, err instanceof Error ? err.message : String(err));
@@ -97,7 +113,7 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 async function start(): Promise<void> {
-  log.info(`starting ${product.productName} ${app.getVersion()} (electron ${process.versions.electron}, node ${process.versions.node}, packaged=${isPackaged})`);
+  log.info(`starting ${product.productName} ${app.getVersion()} (electron ${process.versions.electron}, node ${process.versions.node}, packaged=${isPackaged}, hardened=${hardened})`);
   ensurePrivateDir(userData);
   const legacyDirs = (product.previousProductNames as string[]).map((n) => join(app.getPath('appData'), n));
   const dbFiles = [DB_FILE_NAME, `${DB_FILE_NAME}-wal`, `${DB_FILE_NAME}-shm`];
@@ -150,6 +166,7 @@ async function start(): Promise<void> {
   updateState = updatesAvailability();
   setMenu();
   createWindow();
+  started = true;
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -171,7 +188,7 @@ function setMenu(): void {
     ? { kind: 'enabled', automatic: updates.automatic }
     : { kind: updateState === 'enabled' ? 'unavailable' : updateState };
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({
-    isMac, isPackaged, appName: product.productName,
+    isMac, hardened, appName: product.productName,
     updates: {
       state,
       onCheck: () => {
@@ -210,7 +227,7 @@ function createWindow(): void {
     ...(process.platform === 'darwin' ? {} : { icon: join(__dirname, 'icon.png') }),
     // Frameless: the web top bar is the title bar (macOS traffic lights / Windows caption overlay on top of it).
     ...frameOptions(process.platform, state.theme),
-    webPreferences: secureWebPreferences({ isPackaged }),
+    webPreferences: secureWebPreferences({ hardened }),
   });
   mainWindow = win;
   if (state.maximized) win.maximize();
@@ -266,9 +283,9 @@ function createWindow(): void {
       // preventDefault above canceled an in-flight quit (⌘Q / app.quit()): resume it.
       if (appQuitRequested) app.quit();
     };
-    const timeout = new Promise<string>((r) => setTimeout(() => r('dark'), 300));
-    Promise.race([win.webContents.executeJavaScript('document.documentElement.dataset.theme', false), timeout])
-      .then((t) => finish(t === 'light' ? 'light' : 'dark'), () => finish(state.theme));
+    // No answer within 300 ms (hung or crashed page): keep the theme it opened with.
+    void probeTheme(() => win.webContents.executeJavaScript('document.documentElement.dataset.theme', false), state.theme, 300)
+      .then(finish);
   });
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
@@ -303,6 +320,9 @@ let quitting = false;
 let appQuitRequested = false;
 app.on('before-quit', () => {
   appQuitRequested = true;
+  // Pending "N more … suppressed" summaries are written before the app goes away.
+  logBlocked.flush();
+  logOutbound.flush();
   log.info('quit requested');
 });
 app.on('will-quit', (e) => {

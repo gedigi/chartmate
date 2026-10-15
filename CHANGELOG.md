@@ -12,7 +12,8 @@ app, the Docker image and the release tag share one version number.
   of the release notes. A failed check, download or install you asked for is reported in a dialog.
 - macOS: **Check for Updates…** in the Chartmate menu checks right away, and **Check for Updates Automatically**
   next to it turns the background checks off. An unsigned build says it cannot update itself and offers to open
-  the releases page.
+  the releases page. While a downloaded update is still being prepared for installation, it says so, and gives
+  up on that update after 10 minutes without an answer from macOS.
 - Windows has no update menu (the window has no menu bar): signed builds update in the background. Windows builds
   are unsigned for now and keep updating by hand from the releases page.
 - `CHARTMATE_DISABLE_UPDATES=1` turns updates off entirely.
@@ -22,6 +23,16 @@ app, the Docker image and the release tag share one version number.
   update is ready to install.
 - Chartmate 1.0.0 shipped with updates turned off: install this version by hand once, and later versions arrive
   automatically.
+- The released app keeps all of its startup and window protections even when its executable is renamed (for
+  example a copy renamed to `electron.exe`): it still refuses debugging switches, keeps DevTools off and ignores
+  `CHARTMATE_USER_DATA_DIR`.
+- `BINANCE_BASE_URL` accepts only the Binance API hosts (`data-api.binance.vision`, `api.binance.com`,
+  `api.binance.us`); any other value is ignored with a warning in the log instead of being allowed through.
+- An invalid `CHARTMATE_PROVIDERS` or `CRYPTO_PROVIDER` now shows a short error naming the variable instead of
+  crashing at startup.
+- The window reopens no larger than the screen it lands on (after a larger display is disconnected), keeps the
+  light theme's background when the page is slow to answer at close, and launching the app again on macOS with
+  no window open now opens one.
 
 ### Self-hosting
 

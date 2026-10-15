@@ -72,7 +72,7 @@ describe('runStartupGuards', () => {
   const deps = (over: Partial<StartupGuardDeps> = {}) => {
     const calls = { errors: [] as [string, string][], stderr: [] as string[], exit: [] as number[] };
     const d: StartupGuardDeps = {
-      isPackaged: true, checkSwitches: true, argv: ['/app'], env: {}, platform: 'darwin', productName: 'Chartmate',
+      hardened: true, checkSwitches: true, argv: ['/app'], env: {}, platform: 'darwin', productName: 'Chartmate',
       showError: (t, c) => { calls.errors.push([t, c]); },
       writeStderr: (l) => { calls.stderr.push(l); },
       exit: ((code: number) => { calls.exit.push(code); throw new Error(`exit ${code}`); }) as (code: number) => never,
@@ -81,11 +81,11 @@ describe('runStartupGuards', () => {
     return { d, calls };
   };
 
-  it('does nothing for a clean packaged start or for any unpackaged start', () => {
+  it('does nothing for a clean hardened start or for any unhardened (dev bundle, unpackaged) start', () => {
     const a = deps();
     runStartupGuards(a.d);
     expect(a.calls.exit).toEqual([]);
-    const b = deps({ isPackaged: false, env: { NODE_USE_ENV_PROXY: '1' }, argv: ['/app', '--no-sandbox'] });
+    const b = deps({ hardened: false, env: { NODE_USE_ENV_PROXY: '1' }, argv: ['/app', '--no-sandbox'] });
     runStartupGuards(b.d);
     expect(b.calls.exit).toEqual([]);
   });

@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createRotatingLog, scrub } from '../src/lib/logger.js';
+import { createRateLimiter, createRotatingLog, scrub } from '../src/lib/logger.js';
 import { menuTemplate } from '../src/lib/menu.js';
 import { allowsPrereleaseUpdates, hasWindowsPublisher, shouldEnableAutoUpdate } from '../src/lib/updatePolicy.js';
 import { BACKGROUND, loadWindowState, parseWindowState, saveWindowState, visibleBounds } from '../src/lib/windowState.js';
@@ -15,12 +15,12 @@ const flatRoles = (items: unknown[]): string[] => items.flatMap((i) => {
 describe('menuTemplate', () => {
   it('packaged builds have no DevTools entry', () => {
     for (const isMac of [true, false]) {
-      expect(flatRoles(menuTemplate({ isMac, isPackaged: true, appName: 'Chartmate' }))).not.toContain('toggleDevTools');
+      expect(flatRoles(menuTemplate({ isMac, hardened: true, appName: 'Chartmate' }))).not.toContain('toggleDevTools');
     }
-    expect(flatRoles(menuTemplate({ isMac: true, isPackaged: false, appName: 'Chartmate' }))).toContain('toggleDevTools');
+    expect(flatRoles(menuTemplate({ isMac: true, hardened: false, appName: 'Chartmate' }))).toContain('toggleDevTools');
   });
   it('macOS has the standard app menu and Edit menu', () => {
-    const roles = flatRoles(menuTemplate({ isMac: true, isPackaged: true, appName: 'Chartmate' }));
+    const roles = flatRoles(menuTemplate({ isMac: true, hardened: true, appName: 'Chartmate' }));
     expect(roles).toEqual(expect.arrayContaining(['about', 'hide', 'quit', 'editMenu', 'windowMenu']));
   });
 });
@@ -84,6 +84,81 @@ describe('rotating log', () => {
   it('never throws when the directory is unusable', () => {
     const log = createRotatingLog({ dir: '/dev/null/nope' });
     expect(() => log.error('x', new Error('y'))).not.toThrow();
+  });
+  it('rotates on the tracked size (the file is stat-ed once, not on every line)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'chartmate-log-'));
+    writeFileSync(join(dir, 'main.log'), 'x'.repeat(150));
+    const log = createRotatingLog({ dir, maxBytes: 200, keep: 1 });
+    log.write('a'.repeat(60)); // 150 + 61 ≥ 200 only after this line: no rotation yet
+    expect(readdirSync(dir).sort()).toEqual(['main.log']);
+    log.write('b'); // the tracked size is over the limit: rotates before writing
+    expect(readdirSync(dir).sort()).toEqual(['main.log', 'main.log.1']);
+    expect(readFileSync(join(dir, 'main.log'), 'utf8')).toBe('b\n');
+  });
+});
+
+describe('rate-limited log lines (blocked requests)', () => {
+  const fakeTimers = () => {
+    const pending: { fn: () => void; ms: number; cleared: boolean }[] = [];
+    return {
+      pending,
+      timers: {
+        setTimeout: (fn: () => void, ms: number) => { const h = { fn, ms, cleared: false }; pending.push(h); return h; },
+        clearTimeout: (h: unknown) => { (h as { cleared: boolean }).cleared = true; },
+      },
+      live: () => pending.filter((p) => !p.cleared),
+    };
+  };
+
+  it('writes at most `max` lines per window; the summary is flushed by a timer at the end of the window', () => {
+    let t = 0;
+    const out: string[] = [];
+    const ft = fakeTimers();
+    const limited = createRateLimiter((m) => out.push(m), { max: 3, windowMs: 60_000, now: () => t, what: 'blocked request', timers: ft.timers });
+    for (let i = 0; i < 10; i++) limited(`blocked request ${i}`);
+    expect(out).toEqual(['blocked request 0', 'blocked request 1', 'blocked request 2']);
+    expect(ft.live()).toHaveLength(1);
+    expect(ft.live()[0]!.ms).toBe(60_000);
+    t = 60_000;
+    ft.live()[0]!.fn(); // no further line needed for the summary to appear
+    expect(out.slice(3)).toEqual(['7 more blocked request lines suppressed in the last 60 s']);
+    limited('blocked request 10'); // a new window
+    expect(out.slice(4)).toEqual(['blocked request 10']);
+  });
+
+  it('flush (at quit) writes the pending summary with the time actually covered, and stops the timer', () => {
+    let t = 0;
+    const out: string[] = [];
+    const ft = fakeTimers();
+    const limited = createRateLimiter((m) => out.push(m), { max: 1, windowMs: 60_000, now: () => t, what: 'blocked', timers: ft.timers });
+    limited('a');
+    limited('b');
+    limited('c');
+    t = 12_400;
+    limited.flush();
+    expect(out).toEqual(['a', '2 more blocked lines suppressed in the last 12 s']);
+    expect(ft.live()).toHaveLength(0);
+    limited.flush(); // nothing pending: nothing written
+    expect(out).toHaveLength(2);
+  });
+
+  it('nothing suppressed: no timer, no summary', () => {
+    const out: string[] = [];
+    const ft = fakeTimers();
+    const limited = createRateLimiter((m) => out.push(m), { max: 3, timers: ft.timers });
+    limited('a');
+    limited.flush();
+    expect(out).toEqual(['a']);
+    expect(ft.pending).toHaveLength(0);
+  });
+
+  it('the renderer and the outbound allowlist have separate budgets (main.ts)', () => {
+    const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+    expect(main).toMatch(/const logBlocked = createRateLimiter\(/);
+    expect(main).toMatch(/const logOutbound = createRateLimiter\(/);
+    expect(main).toMatch(/onBlocked: \(what: string, url: string\) => logBlocked\(/);
+    expect(main).toMatch(/const onBlocked = \(host: string\) => logOutbound\(/);
+    expect(main).toMatch(/logBlocked\.flush\(\);\s*logOutbound\.flush\(\);/);
   });
 });
 

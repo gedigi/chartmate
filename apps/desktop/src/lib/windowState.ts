@@ -32,14 +32,63 @@ export function parseWindowState(raw: unknown): WindowState {
   };
 }
 
-/** Keeps saved bounds only if their top-left area is visible on one of the current displays' work areas. */
+const overlap = (b: Rect, a: Rect): number =>
+  Math.max(0, Math.min(b.x + b.width, a.x + a.width) - Math.max(b.x, a.x))
+  * Math.max(0, Math.min(b.y + b.height, a.y + a.height) - Math.max(b.y, a.y));
+
+/**
+ * Restores saved bounds onto the current displays, or returns null (default size) when the window's title bar
+ * area is on none of them. The work area chosen is the one the window overlaps most; the size is clamped to it
+ * (a window saved on a larger, now missing display would otherwise open bigger than the screen), then the position,
+ * so the whole window, edges and title bar included, is inside that work area.
+ */
 export function visibleBounds(bounds: Rect | null, workAreas: readonly Rect[]): Rect | null {
   if (!bounds) return null;
   const grab = 100; // enough of the title bar to drag the window back
-  const ok = workAreas.some((a) =>
+  const titleBarVisible = (a: Rect) =>
     bounds.x + grab <= a.x + a.width && bounds.x + bounds.width - grab >= a.x
-    && bounds.y >= a.y && bounds.y + grab <= a.y + a.height);
-  return ok ? bounds : null;
+    && bounds.y + grab > a.y && bounds.y < a.y + a.height - grab;
+  let area: Rect | null = null;
+  for (const a of workAreas) {
+    if (titleBarVisible(a) && (area === null || overlap(bounds, a) > overlap(bounds, area))) area = a;
+  }
+  if (!area) return null;
+  const width = Math.min(bounds.width, area.width);
+  const height = Math.min(bounds.height, area.height);
+  const x = Math.min(Math.max(bounds.x, area.x), area.x + area.width - width);
+  const y = Math.min(Math.max(bounds.y, area.y), area.y + area.height - height);
+  return { x, y, width, height };
+}
+
+/**
+ * The page's theme when the window closes (`read` evaluates `data-theme` in the page), so the next launch paints
+ * the right background. If the page does not answer within `timeoutMs`, fails, or reports anything else, the
+ * previous theme is kept.
+ */
+export async function probeTheme(read: () => Promise<unknown>, previous: WindowState['theme'], timeoutMs = 300): Promise<WindowState['theme']> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<unknown>((r) => { timer = setTimeout(() => r(previous), timeoutMs); });
+  try {
+    const t = await Promise.race([read().catch(() => previous), timeout]);
+    return t === 'light' || t === 'dark' ? t : previous;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+interface FocusableWindow { isDestroyed(): boolean; isMinimized(): boolean; restore(): void; focus(): void }
+
+/**
+ * A second launch of the app: focus (and restore) the window, or open one if there is none (macOS keeps running
+ * with no window). Before startup has finished (`ready` false) it does nothing, since startup opens the window.
+ */
+export function focusOrCreateWindow(win: FocusableWindow | null, o: { ready: boolean; create: () => void }): void {
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+    return;
+  }
+  if (o.ready) o.create();
 }
 
 export function loadWindowState(file: string): WindowState {

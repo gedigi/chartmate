@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -133,6 +133,43 @@ describe('downloaded bundle check: process handling (any platform, fake runner)'
     };
     await expect(checkDownloadedBundle(zipFile, { advertised: '1.2.0', current: '1.1.0', tmpRoot: t, exec })).rejects.toThrow(/could not be extracted/);
     expect(leftovers(t)).toEqual(['u.zip']);
+  });
+  it.runIf(process.platform !== 'win32' && process.getuid?.() !== 0)('removes an extracted bundle with read-only directories (555), keeping the result', async () => {
+    const t = privateTmp();
+    const zipFile = join(t, 'u.zip');
+    writeFileSync(zipFile, 'zip');
+    const exec: BundleExec = async (cmd, args) => {
+      if (cmd === DITTO) {
+        const ro = join(args[3]!, 'Chartmate.app', 'Contents', 'Resources');
+        mkdirSync(join(ro, 'deep'), { recursive: true });
+        writeFileSync(join(ro, 'deep', 'f'), 'x');
+        chmodSync(join(ro, 'deep'), 0o555);
+        chmodSync(ro, 0o555);
+      }
+      return { stdout: cmd === PLUTIL ? '1.2.0\n' : '', stderr: '' };
+    };
+    const log = vi.fn();
+    await expect(checkDownloadedBundle(zipFile, { advertised: '1.2.0', current: '1.1.0', tmpRoot: t, exec, log })).resolves.toBeUndefined();
+    expect(leftovers(t)).toEqual(['u.zip']);
+    expect(log).not.toHaveBeenCalled();
+    // A refusal stays a refusal, and the read-only tree is still removed.
+    await expect(checkDownloadedBundle(zipFile, { advertised: '1.3.0', current: '1.1.0', tmpRoot: t, exec, log })).rejects.toThrow(/does not match/);
+    expect(leftovers(t)).toEqual(['u.zip']);
+  });
+  it('a cleanup failure is logged and never replaces the check result', async () => {
+    const t = privateTmp();
+    const zipFile = join(t, 'u.zip');
+    writeFileSync(zipFile, 'zip');
+    const exec: BundleExec = async (cmd, args) => {
+      if (cmd === DITTO) mkdirSync(join(args[3]!, 'Chartmate.app', 'Contents'), { recursive: true });
+      return { stdout: cmd === PLUTIL ? '1.2.0\n' : '', stderr: '' };
+    };
+    const log = vi.fn();
+    const remove = vi.fn(async () => { throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }); });
+    await expect(checkDownloadedBundle(zipFile, { advertised: '1.2.0', current: '1.1.0', tmpRoot: t, exec, log, remove })).resolves.toBeUndefined();
+    await expect(checkDownloadedBundle(zipFile, { advertised: '1.3.0', current: '1.1.0', tmpRoot: t, exec, log, remove })).rejects.toThrow(/does not match/);
+    expect(log).toHaveBeenCalledTimes(2);
+    expect(log.mock.calls[0]![0]).toMatch(/could not remove the update check directory: EACCES/);
   });
   it('refuses an oversized or missing download before extracting', async () => {
     const exec = vi.fn<BundleExec>();

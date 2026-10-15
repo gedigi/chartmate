@@ -1,9 +1,11 @@
-import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
 // @ts-expect-error plain ESM script without types
 import * as verifyScript from '../scripts/verify-win-signatures.mjs';
 // @ts-expect-error plain ESM script without types
-import { buildAffectingIgnored, rewriteReleaseNotes, windowsAssets } from '../scripts/sign-win-release.mjs';
+import { buildAffectingIgnored, builderEnv, rewriteReleaseNotes, takePin, windowsAssets, withSignalCleanup, writePinFile } from '../scripts/sign-win-release.mjs';
 
 const {
   appUpdateProblems, commonName, latestYmlProblems, parseOsslVerify, parseSigntoolVerify, signatureProblems, signLogProblems, zipExtractCommand,
@@ -125,5 +127,56 @@ describe('sign-win-release', () => {
     const out = rewriteReleaseNotes(notes('unsigned'), 'Certum (SimplySign)');
     expect(out).not.toContain('Windows build is unsigned');
     expect(out).toContain('Unsigned builds contain no auto-updater');
+  });
+});
+
+describe('sign:win PIN hand-off', () => {
+  it('electron-builder and its children never get the PIN in their environment, only the path of a private file', () => {
+    const env = builderEnv({ PATH: '/bin', CHARTMATE_WIN_PKCS11_PIN: '123456' }, '/private/x/pin');
+    expect(env).toEqual({ PATH: '/bin', CHARTMATE_WIN_PKCS11_PIN_FILE: '/private/x/pin' });
+    expect(JSON.stringify(env)).not.toContain('123456');
+    expect(builderEnv({ PATH: '/bin', CHARTMATE_WIN_PKCS11_PIN_FILE: '/stale' }, null)).toEqual({ PATH: '/bin' });
+  });
+
+  it('takes the PIN out of the process environment first, so pnpm, git and gh never inherit it', () => {
+    const env: Record<string, string | undefined> = { PATH: '/bin', CHARTMATE_WIN_PKCS11_PIN: '123456' };
+    expect(takePin(env)).toBe('123456');
+    expect(env).toEqual({ PATH: '/bin' });
+    expect(takePin(env)).toBeUndefined();
+  });
+
+  it('SIGINT / SIGTERM while electron-builder runs: removes the PIN file, then re-raises the signal', async () => {
+    for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+      const proc = Object.assign(new EventEmitter(), { pid: 4242, kill: vi.fn() });
+      const cleanup = vi.fn();
+      let finish: () => void = () => {};
+      const done = withSignalCleanup(cleanup, () => new Promise<void>((r) => { finish = r; }), proc);
+      await Promise.resolve();
+      proc.emit(sig);
+      expect(cleanup).toHaveBeenCalled();
+      expect(proc.kill).toHaveBeenCalledWith(4242, sig);
+      expect(proc.listenerCount('SIGINT') + proc.listenerCount('SIGTERM')).toBe(0);
+      finish();
+      await done;
+    }
+  });
+
+  it('without a signal: cleanup runs once the step ends (success or failure) and no handler is left', async () => {
+    const proc = Object.assign(new EventEmitter(), { pid: 1, kill: vi.fn() });
+    const cleanup = vi.fn();
+    await withSignalCleanup(cleanup, async () => {}, proc);
+    await expect(withSignalCleanup(cleanup, async () => { throw new Error('builder failed'); }, proc)).rejects.toThrow('builder failed');
+    expect(cleanup).toHaveBeenCalledTimes(2);
+    expect(proc.kill).not.toHaveBeenCalled();
+    expect(proc.listenerCount('SIGINT') + proc.listenerCount('SIGTERM')).toBe(0);
+  });
+
+  it.runIf(process.platform !== 'win32')('writes the PIN to an owner-only file in a fresh owner-only directory, removed by cleanup', () => {
+    const { file, cleanup } = writePinFile('424242');
+    expect(statSync(dirname(file)).mode & 0o777).toBe(0o700);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(readFileSync(file, 'utf8')).toBe('424242');
+    cleanup();
+    expect(existsSync(dirname(file))).toBe(false);
   });
 });
