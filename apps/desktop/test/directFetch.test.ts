@@ -15,7 +15,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 const work = mkdtempSync(join(tmpdir(), 'chartmate-direct-'));
 const probe = join(work, 'probe.cjs');
 
-// The child script: fetch `url` with either the global fetch or the guarded+pinned fetch, print the outcome.
+// The child script: fetch `url` with either the global fetch or the guarded+pinned fetch, print the outcome. The
+// timeouts are generous: under a full parallel test run an Electron child can take seconds to start and connect.
 const PROBE_SRC = `
 import { createDirectFetch } from ${JSON.stringify(fileURLToPath(new URL('../src/lib/directFetch.ts', import.meta.url)))};
 import { createGuardedFetch } from ${JSON.stringify(fileURLToPath(new URL('../src/lib/netAllowlist.ts', import.meta.url)))};
@@ -24,7 +25,7 @@ const host = new URL(url).hostname;
 const f = mode === 'global' ? fetch
   : mode === 'direct' ? createDirectFetch()
   : createGuardedFetch(createDirectFetch(), [host]);
-f(url, { signal: AbortSignal.timeout(5000) }).then(
+f(url, { signal: AbortSignal.timeout(20_000) }).then(
   (r) => console.log('RESULT ok ' + r.status),
   (e) => console.log('RESULT err ' + (e.cause?.code ?? e.code ?? e.name)),
 );
@@ -52,7 +53,7 @@ function run(bin: string, env: Record<string, string>, args: string[]): Promise<
     let out = '';
     child.stdout.on('data', (d) => { out += String(d); });
     child.stderr.on('data', (d) => { out += String(d); });
-    const t = setTimeout(() => child.kill('SIGKILL'), 15_000);
+    const t = setTimeout(() => child.kill('SIGKILL'), 40_000);
     child.on('exit', () => {
       clearTimeout(t);
       resolve(/RESULT (.*)/.exec(out)?.[1] ?? `no result: ${out.slice(0, 300)}`);
@@ -105,21 +106,21 @@ describe.each(runtimes)('provider fetch in a real %s child process', (_name, bin
     proxied.length = 0;
     await run(bin, proxyEnv(), ['global', 'https://chartmate-test.invalid/x']);
     expect(proxied).toEqual(['CONNECT chartmate-test.invalid:443 HTTP/1.1']);
-  }, 30_000);
+  }, 90_000);
 
   it('the guarded, pinned fetch connects directly (never touches the proxy)', async () => {
     proxied.length = 0;
     const r = await run(bin, proxyEnv(), ['guarded', 'https://chartmate-test.invalid/x']);
     expect(proxied).toEqual([]);
     expect(r).toMatch(/^err (ENOTFOUND|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|TimeoutError|ECONNREFUSED)/);
-  }, 30_000);
+  }, 90_000);
 
   it('NODE_EXTRA_CA_CERTS: trusted by the global fetch, NOT by the pinned fetch', async (ctx) => {
     if (!tlsServer) ctx.skip();
     const url = `https://localhost:${tlsPort}/`;
     expect(await run(bin, { NODE_EXTRA_CA_CERTS: certFile }, ['global', url])).toBe('ok 200');
     expect(await run(bin, { NODE_EXTRA_CA_CERTS: certFile }, ['direct', url])).toMatch(/^err (SELF_SIGNED_CERT|DEPTH_ZERO_SELF_SIGNED_CERT|UNABLE_TO_VERIFY)/);
-  }, 30_000);
+  }, 90_000);
 });
 
 describe('the pinned fetch speaks HTTP/1.1 only', () => {
@@ -139,10 +140,10 @@ describe('the pinned fetch speaks HTTP/1.1 only', () => {
     try {
       const port = (server.address() as net.AddressInfo).port;
       // The self-signed certificate is not in the bundled root store, so the request fails after the hello.
-      await expect(createDirectFetch()(`https://localhost:${port}/`, { signal: AbortSignal.timeout(5000) })).rejects.toThrow();
+      await expect(createDirectFetch()(`https://localhost:${port}/`, { signal: AbortSignal.timeout(20_000) })).rejects.toThrow();
       expect(offered).toEqual([['http/1.1']]);
     } finally {
       server.close();
     }
-  });
+  }, 30_000);
 });
