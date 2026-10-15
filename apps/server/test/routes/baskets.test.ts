@@ -45,7 +45,7 @@ describe('basket routes', () => {
 
   it('constituent ids are normalized on save', async () => {
     const body = basketBody();
-    body.versions[0]!.weights = { 'stock:aapl': 0.25, 'stock:AAPL': 0.25, 'crypto:btc': 0.5 };
+    (body.versions[0]!.weights as Record<string, number>) = { 'stock:aapl': 0.25, 'stock:AAPL': 0.25, 'crypto:btc': 0.5 };
     const r = await t.app.inject({ method: 'POST', url: '/api/baskets', payload: body });
     expect(r.statusCode).toBe(201);
     expect(r.json<Basket>().versions[0]!.weights).toEqual({ 'stock:AAPL': 0.5, 'crypto:BTC': 0.5 });
