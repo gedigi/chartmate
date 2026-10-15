@@ -130,10 +130,13 @@ export const CHANNEL_FILL_ALPHA = 0.14;
 
 /**
  * Theme the drawing templates read at draw time: its name, the chart background (fills are tinted onto it) and the
- * accent (fallback of an unreadable line color). Set by the ChartAdapter on init and theme / appearance changes.
+ * accent (fallback of an unreadable line color), and the selected drawing (its time-axis range labels show). Set by the
+ * ChartAdapter on init, theme / appearance changes and selection.
  */
 // bg / accent empty until set: the dark theme's (THEME_TOKENS is not read at module load, theme.ts imports this module indirectly).
-export const drawingContext: { theme: 'dark' | 'light'; bg: string; accent: string } = { theme: 'dark', bg: '', accent: '' };
+export const drawingContext: { theme: 'dark' | 'light'; bg: string; accent: string; selectedId: string | null } = {
+  theme: 'dark', bg: '', accent: '', selectedId: null,
+};
 
 /** Fill of a channel drawn with line color `color`. */
 export function channelFill(color: unknown): string {
@@ -230,7 +233,8 @@ function builtinTemplate(name: string): Template | null {
 
 const asArray = (f: OverlayFigure | OverlayFigure[] | undefined | null): OverlayFigure[] => (f ? ([] as OverlayFigure[]).concat(f) : []);
 
-function lineStyles(p: FigureParams): Record<string, unknown> {
+/** A drawing's effective line style: its own over the chart's overlay default. */
+export function lineStyles(p: FigureParams): Record<string, unknown> {
   const own = (p.overlay.styles as { line?: Record<string, unknown> } | null | undefined)?.line ?? {};
   const base = (p.chart.getStyles?.().overlay?.line ?? {}) as unknown as Record<string, unknown>;
   return { ...base, ...own };

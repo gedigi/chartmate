@@ -115,6 +115,36 @@ describe('rectangle geometry', () => {
   });
 });
 
+describe('small and collapsed boxes', () => {
+  it('a side shorter than the minimum span hides the two midpoints along it (the corners win)', () => {
+    const a = { x: 20, y: 80 };
+    const b = { x: 50, y: 10 }; // 30 wide, 70 tall
+    const c = R.handleCoordinates(a, b, R.rectangleBox(a, b), 36);
+    expect(c.slice(0, 4)).toEqual([a, b, { x: 20, y: 10 }, { x: 50, y: 80 }]);
+    expect(c.slice(4, 6)).toEqual([{ x: 20, y: 45 }, { x: 50, y: 45 }]); // tall enough: vertical edges keep theirs
+    expect(c.slice(6)).toEqual([R.HIDDEN_HANDLE, R.HIDDEN_HANDLE]); // too narrow: the horizontal edges' are parked
+    const tiny = R.handleCoordinates(a, { x: 30, y: 70 }, R.rectangleBox(a, { x: 30, y: 70 }), 36);
+    expect(tiny.slice(4)).toEqual(Array(4).fill(R.HIDDEN_HANDLE));
+    // The parked position is far off any pane.
+    expect(R.HIDDEN_HANDLE.x).toBeLessThan(-1000);
+  });
+
+  it('degenerate: zero width or height on whole pixels', () => {
+    expect(R.isDegenerateBox({ x: 10.2, y: 5 }, { x: 9.9, y: 50 })).toBe(true);
+    expect(R.isDegenerateBox({ x: 10, y: 5.1 }, { x: 90, y: 4.8 })).toBe(true);
+    expect(R.isDegenerateBox({ x: 10, y: 5 }, { x: 11, y: 6 })).toBe(false);
+  });
+
+  it('a collapsed box (another timeframe) keeps a border with length, so it stays grabbable', () => {
+    const lines = R.borderLines(R.rectangleBox({ x: 40, y: 10 }, { x: 40, y: 90 }), 1);
+    const len = (l: { coordinates: Array<{ x: number; y: number }> }) =>
+      Math.hypot(l.coordinates[1]!.x - l.coordinates[0]!.x, l.coordinates[1]!.y - l.coordinates[0]!.y);
+    expect(lines.map(len)).toEqual([1, 1, 80, 80]);
+    const point = R.borderLines(R.rectangleBox({ x: 40, y: 10 }, { x: 40, y: 10 }), 2);
+    expect(len(point[0]!)).toBe(2);
+  });
+});
+
 describe('rectangle fill', () => {
   beforeEach(() => {
     T.drawingContext.theme = 'dark';
@@ -133,10 +163,10 @@ describe('rectangle fill', () => {
     expect(R.rectangleFill('nonsense')).toBe(zoneTint(THEME_TOKENS.light.accent, THEME_TOKENS.light.bg, R.RECT_FILL_WEIGHT.light, R.RECT_FILL_ALPHA));
   });
 
-  it('weights: balanced per theme (the dark ground needs more), at least the channel fill, below position zones', () => {
+  it('weights: balanced per theme (the dark ground needs more), firmer than the channel fill, below position zones', () => {
     expect(R.RECT_FILL_WEIGHT.dark).toBeGreaterThan(R.RECT_FILL_WEIGHT.light);
     for (const t of ['dark', 'light'] as const) {
-      expect(R.RECT_FILL_WEIGHT[t]).toBeGreaterThanOrEqual(T.CHANNEL_FILL_WEIGHT[t]);
+      expect(R.RECT_FILL_WEIGHT[t]).toBeGreaterThan(T.CHANNEL_FILL_WEIGHT[t]); // a touch firmer than a channel on both themes
       expect(R.RECT_FILL_WEIGHT[t]).toBeLessThan(ZONE_WEIGHT);
     }
     expect(R.RECT_FILL_ALPHA).toBeLessThanOrEqual(0.14);
@@ -160,7 +190,8 @@ describe('rectangle template', () => {
     expect(t.name).toBe('rectangle');
     expect(t.totalStep).toBe(3);
     expect(t.needDefaultPointFigure).toBe(true);
-    expect(t.needDefaultXAxisFigure).toBe(true);
+    expect(t.needDefaultXAxisFigure).toBe(false); // our range labels instead (axisRange)
+    expect(typeof t.createXAxisFigures).toBe('function');
     expect(t.needDefaultYAxisFigure).toBe(true);
   });
 
@@ -204,5 +235,44 @@ describe('rectangle template', () => {
 
   it('only the first corner placed: nothing drawn yet', () => {
     expect(t.createPointFigures({ chart: chart(), overlay: { name: 'rectangle', points: [A], styles: null }, coordinates: [{ x: 1, y: 1 }], bounding })).toEqual([]);
+  });
+
+  it('small box: midpoint handles hidden below three handle diameters (from the point style, a locked ring included)', () => {
+    const withPoint = (point: object) => ({ getStyles: () => ({ overlay: { line: { size: 1 }, point } }) });
+    const coords = () => [
+      { x: 0, y: 0 }, { x: 40, y: 100 }, { x: 0, y: 100 }, { x: 40, y: 0 },
+      { x: 0, y: 0 }, { x: 40, y: 100 }, { x: 0, y: 0 }, { x: 40, y: 100 },
+    ];
+    const big = coords(); // 40 wide ≥ 3 × 2 × (5 + 1) = 36: midpoints shown
+    t.createPointFigures({ chart: withPoint({ radius: 5, borderSize: 1 }), overlay: { name: 'rectangle', points: [A, B], styles: null }, coordinates: big, bounding });
+    expect(big[6]).toEqual({ x: 20, y: 0 });
+    const ringed = coords(); // own (locked) ring 4.5 + 1.5 → still 36
+    t.createPointFigures({ chart: withPoint({ radius: 8, borderSize: 1 }), overlay: { name: 'rectangle', points: [A, B], styles: { point: { radius: 4.5, borderSize: 1.5 } } }, coordinates: ringed, bounding });
+    expect(ringed[6]).toEqual({ x: 20, y: 0 });
+    const bigHandles = coords(); // 2 × (8 + 1) × 3 = 54 > 40: hidden
+    t.createPointFigures({ chart: withPoint({ radius: 8, borderSize: 1 }), overlay: { name: 'rectangle', points: [A, B], styles: null }, coordinates: bigHandles, bounding });
+    expect(bigHandles.slice(6)).toEqual([R.HIDDEN_HANDLE, R.HIDDEN_HANDLE]);
+    expect(bigHandles[4]).toEqual({ x: 0, y: 50 }); // 100 tall: the vertical edges keep theirs
+  });
+
+  it('time axis: a band and the range labels, only while the rectangle is selected', () => {
+    const p = {
+      chart: { getStyles: () => ({ overlay: { text: { size: 12, paddingLeft: 4, paddingRight: 4 } } }), getFormatter: () => ({ formatDate: ({ timestamp }: { timestamp: number }) => `T${timestamp}` }) },
+      overlay: { id: 'r1', name: 'rectangle', points: R.rectanglePoints(A, B), styles: null },
+      coordinates: [{ x: 100, y: 0 }, { x: 400, y: 0 }], bounding: { width: 800, height: 24, left: 0, top: 0, right: 0, bottom: 0 },
+    };
+    T.drawingContext.selectedId = null;
+    expect(t.createXAxisFigures(p)).toEqual([]);
+    T.drawingContext.selectedId = 'r1';
+    try {
+      const figs: Fig[] = t.createXAxisFigures(p);
+      expect(figs[0]).toMatchObject({ type: 'rect', attrs: { x: 100, y: 0, width: 300, height: 24 } });
+      expect(figs.slice(1).map((f) => f.attrs)).toEqual([
+        { x: 100, y: 0, text: 'T1000', align: 'right' },
+        { x: 400, y: 0, text: 'T5000', align: 'left' },
+      ]);
+    } finally {
+      T.drawingContext.selectedId = null;
+    }
   });
 });

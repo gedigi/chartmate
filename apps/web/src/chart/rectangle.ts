@@ -1,6 +1,7 @@
 import { registerOverlay, type OverlayFigure, type OverlayTemplate } from 'klinecharts';
 import { parseColor, zoneTint } from './color';
-import { drawingContext, fillOption } from './drawingTemplates';
+import { rangeAxisFigures } from './axisRange';
+import { drawingContext, fillOption, lineStyles } from './drawingTemplates';
 import { THEME_TOKENS } from './theme';
 
 /**
@@ -94,23 +95,41 @@ export function borderLines(box: Box, size: number): Array<{ coordinates: Coord[
   ];
 }
 
-/** Pixel positions of the eight handles (see RECTANGLE): corners where they are, midpoints halfway along the box. */
-export function handleCoordinates(a: Coord, b: Coord, box: Box): Coord[] {
+/** Where a hidden handle is parked: far outside the pane, so it is neither drawn on screen nor grabbable. */
+export const HIDDEN_HANDLE: Readonly<Coord> = { x: -1e5, y: -1e5 };
+/** A side shorter than this many handle diameters hides its midpoint handle, so the corners stay easy to grab. */
+export const MIDPOINT_MIN_DIAMETERS = 3;
+
+/**
+ * Pixel positions of the eight handles (see RECTANGLE): corners where they are, midpoints halfway along the box. On a
+ * side shorter than `minSpan` px the two midpoints along it are hidden (HIDDEN_HANDLE): the corners win.
+ */
+export function handleCoordinates(a: Coord, b: Coord, box: Box, minSpan = 0): Coord[] {
   const midX = (box.left + box.right) / 2;
   const midY = (box.top + box.bottom) / 2;
+  const tall = box.bottom - box.top >= minSpan;
+  const wide = box.right - box.left >= minSpan;
+  const hidden = () => ({ ...HIDDEN_HANDLE });
   return [
     { ...a }, { ...b }, { x: a.x, y: b.y }, { x: b.x, y: a.y },
-    { x: a.x, y: midY }, { x: b.x, y: midY }, { x: midX, y: a.y }, { x: midX, y: b.y },
+    tall ? { x: a.x, y: midY } : hidden(), tall ? { x: b.x, y: midY } : hidden(),
+    wide ? { x: midX, y: a.y } : hidden(), wide ? { x: midX, y: b.y } : hidden(),
   ];
+}
+
+/** True when two corner pixels make no box (zero width or height once on whole pixels). */
+export function isDegenerateBox(a: Coord, b: Coord): boolean {
+  const box = rectangleBox(a, b);
+  return box.right === box.left || box.bottom === box.top;
 }
 
 /**
  * Fill weight of a rectangle (OKLab distance of the tint from the chart background, see color.ts zoneTint), per theme
  * like the channel fill: the dark ground needs more to read (also inside the extended-hours shade). A rectangle
- * marks a zone, so it reads a touch firmer than a channel band, and stays below ZONE_WEIGHT so position zones read
- * stronger; never above RECT_FILL_ALPHA, so the candles inside keep their colors.
+ * marks a zone, so it reads a touch firmer than a channel band on both themes, and stays below ZONE_WEIGHT so position
+ * zones read stronger; never above RECT_FILL_ALPHA, so the candles inside keep their colors.
  */
-export const RECT_FILL_WEIGHT = { dark: 0.045, light: 0.032 } as const;
+export const RECT_FILL_WEIGHT = { dark: 0.048, light: 0.032 } as const;
 export const RECT_FILL_ALPHA = 0.14;
 
 /** Fill of a rectangle bordered with `color`: its hue-locked tint on the chart background (accent when unreadable). */
@@ -123,43 +142,49 @@ export function rectangleFill(color: unknown): string {
 type FigureParams = Parameters<NonNullable<OverlayTemplate['createPointFigures']>>[0];
 type EventParams = Parameters<NonNullable<OverlayTemplate['performEventPressedMove']>>[0];
 
-function lineStyles(p: FigureParams): Record<string, unknown> {
-  const own = (p.overlay.styles as { line?: Record<string, unknown> } | null | undefined)?.line ?? {};
-  const base = (p.chart.getStyles?.().overlay?.line ?? {}) as unknown as Record<string, unknown>;
-  return { ...base, ...own };
+/** Diameter (px) of the drawing's handles: its own point style (a locked drawing's rings) over the chart's. */
+function handleDiameter(p: FigureParams): number {
+  const base = (p.chart.getStyles?.().overlay?.point ?? {}) as unknown as Record<string, unknown>;
+  const own = (p.overlay.styles as { point?: Record<string, unknown> } | null | undefined)?.point ?? {};
+  const radius = Number(own.radius ?? base.radius);
+  const border = Number(own.borderSize ?? base.borderSize);
+  return 2 * ((Number.isFinite(radius) ? radius : 5) + (Number.isFinite(border) ? border : 1));
 }
 
 const template: OverlayTemplate = {
   name: RECTANGLE,
   totalStep: 3, // two clicks: opposite corners
   needDefaultPointFigure: true,
-  needDefaultXAxisFigure: true,
+  // The time axis gets our range labels (axisRange.ts): KLineChart's centered ones overlap on a narrow box.
+  needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: true,
   createPointFigures: (p: FigureParams) => {
     const [a, b] = p.coordinates;
     if (!a || !b) return [];
     const box = rectangleBox(a, b);
-    // KLineChart draws the handles after these figures from this same coordinates array (10.0.3): the midpoint
-    // handles go halfway along the edges (if that ever changes they sit on the corners and still resize).
+    // KLineChart draws the handles after these figures from this same coordinates array (10.0.x; a real-chart test
+    // pins it): the midpoint handles go halfway along the edges, or out of the way on a small box.
     if (p.coordinates.length >= 8) {
-      const handles = handleCoordinates(a, b, box);
+      const handles = handleCoordinates(a, b, box, MIDPOINT_MIN_DIAMETERS * handleDiameter(p));
       for (let i = 4; i < 8; i++) Object.assign(p.coordinates[i]!, handles[i]);
     }
     const line = lineStyles(p);
     const size = typeof line.size === 'number' && line.size > 0 ? line.size : 1;
     const figures: OverlayFigure[] = [];
     // The tint first (under the border); clicking it selects / drags the rectangle, a right click inside is ignored.
-    if (fillOption(RECTANGLE, p.overlay.styles) !== false) {
+    if (fillOption(RECTANGLE, p.overlay.styles) !== false && !isDegenerateBox(a, b)) {
       figures.push({
         type: 'rect', ignoreEvent: ['onRightClick'],
         attrs: { x: box.left, y: box.top, width: box.right - box.left, height: box.bottom - box.top },
         styles: { style: 'fill', color: rectangleFill(line.color), borderSize: 0 },
       } as OverlayFigure);
     }
-    // Color, width and dash come from the drawing's line style (KLineChart merges it into line figures).
+    // Color, width and dash come from the drawing's line style (KLineChart merges it into line figures). A box that
+    // has collapsed on this timeframe (both corners in one bar) keeps a border at least a line wide: still grabbable.
     figures.push({ type: 'line', attrs: borderLines(box, size) } as unknown as OverlayFigure);
     return figures;
   },
+  createXAxisFigures: (p) => rangeAxisFigures(p, 0, 1),
   // While placing the second corner, the other handles follow it.
   performEventMoveForDrawing: ({ points, performPointIndex }: EventParams) => {
     if (performPointIndex === 1) resizeRectangle(points, 1);

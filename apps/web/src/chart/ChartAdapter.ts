@@ -21,7 +21,7 @@ import {
   toPositionPoints, validatePrices, type OutcomeBar, type PositionMetrics, type PositionOutcome, type PositionSide,
 } from './position';
 import { positionContext, positionState, registerPositionOverlays, releasePositionContext } from './positionOverlay';
-import { persistedPoints, registerRectangleOverlay } from './rectangle';
+import { isDegenerateBox, persistedPoints, RECTANGLE, registerRectangleOverlay } from './rectangle';
 import { drawingClipboard, type DrawingClip } from './drawingClipboard';
 import { DEFAULT_DRAWING_COLOR, drawingSwatches, resolveDrawingColor, type DrawingSwatch } from './drawingColors';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
@@ -770,6 +770,12 @@ export class ChartAdapter {
       if (this.drawing?.id === overlay.id) {
         const { onEnd } = this.drawing;
         this.drawing = null;
+        if (this.degenerateRectangle(overlay)) {
+          // Two clicks on one row or column of pixels make no box: nothing is drawn (or saved).
+          this.withSilence(() => this.chart.removeOverlay({ id: overlay.id }));
+          onEnd?.();
+          return;
+        }
         if (this.lockAll) this.applyLock(overlay.id);
         this.revertMode(overlay.id);
         this.anchorAfterEdit(overlay.id);
@@ -838,6 +844,20 @@ export class ChartAdapter {
       return false;
     },
   };
+
+  /**
+   * A rectangle just placed with zero width or height on screen (both clicks in one bar, or at one price). Only at
+   * placement: a stored rectangle that collapses on another timeframe is kept (its border stays grabbable).
+   */
+  private degenerateRectangle(overlay: Overlay): boolean {
+    if (overlay.name !== RECTANGLE) return false;
+    const [a, b] = overlay.points;
+    if (!a || !b) return true;
+    const px = this.chart.convertToPixel([a, b], { paneId: CANDLE_PANE }) as Array<Partial<Coordinate>>;
+    const [pa, pb] = px;
+    if (typeof pa?.x !== 'number' || typeof pa.y !== 'number' || typeof pb?.x !== 'number' || typeof pb.y !== 'number') return false;
+    return isDegenerateBox({ x: pa.x, y: pa.y }, { x: pb.x, y: pb.y });
+  }
 
   /** Rounds a horizontal drawing placed / moved with the mouse to the symbol's price precision. */
   private roundHorizontal(overlay: Overlay): void {
@@ -1046,6 +1066,7 @@ export class ChartAdapter {
 
   private select(id: string | null): void {
     this.selectedId = id;
+    drawingContext.selectedId = id;
     this.emitSelection();
   }
 
@@ -1975,6 +1996,7 @@ export class ChartAdapter {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    if (this.selectedId !== null && drawingContext.selectedId === this.selectedId) drawingContext.selectedId = null;
     this.el.removeEventListener('mousedown', this.onPressCapture, true);
     this.stopMeasureTracking();
     this.measure = null;

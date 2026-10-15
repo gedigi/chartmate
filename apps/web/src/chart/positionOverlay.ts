@@ -1,5 +1,6 @@
 import { DEFAULT_POSITION_DEFAULTS, type PositionDefaults } from '@chartmate/shared';
 import { registerOverlay, type OverlayFigure, type OverlayTemplate } from 'klinecharts';
+import { rangeAxisFigures } from './axisRange';
 import { zoneTint } from './color';
 import { readableTextOn } from './contrast';
 import { drawingConstraint } from './drawingTemplates';
@@ -216,8 +217,10 @@ function template(name: 'longPosition' | 'shortPosition'): OverlayTemplate {
     name,
     totalStep: 2, // one click: the entry
     needDefaultPointFigure: true,
-    needDefaultXAxisFigure: true,
+    // The time axis gets range labels (axisRange.ts): start and end, apart or merged, never overlapping.
+    needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: true,
+    createXAxisFigures: (p) => rangeAxisFigures(p, 0, 3),
     createPointFigures: (p: FigureParams) => {
       const g = fromPositionPoints(p.overlay.points);
       if (!g || p.coordinates.length < 4) return [];

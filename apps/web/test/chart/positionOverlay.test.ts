@@ -182,6 +182,27 @@ describe('position overlay templates', () => {
     }
   });
 
+  it('time axis: start and end labels (range labels, merged when close), only while selected', async () => {
+    const { drawingContext } = await import('../../src/chart/drawingTemplates');
+    const t = k.templates.get('longPosition')!;
+    expect(t.needDefaultXAxisFigure).toBe(false);
+    const p = (x3: number) => ({
+      chart: { getStyles: () => ({ overlay: { text: { size: 10 } } }), getFormatter: () => ({ formatDate: ({ timestamp }: { timestamp: number }) => `T${timestamp}` }) },
+      overlay: { id: 'p1', name: 'longPosition', points: [{ timestamp: 1, value: 10 }, { timestamp: 1, value: 11 }, { timestamp: 1, value: 9 }, { timestamp: 9, value: 10 }], styles: null },
+      coordinates: [{ x: 100, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 0 }, { x: x3, y: 0 }], bounding: { width: 800, height: 24 },
+    });
+    expect(t.createXAxisFigures(p(400))).toEqual([]);
+    drawingContext.selectedId = 'p1';
+    try {
+      expect(t.createXAxisFigures(p(400)).slice(1).map((f: { attrs: { text: string; align: string } }) => [f.attrs.text, f.attrs.align]))
+        .toEqual([['T1', 'right'], ['T9', 'left']]);
+      expect(t.createXAxisFigures(p(105)).slice(1).map((f: { attrs: { text: string; align: string } }) => [f.attrs.text, f.attrs.align]))
+        .toEqual([['T1 – T9', 'center']]);
+    } finally {
+      drawingContext.selectedId = null;
+    }
+  });
+
   it('while placing, the entry point drags the default target / stop (±2 %) and end (endFor) along', () => {
     drawingConstraint.precision = 2;
     positionContext.endFor = (ts) => ts + 20 * DAY;

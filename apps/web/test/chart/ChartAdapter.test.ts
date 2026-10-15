@@ -1525,9 +1525,9 @@ describe('ChartAdapter', () => {
   it('keeps the drawing templates\' theme context (channel fills) on the active theme', async () => {
     const { drawingContext } = await import('../../src/chart/drawingTemplates');
     const a = make();
-    expect(drawingContext).toEqual({ theme: 'dark', bg: THEME_TOKENS.dark.bg, accent: THEME_TOKENS.dark.accent });
+    expect(drawingContext).toMatchObject({ theme: 'dark', bg: THEME_TOKENS.dark.bg, accent: THEME_TOKENS.dark.accent });
     a.setTheme('light');
-    expect(drawingContext).toEqual({ theme: 'light', bg: THEME_TOKENS.light.bg, accent: THEME_TOKENS.light.accent });
+    expect(drawingContext).toMatchObject({ theme: 'light', bg: THEME_TOKENS.light.bg, accent: THEME_TOKENS.light.accent });
     a.setTheme('dark');
   });
 });
