@@ -34,6 +34,14 @@ describe('releasesPageUrl / isAllowedReleasesUrl', () => {
       expect(isAllowedReleasesUrl(expected, expected)).toBe(false);
     }
   });
+  it('the web build\'s source code link (apps/web/build/repository.cjs) follows the same slug rules', () => {
+    const { repositoryUrl } = createRequire(import.meta.url)('../../web/build/repository.cjs') as { repositoryUrl: (r: unknown) => string | null };
+    for (const r of ['octo-org/chart.mate_2', 'o/r', undefined, '', 'owner', 'a/b/c', 'a/..', '-a/b', 'a b/c', 'a/b?x', 'evil.com/x',
+      `${'a'.repeat(40)}/b`, 'a/b\n', 42]) {
+      const releases = releasesPageUrl(r);
+      expect(repositoryUrl(r), String(r)).toBe(releases === null ? null : releases.replace(/\/releases$/, ''));
+    }
+  });
   it('bundle.mjs uses the same slug check (build/repository.cjs) for __RELEASES_URL__', () => {
     const bundle = readFileSync(new URL('../scripts/bundle.mjs', import.meta.url), 'utf8');
     expect(bundle).toMatch(/require\('\.\.\/build\/repository\.cjs'\)/);
