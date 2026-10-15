@@ -109,8 +109,15 @@ export class MarketDataService {
   /** Stocks seen by this process with neither a symbols row nor cached bars: their bars are fetched from then on. */
   private readonly freshSymbols = new Set<SymbolId>();
 
-  constructor(deps: { repos: Repos; registry: ProviderRegistry; now?: () => number; queues?: { stock: RequestQueue; crypto: RequestQueue } }) {
+  /** Most symbols the in-memory split bookkeeping tracks at once. */
+  private readonly maxTracked: number;
+
+  constructor(deps: {
+    repos: Repos; registry: ProviderRegistry; now?: () => number; queues?: { stock: RequestQueue; crypto: RequestQueue };
+    maxTracked?: number;
+  }) {
     this.repos = deps.repos;
+    this.maxTracked = deps.maxTracked ?? MAX_TRACKED;
     this.registry = deps.registry;
     this.now = deps.now ?? Date.now;
     this.queues = deps.queues ?? {
@@ -187,12 +194,12 @@ export class MarketDataService {
         // Cached bars without a row: try again later (the row normally appears with the first symbolInfo).
         const cached = await this.repos.bars.hasAny(symbol);
         if (!cached) this.rememberFresh(symbol);
-        this.splitNextCheck.set(symbol, now + (cached ? SPLIT_RETRY_MS : SPLIT_CHECK_MS));
+        this.setNextCheck(symbol, now + (cached ? SPLIT_RETRY_MS : SPLIT_CHECK_MS));
         return;
       }
       const last = row.splitsCheckedAt ?? null;
       if (last !== null && now - last < SPLIT_CHECK_MS) {
-        this.splitNextCheck.set(symbol, last + SPLIT_CHECK_MS);
+        this.setNextCheck(symbol, last + SPLIT_CHECK_MS);
         return;
       }
       // Rows from before split checks existed: splits older than the row's refresh (minus slack) are already
@@ -216,10 +223,10 @@ export class MarketDataService {
       } else {
         await this.repos.symbols.markSplitsChecked(symbol, now);
       }
-      this.splitNextCheck.set(symbol, now + SPLIT_CHECK_MS);
+      this.setNextCheck(symbol, now + SPLIT_CHECK_MS);
     } catch (err) {
       if (err instanceof ProviderError && err.retryable && err.provider !== 'queue') this.queues.stock.backoff(BACKOFF_MS);
-      this.splitNextCheck.set(symbol, now + SPLIT_RETRY_MS); // never fail a bars request over this
+      this.setNextCheck(symbol, now + SPLIT_RETRY_MS); // never fail a bars request over this
     }
   }
 
@@ -245,6 +252,8 @@ export class MarketDataService {
 
   async getNativeBars(symbol: SymbolId, tf: NativeTimeframe, from: number, to: number): Promise<{ bars: Bar[]; stale: boolean }> {
     const { assetClass, code } = parseMarketSymbol(symbol);
+    // A symbol the provider just said it does not know is not asked for bars again until the entry expires.
+    if (this.isRememberedUnknown(symbol)) throw new NotFoundError('Unknown symbol');
     if (assetClass === 'stock') await this.ensureSplitsChecked(symbol);
     const provider = this.provider(assetClass);
     const queue = this.queues[assetClass];
@@ -425,8 +434,21 @@ export class MarketDataService {
     }
   }
 
+  private isRememberedUnknown(id: SymbolId): boolean {
+    const until = this.unknownUntil.get(id);
+    return until !== undefined && this.now() < until;
+  }
+
+  /** Bounded: beyond `maxTracked` symbols the oldest entry is dropped (it is simply checked against the DB again). */
+  private setNextCheck(id: SymbolId, at: number): void {
+    const m = this.splitNextCheck;
+    m.delete(id); // re-insert so Map order stays oldest-first
+    while (m.size >= this.maxTracked) m.delete(m.keys().next().value!);
+    m.set(id, at);
+  }
+
   private rememberFresh(id: SymbolId): void {
-    if (this.freshSymbols.size >= MAX_TRACKED) this.freshSymbols.delete(this.freshSymbols.values().next().value!);
+    if (this.freshSymbols.size >= this.maxTracked) this.freshSymbols.delete(this.freshSymbols.values().next().value!);
     this.freshSymbols.add(id);
   }
 

@@ -214,6 +214,10 @@ location / {
   it was sent to, or the browser marks it `Sec-Fetch-Site: same-origin`. For a loopback host, a loopback
   `Origin` on any port is accepted too, which is what `pnpm dev` needs (the page on port 5173, the API on 8787).
   Requests without an `Origin` (curl, scripts) are not affected.
+- **No cross-site API calls.** An API request the browser marks `Sec-Fetch-Site: cross-site` or `same-site`
+  (another site's page loading an image, script or no-cors fetch from your instance) gets a 403, whatever its
+  method, so another page cannot make your server spend its data-provider quota. Requests the browser marks
+  `same-origin` or `none` (a typed URL), and requests without the header (curl, scripts), are not affected.
 - **Response headers.** The web app is served with a strict Content Security Policy (same-origin scripts,
   styles, fonts and API calls only, no inline code, Trusted Types required, no framing), `X-Frame-Options:
   DENY`, `Cross-Origin-Opener-Policy: same-origin`, `X-Content-Type-Options: nosniff` and `Referrer-Policy:

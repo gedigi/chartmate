@@ -245,6 +245,15 @@ describe('MarketDataService stock split check', () => {
     expect((await repos.bars.range('stock:AAPL', '1D', 0, NOW)).length).toBeGreaterThan(0);
   });
 
+  it('the in-memory next-check map is bounded (oldest dropped)', async () => {
+    const clock = () => now;
+    const queues = { stock: new RequestQueue({ concurrency: 2, minIntervalMs: 0, now: clock }), crypto: new RequestQueue({ concurrency: 2, minIntervalMs: 0, now: clock }) };
+    const small = new MarketDataService({ repos, registry: { stock, crypto }, now: clock, queues, maxTracked: 3 });
+    for (const t of ['A', 'B', 'C', 'D', 'E']) await small.ensureSplitsChecked(`stock:${t}`);
+    const m = (small as unknown as { splitNextCheck: Map<string, number> }).splitNextCheck;
+    expect([...m.keys()]).toEqual(['stock:C', 'stock:D', 'stock:E']);
+  });
+
   it('reverse split (factor < 1) rescales old intraday bars up and volume down', async () => {
     await h.db.updateTable('symbols').set({ splits_checked_at: NOW - 3 * DAY }).where('id', '=', 'stock:AAPL').execute();
     await repos.bars.upsert('stock:AAPL', '1h', [bar(NOW - 800 * DAY)]);

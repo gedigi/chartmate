@@ -409,8 +409,12 @@ describe('MarketDataService', () => {
       expect(stock.searchCalls).toEqual(['ZZZZ']);
       await expect(svc.symbolInfo('stock:ZZZZ')).rejects.toBeInstanceOf(NotFoundError);
       expect(await svc.earliest('stock:ZZZZ', '1D')).toBeNull();
-      await svc.getBars({ symbol: 'stock:ZZZZ', tf: '1D', session: 'rth', from: NOW - 5 * DAY, to: NOW });
-      await svc.getLatest('stock:ZZZZ', '1h', 'rth');
+      // A remembered unknown id never reaches the provider's bars endpoint either.
+      stock.calls = [];
+      await expect(svc.getBars({ symbol: 'stock:ZZZZ', tf: '1D', session: 'rth', from: NOW - 5 * DAY, to: NOW })).rejects.toBeInstanceOf(NotFoundError);
+      await expect(svc.getLatest('stock:ZZZZ', '1h', 'rth')).rejects.toBeInstanceOf(NotFoundError);
+      await expect(svc.getNativeBars('stock:ZZZZ', '1h', NOW - DAY, NOW)).rejects.toBeInstanceOf(NotFoundError);
+      expect(stock.calls).toEqual([]);
       expect(stock.searchCalls).toEqual(['ZZZZ']);
       now = NOW + 10 * 60_000;
       await expect(svc.symbolInfo('stock:ZZZZ')).rejects.toBeInstanceOf(NotFoundError);

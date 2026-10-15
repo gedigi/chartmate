@@ -37,6 +37,9 @@ app, the Docker image and the release tag share one version number.
   again** (sessions from earlier versions are no longer accepted).
 - The server refuses to start when `CHARTMATE_PASSWORD` is only whitespace (it used to turn the login off), and
   warns about a password shorter than 12 characters or a non-loopback `HOST` without a password.
+- API requests another site's page triggers (the browser marks them cross-site) are refused, so a web page can
+  no longer make an open instance spend its data-provider quota. A symbol the provider just reported unknown is
+  not asked for bars again for 10 minutes.
 - A stock split the data provider reports a few days late is now still applied to cached history (and never
   twice).
 
