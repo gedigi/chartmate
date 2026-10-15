@@ -1,17 +1,42 @@
 import type { Bar, Session, SessionMode } from './types.js';
-import { nyParts } from './nytime.js';
+import { memoByNyDay, nyDayTime, nyParts } from './nytime.js';
 
 /** Explicit session window, [start, end) in UTC epoch ms. */
 export interface SessionWindow { start: number; end: number; session: Session }
 
-/** NY: 04:00–09:30 pre, 09:30–16:00 regular, 16:00–20:00 post, else null. */
+/**
+ * Fallback session hours, Monday to Friday (NY date): 04:00–09:30 pre, 09:30–16:00 regular, 16:00–20:00 post, else
+ * null; weekends are null. Holidays and early closes are not modeled here: they come from the provider's session
+ * windows (see `tagSessions`).
+ */
 export function tagSessionFixedHours(ts: number): Session | null {
   const p = nyParts(ts);
+  if (p.dow === 0 || p.dow === 6) return null;
   const min = p.hh * 60 + p.mm;
   if (min >= 240 && min < 570) return 'pre';
   if (min >= 570 && min < 960) return 'regular';
   if (min >= 960 && min < 1200) return 'post';
   return null;
+}
+
+/**
+ * `tagSessionFixedHours`, memoized per NY day: the day's session bounds in UTC are computed once (Intl lookups are
+ * slow), then each timestamp is a few comparisons.
+ */
+function fixedHoursTagger(): (ts: number) => Session | null {
+  const boundsOf = memoByNyDay((day) => {
+    if (day.dow === 0 || day.dow === 6) return null;
+    return [nyDayTime(day, 4, 0), nyDayTime(day, 9, 30), nyDayTime(day, 16, 0), nyDayTime(day, 20, 0)] as const;
+  });
+  return (ts) => {
+    const b = boundsOf(ts);
+    if (!b) return null;
+    if (ts < b[0]) return null;
+    if (ts < b[1]) return 'pre';
+    if (ts < b[2]) return 'regular';
+    if (ts < b[3]) return 'post';
+    return null;
+  };
 }
 
 interface Segment { start: number; end: number; session: Session }
@@ -89,15 +114,22 @@ function findSegment(segs: Segment[], ts: number): Segment | undefined {
  */
 export function tagSessions(bars: Bar[], windows?: SessionWindow[]): Bar[] {
   const segs = windows && windows.length > 0 ? flattenWindows(windows) : [];
+  const fixedHours = fixedHoursTagger();
   const out: Bar[] = [];
   for (const bar of bars) {
     const w = segs.length > 0 ? findSegment(segs, bar.ts) : undefined;
-    const session = w ? w.session : tagSessionFixedHours(bar.ts);
+    const session = w ? w.session : fixedHours(bar.ts);
     if (session) out.push({ ...bar, session });
   }
   return out;
 }
 
+/**
+ * Keeps the bars of `mode` ('eth': all; 'rth': regular plus untagged ones). Precondition: `bars` are native bars,
+ * filtered BEFORE any resampling. An untagged native bar (no session, e.g. a cached row stored without one) is kept
+ * in 'rth' on purpose, so `undefined` cannot also mean "mixed": `resample` clears `session` on a bucket mixing
+ * sessions, and filtering such buckets with 'rth' would wrongly keep them.
+ */
 export function filterSession(bars: Bar[], mode: SessionMode): Bar[] {
   if (mode === 'eth') return bars.slice();
   return bars.filter((b) => b.session === undefined || b.session === 'regular');

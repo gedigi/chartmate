@@ -49,6 +49,19 @@ app, the Docker image and the release tag share one version number.
 - State-changing API requests (with or without a password) are refused when their `Origin` is not the page's
   own origin.
 
+### Charts and baskets
+
+- A daily chart of a stock or a stock-only basket keeps updating its last bar over the weekend instead of
+  getting no latest bar until the next session.
+- On intraday charts and live quotes of a stock-only basket, a new version now takes effect at the start of
+  its date's New York session (04:00, pre-market) instead of at midnight UTC, which in winter fell inside the
+  previous evening's post-market and valued it with the new holdings. 2h and 4h extended-hours bars no longer
+  mix two versions, and the version markers move to that time. Daily charts are unchanged.
+- A basket version dated tomorrow is no longer sized for hours at a price from the middle of today's
+  session: its holdings are re-sized every few minutes until today closes, then fixed at the final close.
+- A basket no longer fails to load when a constituent's daily close is zero, negative or missing where a version
+  is sized: the last valid close up to 5 bars earlier is used, and a notice names the dates skipped.
+
 ## [1.0.0] - 2026-10-14
 
 The first stable release: a charting app for US stocks and ETFs, crypto and your own baskets, as a desktop app

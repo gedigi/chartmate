@@ -293,7 +293,8 @@ export class MarketDataService {
   async getLatest(symbol: SymbolId, tf: Timeframe, session: SessionMode): Promise<{ bar: Bar | null; stale: boolean }> {
     const now = this.now();
     const cal = isIntraday(tf) ? calendarFor(symbol, session) : 'utc';
-    const back = tf === '1W' ? 7 * DAY : tf === '1M' ? 31 * DAY : tfMs(tf);
+    // 1D looks back a week so a stock's last session (Friday, before a holiday) is found over a (long) weekend.
+    const back = tf === '1D' || tf === '1W' ? 7 * DAY : tf === '1M' ? 31 * DAY : tfMs(tf);
     const r = await this.getBars({ symbol, tf, session, from: bucketStart(now, tf, cal) - back, to: now + tfMs(tf) });
     return { bar: r.bars.at(-1) ?? null, stale: r.stale };
   }
