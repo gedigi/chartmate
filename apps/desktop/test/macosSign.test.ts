@@ -1,6 +1,6 @@
 // .github/scripts/macos-sign.sh, run for real under /bin/bash (3.2 on macOS) with the Apple tools stubbed on PATH.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -161,5 +161,82 @@ describe('macos-sign.sh store-notary (a signed release is notarized unless the o
     const r = run(['store-notary'], { APPLE_ID: 'a@b.c', ALLOW_UNNOTARIZED: 'true' });
     expect(r.status).toBe(1);
     expect(r.err).toContain('APPLE_APP_SPECIFIC_PASSWORD is not set');
+  });
+});
+
+describe('macos-sign.sh check-dmg / check-zip (the release files hold exactly the app sign-mac signed)', () => {
+  const CDHASH = 'ab'.repeat(20);
+  let content: string;
+  beforeEach(() => {
+    // hdiutil attach and ditto -x copy the fixture tree to the mount point / destination; codesign reports
+    // STUB_CDHASH (default: the expected hash) and fails verification when STUB_VERIFY_FAIL is set.
+    content = join(dir, 'content');
+    mkdirSync(join(content, 'Chartmate.app', 'Contents'), { recursive: true });
+    writeFileSync(join(content, '.DS_Store'), '');
+    writeFileSync(join(content, '.VolumeIcon.icns'), '');
+    writeFileSync(join(content, '.background.tiff'), '');
+    symlinkSync('/Applications', join(content, 'Applications'));
+    stub('hdiutil', `if [ "$1" = attach ]; then
+  while [ $# -gt 0 ]; do [ "$1" = -mountpoint ] && mp="$2"; shift; done
+  cp -R "${content}/." "$mp/"
+fi
+exit 0`);
+    stub('ditto', `[ "$1" = -x ] && cp -R "${content}/." "$4/"; exit 0`);
+    stub('codesign', `case "$1" in
+  --verify) [ -z "$STUB_VERIFY_FAIL" ] ;;
+  -dvvv) echo "CDHash=\${STUB_CDHASH:-${CDHASH}}" >&2 ;;
+esac`);
+  });
+  const dmg = (env: Record<string, string> = {}) => run(['check-dmg', join(dir, 'x.dmg'), CDHASH], env);
+  const zip = (env: Record<string, string> = {}) => run(['check-zip', join(dir, 'x.zip'), CDHASH], env);
+  const zipOnlyApp = () => {
+    for (const f of ['.DS_Store', '.VolumeIcon.icns', '.background.tiff', 'Applications']) rmSync(join(content, f));
+  };
+
+  it('accepts electron-builder\'s dmg layout holding the signed app', () => {
+    const r = dmg();
+    expect(r.err).toBe('');
+    expect(r.status).toBe(0);
+    expect(r.out).toContain(`holds the signed app (${CDHASH})`);
+  });
+
+  for (const [what, make] of [
+    ['a second app', () => mkdirSync(join(content, 'Other.app'))],
+    ['a script', () => writeFileSync(join(content, 'install.command'), '#!/bin/sh')],
+    ['a hidden folder', () => mkdirSync(join(content, '.hidden'))],
+    ['an Applications link to somewhere else', () => { rmSync(join(content, 'Applications')); symlinkSync('/tmp', join(content, 'Applications')); }],
+    ['an Applications folder instead of the link', () => { rmSync(join(content, 'Applications')); mkdirSync(join(content, 'Applications')); }],
+    ['a renamed app', () => renameSync(join(content, 'Chartmate.app'), join(content, 'Chartmate 2.app'))],
+  ] as const) {
+    it(`refuses a dmg with ${what} at the top level`, () => {
+      make();
+      const r = dmg();
+      expect(r.status).toBe(1);
+      expect(r.calls.some((c) => c.startsWith('codesign -dvvv'))).toBe(false);
+    });
+  }
+
+  it('refuses a dmg whose app is not the one signed, or does not verify', () => {
+    expect(dmg({ STUB_CDHASH: 'cd'.repeat(20) }).err).toContain('not the one signed');
+    expect(dmg({ STUB_VERIFY_FAIL: '1' }).status).toBe(1);
+  });
+
+  it('accepts a zip holding exactly the signed app, and removes what it extracted', () => {
+    zipOnlyApp();
+    const r = zip();
+    expect(r.err).toBe('');
+    expect(r.status).toBe(0);
+    expect(r.calls.find((c) => c.startsWith('ditto'))).toMatch(/^ditto -x -k \S+x\.zip \S+\/zip\.\w+$/);
+    expect(readdirSync(tmp).filter((f) => f.startsWith('zip.'))).toEqual([]);
+  });
+
+  it('refuses a zip with anything besides the app, another app hash, or an app that does not verify', () => {
+    expect(zip().status).toBe(1); // the dmg extras
+    zipOnlyApp();
+    expect(zip({ STUB_CDHASH: 'cd'.repeat(20) }).err).toContain('not the one signed');
+    expect(zip({ STUB_VERIFY_FAIL: '1' }).err).toContain('does not verify');
+    writeFileSync(join(content, 'extra'), '');
+    expect(zip().err).toContain('must hold exactly Chartmate.app');
+    expect(readdirSync(tmp).filter((f) => f.startsWith('zip.'))).toEqual([]);
   });
 });

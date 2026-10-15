@@ -14,8 +14,11 @@
 #                                           signs nested code inside-out (deepest first), then the app; hardened
 #                                           runtime, secure timestamp; verifies with codesign --verify --deep --strict.
 #   macos-sign.sh cdhash <app>              Prints the app's code directory hash.
-#   macos-sign.sh check-dmg <dmg> <cdhash>  Mounts the dmg read-only and fails unless the app inside verifies and has
-#                                           exactly that code directory hash (the app sign-mac signed).
+#   macos-sign.sh check-dmg <dmg> <cdhash>  Mounts the dmg read-only and fails unless its top level holds only
+#                                           Chartmate.app, the Applications link, the background and Finder files,
+#                                           and the app verifies and has exactly that code directory hash (the app
+#                                           sign-mac signed).
+#   macos-sign.sh check-zip <zip> <cdhash>  The same for a release zip: exactly Chartmate.app inside, verified, that cdhash.
 #   macos-sign.sh sign-dmg <dmg>            IDENTITY: signs the disk image itself.
 #   macos-sign.sh notarize <file>           Submits (an .app is zipped with ditto first), waits, fails unless
 #                                           Accepted (printing the notary log), then staples and validates.
@@ -160,17 +163,48 @@ cmd_cdhash() {
 }
 
 cmd_check_dmg() {
-  local dmg="${1:?dmg}" expected="${2:?expected cdhash}" apps actual
+  local dmg="${1:?dmg}" expected="${2:?expected cdhash}" app actual entry name
   MOUNT="$(mktemp -d "$TMP/dmg.XXXXXX")"
   hdiutil attach "$dmg" -readonly -nobrowse -noautoopen -mountpoint "$MOUNT" >/dev/null
-  apps="$(find "$MOUNT" -maxdepth 1 -name '*.app' -type d)"
-  [ -n "$apps" ] && [ "$(printf '%s\n' "$apps" | wc -l | tr -d ' ')" = 1 ] || die "$dmg must hold exactly one app"
-  codesign --verify --deep --strict "$apps"
-  actual="$(cmd_cdhash "$apps")"
+  # Only what electron-builder's dmg layout puts at the top level: the app, the Applications link, the window
+  # background and Finder's metadata. Anything else (another app, a script, a link elsewhere) is refused.
+  while IFS= read -r -d '' entry; do
+    name="${entry##*/}"
+    case "$name" in
+      Chartmate.app) [ -d "$entry" ] && [ ! -L "$entry" ] || die "$dmg: $name is not an app bundle" ;;
+      Applications) [ -L "$entry" ] && [ "$(readlink "$entry")" = /Applications ] \
+        || die "$dmg: Applications is not a link to /Applications" ;;
+      .background) [ -d "$entry" ] && [ ! -L "$entry" ] || die "$dmg: $name is not a directory" ;;
+      .background.tiff | .background.png | .DS_Store | .VolumeIcon.icns)
+        [ -f "$entry" ] && [ ! -L "$entry" ] || die "$dmg: $name is not a regular file" ;;
+      *) die "$dmg: unexpected top-level entry: $name" ;;
+    esac
+  done < <(find "$MOUNT" -mindepth 1 -maxdepth 1 -print0)
+  app="$MOUNT/Chartmate.app"
+  [ -d "$app" ] || die "$dmg holds no Chartmate.app"
+  codesign --verify --deep --strict "$app"
+  actual="$(cmd_cdhash "$app")"
   [ "$actual" = "$expected" ] || die "$dmg holds an app with cdhash $actual, not the one signed ($expected)"
   hdiutil detach "$MOUNT" >/dev/null
   MOUNT=""
   echo "$dmg holds the signed app ($actual)"
+}
+
+cmd_check_zip() {
+  local zip="${1:?zip}" expected="${2:?expected cdhash}" out entries actual
+  out="$(mktemp -d "$TMP/zip.XXXXXX")"
+  # ditto keeps the bundle's symlinks and extended attributes, as Finder and the updater do.
+  ditto -x -k "$zip" "$out"
+  entries="$(find "$out" -mindepth 1 -maxdepth 1 -print | sed "s|^$out/||")"
+  if [ "$entries" != Chartmate.app ] || [ -L "$out/Chartmate.app" ] || [ ! -d "$out/Chartmate.app" ]; then
+    rm -rf "$out"
+    die "$zip must hold exactly Chartmate.app at its top level (found: $(printf '%s' "$entries" | tr '\n' ' '))"
+  fi
+  if ! codesign --verify --deep --strict "$out/Chartmate.app"; then rm -rf "$out"; die "$zip: the app does not verify"; fi
+  actual="$(cmd_cdhash "$out/Chartmate.app")"
+  rm -rf "$out"
+  [ "$actual" = "$expected" ] || die "$zip holds an app with cdhash $actual, not the one signed ($expected)"
+  echo "$zip holds the signed app ($actual)"
 }
 
 cmd_sign_dmg() {
@@ -220,8 +254,9 @@ case "${1:-}" in
   sign-app) shift; cmd_sign_app "$@" ;;
   cdhash) shift; cmd_cdhash "$@" ;;
   check-dmg) shift; cmd_check_dmg "$@" ;;
+  check-zip) shift; cmd_check_zip "$@" ;;
   sign-dmg) shift; cmd_sign_dmg "$@" ;;
   notarize) shift; cmd_notarize "$@" ;;
   cleanup) cmd_cleanup ;;
-  *) echo "usage: macos-sign.sh import|store-notary|sign-app|cdhash|check-dmg|sign-dmg|notarize|cleanup" >&2; exit 2 ;;
+  *) echo "usage: macos-sign.sh import|store-notary|sign-app|cdhash|check-dmg|check-zip|sign-dmg|notarize|cleanup" >&2; exit 2 ;;
 esac
