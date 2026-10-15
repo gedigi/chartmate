@@ -66,10 +66,10 @@ export function findForbiddenSwitches(argv: readonly string[], platform: NodeJS.
  * pre-execution, before any app code runs (global proxy dispatcher), so it cannot be neutralized by deleting it
  * later; SSLKEYLOGFILE would make TLS session keys loggable. NODE_USE_SYSTEM_CA is allowed: it is common in
  * developer and corporate environments (refusing it made the app silently fail to open), and it has no effect on
- * provider traffic, which pins the bundled root CAs (directFetch.ts).
+ * provider traffic, which trusts only the bundled root store (directFetch.ts).
  * NODE_EXTRA_CA_CERTS is normally removed by Electron already (the EnableNodeOptionsEnvironmentVariable fuse covers
- * it), and stays listed as defense in depth. The provider fetch also ignores proxies and pins the bundled root CAs
- * regardless (directFetch.ts).
+ * it), and stays listed as defense in depth. The provider fetch also ignores proxies and trusts only the bundled
+ * root store regardless (directFetch.ts).
  */
 export const FORBIDDEN_ENV_VARS: readonly string[] = Object.freeze(['NODE_USE_ENV_PROXY', 'NODE_EXTRA_CA_CERTS', 'SSLKEYLOGFILE']);
 

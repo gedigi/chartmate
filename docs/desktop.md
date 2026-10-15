@@ -32,6 +32,10 @@ otherwise.
   Electron 44, no flag needed) through a small adapter for Kysely's own `SqliteDialect`
   (`apps/desktop/src/lib/nodeSqlite.ts`). better-sqlite3 and pg are never bundled (the bundle script fails if
   they are). The server's DB-backed test suites also run against this dialect (`apps/desktop` `pnpm test`).
+  The database holds the user's layouts, drawings, watchlists and baskets as well as the bar cache. It runs in WAL
+  mode with `synchronous = NORMAL`: a committed change survives an app crash and the file never corrupts, but an
+  OS crash or power loss can lose the last few commits. `FULL` would close that window with an fsync on every
+  write, which layout and drawing autosaves make frequent; NORMAL is the chosen tradeoff.
 - **One file.** esbuild bundles the desktop main process and the whole server into a single minified
   `dist/main.cjs` (~2.5 MB). The package holds only that file, the web build and the icon, in an asar archive with
   maximum compression and English locales only. It has no `node_modules`.
@@ -146,8 +150,9 @@ along with `NODE_OPTIONS`. The guard still refuses it if it ever got through.
 
 Independently of that, provider requests never use Node's global dispatcher. They go through an explicit undici
 `Agent` (`src/lib/directFetch.ts`) that connects directly, ignoring `HTTP(S)_PROXY`, and trusts only Node's
-bundled root CAs (`tls.rootCertificates`). Real Node and Electron child processes prove this
-(`test/directFetch.test.ts`).
+bundled root store (`tls.rootCertificates`). This restricts trust to that root store; it is not certificate
+pinning, so any certificate chaining to a bundled root is accepted. Real Node and Electron child processes prove
+this (`test/directFetch.test.ts`).
 
 Provider traffic is therefore **direct-only**. Corporate HTTP proxies are not supported, and neither are
 TLS-inspecting middleboxes, which need their own root certificate. On such networks the desktop app cannot reach
@@ -215,7 +220,7 @@ The renderer is treated as untrusted web content, and the main process exposes n
   is also allowed when the dev bundle runs unpackaged. Blocked navigations and requests (renderer and main
   process) are logged at most 20 times a minute, then summarized in one line (`createRateLimiter` in
   `src/lib/logger.ts`), so a page cannot turn them into a stream of synchronous file writes.
-- **Main-process network**: `globalThis.fetch` is wrapped by an allowlist on top of the direct, CA-pinned undici
+- **Main-process network**: `globalThis.fetch` is wrapped by an allowlist on top of the direct undici
   transport described above. It allows HTTPS only, exact hosts and
   the default port, and it follows redirects itself so that every hop is checked. On a redirect to another
   origin it drops the `Authorization`, `Cookie` and `Proxy-Authorization` headers. The allowed hosts are:

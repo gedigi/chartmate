@@ -184,7 +184,7 @@ test('environment guard: proxy/system-CA/TLS-key-log variables are refused', asy
 });
 
 // Electron's EnableNodeOptionsEnvironmentVariable fuse (off) covers NODE_EXTRA_CA_CERTS as well as NODE_OPTIONS:
-// Electron drops it before Node starts, so it never reaches app code (and the provider fetch pins the bundled
+// Electron drops it before Node starts, so it never reaches app code (and the provider fetch trusts only the bundled
 // roots anyway). The app therefore starts normally instead of hitting the environment guard.
 test('NodeOptions fuse: NODE_EXTRA_CA_CERTS is dropped before the app runs', async () => {
   const { child, output } = start({ NODE_EXTRA_CA_CERTS: join(tmpdir(), 'ca.pem') });

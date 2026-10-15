@@ -78,7 +78,7 @@ beforeAll(async () => {
   await new Promise<void>((r) => proxy.listen(0, '127.0.0.1', () => r()));
   proxyPort = (proxy.address() as net.AddressInfo).port;
 
-  // A local HTTPS server with a self-signed certificate (for the CA pinning check), if openssl is available.
+  // A local HTTPS server with a self-signed certificate (for the bundled-root-store check), if openssl is available.
   try {
     const key = join(work, 'key.pem');
     certFile = join(work, 'cert.pem');

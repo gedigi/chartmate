@@ -175,8 +175,8 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   `winSignature.ts`) are security changes.
 - Keep the CSP header (no `unsafe-inline` / `unsafe-eval`) and Trusted Types (`trusted-types 'none'`): never
   write HTML strings into the DOM.
-- Main-process network goes through the outbound allowlist (`netAllowlist.ts`) on the direct, CA-pinned
-  transport (`directFetch.ts`). Adding a host is a security change.
+- Main-process network goes through the outbound allowlist (`netAllowlist.ts`) on the direct transport
+  (`directFetch.ts`: no proxy, trusts only Node's bundled root store). Adding a host is a security change.
 - Security gates use `hardened` (`isHardened()` in `buildMode.ts`, computed once in `src/boot.ts`), never
   `app.isPackaged`, which only reflects the executable's file name. Only the `--dev` bundle run unpackaged is
   unhardened.
