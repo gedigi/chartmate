@@ -60,7 +60,10 @@ export function createNodeSqliteDb(path: string): NodeSqliteHandle {
   const raw = new DatabaseSync(path);
   raw.exec('PRAGMA journal_mode = WAL');
   raw.exec('PRAGMA foreign_keys = ON');
-  // WAL + NORMAL: durable against application crashes, no fsync on every commit (a cache, not a ledger).
+  // The file holds user data (layouts, drawings, watchlists, baskets) besides the bar cache. WAL + NORMAL: a
+  // committed transaction survives an application crash, and the database never corrupts; only an OS crash or power
+  // loss can roll back the last few commits (no fsync per commit, which matters for frequent drawing/layout saves).
+  // FULL would close that window at the cost of an fsync on every write (docs/desktop.md).
   raw.exec('PRAGMA synchronous = NORMAL');
   raw.exec('PRAGMA busy_timeout = 5000');
   const db = new Kysely<Database>({ dialect: new SqliteDialect({ database: adaptNodeSqlite(raw) }) });

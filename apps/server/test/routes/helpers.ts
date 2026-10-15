@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app.js';
 import { BasketService } from '../../src/baskets/service.js';
 import type { Config } from '../../src/config.js';
-import { createDb } from '../../src/db/connect.js';
+import { createTestDb } from '../helpers/testDb.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';
 import { MarketDataService } from '../../src/market/service.js';
@@ -15,20 +15,9 @@ export function isoDate(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);
 }
 
-export interface TestApp { app: FastifyInstance; market: MarketDataService; baskets: BasketService; repos: Repos; close(): Promise<void> }
-
-export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () => number } = {}): Promise<TestApp> {
-  const h = createDb('sqlite::memory:');
-  await migrate(h.db);
-  const repos = createRepos(h.db, h.dialect);
-  const registry = createRegistry({ mode: 'fixture', cryptoProvider: 'binance', binanceBaseUrl: 'http://unused' });
-  const queues = {
-    stock: new RequestQueue({ concurrency: 4, minIntervalMs: 0 }),
-    crypto: new RequestQueue({ concurrency: 4, minIntervalMs: 0 }),
-  };
-  const market = new MarketDataService({ repos, registry, queues, ...(opts.now ? { now: opts.now } : {}) });
-  const baskets = new BasketService({ repos, market, ...(opts.now ? { now: opts.now } : {}) });
-  const config: Config = {
+/** The configuration test apps start from (fixture providers, no password, a fixed session secret). */
+export function testConfig(): Config {
+  return {
     port: 0,
     host: '127.0.0.1',
     databaseUrl: 'sqlite::memory:',
@@ -41,8 +30,23 @@ export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () 
     trustProxy: false,
     allowedHosts: [],
     allowedOrigins: [],
-    ...overrides,
   };
+}
+
+export interface TestApp { app: FastifyInstance; market: MarketDataService; baskets: BasketService; repos: Repos; close(): Promise<void> }
+
+export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () => number } = {}): Promise<TestApp> {
+  const h = await createTestDb();
+  await migrate(h.db);
+  const repos = createRepos(h.db, h.dialect);
+  const registry = createRegistry({ mode: 'fixture', cryptoProvider: 'binance', binanceBaseUrl: 'http://unused' });
+  const queues = {
+    stock: new RequestQueue({ concurrency: 4, minIntervalMs: 0 }),
+    crypto: new RequestQueue({ concurrency: 4, minIntervalMs: 0 }),
+  };
+  const market = new MarketDataService({ repos, registry, queues, ...(opts.now ? { now: opts.now } : {}) });
+  const baskets = new BasketService({ repos, market, ...(opts.now ? { now: opts.now } : {}) });
+  const config: Config = { ...testConfig(), ...overrides };
   const app = await buildApp({ config, repos, market, baskets, logger: false, now: opts.now });
   return {
     app,

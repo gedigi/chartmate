@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,8 +6,8 @@ import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
 type Plan = { command: string; args: string[]; env: Record<string, string> };
-type Host = { file: string; out: string; description?: string; hostPlatform: string; hostArch: string; moduleArchs: string[] | null; exists: (p: string) => boolean };
-const { signtoolArgs, osslsigncodePlan, isTransient, isPinFailure, resetPinLatch, toolEnv, signFile } = require('../build/win-sign.cjs') as {
+type Host = { file: string; out: string; description?: string; pin?: string; hostPlatform: string; hostArch: string; moduleArchs: string[] | null; exists: (p: string) => boolean };
+const { signtoolArgs, osslsigncodePlan, isTransient, isPinFailure, resetPinLatch, toolEnv, signFile, pinFrom } = require('../build/win-sign.cjs') as {
   signtoolArgs: (o: { thumbprint?: string; file: string; description?: string }) => string[];
   osslsigncodePlan: (env: Record<string, string>, host: Host) => Plan;
   isTransient: (output: string) => boolean;
@@ -15,6 +15,7 @@ const { signtoolArgs, osslsigncodePlan, isTransient, isPinFailure, resetPinLatch
   resetPinLatch: () => void;
   toolEnv: (env: Record<string, string>, extra?: Record<string, string>) => Record<string, string>;
   signFile: (file: string, opts: { env: Record<string, string> }) => Promise<void>;
+  pinFrom: (env: Record<string, string>) => string | undefined;
 };
 
 const MODULE = '/usr/local/lib/libSimplySignPKCS.dylib';
@@ -130,6 +131,50 @@ describe.skipIf(process.platform === 'win32')('PIN latch', () => {
     await expect(signFile(join(dir, 'b.exe'), { env: e })).rejects.toThrow(/refusing further attempts/);
     expect(readFileSync(count, 'utf8').trim().split('\n')).toHaveLength(1);
     resetPinLatch();
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('PIN file hand-off (CHARTMATE_WIN_PKCS11_PIN_FILE)', () => {
+  const privateFile = (content: string) => {
+    const d = mkdtempSync(join(tmpdir(), 'pin-'));
+    const f = join(d, 'pin');
+    writeFileSync(f, content, { mode: 0o600 });
+    return f;
+  };
+
+  it('reads the PIN once, deletes the file, and keeps it in memory for the next files', () => {
+    resetPinLatch();
+    const f = privateFile('424242\n');
+    const e = { CHARTMATE_WIN_PKCS11_PIN_FILE: f };
+    expect(pinFrom(e)).toBe('424242');
+    expect(existsSync(f)).toBe(false);
+    expect(pinFrom(e)).toBe('424242');
+    resetPinLatch();
+  });
+
+  it('refuses a symlink, a non-regular file or a file others can read', () => {
+    resetPinLatch();
+    const target = privateFile('1');
+    const link = join(mkdtempSync(join(tmpdir(), 'pin-')), 'pin');
+    symlinkSync(target, link);
+    expect(() => pinFrom({ CHARTMATE_WIN_PKCS11_PIN_FILE: link })).toThrow(/PIN file/);
+    expect(() => pinFrom({ CHARTMATE_WIN_PKCS11_PIN_FILE: mkdtempSync(join(tmpdir(), 'pin-')) })).toThrow(/PIN file/);
+    const open = privateFile('1');
+    chmodSync(open, 0o644);
+    expect(() => pinFrom({ CHARTMATE_WIN_PKCS11_PIN_FILE: open })).toThrow(/PIN file/);
+    resetPinLatch();
+  });
+
+  it('falls back to CHARTMATE_WIN_PKCS11_PIN (a direct electron-builder run), else none', () => {
+    resetPinLatch();
+    expect(pinFrom({ CHARTMATE_WIN_PKCS11_PIN: '7' })).toBe('7');
+    expect(pinFrom({})).toBeUndefined();
+  });
+
+  it('the plan takes the PIN it is given, never from the file path', () => {
+    const p = osslsigncodePlan({ ...env, CHARTMATE_WIN_PKCS11_PIN_FILE: '/x/pin' }, { ...host(), pin: '9999' } as Host);
+    expect(p.env).toEqual({ PKCS11_PIN: '9999' });
+    expect(p.args.join(' ')).not.toContain('9999');
   });
 });
 

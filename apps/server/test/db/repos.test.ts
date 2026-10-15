@@ -10,7 +10,7 @@ const SEC_A = '0b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f60';
 const SEC_B = '1b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f61';
 const SEC_C = '2b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f62';
 
-const TABLES = ['basket_versions','baskets','bars','coverage','symbols','watchlist','watchlist_entries','layouts','drawings','kysely_migration','kysely_migration_lock'];
+const TABLES = ['applied_splits','settings','basket_versions','baskets','bars','coverage','symbols','watchlist','watchlist_entries','layouts','drawings','kysely_migration','kysely_migration_lock'];
 const urls = ['sqlite::memory:', ...(process.env.TEST_PG_URL ? [process.env.TEST_PG_URL] : [])];
 describe.each(urls)('repos on %s', (url) => {
   const h = createDb(url);
@@ -71,6 +71,40 @@ describe.each(urls)('repos on %s', (url) => {
     await r.drawings.put('stock:A', [{ name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false }]);
     expect((await r.drawings.get('stock:A'))[0]!.name).toBe('segment');
   });
+  it('bars store writes the bars and their coverage together; nothing to store is a no-op', async () => {
+    const bar = { ts: 5, open: 1, high: 1, low: 1, close: 1, volume: 1 };
+    await r.bars.store('stock:ST', '1D', [bar], [0, 10]);
+    expect(await r.bars.range('stock:ST', '1D', 0, 10)).toEqual([bar]);
+    expect(await r.coverage.list('stock:ST', '1D')).toEqual([[0, 10]]);
+    await r.bars.store('stock:ST', '1D', [], null);
+    await r.bars.store('stock:ST', '1D', [], [20, 20]);
+    await r.bars.store('stock:ST', '1D', [], [10, 20]); // empty but trusted: covered
+    expect(await r.coverage.list('stock:ST', '1D')).toEqual([[0, 20]]);
+    await r.bars.store('stock:ST', '1D', [{ ...bar, ts: 30 }], null); // bars without coverage
+    expect(await r.coverage.list('stock:ST', '1D')).toEqual([[0, 20]]);
+    expect(await r.bars.range('stock:ST', '1D', 0, 40)).toHaveLength(2);
+    await Promise.all([[40, 50], [45, 60], [100, 110]].map(([a, b]) => r.bars.store('stock:ST', '1D', [{ ...bar, ts: a! }], [a!, b!])));
+    expect(await r.coverage.list('stock:ST', '1D')).toEqual([[0, 20], [40, 60], [100, 110]]);
+  });
+  it('basket appendVersion appends only while the stored versions are the expected ones', async () => {
+    const v0 = { effectiveFrom: '2024-01-02', weights: { 'stock:A': 1 } };
+    const v1 = { effectiveFrom: '2024-02-01', weights: { 'stock:B': 1 } };
+    await r.baskets.create({ id: 'ap', name: 'A', baseValue: 100, versions: [v0] });
+    expect(await r.baskets.appendVersion('nope', v1, [])).toBeNull();
+    expect(await r.baskets.appendVersion('ap', v1, [])).toBe('conflict');
+    const b = await r.baskets.appendVersion('ap', v1, [v0]);
+    expect(b !== null && b !== 'conflict' && b.versions).toEqual([v0, v1]);
+    expect(await r.baskets.appendVersion('ap', v1, [v0])).toBe('conflict');
+  });
+  it('settings: the first generated value wins, also under concurrency', async () => {
+    expect(await r.settings.get('k')).toBeNull();
+    const values = await Promise.all([1, 2, 3].map((i) => r.settings.getOrCreate('k', () => `v${i}`)));
+    expect(new Set(values).size).toBe(1);
+    expect(await r.settings.getOrCreate('k', () => 'other')).toBe(values[0]);
+    const secret = await r.settings.sessionSecret();
+    expect(secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(await r.settings.sessionSecret()).toBe(secret);
+  });
   it('coverage add is safe under concurrency', async () => {
     await Promise.all([[0, 10], [5, 15], [12, 20], [20, 30], [28, 40], [100, 110]].map(([a, b]) => r.coverage.add('c', '1D', a!, b!)));
     expect(await r.coverage.list('c', '1D')).toEqual([[0, 40], [100, 110]]);
@@ -94,30 +128,23 @@ describe.each(urls)('repos on %s', (url) => {
     expect(await r.symbols.get('stock:A')).toBeNull();
     const row = { id: 'stock:A', name: 'A Inc', exchange: 'NYSE', pricePrecision: 2, firstTs: Date.UTC(1999, 0, 1), updatedAt: Date.UTC(2030, 0, 1) };
     await r.symbols.upsert(row);
-    expect(await r.symbols.get('stock:A')).toEqual({ ...row, ticker: null, splitsCheckedAt: row.updatedAt }); // insert stamps the split check
+    expect(await r.symbols.get('stock:A')).toEqual({ ...row, ticker: null, splitsCheckedAt: row.updatedAt, splitsTrackedFrom: row.updatedAt }); // insert stamps the split check
     await r.symbols.upsert({ ...row, name: 'B', exchange: null, firstTs: null, ticker: 'A.X' });
-    expect(await r.symbols.get('stock:A')).toEqual({ ...row, name: 'B', exchange: null, firstTs: null, ticker: 'A.X', splitsCheckedAt: row.updatedAt });
+    expect(await r.symbols.get('stock:A')).toEqual({ ...row, name: 'B', exchange: null, firstTs: null, ticker: 'A.X', splitsCheckedAt: row.updatedAt, splitsTrackedFrom: row.updatedAt });
   });
-  it('symbols splits_checked_at is set separately and survives upserts; bars/coverage deleteSymbol', async () => {
+  it('symbols splits_checked_at is set separately and survives upserts', async () => {
     const row = { id: 'stock:S', name: 'S', exchange: null, pricePrecision: 2, firstTs: null, updatedAt: 1 };
     await r.symbols.upsert(row);
     const at = Date.UTC(2031, 0, 1);
     await r.symbols.markSplitsChecked('stock:S', at);
     await r.symbols.upsert({ ...row, updatedAt: 2 });
     expect((await r.symbols.get('stock:S'))?.splitsCheckedAt).toBe(at);
-    const bar = { ts: 1, open: 1, high: 1, low: 1, close: 1, volume: 1 };
-    await r.bars.upsert('stock:S', '1D', [bar]);
-    await r.bars.upsert('stock:S', '1h', [bar]);
-    await r.bars.upsert('stock:T', '1D', [bar]);
-    await r.coverage.add('stock:S', '1D', 0, 10);
-    await r.coverage.add('stock:T', '1D', 0, 10);
-    await r.bars.deleteSymbol('stock:S');
-    await r.coverage.deleteSymbol('stock:S');
-    expect(await r.bars.range('stock:S', '1D', 0, 10)).toEqual([]);
-    expect(await r.bars.range('stock:S', '1h', 0, 10)).toEqual([]);
-    expect(await r.bars.range('stock:T', '1D', 0, 10)).toHaveLength(1);
-    expect(await r.coverage.list('stock:S', '1D')).toEqual([]);
-    expect(await r.coverage.list('stock:T', '1D')).toEqual([[0, 10]]);
+  });
+  it('baskets use the injected clock for their stamps', async () => {
+    const clocked = createRepos(h.db, undefined, { now: () => 4242 });
+    const b = await clocked.baskets.create({ id: 'clk', name: 'C', baseValue: 1, versions: [{ effectiveFrom: '2024-01-02', weights: { 'stock:C': 1 } }] });
+    expect(b).toMatchObject({ createdAt: 4242, updatedAt: 4242 });
+    expect(await clocked.baskets.get('clk')).toMatchObject({ createdAt: 4242, updatedAt: 4242 });
   });
   it('baskets list: ordered by created_at then id, each with its own versions in idx order', async () => {
     const now = vi.spyOn(Date, 'now');
@@ -178,14 +205,136 @@ describe.each(urls)('repos on %s', (url) => {
     const expected = ['stock:SPY', 'stock:AAPL', 'crypto:BTC'].map(sym);
     expect(await r.watchlist.list()).toEqual(expected);
     // A re-run (e.g. after a partially recorded run) neither fails nor duplicates rows.
-    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '=', '003_watchlist_sections').execute();
+    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '>=', '003_watchlist_sections').execute();
     await migrate(h.db);
     expect(await r.watchlist.list()).toEqual(expected);
     // Once migrated, the new table is authoritative: edits are not overwritten by a later re-run.
     await r.watchlist.replace([sym('crypto:ETH')]);
-    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '=', '003_watchlist_sections').execute();
+    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '>=', '003_watchlist_sections').execute();
     await migrate(h.db);
     expect(await r.watchlist.list()).toEqual([sym('crypto:ETH')]);
+  });
+  it('a failure halfway through migration 004 changes nothing; a rerun then succeeds', async () => {
+    for (const t of TABLES) await sql`drop table if exists ${sql.table(t)}`.execute(h.db);
+    await migrate(h.db, '003_watchlist_sections');
+    await h.db.insertInto('watchlist_entries').values([
+      { position: 0, kind: 'symbol', symbol: 'stock:aapl', section_id: null, title: null, collapsed: null },
+      { position: 1, kind: 'symbol', symbol: 'crypto:btc', section_id: null, title: null, collapsed: null },
+    ]).execute();
+    await h.db.insertInto('layouts').values({ key: 'sym:stock:msft', json: '{"symbol":"stock:msft"}', updated_at: 1 }).execute();
+    await h.db.insertInto('drawings').values({ symbol: 'stock:spy', json: '[{"name":"a"}]', updated_at: 1 }).execute();
+    const snapshot = async () => ({
+      w: await h.db.selectFrom('watchlist_entries').selectAll().orderBy('position').execute(),
+      l: await h.db.selectFrom('layouts').selectAll().execute(),
+      d: await h.db.selectFrom('drawings').selectAll().execute(),
+    });
+    const before = await snapshot();
+    // The drawings rewrite fails after the watchlist and layouts were already rewritten (deleted, then inserted).
+    const pg = url.startsWith('postgres');
+    if (pg) {
+      await sql`create function fail_ins() returns trigger language plpgsql as $$ begin raise exception 'boom'; end $$`.execute(h.db);
+      await sql`create trigger fail_drawings before insert on drawings for each row execute function fail_ins()`.execute(h.db);
+    } else {
+      await sql`create trigger fail_drawings before insert on drawings begin select raise(abort, 'boom'); end`.execute(h.db);
+    }
+    await expect(migrate(h.db)).rejects.toThrow(/boom/);
+    expect(await snapshot()).toEqual(before);
+    const ran = await h.db.selectFrom('kysely_migration' as any).select('name' as any).execute();
+    expect(ran.map((x: any) => x.name)).not.toContain('004_symbol_ids');
+    await sql`drop trigger fail_drawings${pg ? sql` on drawings` : sql``}`.execute(h.db);
+    if (pg) await sql`drop function fail_ins()`.execute(h.db);
+    await migrate(h.db);
+    expect(await r.watchlist.list()).toEqual([sym('stock:AAPL'), sym('crypto:BTC')]);
+    expect((await r.drawings.get('stock:SPY')).map((x) => x.name)).toEqual(['a']);
+    expect(await r.layouts.get('sym:stock:MSFT')).toMatchObject({ symbol: 'stock:MSFT' });
+  });
+  it('migrations 003 and 004 handle a watchlist far larger than one statement can bind', async () => {
+    for (const t of TABLES) await sql`drop table if exists ${sql.table(t)}`.execute(h.db);
+    await migrate(h.db, '002_symbol_splits');
+    const n = 6000;
+    const legacy = Array.from({ length: n }, (_, i) => ({ symbol: `stock:s${i}`, position: i }));
+    for (let i = 0; i < n; i += 500) await h.db.insertInto('watchlist').values(legacy.slice(i, i + 500)).execute();
+    await migrate(h.db);
+    const list = await r.watchlist.list();
+    expect(list).toHaveLength(n);
+    expect(list[0]).toEqual(sym('stock:S0'));
+    expect(list.at(-1)).toEqual(sym(`stock:S${n - 1}`));
+  });
+  it('migration 004 rewrites ids stored by older versions to their canonical spelling', async () => {
+    for (const t of TABLES) await sql`drop table if exists ${sql.table(t)}`.execute(h.db);
+    await migrate(h.db, '003_watchlist_sections');
+    const L = (symbol: string, extra: object = {}) => JSON.stringify({ symbol, tf: '1D', session: 'rth', chartType: 'candle', indicators: [], ...extra });
+    await h.db.insertInto('watchlist_entries').values([
+      { position: 0, kind: 'symbol', symbol: 'stock:aapl', section_id: null, title: null, collapsed: null },
+      { position: 1, kind: 'section', symbol: null, section_id: SEC_A, title: 'Tech', collapsed: 0 },
+      { position: 2, kind: 'symbol', symbol: 'stock:AAPL', section_id: null, title: null, collapsed: null },
+      { position: 3, kind: 'symbol', symbol: 'stock:bad/id', section_id: null, title: null, collapsed: null },
+      { position: 4, kind: 'symbol', symbol: 'crypto:btc', section_id: null, title: null, collapsed: null },
+    ]).execute();
+    await h.db.insertInto('watchlist').values([{ symbol: 'stock:aapl', position: 0 }, { symbol: 'crypto:btc', position: 1 }]).execute();
+    await h.db.insertInto('layouts').values([
+      { key: 'default', json: L('crypto:eth'), updated_at: 1 },
+      { key: 'sym:stock:msft', json: L('stock:msft', { tf: '1h' }), updated_at: 5 },
+      { key: 'sym:stock:MSFT', json: L('stock:MSFT', { tf: '1W' }), updated_at: 3 },
+      { key: 'sym:stock:x y', json: L('stock:x y'), updated_at: 1 },
+      { key: 'sym:crypto:SOL', json: L('nonsense'), updated_at: 1 },
+    ]).execute();
+    const d = (name: string) => ({ name, points: [], lock: false });
+    await h.db.insertInto('drawings').values([
+      { symbol: 'stock:spy', json: JSON.stringify([d('a')]), updated_at: 1 },
+      { symbol: 'stock:SPY', json: JSON.stringify([d('b')]), updated_at: 2 },
+      { symbol: 'stock:QQQ', json: JSON.stringify([d('c')]), updated_at: 2 },
+      { symbol: 'stock:no/pe', json: JSON.stringify([d('x')]), updated_at: 2 },
+    ]).execute();
+    await h.db.insertInto('baskets').values({ id: 'b1', name: 'B', base_value: 100, created_at: 1, updated_at: 1 }).execute();
+    await h.db.insertInto('basket_versions').values([
+      { basket_id: 'b1', idx: 0, effective_from: '2024-01-02', weights_json: JSON.stringify({ 'stock:aapl': 0.25, 'stock:AAPL': 0.25, 'crypto:BTC': 0.5 }) },
+      { basket_id: 'b1', idx: 1, effective_from: '2024-02-01', weights_json: JSON.stringify({ 'stock:bad/x': 0.5, 'crypto:eth': 0.5 }) },
+      { basket_id: 'b1', idx: 2, effective_from: '2024-03-01', weights_json: JSON.stringify({ 'stock:big': 1e308, 'stock:BIG': 1e308 }) },
+      { basket_id: 'b1', idx: 3, effective_from: '2024-04-01', weights_json: JSON.stringify({ constructor: 0.5, 'stock:aapl': 0.5 }) },
+    ]).execute();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await r.bars.upsert('crypto:btc', '1D', [{ ts: 0, open: 1, high: 1, low: 1, close: 1, volume: 1 }]);
+    await r.bars.upsert('crypto:BTC', '1D', [{ ts: 0, open: 2, high: 2, low: 2, close: 2, volume: 2 }]);
+    await r.coverage.add('crypto:btc', '1D', 0, 10);
+    await h.db.insertInto('symbols').values({ id: 'crypto:btc', name: 'x', exchange: null, price_precision: 2, first_ts: null, updated_at: 1, ticker: null, splits_checked_at: null }).execute();
+
+    await migrate(h.db);
+
+    expect(await r.watchlist.list()).toEqual([
+      sym('stock:AAPL'), { type: 'section', id: SEC_A, title: 'Tech', collapsed: false }, sym('crypto:BTC'),
+    ]);
+    const legacy = await h.db.selectFrom('watchlist').selectAll().orderBy('position').execute();
+    expect(legacy.map((x) => x.symbol)).toEqual(['stock:AAPL', 'crypto:BTC']);
+    const keys = (await h.db.selectFrom('layouts').select('key').orderBy('key').execute()).map((x) => x.key);
+    expect(keys).toEqual(['default', 'sym:crypto:SOL', 'sym:stock:MSFT']);
+    expect(await r.layouts.get('default')).toMatchObject({ symbol: 'crypto:ETH' });
+    expect(await r.layouts.get('sym:stock:MSFT')).toMatchObject({ symbol: 'stock:MSFT', tf: '1h' }); // newest variant wins
+    expect(await r.layouts.get('sym:crypto:SOL')).toMatchObject({ symbol: 'crypto:BTC' }); // invalid → fallback
+    expect((await r.drawings.get('stock:SPY')).map((x) => x.name)).toEqual(['a', 'b']);
+    expect((await r.drawings.get('stock:QQQ')).map((x) => x.name)).toEqual(['c']);
+    expect(await h.db.selectFrom('drawings').select('symbol').where('symbol', '=', 'stock:no/pe').execute()).toEqual([]);
+    const b = await r.baskets.get('b1');
+    expect(b!.versions.map((v) => v.weights)).toEqual([
+      { 'stock:AAPL': 0.5, 'crypto:BTC': 0.5 },
+      { 'crypto:ETH': 1 },
+      { 'stock:big': 1e308, 'stock:BIG': 1e308 }, // the sum would not be finite: kept as it was
+      { 'stock:AAPL': 1 }, // 'constructor' is not a symbol id
+    ]);
+    expect(warn.mock.calls.map((c) => String(c[0]))).toEqual([
+      expect.stringMatching(/basket b1 version 2 .*rescaled/), expect.stringMatching(/basket b1 version 4 .*rescaled/),
+    ]);
+    warn.mockRestore();
+    expect(await r.bars.range('crypto:BTC', '1D', 0, 1)).toEqual([{ ts: 0, open: 2, high: 2, low: 2, close: 2, volume: 2 }]);
+    expect(await r.bars.hasAny('crypto:btc')).toBe(false);
+    expect(await r.coverage.list('crypto:btc', '1D')).toEqual([]);
+    expect(await r.symbols.get('crypto:btc')).toBeNull();
+
+    // Idempotent: a re-run changes nothing.
+    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '>=', '004_symbol_ids').execute();
+    await migrate(h.db);
+    expect((await r.drawings.get('stock:SPY')).map((x) => x.name)).toEqual(['a', 'b']);
+    expect(await r.watchlist.list()).toHaveLength(3);
   });
   it('corrupt JSON rows raise a descriptive error', async () => {
     await h.db.insertInto('layouts').values({ key: 'bad', json: '{nope', updated_at: 1 }).execute();
@@ -209,10 +358,10 @@ describe.each(urls)('repos on %s', (url) => {
   });
   it('migration 002 is idempotent when its columns already exist', async () => {
     // Kysely re-runs migrations in order only, so the later ones are re-run (idempotently) too.
-    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, 'in', ['002_symbol_splits', '003_watchlist_sections']).execute();
+    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '>=', '002_symbol_splits').execute();
     await expect(migrate(h.db)).resolves.toBeUndefined();
     const row = { id: 'stock:M', name: 'M', exchange: null, pricePrecision: 2, firstTs: null, updatedAt: 5, ticker: 'M' };
     await r.symbols.upsert(row);
-    expect(await r.symbols.get('stock:M')).toEqual({ ...row, splitsCheckedAt: 5 });
+    expect(await r.symbols.get('stock:M')).toEqual({ ...row, splitsCheckedAt: 5, splitsTrackedFrom: 5 });
   });
 });

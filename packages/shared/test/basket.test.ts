@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { validateVersions, normalizeWeights, computeVersionUnits, buildBasketBars, versionMarkers, BasketValidationError } from '../src/basket.js';
+import { validateVersions, normalizeWeights, computeVersionUnits, buildBasketBars, versionMarkers, BasketValidationError, alignUnitsToNySessions } from '../src/basket.js';
+import { resample } from '../src/resample.js';
 const D = 86_400_000;
 const day = (s: string) => Date.parse(s + 'T00:00:00Z');
 const bar = (ts: number, c: number, o = c, h = c, l = c) => ({ ts, open: o, high: h, low: l, close: c, volume: 0 });
@@ -208,9 +209,101 @@ describe('computeVersionUnits + buildBasketBars', () => {
     expect(out.map(b => b.ts)).toEqual([day('2024-01-02'), day('2024-01-03')]);
   });
 
+  it('rejects a prior close that is not a positive finite number, naming the constituent', () => {
+    for (const bad of [-5, NaN, Infinity, 0]) {
+      const d = { 'stock:A': dailies('2024-01-01', [bad, 20, 20, 40]), 'crypto:B': daily['crypto:B'] };
+      const err = (() => { try { computeVersionUnits([v0], d, 100); } catch (e) { return e; } })() as BasketValidationError;
+      expect(err, String(bad)).toBeInstanceOf(BasketValidationError);
+      expect(err.message).toBe('stock:A has no valid close before 2024-01-02');
+      expect(err.symbol).toBe('stock:A');
+    }
+    // A later version: its new constituent and the previous version's constituents alike.
+    for (const bad of [-5, NaN]) {
+      const d = { ...daily, 'stock:C': dailies('2024-01-01', [bad, bad, bad, 5]) };
+      const v1 = { effectiveFrom: '2024-01-04', weights: { 'stock:C': 1 } };
+      expect(() => computeVersionUnits([v0, v1], d, 100)).toThrow('stock:C has no valid close before 2024-01-04');
+      const v2 = { effectiveFrom: '2024-01-08', weights: { 'stock:A': 1 } };
+      const d2 = { 'stock:A': daily['stock:A'], 'crypto:B': dailies('2023-12-27', [100, 100, 100, 100, 100, 100, bad, bad, bad, bad, bad, bad]) };
+      // Six invalid closes 01-02 … 01-07: the valid one before them is more than 5 bars back.
+      expect(() => computeVersionUnits([v0, v2], d2, 100)).toThrow('crypto:B has no valid close before 2024-01-08');
+    }
+  });
+
+  it('sizes at the last valid close when the latest prior closes are invalid (up to 5 bars back), with a notice', () => {
+    for (const bad of [-5, NaN, 0]) {
+      const d = { ...daily, 'stock:C': dailies('2024-01-01', [5, 4, bad, 6]) };
+      const v1 = { effectiveFrom: '2024-01-04', weights: { 'stock:C': 0.5, 'crypto:B': 0.5 } };
+      const u = computeVersionUnits([v0, v1], d, 100);
+      // v0 units: A 5, B 0.5; level before 01-04 = 5×20 + 0.5×50 = 125; C sized at 01-02's close (4).
+      expect(u.versions[1]!.levelAtStart).toBe(125);
+      expect(u.versions[1]!.units).toEqual({ 'stock:C': 62.5 / 4, 'crypto:B': 62.5 / 50 });
+      expect(u.notices).toEqual(['stock:C: invalid close on 2024-01-03; sized at the close of 2024-01-02.']);
+      // The previous version's constituents too, once each.
+      const d2 = { 'stock:A': dailies('2024-01-01', [10, 20, bad, 40]), 'crypto:B': daily['crypto:B'] };
+      const v2 = { effectiveFrom: '2024-01-04', weights: { 'stock:A': 1 } };
+      const u2 = computeVersionUnits([v0, v2], d2, 100);
+      expect(u2.versions[1]!.levelAtStart).toBe(5 * 20 + 0.5 * 50);
+      expect(u2.notices).toEqual(['stock:A: invalid close on 2024-01-03; sized at the close of 2024-01-02.']);
+    }
+  });
+
+  it('normalizes weights so each version starts exactly at its level (weights within the 1e-6 tolerance)', () => {
+    const w = { 'stock:A': 0.5, 'crypto:B': 0.5000009 };
+    const v1 = { effectiveFrom: '2024-01-04', weights: { 'stock:A': 0.3000004, 'crypto:B': 0.7 } };
+    const u = computeVersionUnits([{ ...v0, weights: w }, v1], daily, 100);
+    const value = (units: Record<string, number>, ts: number) =>
+      Object.entries(units).reduce((s, [id, n]) => s + n * daily[id as 'stock:A'].filter((b) => b.ts < ts).at(-1)!.close, 0);
+    expect(value(u.versions[0]!.units, u.startTs)).toBeCloseTo(100, 12);
+    expect(value(u.versions[1]!.units, u.versions[1]!.effectiveTs)).toBeCloseTo(u.versions[1]!.levelAtStart, 12);
+  });
+
   it('rejects invalid baseValue and non-positive level', () => {
     for (const bv of [0, -1, NaN, Infinity]) expect(() => computeVersionUnits([v0], daily, bv)).toThrow(BasketValidationError);
-    const z = { 'stock:A': dailies('2024-01-01', [10, 0, 0, 0]), 'crypto:B': dailies('2024-01-01', [100, 0, 0, 0]) };
-    expect(() => computeVersionUnits([{ ...v0, effectiveFrom: '2024-01-02' }, { effectiveFrom: '2024-01-04', weights: { 'stock:A': 1 } }], z, 100)).toThrow(BasketValidationError);
+    const z = { 'stock:A': dailies('2024-01-01', [10, 0, 0, 0, 0, 0, 0, 0]), 'crypto:B': dailies('2024-01-01', [100, 0, 0, 0, 0, 0, 0, 0]) };
+    expect(() => computeVersionUnits([{ ...v0, effectiveFrom: '2024-01-02' }, { effectiveFrom: '2024-01-09', weights: { 'stock:A': 1 } }], z, 100)).toThrow(BasketValidationError);
+  });
+});
+
+describe('alignUnitsToNySessions (stock-only baskets, intraday)', () => {
+  // Both close at 100 every weekday; v1 (2026-01-13) 50/50, v2 (Thu 2026-01-15, EST) 90/10.
+  const daily = { 'stock:A': dailies('2026-01-12', [100, 100, 100, 100, 100]), 'stock:B': dailies('2026-01-12', [100, 100, 100, 100, 100]) };
+  const versions = [
+    { effectiveFrom: '2026-01-13', weights: { 'stock:A': 0.5, 'stock:B': 0.5 } },
+    { effectiveFrom: '2026-01-15', weights: { 'stock:A': 0.9, 'stock:B': 0.1 } },
+  ];
+  const units = computeVersionUnits(versions, daily, 100);
+
+  it('moves the start and each switch to 04:00 NY of the effective date (DST-aware), keeping the units', () => {
+    const a = alignUnitsToNySessions(units);
+    expect(a.startTs).toBe(Date.UTC(2026, 0, 13, 9)); // 04:00 EST
+    expect(a.versions.map((v) => v.effectiveTs)).toEqual([Date.UTC(2026, 0, 13, 9), Date.UTC(2026, 0, 15, 9)]);
+    expect(a.versions.map((v) => [v.units, v.levelAtStart])).toEqual(units.versions.map((v) => [v.units, v.levelAtStart]));
+    expect(a.notices).toEqual(units.notices);
+    expect(versionMarkers(a)).toEqual([{ ts: Date.UTC(2026, 0, 15, 9), label: 'v2' }]);
+    const summer = computeVersionUnits([{ ...versions[0]!, effectiveFrom: '2026-07-01' }], {
+      'stock:A': dailies('2026-06-29', [100, 100]), 'stock:B': dailies('2026-06-29', [100, 100]),
+    }, 100);
+    expect(alignUnitsToNySessions(summer).startTs).toBe(Date.UTC(2026, 6, 1, 8)); // 04:00 EDT
+  });
+
+  it('the eve\'s post-market (after 00:00 UTC in winter) keeps the old units; the new ones start pre-market', () => {
+    // Post-market 2026-01-14: A 120, B 100 (flat). 18:59 and 19:00 EST straddle 00:00 UTC.
+    const post = [Date.UTC(2026, 0, 14, 23, 59), Date.UTC(2026, 0, 15, 0, 0), Date.UTC(2026, 0, 15, 0, 59)];
+    const pre = [Date.UTC(2026, 0, 15, 9, 0), Date.UTC(2026, 0, 15, 9, 1)];
+    const series = [
+      { id: 'stock:A', bars: [...post, ...pre].map((t) => bar(t, 120)) },
+      { id: 'stock:B', bars: [...post, ...pre].map((t) => bar(t, 100)) },
+    ];
+    const out = buildBasketBars(alignUnitsToNySessions(units), series);
+    expect(out.map((b) => [b.ts, b.close])).toEqual([
+      [post[0], 110], [post[1], 110], [post[2], 110], // 0.5×120 + 0.5×100
+      [pre[0], 118], [pre[1], 118], // 0.9×120 + 0.1×100
+    ]);
+    // A 2h ETH bucket never mixes versions: the switch is on the 04:00 NY anchor.
+    expect(resample(out, '2h', 'nyse-eth').map((b) => [b.ts, b.open, b.close])).toEqual([
+      [Date.UTC(2026, 0, 14, 23), 110, 110], [Date.UTC(2026, 0, 15, 9), 118, 118],
+    ]);
+    // Unaligned (the UTC daily grid), the switch would land inside that post-market.
+    expect(buildBasketBars(units, series)[1]!.close).toBe(118);
   });
 });

@@ -32,9 +32,15 @@ otherwise.
   Electron 44, no flag needed) through a small adapter for Kysely's own `SqliteDialect`
   (`apps/desktop/src/lib/nodeSqlite.ts`). better-sqlite3 and pg are never bundled (the bundle script fails if
   they are). The server's DB-backed test suites also run against this dialect (`apps/desktop` `pnpm test`).
+  The database holds the user's layouts, drawings, watchlists and baskets as well as the bar cache. It runs in WAL
+  mode with `synchronous = NORMAL`: a committed change survives an app crash and the file never corrupts, but an
+  OS crash or power loss can lose the last few commits. `FULL` would close that window with an fsync on every
+  write, which layout and drawing autosaves make frequent; NORMAL is the chosen tradeoff.
 - **One file.** esbuild bundles the desktop main process and the whole server into a single minified
-  `dist/main.cjs` (~2.5 MB). The package holds only that file, the web build and the icon, in an asar archive with
-  maximum compression and English locales only. It has no `node_modules`.
+  `dist/main.cjs` (~2.5 MB). The package holds only `package.json`, that file and its third-party license
+  comments (`dist/main.cjs.LEGAL.txt`), the web build, the icon and, in signed builds only, the updater bundle
+  (`dist/updater.cjs`, plus its `.LEGAL.txt` when it has license comments), in an asar archive with maximum compression and English locales
+  only. It has no `node_modules`.
 - **Frameless window.** The web top bar is the title bar. On macOS the native traffic lights sit on it; on
   Windows the native caption buttons (minimize, maximize, close, snap layouts) are drawn over its right end in
   the top bar's colors, following the theme through the page's `<meta name="theme-color">` (no IPC). Linux
@@ -45,7 +51,7 @@ otherwise.
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
 node apps/desktop/node_modules/electron/install.js   # Electron binary (skipped by --ignore-scripts); once
-pnpm --filter @chartmate/desktop start      # build the web UI, bundle, run unpackaged (DevTools enabled)
+pnpm --filter @chartmate/desktop start      # build the web UI, dev bundle, run unpackaged (DevTools enabled)
 pnpm --filter @chartmate/desktop pack:dir   # unpacked app only, e.g. release/mac-arm64/Chartmate.app
 pnpm --filter @chartmate/desktop dist:mac   # release/Chartmate-<v>-mac-{arm64,x64}.{dmg,zip}
 pnpm --filter @chartmate/desktop dist:win   # release/Chartmate-<v>-win-{x64,arm64}.{exe,zip}; needs Windows or CI
@@ -55,10 +61,22 @@ pnpm --filter @chartmate/desktop test       # unit + security tests (protocol, g
 Building the NSIS installer on Apple-silicon Macs fails unless Rosetta is installed, because electron-builder's
 `makensis` is an x86_64 binary. Build Windows installers in CI.
 
+**Hardened and development bundles.** `scripts/bundle.mjs --dev` produces the development bundle (unminified,
+source maps, `__DEV_BUNDLE__ = true`); `start` and the unpackaged smoke run use it. Every other bundle (`bundle`,
+`pack:dir`, `dist:*`, the TEST-ONLY copy) is a production bundle. Whether the startup guards, the DevTools
+lockdown, the `devtools:` request exception and the fixed data directory apply is decided once, in `src/boot.ts`,
+by `isHardened()` (`src/lib/buildMode.ts`): a production bundle is **always** hardened, and the dev bundle is
+hardened when packaged. Electron's `app.isPackaged` alone is not used as a gate, because it only compares the
+executable's file name with `electron`/`electron.exe`: a user-level copy of the installed app with the executable
+renamed would otherwise run without the guards. `bundle.mjs` writes `dist/bundle-kind.json`
+(`{"kind":"prod"|"dev"|"test-inspectable"}`), and the `afterPack` hook (`build/after-pack.cjs`) fails the build
+unless the packaged `app.asar` holds a `prod` bundle, so a dev bundle can never be packaged. TEST-ONLY copies are
+made from an already packaged app by `smoke/prepare-inspectable.mjs`, outside electron-builder.
+
 ## Smoke tests
 
 ```sh
-pnpm --filter @chartmate/desktop bundle && pnpm --filter @chartmate/desktop smoke     # unpackaged app
+pnpm --filter @chartmate/web build && node apps/desktop/scripts/bundle.mjs --dev && pnpm --filter @chartmate/desktop smoke   # unpackaged app (dev bundle)
 
 # packaged app: the shipped build + a TEST-ONLY inspectable copy of it
 cd apps/desktop
@@ -73,12 +91,18 @@ SMOKE_LIVE=1 pnpm smoke                                                       # 
 `app.spec.ts` uses the fixture providers unless `SMOKE_PROVIDERS=live`. The packaged example needs a packaged
 app first (`pack:dir` or `dist:mac`).
 
-A packaged build refuses to start with a debugging or weakening switch (see [Security model](#security-model)), so no
+The unpackaged run needs the dev bundle: a production bundle is hardened even unpackaged, so it refuses
+Playwright's `--inspect`/`--remote-debugging-port` switches (the specs check for the dev bundle's source map and
+say so).
+
+A released (hardened) build refuses to start with a debugging or weakening switch (see [Security model](#security-model)), so no
 test harness can attach to it. `smoke/prepare-inspectable.mjs` therefore builds a separate copy for the
 functional tests:
 
 - the copy is named `… TEST-ONLY` and carries a `TEST-ONLY-NOT-FOR-DISTRIBUTION.txt` marker;
-- its only code difference is that the switch guard is compiled out (`bundle.mjs --test-inspectable`);
+- its only code differences: the switch guard is compiled out, and it honors `CHARTMATE_USER_DATA_DIR` so the
+  functional tests run on a scratch directory (`bundle.mjs --test-inspectable`, a production bundle otherwise:
+  it cannot be combined with `--dev`);
 - on macOS, asar integrity stays on: the Info.plist hash is updated and the copy is re-signed ad hoc;
 - on Windows, the copy turns asar integrity validation off, because the hash lives in a PE resource.
 
@@ -91,10 +115,13 @@ The functional tests (`app.spec.ts`) drive that copy over CDP. `packaged-hardeni
 - it refuses the forbidden environment variables in the same way;
 - `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` have no effect;
 - it ignores `CHARTMATE_USER_DATA_DIR`;
+- a copy whose executable is renamed to `Electron` / `electron.exe` (Electron then reports `isPackaged = false`)
+  stays hardened: the log says `hardened=true`, it ignores `CHARTMATE_USER_DATA_DIR`, and it refuses
+  `--remote-debugging-port` and `--inspect`;
 - a tampered `app.asar` refuses to start (macOS);
 - the updater is present only in signed builds (`SMOKE_EXPECT_UNSIGNED`).
 
-Because packaged builds ignore `CHARTMATE_USER_DATA_DIR`, this spec runs against the real per-user data directories:
+Because the shipped app ignores `CHARTMATE_USER_DATA_DIR`, this spec runs against the real per-user data directories:
 the current one, plus those of any `previousProductNames`. For that reason it only runs in CI (`CI=true`) or
 locally with `SMOKE_ALLOW_REAL_USERDATA=1`.
 
@@ -105,12 +132,21 @@ locally with `SMOKE_ALLOW_REAL_USERDATA=1`.
 
 ## Network and environment
 
-The desktop app honors only `CHARTMATE_PROVIDERS`, `CRYPTO_PROVIDER`, `BINANCE_BASE_URL` (https only) and
+The desktop app honors only `CHARTMATE_PROVIDERS`, `CRYPTO_PROVIDER`, `BINANCE_BASE_URL` and
 `CHARTMATE_DISABLE_UPDATES=1` from the environment (`src/lib/desktopConfig.ts`, `src/lib/updatePolicy.ts`), plus
-`CHARTMATE_USER_DATA_DIR` in development runs. Everything else that concerns the network surface or storage is
-fixed: no listener, no login, SQLite in the per-user data directory.
+`CHARTMATE_USER_DATA_DIR` in dev-bundle runs and the TEST-ONLY copy. Everything else that concerns the network
+surface or storage is fixed: no listener, no login, SQLite in the per-user data directory.
 
-A packaged build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY` or `SSLKEYLOGFILE` is set.
+`BINANCE_BASE_URL` adds its host to the outbound allowlist, so a hardened build accepts only
+`https://data-api.binance.vision` (the default), `https://api.binance.com` and `https://api.binance.us` (no path,
+port, credentials, query or fragment). Any other value is ignored with one warning in the log, and the default is
+used. The dev bundle accepts any https URL without credentials, port, query or fragment.
+
+An invalid `CHARTMATE_PROVIDERS`, `CRYPTO_PROVIDER` (or, in the dev bundle, `BINANCE_BASE_URL` or a relative
+`CHARTMATE_USER_DATA_DIR`) stops the app at startup with a short error box naming the variable, with no stack or
+path, and exit code 1. The reason is also logged.
+
+A released (hardened) build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY` or `SSLKEYLOGFILE` is set.
 Node applies the first during pre-execution, before any app code runs, so the app cannot undo it, and the second
 would let TLS session keys be logged. `NODE_USE_SYSTEM_CA` is allowed: provider requests ignore it (see below).
 
@@ -119,8 +155,9 @@ along with `NODE_OPTIONS`. The guard still refuses it if it ever got through.
 
 Independently of that, provider requests never use Node's global dispatcher. They go through an explicit undici
 `Agent` (`src/lib/directFetch.ts`) that connects directly, ignoring `HTTP(S)_PROXY`, and trusts only Node's
-bundled root CAs (`tls.rootCertificates`). Real Node and Electron child processes prove this
-(`test/directFetch.test.ts`).
+bundled root store (`tls.rootCertificates`). This restricts trust to that root store; it is not certificate
+pinning, so any certificate chaining to a bundled root is accepted. Real Node and Electron child processes prove
+this (`test/directFetch.test.ts`).
 
 Provider traffic is therefore **direct-only**. Corporate HTTP proxies are not supported, and neither are
 TLS-inspecting middleboxes, which need their own root certificate. On such networks the desktop app cannot reach
@@ -137,17 +174,20 @@ The renderer is treated as untrusted web content, and the main process exposes n
   requests carry Host `localhost`) and `allowedOrigins: ['app://chartmate']`, so a state-changing API request is
   accepted only from the renderer's own origin. The environment cannot change either (`CHARTMATE_ALLOWED_HOSTS`
   is ignored on desktop); `test/hostGuard.test.ts` runs the real protocol handler against the real server.
+  The guard also refuses API requests marked `Sec-Fetch-Site: cross-site` or `same-site`. Chromium sends no
+  fetch-metadata header (and no `Origin`) on the renderer's app:// requests, so they pass; the handler forwards
+  the header unchanged, and the test covers both cases.
 - **Window settings** (`src/lib/hardening.ts`, pinned by a snapshot test):
   - `sandbox`, `contextIsolation` and `webSecurity` are on;
   - Node is off everywhere, including workers and subframes;
   - there is no preload script and no `webview`;
   - spellcheck and experimental features are off;
-  - DevTools are available only in unpackaged runs. In a packaged build, DevTools are also closed if they ever
-    open, and the menu has no DevTools item.
+  - DevTools are available only when the dev bundle runs unpackaged. In every hardened build (see
+    [Build and run](#build-and-run)), DevTools are also closed if they ever open, and the menu has no DevTools item.
 - **Sandboxing and crashes**: `app.enableSandbox()` is called before ready, and only a single instance can run. A
   crashed renderer is reloaded at most 3 times per minute. After that, a static error page is shown once, and if
   that page crashes too, the window is closed with an error dialog. There is never a reload loop.
-- **Command-line switches and environment** (`src/boot.ts`, the first module evaluated): a packaged build exits
+- **Command-line switches and environment** (`src/boot.ts`, the first module evaluated): a hardened build exits
   with code 1 if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE` or `NODE_EXTRA_CA_CERTS` is set (see
   [Network and environment](#network-and-environment)), or any of these switches is present (`--x`, `-x`, and `/x`
   on Windows):
@@ -185,14 +225,18 @@ The renderer is treated as untrusted web content, and the main process exposes n
   HID/serial/USB pickers): all denied, and downloads are blocked. These rules apply to **every** session, including
   ones created later, through `session-created`.
 - **Renderer network**: `webRequest.onBeforeRequest` cancels every request that is not `app://chartmate`. `devtools:`
-  is also allowed in development.
-- **Main-process network**: `globalThis.fetch` is wrapped by an allowlist on top of the direct, CA-pinned undici
+  is also allowed when the dev bundle runs unpackaged. Blocked navigations and requests are logged at most 20 times a
+  minute, then summarized in one line (`createRateLimiter` in `src/lib/logger.ts`), so a page cannot turn them
+  into a stream of synchronous file writes. The renderer's blocks and the main process's outbound allowlist
+  blocks have separate budgets. The summary ("N more … lines suppressed in the last S s") is written by a timer
+  at the end of the minute, or at quit.
+- **Main-process network**: `globalThis.fetch` is wrapped by an allowlist on top of the direct undici
   transport described above. It allows HTTPS only, exact hosts and
   the default port, and it follows redirects itself so that every hop is checked. On a redirect to another
   origin it drops the `Authorization`, `Cookie` and `Proxy-Authorization` headers. The allowed hosts are:
   - `query1/query2.finance.yahoo.com` and `finance.yahoo.com`, found by observing live traffic;
   - `guce.yahoo.com` and `consent.yahoo.com`, for the EU consent flow (from the yahoo-finance2 source);
-  - the configured Binance host, or `api.exchange.coinbase.com`.
+  - the configured Binance host (one of the three above in a hardened build), or `api.exchange.coinbase.com`.
 
   Fixture mode allows nothing.
 - **Fuses** (flipped in the `afterPack` hook with `@electron/fuses`):
@@ -284,9 +328,14 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
       check for updates" or "Couldn't download the update" after a manual check, "Couldn't install the update"
       after a manual check whose hand-over failed, or after **Restart Now** (an installer that cannot start, or a
       failure that arrived while the dialog was open). Background failures are only logged. The state then goes
-      back to idle and the schedule continues, so the next check retries. A version whose install failed is not
-      offered again until the app restarts, and if the app has not quit 60 s after **Restart Now**, the state is
-      reset the same way.
+      back to idle and the schedule continues, so the next check retries. A version whose install failed is
+      marked for the session: a later download of it does not show the restart prompt, unless on macOS
+      Squirrel.Mac then reports that version ready to install (its own `update-downloaded`), which clears the
+      mark. If the app has not quit 60 s after **Restart Now**, the state is reset and the version marked the same
+      way.
+    - macOS: if Squirrel.Mac reports neither ready nor an error within 10 minutes of the download, the hand-over
+      counts as failed (logged, version marked, schedule resumed). **Check for Updates…** during the hand-over
+      says the update is being prepared, and the outcome is then reported.
     - Once an update is ready, no further check runs: another check would start a second Squirrel.Mac
       hand-over. **Check for Updates…** offers the restart again instead.
   - **The setting**: **Check for Updates Automatically** is saved in `<userData>/update-settings.json`
@@ -316,7 +365,8 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
       a regular file of at most 1 GiB, extraction is limited to 2 minutes, and the archive must hold exactly one
       top-level entry, an `.app` directory. Its `CFBundleShortVersionString`, read with `/usr/bin/plutil` (XML or
       binary plist), must equal the version the release advertised and be newer than the running app. The
-      temporary directory is always removed. Anything unexpected refuses the update, and the loopback listener is
+      temporary directory is always removed: its directories are made owner-writable first (a bundle can hold
+      read-only ones), and a failed removal is only logged, never turning a result into another. Anything unexpected refuses the update, and the loopback listener is
       then never armed. This compares versions; it does not by itself prove what Squirrel.Mac will install, which
       is why Squirrel.Mac's own signature check (next) still matters. Squirrel.Mac then checks that the new app's code
       signature satisfies the running app's designated requirement. The hand-over is the only case that opens a
@@ -545,9 +595,14 @@ pnpm --filter @chartmate/desktop sign:win
    - the release exists.
 2. It reinstalls `node_modules` from the lockfile, then rebuilds the Windows app for the tag. CI's installers
    cannot be re-signed in place, because the app and the uninstaller are inside them.
-3. Right before packaging, it asks for the card PIN, if your setup has one. The PIN is passed only to
-   electron-builder, and from there to `osslsigncode` (as `PKCS11_PIN`). The first rejected PIN stops all
-   further signing attempts.
+3. Right before packaging, it asks for the card PIN, if your setup has one (or takes `CHARTMATE_WIN_PKCS11_PIN`
+   from its own environment, removing it there first thing so `git`, `gh` and `pnpm` never inherit it). The PIN
+   is never put in electron-builder's environment, which every tool it starts
+   would inherit: it is written to an owner-only file (0600) in a fresh private temporary directory (0700), and
+   electron-builder gets only that file's path as `CHARTMATE_WIN_PKCS11_PIN_FILE`. The sign hook
+   (`build/win-sign.cjs`) reads and deletes the file on its first call, keeps the PIN in memory for the other
+   files, and gives it to `osslsigncode` only (as `PKCS11_PIN`). The directory is removed when packaging ends,
+   whatever the outcome, and on Ctrl-C or SIGTERM (the signal is then re-raised). The first rejected PIN stops all further signing attempts.
 4. It signs, then verifies everything.
 5. It shows the files and asks before replacing them on the GitHub Release with `gh release upload --clobber`.
    The repository comes from `gh` or `GITHUB_REPOSITORY`.
@@ -576,6 +631,18 @@ Optional settings:
 - `CHARTMATE_WIN_SIGN_PASS_ENV`: names of extra variables, comma-separated, that the signing tool may see.
   Signing tools get only a minimal environment, so a PKCS#11 module that needs its own configuration variable
   has to be listed here.
+
+Build-only variables (they affect packaging, never the running app):
+
+- `CHARTMATE_PUBLISH=github`: electron-builder writes `app-update.yml` and `latest*.yml` for GitHub Releases
+  (needs `GITHUB_REPOSITORY`; see [Release assets](#signing-notarization-updates)). CI's packaging steps and
+  `sign:win` set it.
+- `CHARTMATE_WIN_SIGN_LOG`: a file the sign hook appends one JSON line to per signed file;
+  `scripts/verify-win-signatures.mjs` checks that every expected file was signed (`--sign-log`). CI's Certum packaging step and
+  `sign:win` set it to a temporary file.
+- `CHARTMATE_WIN_PKCS11_PIN`: the card PIN for `sign:win` (it asks otherwise). In a direct electron-builder run the
+  hook also accepts it from the environment, with the exposure described above.
+- `CHARTMATE_WIN_PKCS11_PIN_FILE`: set by `sign:win` only (see step 3); the file must be an owner-only regular file.
 
 Windows needs SimplySign Desktop, the Windows SDK (`signtool`) and `gh`.
 

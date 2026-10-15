@@ -1,5 +1,6 @@
+import { randomBytes } from 'node:crypto';
 import { PostgresAdapter, sql, type Kysely } from 'kysely';
-import { watchlistSymbols, type Bar, type Basket, type BasketVersion, type DrawingState, type Layout, type NativeTimeframe, type SymbolId, type WatchlistEntry } from '@chartmate/shared';
+import { tryNormalizeSymbolId, watchlistSymbols, type Bar, type Basket, type BasketVersion, type DrawingState, type Layout, type NativeTimeframe, type SymbolId, type WatchlistEntry } from '@chartmate/shared';
 import type { Database } from './schema.js';
 import type { Dialect } from './connect.js';
 
@@ -13,6 +14,13 @@ function parseJson<T>(text: string, what: string): T {
 
 const CHUNK = 500;
 
+/** The columns a split check stamps: the check time, and the start of split tracking when the row has none yet. */
+function checkStamp(checkedAt: number, trackFrom: number | undefined) {
+  return trackFrom === undefined
+    ? { splits_checked_at: checkedAt }
+    : { splits_checked_at: checkedAt, splits_tracked_from: sql<number>`coalesce(splits_tracked_from, ${trackFrom})` };
+}
+
 /** One step of a stock-split invalidation for a timeframe (see `BarRepo.applySplit`). */
 export interface SplitOp {
   tf: NativeTimeframe;
@@ -22,24 +30,74 @@ export interface SplitOp {
   factor?: number;
 }
 
+/**
+ * Serializes writers of one symbol's cached market data (bar fills, coverage merges, split invalidations) on
+ * Postgres with a transaction-scoped advisory lock. SQLite needs none: it has a single writer, and Kysely runs one
+ * transaction at a time on its single connection.
+ */
+async function lockSymbol(trx: Kysely<Database>, dialect: Dialect, symbol: string): Promise<void> {
+  if (dialect === 'postgres') await sql`select pg_advisory_xact_lock(hashtext(${'bars:' + symbol}))`.execute(trx);
+}
+
+async function upsertBars(db: Kysely<Database>, symbol: string, tf: NativeTimeframe, bars: Bar[]): Promise<void> {
+  const byTs = new Map<number, Bar>();
+  for (const b of bars) byTs.set(b.ts, b); // last wins; Postgres rejects duplicate keys within one statement
+  const unique = [...byTs.values()];
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const rows = unique.slice(i, i + CHUNK).map(b => ({
+      symbol, tf, ts: b.ts, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume, session: b.session ?? null,
+    }));
+    await db.insertInto('bars').values(rows)
+      .onConflict(oc => oc.columns(['symbol', 'tf', 'ts']).doUpdateSet(eb => ({
+        open: eb.ref('excluded.open'), high: eb.ref('excluded.high'), low: eb.ref('excluded.low'),
+        close: eb.ref('excluded.close'), volume: eb.ref('excluded.volume'), session: eb.ref('excluded.session'),
+      })))
+      .execute();
+  }
+}
+
+function checkRange(from: number, to: number): void {
+  if (!Number.isFinite(from) || !Number.isFinite(to)) throw new RangeError(`coverage.add: non-finite range [${from}, ${to})`);
+}
+
+/** Merges [from, to) into the covered ranges of (symbol, tf), inside the caller's transaction. */
+async function mergeCoverage(trx: Kysely<Database>, symbol: string, tf: NativeTimeframe, from: number, to: number): Promise<void> {
+  const overlap = await trx.selectFrom('coverage').select(['from_ts', 'to_ts'])
+    .where('symbol', '=', symbol).where('tf', '=', tf)
+    .where('from_ts', '<=', to).where('to_ts', '>=', from).execute();
+  let lo = from;
+  let hi = to;
+  for (const r of overlap) {
+    lo = Math.min(lo, Number(r.from_ts));
+    hi = Math.max(hi, Number(r.to_ts));
+  }
+  if (overlap.length > 0) {
+    await trx.deleteFrom('coverage').where('symbol', '=', symbol).where('tf', '=', tf)
+      .where('from_ts', 'in', overlap.map(r => r.from_ts)).execute();
+  }
+  await trx.insertInto('coverage').values({ symbol, tf, from_ts: lo, to_ts: hi }).execute();
+}
+
 export class BarRepo {
-  constructor(private db: Kysely<Database>) {}
+  constructor(private db: Kysely<Database>, private dialect: Dialect = 'sqlite') {}
 
   async upsert(symbol: string, tf: NativeTimeframe, bars: Bar[]): Promise<void> {
-    const byTs = new Map<number, Bar>();
-    for (const b of bars) byTs.set(b.ts, b); // last wins; Postgres rejects duplicate keys within one statement
-    const unique = [...byTs.values()];
-    for (let i = 0; i < unique.length; i += CHUNK) {
-      const rows = unique.slice(i, i + CHUNK).map(b => ({
-        symbol, tf, ts: b.ts, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume, session: b.session ?? null,
-      }));
-      await this.db.insertInto('bars').values(rows)
-        .onConflict(oc => oc.columns(['symbol', 'tf', 'ts']).doUpdateSet(eb => ({
-          open: eb.ref('excluded.open'), high: eb.ref('excluded.high'), low: eb.ref('excluded.low'),
-          close: eb.ref('excluded.close'), volume: eb.ref('excluded.volume'), session: eb.ref('excluded.session'),
-        })))
-        .execute();
-    }
+    await upsertBars(this.db, symbol, tf, bars);
+  }
+
+  /**
+   * Stores a fetched chunk: the bars and, when given, the covered range [from, to) in ONE transaction under the
+   * symbol's lock, so a split invalidation (applySplit, same lock) can never land between them and leave
+   * pre-split bars marked covered. An empty or inverted cover range is skipped.
+   */
+  async store(symbol: string, tf: NativeTimeframe, bars: Bar[], cover: [number, number] | null): Promise<void> {
+    if (cover) checkRange(cover[0], cover[1]);
+    if (bars.length === 0 && (!cover || cover[0] >= cover[1])) return;
+    await this.db.transaction().execute(async trx => {
+      await lockSymbol(trx, this.dialect, symbol);
+      await upsertBars(trx, symbol, tf, bars);
+      if (cover && cover[0] < cover[1]) await mergeCoverage(trx, symbol, tf, cover[0], cover[1]);
+    });
   }
 
   async range(symbol: string, tf: NativeTimeframe, from: number, to: number): Promise<Bar[]> {
@@ -55,8 +113,9 @@ export class BarRepo {
    * symbol's `splits_checked_at` is set to `checkedAt` in the same transaction, so a split can never be applied
    * (rescaled) twice: either everything commits, including the stamp, or nothing does.
    */
-  async applySplit(symbol: string, ops: SplitOp[], checkedAt: number): Promise<void> {
+  async applySplit(symbol: string, ops: SplitOp[], checkedAt: number, splitDays: number[] = [], trackFrom?: number): Promise<void> {
     await this.db.transaction().execute(async trx => {
+      await lockSymbol(trx, this.dialect, symbol); // never interleaved with a fill of the same symbol (store)
       for (const op of ops) {
         await trx.deleteFrom('coverage').where('symbol', '=', symbol).where('tf', '=', op.tf).where('from_ts', '>=', op.cut).execute();
         await trx.updateTable('coverage').set({ to_ts: op.cut })
@@ -71,7 +130,11 @@ export class BarRepo {
           })).where('symbol', '=', symbol).where('tf', '=', op.tf).where('ts', '<', op.cut).execute();
         }
       }
-      await trx.updateTable('symbols').set({ splits_checked_at: checkedAt }).where('id', '=', symbol).execute();
+      await trx.updateTable('symbols').set(checkStamp(checkedAt, trackFrom)).where('id', '=', symbol).execute();
+      if (splitDays.length > 0) {
+        await trx.insertInto('applied_splits').values([...new Set(splitDays)].map(ts => ({ symbol, ts })))
+          .onConflict(oc => oc.columns(['symbol', 'ts']).doNothing()).execute();
+      }
     });
   }
 
@@ -79,11 +142,6 @@ export class BarRepo {
   async hasAny(symbol: string): Promise<boolean> {
     const r = await this.db.selectFrom('bars').select('ts').where('symbol', '=', symbol).limit(1).executeTakeFirst();
     return r !== undefined;
-  }
-
-  /** Deletes every cached bar of `symbol` (all timeframes). */
-  async deleteSymbol(symbol: string): Promise<void> {
-    await this.db.deleteFrom('bars').where('symbol', '=', symbol).execute();
   }
 
   async lastBefore(symbol: string, tf: NativeTimeframe, ts: number): Promise<Bar | null> {
@@ -109,34 +167,13 @@ export class CoverageRepo {
     return rows.map(r => [Number(r.from_ts), Number(r.to_ts)]);
   }
 
-  /** Forgets every covered range of `symbol` (all timeframes). */
-  async deleteSymbol(symbol: string): Promise<void> {
-    await this.db.deleteFrom('coverage').where('symbol', '=', symbol).execute();
-  }
-
   /** Merges [from, to) into the covered ranges. Empty/inverted ranges are a no-op; non-finite bounds throw. */
   async add(symbol: string, tf: NativeTimeframe, from: number, to: number): Promise<void> {
-    if (!Number.isFinite(from) || !Number.isFinite(to)) throw new RangeError(`coverage.add: non-finite range [${from}, ${to})`);
+    checkRange(from, to);
     if (from >= to) return;
     await this.db.transaction().execute(async trx => {
-      if (this.dialect === 'postgres') {
-        // serialize concurrent merges for the same series
-        await sql`select pg_advisory_xact_lock(hashtext(${symbol + ':' + tf}))`.execute(trx);
-      }
-      const overlap = await trx.selectFrom('coverage').select(['from_ts', 'to_ts'])
-        .where('symbol', '=', symbol).where('tf', '=', tf)
-        .where('from_ts', '<=', to).where('to_ts', '>=', from).execute();
-      let lo = from;
-      let hi = to;
-      for (const r of overlap) {
-        lo = Math.min(lo, Number(r.from_ts));
-        hi = Math.max(hi, Number(r.to_ts));
-      }
-      if (overlap.length > 0) {
-        await trx.deleteFrom('coverage').where('symbol', '=', symbol).where('tf', '=', tf)
-          .where('from_ts', 'in', overlap.map(r => r.from_ts)).execute();
-      }
-      await trx.insertInto('coverage').values({ symbol, tf, from_ts: lo, to_ts: hi }).execute();
+      await lockSymbol(trx, this.dialect, symbol); // serialize concurrent merges (and splits) of the same symbol
+      await mergeCoverage(trx, symbol, tf, from, to);
     });
   }
 }
@@ -147,6 +184,8 @@ export interface SymbolInfoRow {
   ticker?: string | null;
   /** Last stock-split check (read-only here; written by `markSplitsChecked`). */
   splitsCheckedAt?: number | null;
+  /** Start of the applied-split record (read-only here; set on insert). */
+  splitsTrackedFrom?: number | null;
 }
 
 export class SymbolRepo {
@@ -159,6 +198,7 @@ export class SymbolRepo {
       id: r.id, name: r.name, exchange: r.exchange, pricePrecision: r.price_precision,
       firstTs: r.first_ts == null ? null : Number(r.first_ts), updatedAt: Number(r.updated_at),
       ticker: r.ticker ?? null, splitsCheckedAt: r.splits_checked_at == null ? null : Number(r.splits_checked_at),
+      splitsTrackedFrom: r.splits_tracked_from == null ? null : Number(r.splits_tracked_from),
     };
   }
 
@@ -169,20 +209,27 @@ export class SymbolRepo {
       updated_at: row.updatedAt, ticker: row.ticker ?? null,
     };
     // A new row starts as "splits checked as of now": its bars are fetched after this point (updates keep the stamp).
-    await this.db.insertInto('symbols').values({ ...v, splits_checked_at: row.updatedAt })
+    await this.db.insertInto('symbols').values({ ...v, splits_checked_at: row.updatedAt, splits_tracked_from: row.updatedAt })
       .onConflict(oc => oc.column('id').doUpdateSet({
         name: v.name, exchange: v.exchange, price_precision: v.price_precision, first_ts: v.first_ts, updated_at: v.updated_at, ticker: v.ticker,
       }))
       .execute();
   }
 
-  async markSplitsChecked(id: string, ts: number): Promise<void> {
-    await this.db.updateTable('symbols').set({ splits_checked_at: ts }).where('id', '=', id).execute();
+  /** The splits already applied to `id`'s cached bars, as NY trading dates (UTC midnight of the date). */
+  async appliedSplits(id: string): Promise<Set<number>> {
+    const rows = await this.db.selectFrom('applied_splits').select('ts').where('symbol', '=', id).execute();
+    return new Set(rows.map(r => Number(r.ts)));
+  }
+
+  /** Stamps a split check; `trackFrom` starts the applied-split record of a row that has none (pre-migration 005). */
+  async markSplitsChecked(id: string, ts: number, trackFrom?: number): Promise<void> {
+    await this.db.updateTable('symbols').set(checkStamp(ts, trackFrom)).where('id', '=', id).execute();
   }
 }
 
 export class BasketRepo {
-  constructor(private db: Kysely<Database>) {}
+  constructor(private db: Kysely<Database>, private now: () => number = () => Date.now()) {}
 
   /** All baskets (created_at, id order) with their versions, read in a single joined query (atomic snapshot). */
   async list(): Promise<Basket[]> {
@@ -210,7 +257,7 @@ export class BasketRepo {
   }
 
   async create(b: Omit<Basket, 'createdAt' | 'updatedAt'>): Promise<Basket> {
-    const now = Date.now();
+    const now = this.now();
     await this.db.transaction().execute(async trx => {
       await trx.insertInto('baskets').values({ id: b.id, name: b.name, base_value: b.baseValue, created_at: now, updated_at: now }).execute();
       await insertVersions(trx, b.id, b.versions);
@@ -222,13 +269,32 @@ export class BasketRepo {
     return this.db.transaction().execute(async trx => {
       const exists = await trx.selectFrom('baskets').select('id').where('id', '=', id).executeTakeFirst();
       if (!exists) return null;
-      const set: { updated_at: number; name?: string } = { updated_at: Date.now() };
+      const set: { updated_at: number; name?: string } = { updated_at: this.now() };
       if (patch.name !== undefined) set.name = patch.name;
       await trx.updateTable('baskets').set(set).where('id', '=', id).execute();
       if (patch.versions) {
         await trx.deleteFrom('basket_versions').where('basket_id', '=', id).execute();
         await insertVersions(trx, id, patch.versions);
       }
+      return getBasket(trx, id);
+    });
+  }
+
+  /**
+   * Appends `v` as the last version, in one transaction, provided the stored versions still equal `expected` (what
+   * the caller validated the new list against): null = no such basket, 'conflict' = the versions changed meanwhile.
+   */
+  async appendVersion(id: string, v: BasketVersion, expected: BasketVersion[]): Promise<Basket | null | 'conflict'> {
+    return this.db.transaction().execute(async trx => {
+      // Touching the row first locks it (Postgres), so a concurrent append waits here and then reads the
+      // committed versions; SQLite runs one transaction at a time anyway.
+      const touched = await trx.updateTable('baskets').set({ updated_at: this.now() }).where('id', '=', id).executeTakeFirst();
+      if (Number(touched.numUpdatedRows) === 0) return null;
+      const current = await getBasket(trx, id);
+      if (!current || JSON.stringify(current.versions) !== JSON.stringify(expected)) return 'conflict';
+      await trx.insertInto('basket_versions')
+        .values({ basket_id: id, idx: current.versions.length, effective_from: v.effectiveFrom, weights_json: JSON.stringify(v.weights) })
+        .execute();
       return getBasket(trx, id);
     });
   }
@@ -267,9 +333,16 @@ export class WatchlistRepo {
   async list(): Promise<WatchlistEntry[]> {
     const rows = await this.db.selectFrom('watchlist_entries').selectAll().orderBy('position', 'asc').execute();
     const out: WatchlistEntry[] = [];
+    const seen = new Set<string>();
     for (const r of rows) {
-      if (r.kind === 'symbol' && r.symbol !== null) out.push({ type: 'symbol', id: r.symbol });
-      else if (r.kind === 'section' && r.section_id !== null) {
+      if (r.kind === 'symbol') {
+        // Ids are normalized on write; a stray old spelling is normalized here, an invalid one dropped.
+        const id = tryNormalizeSymbolId(r.symbol);
+        if (id !== null && !seen.has(id)) {
+          seen.add(id);
+          out.push({ type: 'symbol', id });
+        }
+      } else if (r.kind === 'section' && r.section_id !== null) {
         out.push({ type: 'section', id: r.section_id, title: r.title ?? '', collapsed: Number(r.collapsed) === 1 });
       }
     }
@@ -332,6 +405,28 @@ export class DrawingRepo {
   }
 }
 
+export class SettingsRepo {
+  constructor(private db: Kysely<Database>) {}
+
+  async get(key: string): Promise<string | null> {
+    const r = await this.db.selectFrom('settings').select('value').where('key', '=', key).executeTakeFirst();
+    return r?.value ?? null;
+  }
+
+  /** The stored value of `key`, storing `make()` first when there is none (the first writer wins). */
+  async getOrCreate(key: string, make: () => string): Promise<string> {
+    await this.db.insertInto('settings').values({ key, value: make() }).onConflict(oc => oc.column('key').doNothing()).execute();
+    const v = await this.get(key);
+    if (v === null) throw new Error(`setting ${key} could not be stored`);
+    return v;
+  }
+
+  /** The cookie signing secret used when CHARTMATE_SESSION_SECRET is unset: 32 random bytes, generated once. */
+  sessionSecret(): Promise<string> {
+    return this.getOrCreate('session_secret', () => randomBytes(32).toString('hex'));
+  }
+}
+
 export interface Repos {
   bars: BarRepo;
   coverage: CoverageRepo;
@@ -340,17 +435,20 @@ export interface Repos {
   watchlist: WatchlistRepo;
   layouts: LayoutRepo;
   drawings: DrawingRepo;
+  settings: SettingsRepo;
 }
 
-export function createRepos(db: Kysely<Database>, dialect?: Dialect): Repos {
+/** `opts.now`: clock for the baskets' created / updated stamps (tests). */
+export function createRepos(db: Kysely<Database>, dialect?: Dialect, opts: { now?: () => number } = {}): Repos {
   const d: Dialect = dialect ?? (db.getExecutor().adapter instanceof PostgresAdapter ? 'postgres' : 'sqlite');
   return {
-    bars: new BarRepo(db),
+    bars: new BarRepo(db, d),
     coverage: new CoverageRepo(db, d),
     symbols: new SymbolRepo(db),
-    baskets: new BasketRepo(db),
+    baskets: new BasketRepo(db, opts.now),
     watchlist: new WatchlistRepo(db),
     layouts: new LayoutRepo(db),
     drawings: new DrawingRepo(db),
+    settings: new SettingsRepo(db),
   };
 }

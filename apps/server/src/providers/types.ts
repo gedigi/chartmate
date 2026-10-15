@@ -10,8 +10,6 @@ export interface ProviderLimits {
 export interface FetchBarsResult {
   /** Sorted ascending by ts, deduped, normalized. */
   bars: Bar[];
-  /** Listing date when the provider reports it (null = unknown). */
-  firstTs?: number | null;
   /** Explicit session windows used for tagging (stocks intraday). */
   sessionWindows?: SessionWindow[];
 }

@@ -70,7 +70,7 @@ export class FixtureProvider implements MarketDataProvider {
 
   async fetchBars(code: string, tf: NativeTimeframe, from: number, to: number): Promise<FetchBarsResult> {
     const sym = this.lookup(code);
-    return { bars: this.generate(sym, tf, Math.max(from, sym.firstTs), Math.min(to, this.now())), firstTs: sym.firstTs };
+    return { bars: this.generate(sym, tf, Math.max(from, sym.firstTs), Math.min(to, this.now())) };
   }
 
   async quotes(codes: string[]): Promise<Quote[]> {

@@ -9,12 +9,14 @@
 // - pkcs11 (macOS/Linux): osslsigncode + an OpenSSL PKCS#11 provider + the SimplySign PKCS#11 module
 //   (CHARTMATE_WIN_PKCS11_MODULE). SimplySign Desktop must be logged in (the owner types the one-time code).
 // Every signature is SHA-256 with an RFC 3161 timestamp from Certum. Nothing secret is passed on a command line: an
-// optional card PIN (CHARTMATE_WIN_PKCS11_PIN, which scripts/sign-win-release.mjs puts only into electron-builder's
-// environment) reaches libp11's provider as PKCS11_PIN in osslsigncode's environment (osslsigncode's -pass/-readpass
-// do not reach a provider). Signing tools get a minimal environment (toolEnv), never the build's secrets, and the
+// optional card PIN reaches libp11's provider as PKCS11_PIN in osslsigncode's environment only (osslsigncode's
+// -pass/-readpass do not reach a provider). scripts/sign-win-release.mjs hands the PIN over out of band: an
+// owner-only file whose path is CHARTMATE_WIN_PKCS11_PIN_FILE, read and deleted by the first signing call (pinFrom),
+// so the PIN itself is never in the environment of electron-builder or the tools it starts. (A same-user process
+// could still read the file before that first call; the file only narrows the exposure an environment variable has.) Signing tools get a minimal environment (toolEnv), never the build's secrets, and the
 // first rejected PIN stops all further signing attempts.
 const { spawnSync } = require('node:child_process');
-const { appendFileSync, existsSync, renameSync, rmSync, readdirSync } = require('node:fs');
+const { appendFileSync, existsSync, lstatSync, readFileSync, renameSync, rmSync, readdirSync } = require('node:fs');
 const { basename, dirname, join } = require('node:path');
 const { certumBackend, CERTUM_TIMESTAMP_URL } = require('./signing.cjs');
 
@@ -39,7 +41,7 @@ function signtoolArgs({ thumbprint, file, description }) {
 /**
  * The osslsigncode command for one file. Pure: the caller passes what it found on the host.
  * @param {NodeJS.ProcessEnv} env
- * @param {{ file: string, out: string, description?: string, hostPlatform: string, hostArch: string,
+ * @param {{ file: string, out: string, description?: string, pin?: string, hostPlatform: string, hostArch: string,
  *   moduleArchs: string[] | null, exists: (p: string) => boolean }} host
  */
 function osslsigncodePlan(env, host) {
@@ -61,7 +63,8 @@ function osslsigncodePlan(env, host) {
   if (!provider) throw new Error('OpenSSL PKCS#11 provider not found: install libp11 (brew install libp11) or set CHARTMATE_WIN_PKCS11_PROVIDER');
   const chain = value(env, 'CHARTMATE_WIN_CERT_CHAIN');
   if (chain && !host.exists(chain)) throw new Error(`CHARTMATE_WIN_CERT_CHAIN not found: ${chain}`);
-  const pin = typeof env.CHARTMATE_WIN_PKCS11_PIN === 'string' && env.CHARTMATE_WIN_PKCS11_PIN !== '' ? env.CHARTMATE_WIN_PKCS11_PIN : undefined;
+  const pin = typeof host.pin === 'string' && host.pin !== '' ? host.pin
+    : typeof env.CHARTMATE_WIN_PKCS11_PIN === 'string' && env.CHARTMATE_WIN_PKCS11_PIN !== '' ? env.CHARTMATE_WIN_PKCS11_PIN : undefined;
 
   const args = ['sign', '-provider', provider, '-pkcs11module', module,
     '-pkcs11cert', value(env, 'CHARTMATE_WIN_PKCS11_CERT') ?? DEFAULT_PKCS11_CERT,
@@ -89,9 +92,37 @@ function isPinFailure(output) {
   return /CKR_PIN_(INCORRECT|INVALID|LOCKED|LEN_RANGE|EXPIRED)|No PIN was entered|Login to token failed|\bPIN\b.*\b(incorrect|invalid|locked|blocked)\b/i.test(output);
 }
 let pinFailed = false;
+/** The PIN read from CHARTMATE_WIN_PKCS11_PIN_FILE (the file is deleted on first read), by file path. */
+let pinFromFile = null;
 /** Test only. */
 function resetPinLatch() {
   pinFailed = false;
+  pinFromFile = null;
+}
+
+/**
+ * The card PIN, if any. scripts/sign-win-release.mjs hands it over out of band: CHARTMATE_WIN_PKCS11_PIN_FILE names
+ * an owner-only file (0600, in a private 0700 directory) that is read once, deleted, and kept in this process's
+ * memory for the following files, so the PIN is never in the environment of electron-builder or its children.
+ * The file must be a regular, non-symlinked file nobody else can read. A direct electron-builder run can still set
+ * CHARTMATE_WIN_PKCS11_PIN instead.
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {string | undefined}
+ */
+function pinFrom(env) {
+  const file = value(env, 'CHARTMATE_WIN_PKCS11_PIN_FILE');
+  if (file) {
+    if (pinFromFile && pinFromFile.file === file) return pinFromFile.pin || undefined;
+    const st = lstatSync(file, { throwIfNoEntry: false });
+    if (!st || !st.isFile() || st.isSymbolicLink() || (process.platform !== 'win32' && (st.mode & 0o077) !== 0) || st.size > 256) {
+      throw new Error('CHARTMATE_WIN_PKCS11_PIN_FILE: the PIN file must be an owner-only regular file');
+    }
+    const pin = readFileSync(file, 'utf8').replace(/\r?\n$/, '');
+    rmSync(file, { force: true });
+    pinFromFile = { file, pin };
+    return pin === '' ? undefined : pin;
+  }
+  return typeof env.CHARTMATE_WIN_PKCS11_PIN === 'string' && env.CHARTMATE_WIN_PKCS11_PIN !== '' ? env.CHARTMATE_WIN_PKCS11_PIN : undefined;
 }
 
 /**
@@ -156,7 +187,7 @@ async function signFile(file, opts = {}) {
     const tmp = join(dirname(file), `.${basename(file)}.signed`);
     if (backend === 'pkcs11') {
       const plan = osslsigncodePlan(env, {
-        file, out: tmp, description: opts.description, hostPlatform: process.platform, hostArch: process.arch === 'x64' ? 'x86_64' : process.arch,
+        file, out: tmp, description: opts.description, pin: pinFrom(env), hostPlatform: process.platform, hostArch: process.arch === 'x64' ? 'x86_64' : process.arch,
         moduleArchs: moduleArchs(env.CHARTMATE_WIN_PKCS11_MODULE.trim()), exists: existsSync,
       });
       rmSync(tmp, { force: true });
@@ -194,5 +225,5 @@ async function sign(configuration) {
 }
 
 module.exports = {
-  sign, signFile, signtoolArgs, osslsigncodePlan, isTransient, isPinFailure, resetPinLatch, toolEnv, findSigntool, DEFAULT_PKCS11_CERT, DEFAULT_PKCS11_KEY,
+  sign, signFile, signtoolArgs, osslsigncodePlan, pinFrom, isTransient, isPinFailure, resetPinLatch, toolEnv, findSigntool, DEFAULT_PKCS11_CERT, DEFAULT_PKCS11_KEY,
 };

@@ -74,7 +74,6 @@ describe('YahooProvider', () => {
     const sessions = new Set(res.bars.map((b) => b.session));
     expect(sessions).toEqual(new Set(['pre', 'regular', 'post']));
     expect(res.sessionWindows).toHaveLength(windows.length);
-    expect(res.firstTs).toBe(Date.UTC(1980, 11, 12));
   });
 
   it('intraday: drops Yahoo\'s off-grid trailing "live tick" bar', async () => {
@@ -302,6 +301,16 @@ describe('YahooProvider', () => {
     await c.quote(['AAPL']);
     expect(seen.map((a) => a.slice(0, 2))).toEqual([['AAPL', { interval: '1d' }], ['apple', { quotesCount: 20 }], [['AAPL'], {}]]);
     for (const a of seen) expect(a[2].fetchOptions.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('createYahooClient percent-encodes the chart symbol (the library appends it to the URL path as is)', async () => {
+    const seen: string[] = [];
+    const yf = { chart: async (sym: string) => { seen.push(sym); return {}; }, search: async () => ({}), quote: async () => [] };
+    const c = createYahooClient(yf);
+    await c.chart('^GSPC', {});
+    await c.chart('ES=F', {});
+    await c.chart('A/../B?x=1#y', {});
+    expect(seen).toEqual(['%5EGSPC', 'ES%3DF', 'A%2F..%2FB%3Fx%3D1%23y']);
   });
 
   it('quotes skip rows whose price is not finite', async () => {

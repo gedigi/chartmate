@@ -10,8 +10,10 @@ import { Agent, fetch as undiciFetch } from 'undici';
  * npm `undici` fetch with an explicit Agent that
  * - connects directly (an Agent never consults HTTP(S)_PROXY / NO_PROXY), and
  * - trusts exactly Node's bundled Mozilla root store (`tls.rootCertificates`, which those variables do not change).
+ * This restricts trust to the bundled root store; it is not certificate or CA pinning: any certificate that chains
+ * to one of those roots is accepted.
  */
-export function createPinnedDispatcher(): Agent {
+export function createBundledRootsDispatcher(): Agent {
   return new Agent({
     connect: { ca: [...rootCertificates], rejectUnauthorized: true },
     keepAliveTimeout: 10_000,
@@ -22,7 +24,7 @@ export function createPinnedDispatcher(): Agent {
 type FetchInput = string | URL | Request;
 
 /** A `fetch` bound to `dispatcher` (any caller-supplied dispatcher is ignored). */
-export function createDirectFetch(dispatcher: Agent = createPinnedDispatcher()): typeof fetch {
+export function createDirectFetch(dispatcher: Agent = createBundledRootsDispatcher()): typeof fetch {
   const direct = async (input: FetchInput, init?: RequestInit): Promise<Response> => {
     let url: string;
     let merged: RequestInit = { ...init };

@@ -19,7 +19,9 @@ export function createYahooClient(yf: any = new YahooFinance({ suppressNotices: 
   // yahoo-finance2's overloaded signatures don't fit a plain structural interface, hence `any`.
   const moduleOptions = () => ({ fetchOptions: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) } });
   return {
-    chart: (sym, opts) => yf.chart(sym, opts, moduleOptions()),
+    // yahoo-finance2 appends the chart symbol to the URL path unencoded: encode it so a code can never change the
+    // path or add a query (symbol ids are validated too; this is the second line of defense).
+    chart: (sym, opts) => yf.chart(encodeURIComponent(sym), opts, moduleOptions()),
     search: (q, opts) => yf.search(q, opts, moduleOptions()),
     quote: (syms, opts) => yf.quote(syms, opts ?? {}, moduleOptions()),
   };
@@ -70,7 +72,6 @@ export class YahooProvider implements MarketDataProvider {
     const gridMod = Math.min(tfMs(tf), OFF_GRID_MOD_MAX);
     const byTs = new Map<number, Bar>();
     const windows: SessionWindow[] = [];
-    let firstTs: number | null = null;
 
     for (let s = start; s < end; s = s + span) {
       const e = Math.min(end, s + span);
@@ -81,8 +82,6 @@ export class YahooProvider implements MarketDataProvider {
       if (!daily) opts.includePrePost = true;
       const res = (await this.call(() => this.client.chart(code, opts))) as YChart;
 
-      const ftd = toMs(res.meta?.firstTradeDate);
-      if (ftd !== null) firstTs = nyDateUtcMidnight(ftd);
       if (!daily && res.meta?.tradingPeriods) windows.push(...windowsFromRegular(res.meta.tradingPeriods));
       for (const q of res.quotes ?? []) {
         const bar = toBar(q);
@@ -95,9 +94,9 @@ export class YahooProvider implements MarketDataProvider {
     }
 
     const sorted = [...byTs.values()].sort((a, b) => a.ts - b.ts);
-    if (daily) return { bars: sorted, firstTs };
+    if (daily) return { bars: sorted };
     const sessionWindows = windows.length > 0 ? dedupeWindows(windows) : undefined;
-    return { bars: tagSessions(sorted, sessionWindows), firstTs, ...(sessionWindows ? { sessionWindows } : {}) };
+    return { bars: tagSessions(sorted, sessionWindows), ...(sessionWindows ? { sessionWindows } : {}) };
   }
 
   async search(q: string): Promise<SymbolInfo[]> {

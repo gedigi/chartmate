@@ -70,6 +70,22 @@ describe.each(files)('%s', (file) => {
   });
 });
 
+describe('ci.yml Postgres job', () => {
+  const wf = yaml.load(read('ci.yml'));
+  const job = wf.jobs.postgres as { services: { postgres: { image: string } }; steps: Step[] };
+
+  it('runs the server DB suites against a digest-pinned Postgres, the same image compose.yaml pins', () => {
+    const image = job.services.postgres.image;
+    expect(image).toMatch(/^postgres:[\w.-]+@sha256:[0-9a-f]{64}$/);
+    const compose = yaml.load(readFileSync(new URL('../../../compose.yaml', import.meta.url), 'utf8'));
+    expect(image).toBe(compose.services.postgres.image);
+    const step = job.steps.find((s) => s.name === 'Server DB suites on Postgres')!;
+    expect(step.env?.CHARTMATE_TEST_DB).toBe('postgres');
+    expect(step.env?.TEST_PG_URL).toMatch(/^postgres:\/\/.+@localhost:5432\//);
+    for (const dir of ['test/db', 'test/market', 'test/baskets', 'test/routes', 'test/http']) expect(step.run).toContain(dir);
+  });
+});
+
 describe('toolchain pins', () => {
   it('pins pnpm by version and sha512 (corepack verifies it in CI and in the Docker build)', () => {
     const pkg = JSON.parse(root('package.json')) as { packageManager: string };

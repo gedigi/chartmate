@@ -14,6 +14,14 @@ describe('session tagging', () => {
     expect(tagSessionFixedHours(Date.UTC(2026, 10, 2, 14, 29))).toBe('pre');
     expect(tagSessionFixedHours(Date.UTC(2026, 10, 2, 14, 30))).toBe('regular');
   });
+  it('fixed hours: weekends (NY date) have no session', () => {
+    expect(tagSessionFixedHours(Date.UTC(2026, 6, 4, 14, 0))).toBeNull();      // Sat 10:00 EDT
+    expect(tagSessionFixedHours(Date.UTC(2026, 6, 5, 21, 0))).toBeNull();      // Sun 17:00 EDT
+    // The NY date decides, not the UTC one: Fri 19:30 EST is Saturday in UTC but still Friday's post-market.
+    expect(tagSessionFixedHours(Date.UTC(2026, 10, 7, 0, 30))).toBe('post');
+    expect(tagSessionFixedHours(Date.UTC(2026, 10, 9, 9, 0))).toBe('pre');      // Mon 04:00 EST
+    expect(tagSessions([b(Date.UTC(2026, 6, 4, 14, 0)), b(Date.UTC(2026, 6, 6, 14, 0))]).map(x => x.session)).toEqual(['regular']);
+  });
   it('windows override fixed hours (half day close 13:00)', () => {
     const day = Date.UTC(2026, 10, 27); // Fri after Thanksgiving, EST
     const windows = [
@@ -31,12 +39,14 @@ describe('session tagging', () => {
     expect(filterSession(bars, 'rth').map(x => x.ts)).toEqual([2, 4]);
     expect(filterSession(bars, 'eth').map(x => x.ts)).toEqual([1, 2, 3, 4]);
   });
-  it('DST transition days: 04:00 NY is pre', () => {
-    // 2026-03-08 spring forward (04:00 EDT = 08:00Z); 2026-11-01 fall back (04:00 EST = 09:00Z)
-    expect(tagSessionFixedHours(Date.UTC(2026, 2, 8, 8, 0))).toBe('pre');
-    expect(tagSessionFixedHours(Date.UTC(2026, 2, 8, 7, 59))).toBeNull();
-    expect(tagSessionFixedHours(Date.UTC(2026, 10, 1, 9, 0))).toBe('pre');
-    expect(tagSessionFixedHours(Date.UTC(2026, 10, 1, 8, 59))).toBeNull();
+  it('first session after a DST transition: 04:00 NY is pre', () => {
+    // Transitions fall on Sundays (no session): 2026-03-08 spring forward, so Mon 04:00 EDT = 08:00Z;
+    // 2026-11-01 fall back, so Mon 04:00 EST = 09:00Z.
+    expect(tagSessionFixedHours(Date.UTC(2026, 2, 8, 8, 0))).toBeNull();
+    expect(tagSessionFixedHours(Date.UTC(2026, 2, 9, 8, 0))).toBe('pre');
+    expect(tagSessionFixedHours(Date.UTC(2026, 2, 9, 7, 59))).toBeNull();
+    expect(tagSessionFixedHours(Date.UTC(2026, 10, 2, 9, 0))).toBe('pre');
+    expect(tagSessionFixedHours(Date.UTC(2026, 10, 2, 8, 59))).toBeNull();
   });
   it('does not mutate input', () => {
     const input = [b(Date.UTC(2026, 6, 1, 14, 0))];
@@ -92,5 +102,37 @@ describe('session tagging', () => {
     const linearMs = performance.now() - t1;
     expect(hits).toBe(N);
     expect(ms).toBeLessThan(linearMs / 4);
+  });
+});
+
+describe('tagSessions without windows: per-day memoization', () => {
+  const MIN = 60_000;
+  it('matches tagSessionFixedHours for every bar, across DST transitions and in any input order', () => {
+    // Every 7 minutes over 10 days around each DST transition of 2025 and 2026, weekends included.
+    const ts = [Date.UTC(2025, 2, 4), Date.UTC(2025, 9, 28), Date.UTC(2026, 2, 3), Date.UTC(2026, 9, 27)]
+      .flatMap((from) => Array.from({ length: (10 * 24 * 60) / 7 }, (_, i) => from + i * 7 * MIN));
+    const want = ts.map((t) => [t, tagSessionFixedHours(t)] as const).filter(([, s]) => s !== null);
+    expect(tagSessions(ts.map((t) => b(t))).map((x) => [x.ts, x.session])).toEqual(want);
+    const rev = ts.slice(0, 5000).reverse();
+    expect(tagSessions(rev.map((t) => b(t))).map((x) => x.ts)).toEqual(rev.filter((t) => tagSessionFixedHours(t) !== null));
+  });
+
+  it('perf: 30k 1m bars tag far faster than one time-zone lookup per bar', () => {
+    const bars = Array.from({ length: 30_000 }, (_, i) => b(Date.UTC(2026, 6, 6, 8) + i * MIN));
+    // Best of 3 runs, so a GC pause or a busy CPU during one run can't fail the comparison below.
+    let ms = Infinity;
+    for (let run = 0; run < 3; run++) {
+      const t0 = performance.now();
+      tagSessions(bars);
+      ms = Math.min(ms, performance.now() - t0);
+    }
+    // Baseline on the same machine (the unmemoized per-bar lookup), so a slow CI runner can't make this flaky.
+    let baseline = Infinity;
+    for (let run = 0; run < 2; run++) {
+      const t1 = performance.now();
+      for (const bar of bars) tagSessionFixedHours(bar.ts);
+      baseline = Math.min(baseline, performance.now() - t1);
+    }
+    expect(ms).toBeLessThan(baseline / 3);
   });
 });

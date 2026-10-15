@@ -65,6 +65,49 @@ jobs:
             test-results
           retention-days: 7
 
+  # The server's DB-backed suites (repos, market, baskets, routes, HTTP) again on Postgres. The image is the one
+  # compose.yaml pins (a test keeps them equal); each test file gets its own schema, files run one at a time.
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
+        env:
+          POSTGRES_USER: chartmate
+          POSTGRES_PASSWORD: chartmate-ci
+          POSTGRES_DB: chartmate
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chartmate -d chartmate"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: pnpm (corepack)
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: corepack enable pnpm && pnpm --version
+      - name: pnpm store path
+        id: pnpm-store
+        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Server DB suites on Postgres
+        env:
+          TEST_PG_URL: postgres://chartmate:chartmate-ci@localhost:5432/chartmate
+          CHARTMATE_TEST_DB: postgres
+        run: pnpm --filter @chartmate/server exec vitest run --no-file-parallelism test/db test/market test/baskets test/routes test/http
+
   docker:
     runs-on: ubuntu-latest
     timeout-minutes: 20

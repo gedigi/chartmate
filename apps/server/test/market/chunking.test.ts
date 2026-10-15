@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createDb } from '../../src/db/connect.js';
+import { createTestDb, type TestDb } from '../helpers/testDb.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';
 import { MarketDataService } from '../../src/market/service.js';
@@ -14,13 +14,13 @@ const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 9, 9, 18);
 
 describe('crypto gaps are split into queue-paced, one-request chunks (item 4)', () => {
-  let h: ReturnType<typeof createDb>;
+  let h: TestDb;
   let repos: Repos;
   let now: number;
   let queue: RequestQueue;
 
   beforeEach(async () => {
-    h = createDb('sqlite::memory:');
+    h = await createTestDb();
     await migrate(h.db);
     repos = createRepos(h.db);
     now = NOW;

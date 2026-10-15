@@ -155,6 +155,26 @@ describe('Host and Origin guard', () => {
     expect(get.statusCode).toBe(200);
   });
 
+  it('API requests a browser marks as cross-site or same-site are refused (no quota burn from other pages)', async () => {
+    for (const password of [null, 'correct-horse-battery']) {
+      await t?.close();
+      const app = await withWeb({ password });
+      const url = '/api/bars?symbol=stock:AAPL&tf=1D&session=rth&from=0&to=86400000';
+      for (const site of ['cross-site', 'same-site']) {
+        const r = await app.inject({ url, headers: { host: 'localhost', 'sec-fetch-site': site } });
+        expect(r.statusCode, `${site} ${password}`).toBe(403);
+        expect(r.json()).toMatchObject({ code: 'cross_site' });
+      }
+      // The page itself (same-origin), a typed URL or bookmark (none), scripts and the desktop app (no header) pass.
+      for (const headers of [{ 'sec-fetch-site': 'same-origin' }, { 'sec-fetch-site': 'none' }, {}]) {
+        const r = await app.inject({ url: '/api/health', headers: { host: 'localhost', ...headers } });
+        expect(r.statusCode, JSON.stringify(headers)).toBe(200);
+      }
+      // Pages and static files are not affected (a link from another site opens the app).
+      expect((await app.inject({ url: '/', headers: { host: 'localhost', 'sec-fetch-site': 'cross-site' } })).statusCode).toBe(200);
+    }
+  });
+
   it('checks Origin with a password too, with or without a host list', async () => {
     for (const allowedHosts of [[], ['chartmate.example.com']]) {
       const t2 = await makeApp({ password: 'pw', allowedHosts });

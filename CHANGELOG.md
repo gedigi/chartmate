@@ -12,7 +12,8 @@ app, the Docker image and the release tag share one version number.
   of the release notes. A failed check, download or install you asked for is reported in a dialog.
 - macOS: **Check for Updates…** in the Chartmate menu checks right away, and **Check for Updates Automatically**
   next to it turns the background checks off. An unsigned build says it cannot update itself and offers to open
-  the releases page.
+  the releases page. While a downloaded update is still being prepared for installation, it says so, and gives
+  up on that update after 10 minutes without an answer from macOS.
 - Windows has no update menu (the window has no menu bar): signed builds update in the background. Windows builds
   are unsigned for now and keep updating by hand from the releases page.
 - `CHARTMATE_DISABLE_UPDATES=1` turns updates off entirely.
@@ -22,6 +23,16 @@ app, the Docker image and the release tag share one version number.
   update is ready to install.
 - Chartmate 1.0.0 shipped with updates turned off: install this version by hand once, and later versions arrive
   automatically.
+- The released app keeps all of its startup and window protections even when its executable is renamed (for
+  example a copy renamed to `electron.exe`): it still refuses debugging switches, keeps DevTools off and ignores
+  `CHARTMATE_USER_DATA_DIR`.
+- `BINANCE_BASE_URL` accepts only the Binance API hosts (`data-api.binance.vision`, `api.binance.com`,
+  `api.binance.us`); any other value is ignored with a warning in the log instead of being allowed through.
+- An invalid `CHARTMATE_PROVIDERS` or `CRYPTO_PROVIDER` now shows a short error naming the variable instead of
+  crashing at startup.
+- The window reopens no larger than the screen it lands on (after a larger display is disconnected), keeps the
+  light theme's background when the page is slow to answer at close, and launching the app again on macOS with
+  no window open now opens one.
 - The app now includes the AGPL-3.0 license and the licenses of the third-party software it contains
   (`LICENSE` and `THIRD_PARTY_NOTICES.txt` next to the app's resources).
 
@@ -43,6 +54,57 @@ app, the Docker image and the release tag share one version number.
   `runAsNonRoot` can verify it, and carries `LICENSE` and `THIRD_PARTY_NOTICES.txt` in `/app`.
 - `latest`, `X` and `X.Y` move only to the highest release in their range: a fix for an older line no longer
   moves them backward. The GitHub Release marked Latest follows the same rule.
+
+### Data and security
+
+- Symbol ids are validated and normalized: `crypto:btc` and `crypto:BTC` are one symbol with one cache, and a
+  ticker that does not look like one is refused before any request goes to the data provider. Saved watchlists,
+  layouts, drawings and baskets are rewritten to the normalized ids on upgrade (case variants merged). A basket
+  version holding an id that is not valid loses that constituent and is reweighted (the server logs which).
+- The self-hosted web app is served with a strict Content Security Policy and the usual hardening headers
+  (no framing, no MIME sniffing, no referrer). Hashed bundles are cached for a year, `index.html` is always
+  revalidated, dotfiles are never served, and a missing asset is a 404 instead of the app page.
+- A recent range the data provider briefly answered with no bars is asked again later instead of staying empty
+  for good; cached bars and their coverage are written together, so a split check can no longer slip between
+  them.
+- Sessions are no longer signed with a secret derived from the password: without `CHARTMATE_SESSION_SECRET`
+  a random secret is generated once and kept in the database. Changing the password now signs every session
+  out, and over HTTPS the cookie is named `__Host-chartmate_session`. **After upgrading you have to log in
+  again** (sessions from earlier versions are no longer accepted).
+- The server refuses to start when `CHARTMATE_PASSWORD` is only whitespace (it used to turn the login off), and
+  warns about a password shorter than 12 characters, or about being reachable beyond loopback without a password
+  (the default Compose setup, published on 127.0.0.1, does not warn).
+- API requests another site's page triggers (the browser marks them cross-site) are refused, so a web page can
+  no longer make an open instance spend its data-provider quota. A symbol the provider just reported unknown is
+  not asked for bars again for 10 minutes.
+- A basket may hold at most 100 versions and 100 different symbols across them. Two versions appended at the
+  same time can no longer overwrite each other.
+- Watchlist quotes go easier on the data providers: a crypto pair Binance does not know is left out of quote
+  requests for 10 minutes (it used to turn every poll into one request per symbol), and a rate limit or outage
+  pauses quote requests for 30 seconds.
+- An unknown symbol is answered with a plain "Unknown symbol" message; the data provider's own error text is only
+  logged by the server.
+- `BINANCE_BASE_URL` must be an `https://` URL (as in the desktop app); the server refuses to start otherwise.
+- Postgres: the migration bookkeeping and column checks use the connection's current schema only, so another
+  schema in the same database (e.g. one with an older copy of the tables) is no longer mistaken for Chartmate's.
+  Appending basket versions concurrently on Postgres no longer fails with an internal error.
+- Rolling back to 1.0.0 now means deleting the records of migrations 004–006 first; see Troubleshooting in the
+  README (migration 004 cannot be undone).
+- A stock split the data provider reports a few days late is now still applied to cached history (and never
+  twice).
+
+### Charts and baskets
+
+- A daily chart of a stock or a stock-only basket keeps updating its last bar over the weekend instead of
+  getting no latest bar until the next session.
+- On intraday charts and live quotes of a stock-only basket, a new version now takes effect at the start of
+  its date's New York session (04:00, pre-market) instead of at midnight UTC, which in winter fell inside the
+  previous evening's post-market and valued it with the new holdings. 2h and 4h extended-hours bars no longer
+  mix two versions, and the version markers move to that time. Daily charts are unchanged.
+- A basket version dated tomorrow is no longer sized for hours at a price from the middle of today's
+  session: its holdings are re-sized every few minutes until today closes, then fixed at the final close.
+- A basket no longer fails to load when a constituent's daily close is zero, negative or missing where a version
+  is sized: the last valid close up to 5 bars earlier is used, and a notice names the dates skipped.
 
 ## [1.0.0] - 2026-10-14
 

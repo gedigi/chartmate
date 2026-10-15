@@ -62,7 +62,9 @@ export async function startAutoUpdate(o: {
     beforeHandOver: async (args) => {
       const event = (args[1] ?? {}) as { downloadedFile?: unknown; version?: unknown };
       if (typeof event.downloadedFile !== 'string') throw new Error('downloaded update file is missing');
-      await checkDownloadedBundle(event.downloadedFile, { advertised: event.version, current: currentVersion });
+      await checkDownloadedBundle(event.downloadedFile, {
+        advertised: event.version, current: currentVersion, log: (m) => log.warn(`updater: ${m}`),
+      });
     },
   });
 

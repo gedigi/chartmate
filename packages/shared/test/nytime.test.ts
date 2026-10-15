@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nyParts, nyToUtc, nyDateUtcMidnight, utcDateString, parseDateString } from '../src/nytime.js';
+import { nyParts, nyToUtc, nyDateUtcMidnight, utcDateString, parseDateString, nyDay, nyDayTime, memoByNyDay } from '../src/nytime.js';
 
 describe('nytime', () => {
   it('EDT summer: 09:30 NY = 13:30Z', () => {
@@ -66,5 +66,37 @@ describe('nytime', () => {
     expect(() => parseDateString('2024-13-01')).toThrow();
     expect(() => parseDateString('2024-02-30')).toThrow();
     expect(() => parseDateString('nope')).toThrow();
+  });
+  it('nyDay: the NY calendar day as a UTC span (23 and 25 hours on DST days)', () => {
+    expect(nyDay(Date.UTC(2026, 6, 2, 3, 59))).toEqual({
+      y: 2026, m: 7, d: 1, dow: 3, start: Date.UTC(2026, 6, 1, 4), end: Date.UTC(2026, 6, 2, 4),
+    });
+    const spring = nyDay(Date.UTC(2026, 2, 8, 12));
+    expect([spring.start, spring.end]).toEqual([Date.UTC(2026, 2, 8, 5), Date.UTC(2026, 2, 9, 4)]);
+    const fall = nyDay(Date.UTC(2026, 10, 1, 12));
+    expect([fall.start, fall.end]).toEqual([Date.UTC(2026, 10, 1, 4), Date.UTC(2026, 10, 2, 5)]);
+  });
+  it('nyDay matches nyToUtc midnights and nyDayTime matches nyToUtc, every hour across DST weeks', () => {
+    for (const from of [Date.UTC(2026, 2, 5), Date.UTC(2026, 9, 29), Date.UTC(1975, 1, 20)]) {
+      for (let ts = from; ts < from + 7 * 86_400_000; ts += 3_600_000 + 7 * 60_000) {
+        const day = nyDay(ts);
+        const next = new Date(Date.UTC(day.y, day.m - 1, day.d + 1));
+        expect([day.start, day.end]).toEqual([
+          nyToUtc(day.y, day.m, day.d, 0, 0),
+          nyToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, 0),
+        ]);
+        expect(ts >= day.start && ts < day.end).toBe(true);
+        for (const [hh, mm] of [[2, 30], [4, 0], [9, 30], [16, 0], [20, 0]] as const) {
+          expect(nyDayTime(day, hh, mm)).toBe(nyToUtc(day.y, day.m, day.d, hh, mm));
+        }
+      }
+    }
+  });
+  it('memoByNyDay builds once per NY day, sorted or not', () => {
+    const built: number[] = [];
+    const f = memoByNyDay((day) => { built.push(day.d); return day.d; });
+    const ts = [Date.UTC(2026, 6, 1, 4), Date.UTC(2026, 6, 1, 20), Date.UTC(2026, 6, 2, 3, 59), Date.UTC(2026, 6, 2, 4)];
+    expect([...ts, ...ts.slice().reverse()].map(f)).toEqual([1, 1, 1, 2, 2, 1, 1, 1]);
+    expect(built).toEqual([1, 2]);
   });
 });

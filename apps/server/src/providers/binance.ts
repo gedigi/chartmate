@@ -13,6 +13,10 @@ const TICKER_BATCH = 100;
 const KLINE_CONCURRENCY = 5;
 /** How long a failed previous-close lookup (fallback to openPrice) is not retried. */
 const PREV_FAILURE_TTL_MS = 60_000;
+/** How long a pair Binance reported unknown is left out of quote requests. */
+const UNKNOWN_PAIR_TTL_MS = 10 * 60_000;
+/** Most unknown pairs remembered at once (oldest dropped first). */
+const MAX_UNKNOWN_PAIRS = 1000;
 
 type Kline = [number, string, string, string, string, string, ...unknown[]];
 interface ExchangeSymbol {
@@ -38,6 +42,8 @@ export class BinanceProvider implements MarketDataProvider {
   private info: { at: number; symbols: SymbolInfo[] } | null = null;
   /** Previous UTC daily close per pair, valid for the UTC day starting at `dayOpen`. */
   private readonly prevClose = new Map<string, { dayOpen: number; close: number; until?: number }>();
+  /** Pairs Binance answered "Invalid symbol" for → expiry (ms): one would fail every batch and fan it out. */
+  private readonly unknownPairs = new Map<string, number>();
 
   constructor(opts: BinanceOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, '');
@@ -80,7 +86,14 @@ export class BinanceProvider implements MarketDataProvider {
    */
   async quotes(codes: string[]): Promise<Quote[]> {
     if (codes.length === 0) return [];
-    const pairs = codes.map(pair);
+    const now = this.now();
+    const pairs = codes.map(pair).filter((p) => {
+      const until = this.unknownPairs.get(p);
+      if (until === undefined) return true;
+      if (now < until) return false;
+      this.unknownPairs.delete(p);
+      return true;
+    });
     const rows: TickerDay[] = [];
     for (let i = 0; i < pairs.length; i += TICKER_BATCH) rows.push(...(await this.tradingDay(pairs.slice(i, i + TICKER_BATCH))));
     const bySymbol = new Map(rows.map((r) => [r.symbol, r]));
@@ -124,10 +137,18 @@ export class BinanceProvider implements MarketDataProvider {
           rows.push(await this.get<TickerDay>('/api/v3/ticker/tradingDay', { symbol: p, timeZone: '0' }));
         } catch (e) {
           if (!(e instanceof NotFoundError)) throw e;
+          this.rememberUnknownPair(p);
         }
       }
       return rows;
     }
+  }
+
+  private rememberUnknownPair(p: string): void {
+    const m = this.unknownPairs;
+    m.delete(p);
+    while (m.size >= MAX_UNKNOWN_PAIRS) m.delete(m.keys().next().value!);
+    m.set(p, this.now() + UNKNOWN_PAIR_TTL_MS);
   }
 
   /** Never throws: any lookup failure falls back to the day's openPrice (negative-cached for 60 s). */

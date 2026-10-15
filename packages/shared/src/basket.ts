@@ -1,6 +1,6 @@
 import type { Bar, BasketVersion, Marker, SymbolId } from './types.js';
 import { parseSymbolId } from './types.js';
-import { parseDateString, utcDateString } from './nytime.js';
+import { nyToUtc, parseDateString, utcDateString } from './nytime.js';
 
 const DAY_MS = 86_400_000;
 
@@ -17,6 +17,10 @@ export class BasketValidationError extends Error {
 
 /** Most constituents a single basket version may hold. */
 export const MAX_CONSTITUENTS = 50;
+/** Most versions a basket may hold. */
+export const MAX_BASKET_VERSIONS = 100;
+/** Most distinct constituents across all of a basket's versions. */
+export const MAX_BASKET_SYMBOLS = 100;
 /** Earliest allowed `effectiveFrom`. */
 export const MIN_EFFECTIVE_DATE = '1970-01-01';
 
@@ -27,6 +31,11 @@ export function maxEffectiveDate(now: number = Date.now()): string {
 
 export function validateVersions(versions: BasketVersion[], opts: { now?: number } = {}): void {
   if (versions.length === 0) throw new BasketValidationError('Basket needs at least one version');
+  if (versions.length > MAX_BASKET_VERSIONS) throw new BasketValidationError(`A basket may have at most ${MAX_BASKET_VERSIONS} versions`);
+  const symbols = new Set(versions.flatMap((v) => Object.keys(v.weights ?? {})));
+  if (symbols.size > MAX_BASKET_SYMBOLS) {
+    throw new BasketValidationError(`A basket may hold at most ${MAX_BASKET_SYMBOLS} different symbols across its versions`);
+  }
   const maxDate = maxEffectiveDate(opts.now ?? Date.now());
   const minTs = parseDateString(MIN_EFFECTIVE_DATE);
   const maxTs = parseDateString(maxDate);
@@ -89,11 +98,30 @@ function lowerBound(bars: Bar[], t: number): number {
   return lo;
 }
 
-/** Close of the last bar with bar.ts < ts, or undefined. */
-function priorClose(bars: Bar[] | undefined, ts: number): number | undefined {
-  if (!bars) return undefined;
-  const i = lowerBound(bars, ts);
-  return i === 0 ? undefined : bars[i - 1]!.close;
+/** Most consecutive invalid daily closes skipped to find a valid one to size at. */
+const MAX_INVALID_CLOSES = 5;
+
+const validClose = (c: number) => Number.isFinite(c) && c > 0;
+
+/**
+ * `id`'s close before `ts` for sizing: the last bar's, or, when that close is not a positive finite number (bad
+ * provider data would size infinite, negative or NaN units), the last valid one up to MAX_INVALID_CLOSES bars
+ * further back, with a notice. Throws when there is no bar (`missing` message) or no valid close in reach.
+ */
+function sizingClose(daily: DailySeries, id: SymbolId, ts: number, missing: string, notices: Set<string>): number {
+  const bars = daily[id];
+  const i = bars ? lowerBound(bars, ts) : 0;
+  if (i === 0) throw new BasketValidationError(missing, id, ts);
+  for (let j = i - 1; j >= Math.max(0, i - 1 - MAX_INVALID_CLOSES); j--) {
+    const b = bars![j]!;
+    if (!validClose(b.close)) continue;
+    if (j < i - 1) {
+      const skipped = bars!.slice(j + 1, i).map((x) => utcDateString(x.ts)).join(', ');
+      notices.add(`${id}: invalid close on ${skipped}; sized at the close of ${utcDateString(b.ts)}.`);
+    }
+    return b.close;
+  }
+  throw new BasketValidationError(`${id} has no valid close before ${utcDateString(ts)}`, id, ts);
 }
 
 export function computeVersionUnits(versions: BasketVersion[], daily: DailySeries, baseValue: number): UnitsResult {
@@ -101,6 +129,7 @@ export function computeVersionUnits(versions: BasketVersion[], daily: DailySerie
   const v0 = versions[0];
   if (!v0) throw new BasketValidationError('Basket needs at least one version');
   const notices: string[] = [];
+  const skips = new Set<string>(); // notices about invalid closes, once each
   const T = parseDateString(v0.effectiveFrom);
 
   let S = T;
@@ -118,11 +147,10 @@ export function computeVersionUnits(versions: BasketVersion[], daily: DailySerie
     notices.push(`Basket starts ${utcDateString(S)}: ${limitingId} has no data before that date.`);
   }
 
+  // Weights are normalized (validation allows a 1e-6 slack in their sum) so each version starts exactly at its level.
   const units0: Record<SymbolId, number> = {};
-  for (const [id, w] of Object.entries(v0.weights)) {
-    const pc = priorClose(daily[id], S);
-    if (pc === undefined || pc === 0) throw new BasketValidationError('No data for ' + id, id, S);
-    units0[id] = (w * baseValue) / pc;
+  for (const [id, w] of Object.entries(normalizeWeights(v0.weights))) {
+    units0[id] = (w * baseValue) / sizingClose(daily, id, S, 'No data for ' + id, skips);
   }
   const out: VersionUnits[] = [{ effectiveTs: S, units: units0, levelAtStart: baseValue }];
 
@@ -133,21 +161,38 @@ export function computeVersionUnits(versions: BasketVersion[], daily: DailySerie
     const prev = out[k - 1]!;
     let L = 0;
     for (const [id, u] of Object.entries(prev.units)) {
-      const pc = priorClose(daily[id], Tk);
-      if (pc === undefined) throw new BasketValidationError('No data for ' + id + ' before ' + v.effectiveFrom, id, Tk);
-      L += u * pc;
+      L += u * sizingClose(daily, id, Tk, 'No data for ' + id + ' before ' + v.effectiveFrom, skips);
     }
     if (!Number.isFinite(L) || !(L > 0)) throw new BasketValidationError('Version ' + (k + 1) + ' has non-positive index level before ' + v.effectiveFrom);
     const units: Record<SymbolId, number> = {};
-    for (const [id, w] of Object.entries(v.weights)) {
-      const pc = priorClose(daily[id], Tk);
-      if (pc === undefined || pc === 0) throw new BasketValidationError('No data for ' + id + ' before ' + v.effectiveFrom, id, Tk);
-      units[id] = (w * L) / pc;
+    for (const [id, w] of Object.entries(normalizeWeights(v.weights))) {
+      units[id] = (w * L) / sizingClose(daily, id, Tk, 'No data for ' + id + ' before ' + v.effectiveFrom, skips);
     }
     out.push({ effectiveTs: Tk, units, levelAtStart: L });
   }
 
-  return { versions: out, startTs: S, notices };
+  return { versions: out, startTs: S, notices: [...notices, ...skips] };
+}
+
+/** 04:00 NY (the start of the pre-market session, DST-aware) on the date whose UTC midnight is `dayTs`. */
+function nySessionStartOn(dayTs: number): number {
+  const d = new Date(dayTs);
+  return nyToUtc(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), 4, 0);
+}
+
+/**
+ * `units` with the start and every version switch moved from 00:00 UTC of their date to the start of that date's
+ * NY session (04:00 NY), for stock-only baskets on intraday timeframes. Units are sized at the prior regular close;
+ * at 00:00 UTC the previous NY day's post-market can still be trading (19:00 EST), and applying new units to it
+ * would value that session with holdings sized for the next one (and split a 2h ETH bucket between versions).
+ * Daily bars and baskets holding crypto (UTC grid) keep 00:00 UTC.
+ */
+export function alignUnitsToNySessions(units: UnitsResult): UnitsResult {
+  return {
+    ...units,
+    startTs: nySessionStartOn(units.startTs),
+    versions: units.versions.map((v) => ({ ...v, effectiveTs: nySessionStartOn(v.effectiveTs) })),
+  };
 }
 
 export interface ConstituentSeries { id: SymbolId; bars: Bar[] }
