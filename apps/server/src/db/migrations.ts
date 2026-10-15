@@ -259,19 +259,26 @@ const m004: Migration = {
           continue;
         }
         if (!weights || typeof weights !== 'object' || Array.isArray(weights)) continue;
-        const out: Record<string, number> = {};
+        const out: Record<string, number> = Object.create(null) as Record<string, number>;
         let dropped = false;
         for (const [k, w] of Object.entries(weights)) {
           const id = canon(k);
           if (id === null || typeof w !== 'number') { dropped = true; continue; }
-          out[id] = (out[id] ?? 0) + w;
+          out[id] = (Object.hasOwn(out, id) ? out[id]! : 0) + w;
         }
         const keys = Object.keys(out);
         if (keys.length === 0) continue;
         if (dropped) {
           const sum = keys.reduce((a, k) => a + out[k]!, 0);
-          if (!(sum > 0)) continue;
+          if (!(sum > 0) || !Number.isFinite(sum)) continue;
           for (const k of keys) out[k] = out[k]! / sum;
+        }
+        // Never store a weight that is not a positive finite number (e.g. two huge variants summed to Infinity):
+        // such a version is left exactly as it was.
+        if (!keys.every((k) => Number.isFinite(out[k]) && out[k]! > 0)) continue;
+        if (dropped) {
+          console.warn(`Chartmate migration 004: basket ${String(v.basket_id)} version ${Number(v.idx) + 1} held an invalid `
+            + 'symbol id; it was removed and the remaining weights were rescaled to sum to 100%.');
         }
         const json = JSON.stringify(out);
         if (json !== v.weights_json) {

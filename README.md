@@ -821,7 +821,10 @@ Symbol ids are `stock:<TICKER>`, `crypto:<BASE>` or `basket:<uuid>`; timeframes 
 each code must fit its class: a stock ticker is 1–20 of `A–Z 0–9 . - = ^` starting with a letter, digit or `^`
 (`BRK-B`, `^GSPC`, `ES=F`), a crypto base 1–20 letters or digits, a basket a UUID; anything else is a 400.
 Migration 004 rewrote the ids stored by earlier versions (watchlist, layouts, drawings, basket weights) to this
-spelling, merging case variants and dropping ids that are not valid.
+spelling, merging case variants and dropping ids that are not valid. A basket version that loses an invalid
+constituent this way is reweighted: its other constituents are rescaled to sum to 100%, and the server logs the
+basket id and version at that first start (a version whose weights would not stay positive and finite is left
+as it was).
 
 The watchlist is a `WatchlistEntry[]`: `{ type: 'symbol', id }` or `{ type: 'section', id: <uuid>, title,
 collapsed }`, read and replaced as a whole. `PUT /api/watchlist` still accepts the older plain symbol id array

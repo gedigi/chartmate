@@ -24,7 +24,8 @@ app, the Docker image and the release tag share one version number.
 
 - Symbol ids are validated and normalized: `crypto:btc` and `crypto:BTC` are one symbol with one cache, and a
   ticker that does not look like one is refused before any request goes to the data provider. Saved watchlists,
-  layouts, drawings and baskets are rewritten to the normalized ids on upgrade (case variants merged).
+  layouts, drawings and baskets are rewritten to the normalized ids on upgrade (case variants merged). A basket
+  version holding an id that is not valid loses that constituent and is reweighted (the server logs which).
 - The self-hosted web app is served with a strict Content Security Policy and the usual hardening headers
   (no framing, no MIME sniffing, no referrer). Hashed bundles are cached for a year, `index.html` is always
   revalidated, dotfiles are never served, and a missing asset is a 404 instead of the app page.

@@ -290,7 +290,10 @@ describe.each(urls)('repos on %s', (url) => {
     await h.db.insertInto('basket_versions').values([
       { basket_id: 'b1', idx: 0, effective_from: '2024-01-02', weights_json: JSON.stringify({ 'stock:aapl': 0.25, 'stock:AAPL': 0.25, 'crypto:BTC': 0.5 }) },
       { basket_id: 'b1', idx: 1, effective_from: '2024-02-01', weights_json: JSON.stringify({ 'stock:bad/x': 0.5, 'crypto:eth': 0.5 }) },
+      { basket_id: 'b1', idx: 2, effective_from: '2024-03-01', weights_json: JSON.stringify({ 'stock:big': 1e308, 'stock:BIG': 1e308 }) },
+      { basket_id: 'b1', idx: 3, effective_from: '2024-04-01', weights_json: JSON.stringify({ constructor: 0.5, 'stock:aapl': 0.5 }) },
     ]).execute();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await r.bars.upsert('crypto:btc', '1D', [{ ts: 0, open: 1, high: 1, low: 1, close: 1, volume: 1 }]);
     await r.bars.upsert('crypto:BTC', '1D', [{ ts: 0, open: 2, high: 2, low: 2, close: 2, volume: 2 }]);
     await r.coverage.add('crypto:btc', '1D', 0, 10);
@@ -312,7 +315,16 @@ describe.each(urls)('repos on %s', (url) => {
     expect((await r.drawings.get('stock:QQQ')).map((x) => x.name)).toEqual(['c']);
     expect(await h.db.selectFrom('drawings').select('symbol').where('symbol', '=', 'stock:no/pe').execute()).toEqual([]);
     const b = await r.baskets.get('b1');
-    expect(b!.versions.map((v) => v.weights)).toEqual([{ 'stock:AAPL': 0.5, 'crypto:BTC': 0.5 }, { 'crypto:ETH': 1 }]);
+    expect(b!.versions.map((v) => v.weights)).toEqual([
+      { 'stock:AAPL': 0.5, 'crypto:BTC': 0.5 },
+      { 'crypto:ETH': 1 },
+      { 'stock:big': 1e308, 'stock:BIG': 1e308 }, // the sum would not be finite: kept as it was
+      { 'stock:AAPL': 1 }, // 'constructor' is not a symbol id
+    ]);
+    expect(warn.mock.calls.map((c) => String(c[0]))).toEqual([
+      expect.stringMatching(/basket b1 version 2 .*rescaled/), expect.stringMatching(/basket b1 version 4 .*rescaled/),
+    ]);
+    warn.mockRestore();
     expect(await r.bars.range('crypto:BTC', '1D', 0, 1)).toEqual([{ ts: 0, open: 2, high: 2, low: 2, close: 2, volume: 2 }]);
     expect(await r.bars.hasAny('crypto:btc')).toBe(false);
     expect(await r.coverage.list('crypto:btc', '1D')).toEqual([]);
