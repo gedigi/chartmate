@@ -208,6 +208,35 @@ describe('computeVersionUnits + buildBasketBars', () => {
     expect(out.map(b => b.ts)).toEqual([day('2024-01-02'), day('2024-01-03')]);
   });
 
+  it('rejects a prior close that is not a positive finite number, naming the constituent', () => {
+    for (const bad of [-5, NaN, Infinity, 0]) {
+      const d = { 'stock:A': dailies('2024-01-01', [bad, 20, 20, 40]), 'crypto:B': daily['crypto:B'] };
+      const err = (() => { try { computeVersionUnits([v0], d, 100); } catch (e) { return e; } })() as BasketValidationError;
+      expect(err, String(bad)).toBeInstanceOf(BasketValidationError);
+      expect(err.message).toBe('stock:A has no valid close before 2024-01-02');
+      expect(err.symbol).toBe('stock:A');
+    }
+    // A later version: its new constituent and the previous version's constituents alike.
+    for (const bad of [-5, NaN]) {
+      const d = { ...daily, 'stock:C': dailies('2024-01-01', [5, 5, bad, 5]) };
+      const v1 = { effectiveFrom: '2024-01-04', weights: { 'stock:C': 1 } };
+      expect(() => computeVersionUnits([v0, v1], d, 100)).toThrow('stock:C has no valid close before 2024-01-04');
+      const v2 = { effectiveFrom: '2024-01-04', weights: { 'stock:A': 1 } };
+      const d2 = { 'stock:A': daily['stock:A'], 'crypto:B': dailies('2024-01-01', [100, 100, bad, 50]) };
+      expect(() => computeVersionUnits([v0, v2], d2, 100)).toThrow('crypto:B has no valid close before 2024-01-04');
+    }
+  });
+
+  it('normalizes weights so each version starts exactly at its level (weights within the 1e-6 tolerance)', () => {
+    const w = { 'stock:A': 0.5, 'crypto:B': 0.5000009 };
+    const v1 = { effectiveFrom: '2024-01-04', weights: { 'stock:A': 0.3000004, 'crypto:B': 0.7 } };
+    const u = computeVersionUnits([{ ...v0, weights: w }, v1], daily, 100);
+    const value = (units: Record<string, number>, ts: number) =>
+      Object.entries(units).reduce((s, [id, n]) => s + n * daily[id as 'stock:A'].filter((b) => b.ts < ts).at(-1)!.close, 0);
+    expect(value(u.versions[0]!.units, u.startTs)).toBeCloseTo(100, 12);
+    expect(value(u.versions[1]!.units, u.versions[1]!.effectiveTs)).toBeCloseTo(u.versions[1]!.levelAtStart, 12);
+  });
+
   it('rejects invalid baseValue and non-positive level', () => {
     for (const bv of [0, -1, NaN, Infinity]) expect(() => computeVersionUnits([v0], daily, bv)).toThrow(BasketValidationError);
     const z = { 'stock:A': dailies('2024-01-01', [10, 0, 0, 0]), 'crypto:B': dailies('2024-01-01', [100, 0, 0, 0]) };

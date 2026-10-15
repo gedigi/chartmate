@@ -96,6 +96,19 @@ function priorClose(bars: Bar[] | undefined, ts: number): number | undefined {
   return i === 0 ? undefined : bars[i - 1]!.close;
 }
 
+/**
+ * `id`'s close before `ts` for sizing: throws when there is none (`missing` message) or when it is not a positive
+ * finite number (bad provider data would otherwise size infinite, negative or NaN units).
+ */
+function sizingClose(daily: DailySeries, id: SymbolId, ts: number, missing: string): number {
+  const pc = priorClose(daily[id], ts);
+  if (pc === undefined) throw new BasketValidationError(missing, id, ts);
+  if (!Number.isFinite(pc) || !(pc > 0)) {
+    throw new BasketValidationError(`${id} has no valid close before ${utcDateString(ts)}`, id, ts);
+  }
+  return pc;
+}
+
 export function computeVersionUnits(versions: BasketVersion[], daily: DailySeries, baseValue: number): UnitsResult {
   if (!Number.isFinite(baseValue) || !(baseValue > 0)) throw new BasketValidationError('baseValue must be a positive finite number');
   const v0 = versions[0];
@@ -118,11 +131,10 @@ export function computeVersionUnits(versions: BasketVersion[], daily: DailySerie
     notices.push(`Basket starts ${utcDateString(S)}: ${limitingId} has no data before that date.`);
   }
 
+  // Weights are normalized (validation allows a 1e-6 slack in their sum) so each version starts exactly at its level.
   const units0: Record<SymbolId, number> = {};
-  for (const [id, w] of Object.entries(v0.weights)) {
-    const pc = priorClose(daily[id], S);
-    if (pc === undefined || pc === 0) throw new BasketValidationError('No data for ' + id, id, S);
-    units0[id] = (w * baseValue) / pc;
+  for (const [id, w] of Object.entries(normalizeWeights(v0.weights))) {
+    units0[id] = (w * baseValue) / sizingClose(daily, id, S, 'No data for ' + id);
   }
   const out: VersionUnits[] = [{ effectiveTs: S, units: units0, levelAtStart: baseValue }];
 
@@ -133,16 +145,12 @@ export function computeVersionUnits(versions: BasketVersion[], daily: DailySerie
     const prev = out[k - 1]!;
     let L = 0;
     for (const [id, u] of Object.entries(prev.units)) {
-      const pc = priorClose(daily[id], Tk);
-      if (pc === undefined) throw new BasketValidationError('No data for ' + id + ' before ' + v.effectiveFrom, id, Tk);
-      L += u * pc;
+      L += u * sizingClose(daily, id, Tk, 'No data for ' + id + ' before ' + v.effectiveFrom);
     }
     if (!Number.isFinite(L) || !(L > 0)) throw new BasketValidationError('Version ' + (k + 1) + ' has non-positive index level before ' + v.effectiveFrom);
     const units: Record<SymbolId, number> = {};
-    for (const [id, w] of Object.entries(v.weights)) {
-      const pc = priorClose(daily[id], Tk);
-      if (pc === undefined || pc === 0) throw new BasketValidationError('No data for ' + id + ' before ' + v.effectiveFrom, id, Tk);
-      units[id] = (w * L) / pc;
+    for (const [id, w] of Object.entries(normalizeWeights(v.weights))) {
+      units[id] = (w * L) / sizingClose(daily, id, Tk, 'No data for ' + id + ' before ' + v.effectiveFrom);
     }
     out.push({ effectiveTs: Tk, units, levelAtStart: L });
   }
