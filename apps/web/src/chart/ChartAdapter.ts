@@ -13,7 +13,7 @@ import {
   type TextStyle,
 } from './drawingStyles';
 import {
-  drawingConstraint, drawingContext, EXTEND_STYLE_KEY, extendOptions, flattenBase, LABEL_STYLE_KEY, labelOptions, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
+  drawingConstraint, drawingContext, EXTEND_STYLE_KEY, extendOptions, FILL_STYLE_KEY, fillOption, flattenBase, LABEL_STYLE_KEY, labelOptions, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
   type ExtendOptions, type LabelOptions,
 } from './drawingTemplates';
 import {
@@ -21,6 +21,7 @@ import {
   toPositionPoints, validatePrices, type OutcomeBar, type PositionMetrics, type PositionOutcome, type PositionSide,
 } from './position';
 import { positionContext, positionState, registerPositionOverlays, releasePositionContext } from './positionOverlay';
+import { isDegenerateBox, persistedPoints, RECTANGLE, registerRectangleOverlay } from './rectangle';
 import { drawingClipboard, type DrawingClip } from './drawingClipboard';
 import { DEFAULT_DRAWING_COLOR, drawingSwatches, resolveDrawingColor, type DrawingSwatch } from './drawingColors';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
@@ -47,7 +48,7 @@ import {
 
 export type DrawingTool =
   | 'segment' | 'rayLine' | 'straightLine' | 'horizontalStraightLine' | 'verticalStraightLine'
-  | 'priceLine' | 'parallelChannel' | 'fibonacciLine' | 'simpleAnnotation' | 'longPosition' | 'shortPosition';
+  | 'priceLine' | 'parallelChannel' | 'rectangle' | 'fibonacciLine' | 'simpleAnnotation' | 'longPosition' | 'shortPosition';
 
 export interface IndicatorSpec extends Pick<IndicatorState, 'lineColors' | 'lineWidths' | 'lineStyles' | 'barColors' | 'levels' | 'showLevels'> {
   name: string; pane: 'main' | 'sub'; calcParams?: number[]; visible?: boolean;
@@ -95,6 +96,8 @@ export type SelectedDrawing = SelectedLock & (
     label?: LabelOptions;
     /** Parallel channels only: effective extend options (lines extended past the left / right end). */
     extend?: ExtendOptions;
+    /** Rectangles only: whether the inside is tinted. */
+    fill?: boolean;
   }
   | { id: string; kind: 'text'; style: TextStyle }
   | {
@@ -147,7 +150,7 @@ function completePoints(o: Overlay): Array<{ timestamp: number; value: number }>
     if (typeof p.timestamp !== 'number' || typeof p.value !== 'number') return null;
     pts.push({ timestamp: p.timestamp, value: p.value });
   }
-  return pts.length > 0 ? pts : null;
+  return pts.length > 0 ? persistedPoints(o.name, pts) : null;
 }
 
 /** A drawing as saved: legacy / invalid styles (e.g. raw KLineChart template styles) are dropped. */
@@ -233,6 +236,7 @@ export class ChartAdapter {
     registerSessionShade();
     registerMarkerOverlay();
     registerDrawingTemplates();
+    registerRectangleOverlay();
     registerPositionOverlays();
     registerMeasureOverlay();
     registerCustomIndicators();
@@ -766,6 +770,12 @@ export class ChartAdapter {
       if (this.drawing?.id === overlay.id) {
         const { onEnd } = this.drawing;
         this.drawing = null;
+        if (this.degenerateRectangle(overlay)) {
+          // Two clicks on one row or column of pixels make no box: nothing is drawn (or saved).
+          this.withSilence(() => this.chart.removeOverlay({ id: overlay.id }));
+          onEnd?.();
+          return;
+        }
         if (this.lockAll) this.applyLock(overlay.id);
         this.revertMode(overlay.id);
         this.anchorAfterEdit(overlay.id);
@@ -834,6 +844,20 @@ export class ChartAdapter {
       return false;
     },
   };
+
+  /**
+   * A rectangle just placed with zero width or height on screen (both clicks in one bar, or at one price). Only at
+   * placement: a stored rectangle that collapses on another timeframe is kept (its border stays grabbable).
+   */
+  private degenerateRectangle(overlay: Overlay): boolean {
+    if (overlay.name !== RECTANGLE) return false;
+    const [a, b] = overlay.points;
+    if (!a || !b) return true;
+    const px = this.chart.convertToPixel([a, b], { paneId: CANDLE_PANE }) as Array<Partial<Coordinate>>;
+    const [pa, pb] = px;
+    if (typeof pa?.x !== 'number' || typeof pa.y !== 'number' || typeof pb?.x !== 'number' || typeof pb.y !== 'number') return false;
+    return isDegenerateBox({ x: pa.x, y: pa.y }, { x: pb.x, y: pb.y });
+  }
 
   /** Rounds a horizontal drawing placed / moved with the mouse to the symbol's price precision. */
   private roundHorizontal(overlay: Overlay): void {
@@ -1042,6 +1066,7 @@ export class ChartAdapter {
 
   private select(id: string | null): void {
     this.selectedId = id;
+    drawingContext.selectedId = id;
     this.emitSelection();
   }
 
@@ -1092,6 +1117,8 @@ export class ChartAdapter {
     if (label) sel.label = label;
     const extend = extendOptions(o.name, o.styles);
     if (extend) sel.extend = extend;
+    const fill = fillOption(o.name, o.styles);
+    if (fill !== null) sel.fill = fill;
     return sel;
   }
 
@@ -1151,6 +1178,15 @@ export class ChartAdapter {
     if (!sel || sel.kind !== 'line' || !sel.extend || sel.locked) return;
     const next = { ...sel.extend, ...patch };
     this.chart.overrideOverlay({ id: sel.id, styles: { [EXTEND_STYLE_KEY]: next } as DeepPartial<OverlayStyle> });
+    this.emitChange();
+    this.emitSelection();
+  }
+
+  /** Turns the selected rectangle's fill on / off; saved like any drawing edit. */
+  setSelectedFill(on: boolean): void {
+    const sel = this.getSelectedDrawing();
+    if (!sel || sel.kind !== 'line' || sel.fill === undefined || sel.locked || sel.fill === on) return;
+    this.chart.overrideOverlay({ id: sel.id, styles: { [FILL_STYLE_KEY]: on } as DeepPartial<OverlayStyle> });
     this.emitChange();
     this.emitSelection();
   }
@@ -1238,6 +1274,7 @@ export class ChartAdapter {
     // Label options are re-sent with the style (never lost, whatever KLineChart's style merging does).
     if (sel.kind === 'line' && sel.label) (styles as Record<string, unknown>)[LABEL_STYLE_KEY] = { ...sel.label };
     if (sel.kind === 'line' && sel.extend) (styles as Record<string, unknown>)[EXTEND_STYLE_KEY] = { ...sel.extend };
+    if (sel.kind === 'line' && sel.fill !== undefined) (styles as Record<string, unknown>)[FILL_STYLE_KEY] = sel.fill;
     this.chart.overrideOverlay({ id: sel.id, styles });
     this.emitChange();
     this.emitSelection();
@@ -1959,6 +1996,7 @@ export class ChartAdapter {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    if (this.selectedId !== null && drawingContext.selectedId === this.selectedId) drawingContext.selectedId = null;
     this.el.removeEventListener('mousedown', this.onPressCapture, true);
     this.stopMeasureTracking();
     this.measure = null;

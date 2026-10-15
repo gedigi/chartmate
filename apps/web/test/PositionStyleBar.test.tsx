@@ -10,7 +10,7 @@ function makeControls() {
     onSelectionChange: vi.fn((f: (s: SelectedDrawing | null) => void) => { cb = f; return () => { cb = null; }; }),
     setSelectedStyle: vi.fn(),
     setSelectedPrice: vi.fn(() => true),
-    setSelectedLabel: vi.fn(), setSelectedExtend: vi.fn(),
+    setSelectedLabel: vi.fn(), setSelectedExtend: vi.fn(), setSelectedFill: vi.fn(),
     onPriceEditRequest: vi.fn(() => () => {}),
     setSelectedLock: vi.fn((_locked: boolean) => true),
     setSelectedPositionPrices: vi.fn((_p: { entry?: number; target?: number; stop?: number }): string | null => null),

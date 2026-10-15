@@ -13,6 +13,7 @@ function makeControls() {
     setSelectedPrice: vi.fn((_v: number) => true),
     setSelectedLabel: vi.fn(),
     setSelectedExtend: vi.fn(),
+    setSelectedFill: vi.fn(),
     setSelectedLock: vi.fn((_locked: boolean) => true),
     onPriceEditRequest: vi.fn((f: (id: string) => void) => { editCb = f; return () => { editCb = null; }; }),
     drawingSwatches: vi.fn(() => drawingSwatches('dark')),
@@ -300,6 +301,32 @@ describe('DrawingStyleBar', () => {
       emit({ ...CH, locked: true, extend: { left: false, right: false } });
       expect(screen.getByLabelText('Extend left')).toBeDisabled();
       expect(screen.getByLabelText('Extend right')).toBeDisabled();
+    });
+  });
+
+  describe('rectangle fill toggle', () => {
+    const RECT = { id: 'r', kind: 'line' as const, style: { color: 'palette:2', size: 1, style: 'solid' as const }, locked: false, ownLock: false };
+
+    it('shows "Fill" only for rectangles (with width and line style), reflecting and changing it', () => {
+      const { c, emit } = makeControls();
+      render(<DrawingStyleBar controls={c} />);
+      emit(RECT);
+      expect(screen.queryByLabelText('Fill')).toBeNull();
+      emit({ ...RECT, fill: true });
+      expect(screen.getByLabelText('Line width')).toBeInTheDocument();
+      expect(screen.getByLabelText('Line style')).toBeInTheDocument();
+      expect(screen.getByLabelText('Fill')).toBeChecked();
+      fireEvent.click(screen.getByLabelText('Fill'));
+      expect(c.setSelectedFill).toHaveBeenLastCalledWith(false);
+      emit({ ...RECT, fill: false });
+      expect(screen.getByLabelText('Fill')).not.toBeChecked();
+    });
+
+    it('is disabled for locked rectangles', () => {
+      const { c, emit } = makeControls();
+      render(<DrawingStyleBar controls={c} />);
+      emit({ ...RECT, locked: true, fill: true });
+      expect(screen.getByLabelText('Fill')).toBeDisabled();
     });
   });
   describe('color swatches', () => {

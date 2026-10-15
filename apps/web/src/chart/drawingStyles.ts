@@ -4,7 +4,7 @@ import {
 } from '@chartmate/shared';
 import type { DeepPartial, OverlayStyle } from 'klinecharts';
 import { readableTextOn } from './contrast';
-import { EXTEND_DEFAULTS, EXTEND_STYLE_KEY, LABEL_DEFAULTS, LABEL_STYLE_KEY } from './drawingTemplates';
+import { EXTEND_DEFAULTS, EXTEND_STYLE_KEY, FILL_DEFAULTS, FILL_STYLE_KEY, LABEL_DEFAULTS, LABEL_STYLE_KEY } from './drawingTemplates';
 
 export type LabelStyle = NonNullable<DrawingStyles['label']>;
 export type ExtendStyle = NonNullable<DrawingStyles['extend']>;
@@ -127,9 +127,10 @@ export function toOverlayStyles(s: DrawingStyles | undefined, resolve: ColorReso
     : s?.line ? lineToOverlay(s.line, resolve)
       : s?.color ? colorToOverlay(s.color, resolve) : undefined;
   // Price-label options and channel extend options ride along in the overlay styles
-  // (KLineChart ignores the keys; our templates read them).
+  // (KLineChart ignores the keys; our templates read them), as does a rectangle's fill option.
   if (s?.label) out = { ...out, [LABEL_STYLE_KEY]: { ...s.label } };
   if (s?.extend) out = { ...out, [EXTEND_STYLE_KEY]: { ...s.extend } };
+  if (typeof s?.fill === 'boolean') out = { ...out, [FILL_STYLE_KEY]: s.fill };
   return out as DeepPartial<OverlayStyle> | undefined;
 }
 
@@ -212,7 +213,11 @@ export function normalizeOverlayStyles(name: string, styles: unknown): DrawingSt
     if (ownExtend.right !== undefined && ownExtend.right !== extendDefaults.right) extend.right = ownExtend.right;
     if (extend.left !== undefined || extend.right !== undefined) out.extend = extend;
   }
-  return out.line || out.color || out.label || out.extend ? out : undefined;
+  // Fill option: only stored when it differs from the default (filled).
+  const fillDefault = FILL_DEFAULTS[name];
+  const ownFill = (styles as Record<string, unknown> | null | undefined)?.[FILL_STYLE_KEY];
+  if (fillDefault !== undefined && typeof ownFill === 'boolean' && ownFill !== fillDefault) out.fill = ownFill;
+  return out.line || out.color || out.label || out.extend || out.fill !== undefined ? out : undefined;
 }
 
 /** '#RRGGBB' / '#rgb' → '#rrggbb'; anything else → fallback. */
@@ -236,5 +241,7 @@ export function sanitizeDrawingStyles(s: unknown): DrawingStyles | undefined {
   if (label) out.label = label;
   const extend = readExtend((s as { extend?: unknown }).extend);
   if (extend) out.extend = extend;
-  return out.line || out.color || out.text || out.label || out.extend ? out : undefined;
+  const fill = (s as { fill?: unknown }).fill;
+  if (typeof fill === 'boolean') out.fill = fill;
+  return out.line || out.color || out.text || out.label || out.extend || out.fill !== undefined ? out : undefined;
 }

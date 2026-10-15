@@ -147,7 +147,7 @@ export function migrateAppearance(a: unknown): ThemedAppearance | undefined {
  * Normalized drawing styles: `line` for line tools, `text` (annotation bubble color + font size) for text,
  * `label` (price text on the line / price label on the y-axis) for price and horizontal lines; `extend` (lines
  * extended past the left / right end) for parallel channels; missing → defaults (a new 'parallelChannel' is finite,
- * a legacy 'parallelStraightLine' is extended both ways).
+ * a legacy 'parallelStraightLine' is extended both ways); `fill` (the tint inside) for rectangles (missing → filled).
  */
 export interface DrawingStyles {
   line?: DrawingLineStyle;
@@ -157,6 +157,8 @@ export interface DrawingStyles {
    */
   color?: string; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean };
   extend?: { left?: boolean; right?: boolean };
+  /** Rectangles only: the tint inside (missing → filled; only `false` is stored). */
+  fill?: boolean;
 }
 /**
  * A saved drawing. Long / short positions ('longPosition' / 'shortPosition') have four points:
