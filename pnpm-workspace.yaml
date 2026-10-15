@@ -1,3 +1,11 @@
 packages:
   - 'packages/*'
   - 'apps/*'
+
+# No dependency install (lifecycle) script runs: installs use --ignore-scripts, and none is approved here.
+# better-sqlite3 ships prebuilt binaries for every platform, so its build script is never needed.
+allowBuilds:
+  better-sqlite3: false
+
+patchedDependencies:
+  app-builder-lib@26.15.3: patches/app-builder-lib@26.15.3.patch

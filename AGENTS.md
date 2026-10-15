@@ -17,9 +17,11 @@ Visual beauty is the core value proposition. A change that works but looks worse
 
 ## Repo layout
 
-pnpm 8 workspace (8.15.9, pinned with its sha512 in the root `package.json` `packageManager`; `corepack enable`
-uses it, and so does CI), Node 22 (the exact version in `.nvmrc`, used by every workflow), TypeScript 5.9, Vitest
-everywhere.
+pnpm 12 workspace (12.11.2, pinned with its sha512 in the root `package.json` `packageManager`; `corepack enable`
+uses it, and so does CI), Node 26 (the exact version in `.nvmrc`, used by every workflow), TypeScript 5.9, Vitest
+everywhere. Node 25 and later no longer bundle corepack: install it once (`npm install --global corepack`); CI
+installs the release pinned, by version and sha512, in `.github/scripts/install-corepack.sh`. pnpm settings
+(`allowBuilds`, `patchedDependencies`) live in `pnpm-workspace.yaml`; the install hook is `.pnpmfile.cjs`.
 
 | Path | Package | Responsibility |
 | --- | --- | --- |
@@ -107,7 +109,7 @@ and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by defa
   pass. After any dependency change run `pnpm audit`: it must report no known vulnerabilities (CI and the
   release workflow fail otherwise). An unpatched advisory in a build-only dependency is removed (see
   `.pnpmfile.cjs`) or replaced, never ignored.
-- `patches/` holds pnpm patches for upstream bugs (`pnpm.patchedDependencies` in the root `package.json`):
+- `patches/` holds pnpm patches for upstream bugs (`patchedDependencies` in `pnpm-workspace.yaml`):
   `app-builder-lib` passes the keychain password to `security set-key-partition-list` (upstream passes the
   `.p12` password, which breaks electron-builder's macOS signing with `CSC_LINK`, as a local `dist:mac` uses it;
   CI signs with `.github/scripts/macos-sign.sh` instead). Re-check each patch when bumping that dependency.
@@ -249,8 +251,9 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   login script or the secret scoping are security changes.
 - `.github/workflows/ci.yml` runs `pnpm audit`, typecheck, tests, the license gate, the indicator scaffold check,
   the web build, e2e and the Docker build on pull requests and pushes to `main`; the release workflows audit and
-  check licenses too. Every workflow gets pnpm through corepack (which checks the `packageManager` sha512) and Node
-  from `.nvmrc`; only `ci.yml` caches the pnpm store (no cache on a release path). Dependabot
+  check licenses too. Every workflow gets Node from `.nvmrc`, corepack from `.github/scripts/install-corepack.sh`
+  (pinned version and sha512; Dependabot does not bump it) and pnpm through corepack (which checks the
+  `packageManager` sha512); only `ci.yml` caches the pnpm store (no cache on a release path). Dependabot
   (`.github/dependabot.yml`) opens weekly update PRs for npm packages (7-day cooldown), the pinned actions, the
   digest-pinned Docker base image and the Compose Postgres image (3 days each). It never proposes a new major of
   Node (the base image, `@types/node`) or Postgres: those are deliberate upgrades (Node: the next LTS, together

@@ -305,7 +305,7 @@ docker run -d --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-priv
 
 ### Without Docker
 
-Requires Node 22 or later and pnpm 8 (see [Develop](#develop)):
+Requires Node 26 or later and pnpm 12 (see [Develop](#develop)):
 
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
@@ -341,8 +341,10 @@ created if missing).
 ## Develop
 
 Monorepo (pnpm): `packages/shared` (types, sessions, resampling, basket math), `apps/server` (Fastify API),
-`apps/web` (React + KLineChart), `apps/desktop` (Electron app) and `e2e` (Playwright). Requires Node 22
-(`.nvmrc`) and pnpm 8: `corepack enable` installs the exact version pinned (with its hash) in `package.json`.
+`apps/web` (React + KLineChart), `apps/desktop` (Electron app) and `e2e` (Playwright). Requires Node 26
+(`.nvmrc`) and pnpm 12: `corepack enable` installs the exact version pinned (with its hash) in `package.json`.
+Node 25 and later no longer bundle corepack: install it once with `npm install --global corepack` (CI installs
+the release pinned, with its hash, in `.github/scripts/install-corepack.sh`).
 
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts

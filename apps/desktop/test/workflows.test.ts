@@ -18,6 +18,7 @@ type Job = { steps: Step[]; env?: unknown; permissions?: unknown; environment?: 
 const SIGN = "startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != ''";
 const COREPACK_RUN = [
   'set -euo pipefail',
+  'bash .github/scripts/install-corepack.sh',
   'corepack enable pnpm',
   `want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"`,
   'got="$(pnpm --version)"',

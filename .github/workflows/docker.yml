@@ -51,13 +51,15 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-      # pnpm exactly as pinned in package.json (packageManager): corepack checks its sha512.
+      # pnpm exactly as pinned in package.json (packageManager): corepack checks its sha512. Node no longer bundles
+      # corepack: install-corepack.sh installs the release it pins (version and sha512).
       - name: pnpm (corepack)
         shell: bash
         env:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
         run: |
           set -euo pipefail
+          bash .github/scripts/install-corepack.sh
           corepack enable pnpm
           want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
           got="$(pnpm --version)"
