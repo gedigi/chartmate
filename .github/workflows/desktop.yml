@@ -171,6 +171,9 @@ jobs:
     environment: macos-signing
     outputs:
       method: ${{ steps.method.outputs.method }}
+      # The signed apps' code directory hashes: notarize-mac-dmg signs only dmgs that hold exactly these apps.
+      cdhash_x64: ${{ steps.cdhash.outputs.x64 }}
+      cdhash_arm64: ${{ steps.cdhash.outputs.arm64 }}
     steps:
       # Only the signing script and the entitlements: no dependency code exists on this runner.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -221,6 +224,12 @@ jobs:
           NOTARIZE: ${{ steps.notary.outputs.notarize }}
         run: |
           if [ "$NOTARIZE" = true ]; then echo "method=Developer ID + notarized"; else echo "method=Developer ID"; fi >> "$GITHUB_OUTPUT"
+      - name: Record the code directory hashes
+        id: cdhash
+        run: |
+          set -euo pipefail
+          echo "x64=$(.github/scripts/macos-sign.sh cdhash "$RUNNER_TEMP/apps/mac/Chartmate.app")" >> "$GITHUB_OUTPUT"
+          echo "arm64=$(.github/scripts/macos-sign.sh cdhash "$RUNNER_TEMP/apps/mac-arm64/Chartmate.app")" >> "$GITHUB_OUTPUT"
       - name: Pack the signed apps
         run: tar -C "$RUNNER_TEMP/apps" -cf "$RUNNER_TEMP/mac-apps-signed.tar" mac/Chartmate.app mac-arm64/Chartmate.app
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -332,6 +341,22 @@ jobs:
         with:
           name: mac-dmg-unsigned
           path: ${{ runner.temp }}/dmg
+      # dist-mac ran dependency code: before anything is signed, each dmg must hold exactly the app sign-mac
+      # signed (mounted read-only, signature verified, code directory hash compared).
+      - name: The dmgs hold the signed apps
+        env:
+          CDHASH_X64: ${{ needs.sign-mac.outputs.cdhash_x64 }}
+          CDHASH_ARM64: ${{ needs.sign-mac.outputs.cdhash_arm64 }}
+        run: |
+          set -euo pipefail
+          for dmg in "$RUNNER_TEMP"/dmg/*.dmg; do
+            case "$dmg" in
+              *-mac-x64.dmg) expected="$CDHASH_X64" ;;
+              *-mac-arm64.dmg) expected="$CDHASH_ARM64" ;;
+              *) echo "::error::unexpected dmg: $dmg"; exit 1 ;;
+            esac
+            .github/scripts/macos-sign.sh check-dmg "$dmg" "$expected"
+          done
       - name: Import the Developer ID certificate (temporary keychain, key not extractable)
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}

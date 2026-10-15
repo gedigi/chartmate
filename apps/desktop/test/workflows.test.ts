@@ -256,6 +256,22 @@ describe('desktop.yml secret scoping and release', () => {
     expect(pkg.run).toContain('node scripts/merge-update-info.mjs "$RUNNER_TEMP/latest-mac-x64.yml" "$RUNNER_TEMP/latest-mac-arm64.yml" > release/latest-mac.yml');
   });
 
+  it('notarize-mac-dmg signs a dmg only after proving it holds the app sign-mac signed (cdhash)', () => {
+    expect(job('sign-mac').outputs).toMatchObject({
+      cdhash_x64: '${{ steps.cdhash.outputs.x64 }}',
+      cdhash_arm64: '${{ steps.cdhash.outputs.arm64 }}',
+    });
+    const rec = steps('sign-mac').find((s) => s.id === 'cdhash')!;
+    expect(rec.run).toContain('echo "x64=$(.github/scripts/macos-sign.sh cdhash "$RUNNER_TEMP/apps/mac/Chartmate.app")"');
+    expect(rec.run).toContain('echo "arm64=$(.github/scripts/macos-sign.sh cdhash "$RUNNER_TEMP/apps/mac-arm64/Chartmate.app")"');
+    const ns = steps('notarize-mac-dmg');
+    const check = ns.find((s) => s.name === 'The dmgs hold the signed apps')!;
+    expect(check.env).toEqual({ CDHASH_X64: '${{ needs.sign-mac.outputs.cdhash_x64 }}', CDHASH_ARM64: '${{ needs.sign-mac.outputs.cdhash_arm64 }}' });
+    expect(check.run).toContain('.github/scripts/macos-sign.sh check-dmg "$dmg" "$expected"');
+    // Checked before the key is even imported.
+    expect(ns.indexOf(check)).toBeLessThan(ns.findIndex((s) => /^Import the Developer ID/.test(s.name ?? '')));
+  });
+
   it('notarize-mac-dmg signs, notarizes and staples each dmg before it is released', () => {
     const run = runs(steps('notarize-mac-dmg'));
     expect(run).toMatch(/for dmg in "\$RUNNER_TEMP"\/dmg\/\*\.dmg; do\n\s+\.github\/scripts\/macos-sign\.sh sign-dmg "\$dmg"\n\s+if \[ "\$NOTARIZE" = true \]; then \.github\/scripts\/macos-sign\.sh notarize "\$dmg"; fi/);
