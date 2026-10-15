@@ -3,22 +3,28 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage, isPermanentError } from '../api/client';
 import type { SaveNoteState } from '../components/SaveNote';
 import { retryDelayMs } from './retry';
-import { readStored, writeStored } from './storage';
+import { readStored } from './storage';
 import { onBasketDeleted } from './useBaskets';
 import { useDebouncedSave } from './useDebouncedSave';
 import { addSymbol, removeSymbol } from './watchlistModel';
 
 export const DEFAULT_WATCHLIST: SymbolId[] = ['stock:SPY', 'stock:AAPL', 'crypto:BTC', 'crypto:ETH'];
-/** Stored as `chartmate.watchlist.initialized` (state/storage.ts). */
+/**
+ * `chartmate.watchlist.initialized` (state/storage.ts): the per-device "already seeded" flag of earlier versions.
+ * No longer written (the server says whether a list was ever stored); only read when an older server does not.
+ */
 export const INITIALIZED_KEY = 'watchlist.initialized';
 const SAVE_DELAY_MS = 500;
 const DEFAULT_ENTRIES: WatchlistEntry[] = DEFAULT_WATCHLIST.map((id) => ({ type: 'symbol', id }));
 
-function readFlag(): boolean {
-  return readStored(INITIALIZED_KEY) !== null;
-}
-function setFlag(): void {
-  writeStored(INITIALIZED_KEY, '1');
+/**
+ * Whether to seed the defaults: only into a server that never stored a list. An emptied list is a stored one, so
+ * a new device never refills it. An older server does not say: then an empty list seeds unless this device
+ * already did (its old flag).
+ */
+export function shouldSeed(entries: readonly WatchlistEntry[], stored: boolean | null): boolean {
+  if (stored !== null) return !stored && entries.length === 0;
+  return entries.length === 0 && readStored(INITIALIZED_KEY) === null;
 }
 
 /**
@@ -56,8 +62,9 @@ export interface UseWatchlist {
 }
 
 /**
- * Watchlist state: loaded from the server (a failed load is retried with backoff), seeded with defaults on first run,
- * saved debounced (a failed save is retried with backoff). Edits are ignored until the list is loaded.
+ * Watchlist state: loaded from the server (a failed load is retried with backoff), seeded with defaults when the
+ * server never stored a list, saved debounced (a failed save is retried with backoff). Edits are ignored until the
+ * list is loaded.
  */
 export function useWatchlist(): UseWatchlist {
   const [entries, setEntries] = useState<WatchlistEntry[]>([]);
@@ -69,7 +76,6 @@ export function useWatchlist(): UseWatchlist {
 
   const saveList = useCallback(async (list: WatchlistEntry[]): Promise<void> => {
     await api.watchlist.put(list);
-    setFlag();
     setSeedError(null);
   }, []);
 
@@ -77,11 +83,11 @@ export function useWatchlist(): UseWatchlist {
     let canceled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = (attempt: number) => {
-      api.watchlist.get().then(
-        (list) => {
+      api.watchlist.load().then(
+        ({ entries: list, stored }) => {
           if (canceled) return;
           setLoadStatus(null);
-          if (list.length === 0 && !readFlag()) {
+          if (shouldSeed(list, stored)) {
             setEntries(DEFAULT_ENTRIES);
             setLoaded(true);
             saveList(DEFAULT_ENTRIES).catch((err: unknown) => { if (!canceled) setSeedError(errorMessage(err)); });

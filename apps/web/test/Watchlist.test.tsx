@@ -21,8 +21,9 @@ let quotes: ReturnType<typeof vi.spyOn>;
 const sym = (id: SymbolId): WatchlistEntry => ({ type: 'symbol', id });
 const syms = (ids: SymbolId[]): WatchlistEntry[] => ids.map(sym);
 
-function setup(list: Array<SymbolId | WatchlistEntry>) {
-  vi.spyOn(api.watchlist, 'get').mockResolvedValue(list.map((e) => (typeof e === 'string' ? sym(e) : e)));
+/** `stored`: what the server says about ever having stored a list (default: a fresh database when `list` is empty). */
+function setup(list: Array<SymbolId | WatchlistEntry>, stored: boolean | null = list.length > 0) {
+  vi.spyOn(api.watchlist, 'load').mockResolvedValue({ entries: list.map((e) => (typeof e === 'string' ? sym(e) : e)), stored });
   put = vi.spyOn(api.watchlist, 'put').mockResolvedValue(undefined);
   quotes = vi.spyOn(api, 'quotes').mockResolvedValue([
     { id: 'stock:AAPL', price: 1234.5, changePct: 1.234, ts: 1 },
@@ -135,23 +136,48 @@ describe('Watchlist', () => {
     expect(order()).toEqual(['crypto:BTC', 'stock:MSFT', 'stock:AAPL']);
   });
 
-  it('seeds defaults when server list empty and never saved; sets flag', async () => {
-    setup([]);
+  it('seeds defaults when the server never stored a list, without a per-device flag', async () => {
+    setup([], false);
     render(<Watchlist currentSymbol="stock:SPY" onSelect={() => {}} />);
     await screen.findByText('SPY');
     expect(order()).toEqual(['stock:SPY', 'stock:AAPL', 'crypto:BTC', 'crypto:ETH']);
     await waitFor(() => expect(put).toHaveBeenCalledWith(syms(['stock:SPY', 'stock:AAPL', 'crypto:BTC', 'crypto:ETH'])));
-    await waitFor(() => expect(localStorage.getItem('chartmate.watchlist.initialized')).toBe('1'));
+    expect(localStorage.getItem('chartmate.watchlist.initialized')).toBeNull();
   });
 
-  it('does not seed when the chartmate.watchlist.initialized flag is set (user emptied list)', async () => {
-    localStorage.setItem('chartmate.watchlist.initialized', '1');
-    setup([]);
+  it('never seeds over a list emptied elsewhere: a new device (no local flag) keeps it empty', async () => {
+    setup([], true);
     render(<Watchlist currentSymbol="stock:SPY" onSelect={() => {}} />);
-    await waitFor(() => expect(api.watchlist.get).toHaveBeenCalled());
+    await waitFor(() => expect(api.watchlist.load).toHaveBeenCalled());
+    await act(async () => { await Promise.resolve(); });
+    expect(rows()).toHaveLength(0);
+    expect(screen.getByRole('combobox', { name: 'Search symbol' })).toBeEnabled();
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('the server says it never stored a list: seeds even where an old per-device flag is set', async () => {
+    localStorage.setItem('chartmate.watchlist.initialized', '1');
+    setup([], false);
+    render(<Watchlist currentSymbol="stock:SPY" onSelect={() => {}} />);
+    await screen.findByText('SPY');
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+  });
+
+  it('an older server (no stored header): falls back to the per-device flag', async () => {
+    localStorage.setItem('chartmate.watchlist.initialized', '1');
+    setup([], null);
+    const { unmount } = render(<Watchlist currentSymbol="stock:SPY" onSelect={() => {}} />);
+    await waitFor(() => expect(api.watchlist.load).toHaveBeenCalled());
     await act(async () => { await Promise.resolve(); });
     expect(rows()).toHaveLength(0);
     expect(put).not.toHaveBeenCalled();
+    unmount();
+    vi.restoreAllMocks();
+    localStorage.clear();
+    setup([], null);
+    render(<Watchlist currentSymbol="stock:SPY" onSelect={() => {}} />);
+    await screen.findByText('SPY');
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
   });
 
   it('polls quotes every 15s, skipping when document is hidden', async () => {
@@ -175,7 +201,7 @@ describe('Watchlist', () => {
 
   it('a failed watchlist.get never calls put', async () => {
     setup(['stock:AAPL']);
-    vi.mocked(api.watchlist.get).mockRejectedValue(new Error('boom'));
+    vi.mocked(api.watchlist.load).mockRejectedValue(new Error('boom'));
     render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
     expect((await screen.findByText("Can't reach the server. Retrying…")).closest('[role="status"]')).toHaveAttribute('title', 'boom');
     await act(async () => { await new Promise((r) => setTimeout(r, 800)); });
@@ -184,7 +210,7 @@ describe('Watchlist', () => {
 
   it('retries a failed watchlist.get with backoff; editing is off (loading state) until it loads', async () => {
     setup(['stock:AAPL']);
-    vi.mocked(api.watchlist.get).mockRejectedValueOnce(new Error('boom'));
+    vi.mocked(api.watchlist.load).mockRejectedValueOnce(new Error('boom'));
     vi.useFakeTimers();
     render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
@@ -198,7 +224,7 @@ describe('Watchlist', () => {
     expect(screen.getByRole('list', { name: 'Watchlist symbols' })).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByText('Loading watchlist…')).toBeInTheDocument();
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-    expect(api.watchlist.get).toHaveBeenCalledTimes(2);
+    expect(api.watchlist.load).toHaveBeenCalledTimes(2);
     expect(order()).toEqual(['stock:AAPL']);
     expect(screen.queryByText("Can't reach the server. Retrying…")).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Search symbol' })).toBeEnabled();
@@ -215,11 +241,11 @@ describe('Watchlist', () => {
   it('a permanent load failure (4xx) is not retried: a muted error, the list stays read-only', async () => {
     setup(['stock:AAPL']);
     const { ApiError } = await import('../src/api/client');
-    vi.mocked(api.watchlist.get).mockRejectedValue(new ApiError(403, 'forbidden', 'Origin not allowed'));
+    vi.mocked(api.watchlist.load).mockRejectedValue(new ApiError(403, 'forbidden', 'Origin not allowed'));
     vi.useFakeTimers();
     render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
-    expect(api.watchlist.get).toHaveBeenCalledTimes(1);
+    expect(api.watchlist.load).toHaveBeenCalledTimes(1);
     const err = screen.getByRole('alert');
     expect(err).toHaveTextContent("Couldn't load the watchlist.");
     expect(err).toHaveAttribute('title', 'Origin not allowed');

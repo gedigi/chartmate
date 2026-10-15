@@ -671,7 +671,8 @@ line ("Pre 231.40 +0.82%") shows the extended price and its change vs the last r
 otherwise the name. A small gauge under the price places the price in its 30-day closing range (the sparkline's daily
 closes and the live price).
 
-The list is loaded from the server when the app opens. Until it arrives, quiet placeholder rows show and the add
+The list is loaded from the server when the app opens. A server that has never stored a watchlist starts
+with SPY, AAPL, BTC and ETH; a list you emptied stays empty, in every browser and on every device. Until it arrives, quiet placeholder rows show and the add
 field, adding, removing and reordering are off, so nothing you do is replaced by the loaded list. If the server
 cannot be reached, a muted "Can't reach the server. Retrying…" line shows (the error itself in its tooltip) and
 the load is retried with backoff (2 s, 5 s, 10 s, then every 30 s); a load the server refuses for good (a 4xx
@@ -950,7 +951,9 @@ collapsed }`, read and replaced as a whole. `PUT /api/watchlist` still accepts t
 (e.g. from a tab opened before an upgrade): it is merged into the stored list, so sections are kept — removed
 symbols are dropped, the rest follow the array's order, new ones are appended (an empty array still empties the
 list). Migration 003 copied an existing watchlist, in order, into the `watchlist_entries` table; the old
-`watchlist` table is kept and mirrored with the symbols.
+`watchlist` table is kept and mirrored with the symbols. `GET /api/watchlist` also answers with the header
+`chartmate-watchlist-stored: 1` once a watchlist was ever saved (even if it is empty now; a database from an
+earlier version counts when it holds any entry) and `0` before; the web app seeds its default list only on `0`.
 
 ## Custom indicators
 
