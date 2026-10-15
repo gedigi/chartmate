@@ -118,7 +118,7 @@ The functional tests (`app.spec.ts`) drive that copy over CDP. `packaged-hardeni
 - a tampered `app.asar` refuses to start (macOS);
 - the updater is present only in signed builds (`SMOKE_EXPECT_UNSIGNED`).
 
-Because packaged builds ignore `CHARTMATE_USER_DATA_DIR`, this spec runs against the real per-user data directories:
+Because the shipped app ignores `CHARTMATE_USER_DATA_DIR`, this spec runs against the real per-user data directories:
 the current one, plus those of any `previousProductNames`. For that reason it only runs in CI (`CI=true`) or
 locally with `SMOKE_ALLOW_REAL_USERDATA=1`.
 
