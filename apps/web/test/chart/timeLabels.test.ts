@@ -86,6 +86,23 @@ describe('calendarTicks', () => {
     expect(labels(ticks)).toEqual(['14', '09:00', '12:00', '15:00', '15', '09:00', '12:00', '15:00', '18:00']);
   });
 
+  it('regression: steps that do not nest (3 h in 2 h) are not mistaken for ticks of the smaller step', () => {
+    // BTC 1h at 35 px a bar: a 2 h grid (70 px) fits; 03:00 / 09:00 / … must not split it into 1 h gaps.
+    const btc = Array.from({ length: 49 }, (_, i) => utc('2026-10-12T00:00:00') + i * 3_600_000);
+    const hourly = calendarTicks(btc, 35, '1h', 'UTC');
+    expect(new Set(gaps(hourly))).toEqual(new Set([2]));
+    expect(labels(hourly).slice(0, 4)).toEqual(['02:00', '04:00', '06:00', '08:00']);
+    // ETH 15m at 10 px a bar: 2 h ticks (8 bars) from the 04:00 open to 18:00, and 8 bars on to the next open.
+    const day = (d: number) => Array.from({ length: 64 }, (_, i) => nyToUtc(2026, 10, d, 4, 0) + i * 15 * 60_000);
+    const eth = [day(13).at(-1)!, ...day(14), ...day(15)];
+    const ticks = calendarTicks(eth, 10, '15m', 'America/New_York');
+    expect(new Set(gaps(ticks))).toEqual(new Set([8]));
+    expect(labels(ticks)).toEqual([
+      '14', '06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00',
+      '15', '06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00',
+    ]);
+  });
+
   it('intraday across a month: the month start reads "Oct 1"', () => {
     const times = [utc('2026-09-30T19:00:00'), utc('2026-09-30T20:00:00'), utc('2026-10-01T13:00:00'), utc('2026-10-01T14:00:00')];
     expect(labels(calendarTicks(times, 80, '1h', 'America/New_York'))).toEqual(['16:00', 'Oct 1', '10:00']);

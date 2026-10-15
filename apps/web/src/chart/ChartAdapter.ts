@@ -42,6 +42,7 @@ import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS } from './session
 import { textColoredLegends } from './barLegends';
 import { solidBarFigures } from './solidBars';
 import { calendarTicks, countdownText, crosshairDate, hasCountdown, tickLabelFits } from './timeLabels';
+import { textWidth } from './axisRange';
 import {
   candleStyles, CHART_FONT, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, defaultIndicatorCircles, effectiveBarColors, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeSoftTone, themeTokens,
   type ThemeName,
@@ -436,10 +437,12 @@ export class ChartAdapter {
     const to = Math.min(data.length, Math.ceil(range.realTo));
     if (to - from < 2) return [];
     const times = data.slice(from, to).map((d) => d.timestamp);
+    const tick: { size?: unknown; family?: unknown; weight?: unknown } = this.chart.getStyles?.()?.xAxis?.tickText ?? {};
+    const tickWidth = (s: string) => textWidth(s, Number(tick.size ?? 11), String(tick.family ?? CHART_FONT), String(tick.weight ?? 'normal'));
     return calendarTicks(times, this.chart.getBarSpace().bar, tf, timezone).flatMap(({ index, label }) => {
       const at = from + index;
       const x = (this.chart.convertToPixel({ dataIndex: at }, { paneId: CANDLE_PANE }) as Partial<Coordinate>).x;
-      if (x === undefined || !tickLabelFits(x, label, width)) return [];
+      if (x === undefined || !tickLabelFits(x, label, width, tickWidth)) return [];
       return [{ coord: x, value: data[at]!.timestamp, text: label }];
     });
   }

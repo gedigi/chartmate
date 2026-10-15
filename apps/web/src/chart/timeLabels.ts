@@ -44,9 +44,14 @@ export const AXIS_CHAR_PX = 7;
 /** Closest a time-axis label may come to the plot's left / right edge (px). */
 export const AXIS_EDGE_PX = 12;
 
-/** Whether a tick label `text` centered at `x` stays AXIS_EDGE_PX inside a plot `width` px wide (else it is cut). */
-export function tickLabelFits(x: number, text: string, width: number): boolean {
-  const half = (text.length * AXIS_CHAR_PX) / 2;
+/**
+ * Whether a tick label `text` centered at `x` stays AXIS_EDGE_PX inside a plot `width` px wide (else it is cut);
+ * `measure` gives its width (default: AXIS_CHAR_PX a character).
+ */
+export function tickLabelFits(
+  x: number, text: string, width: number, measure: (text: string) => number = (t) => t.length * AXIS_CHAR_PX,
+): boolean {
+  const half = measure(text) / 2;
   return x - half >= AXIS_EDGE_PX && x + half <= width - AXIS_EDGE_PX;
 }
 
@@ -111,7 +116,9 @@ function calendarReader(timeZone: string): (ts: number) => Cal {
 function unitTicks(u: TickUnit, ranks: readonly number[], changed: (u: TickUnit, i: number) => boolean, barSpace: number, minGap: number): number[] | null {
   const kept: number[] = [];
   for (let i = 1; i < ranks.length; i++) {
-    const tick = u.kind === 'step' || u.kind === 'nested' ? ranks[i]! >= u.rank : changed(u, i);
+    // Nested units tick wherever they or a larger one start; steps, weeks and years only where their own key changes
+    // (3 h does not nest in 2 h: 03:00 is no 2 h tick). A step's key includes the day, so day starts tick too.
+    const tick = u.kind === 'nested' ? ranks[i]! >= u.rank : changed(u, i);
     if (!tick) continue;
     const last = kept.at(-1);
     if (last === undefined || (i - last) * barSpace >= minGap) {

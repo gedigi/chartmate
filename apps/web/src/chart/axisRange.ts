@@ -82,7 +82,7 @@ type FigureParams = Parameters<NonNullable<OverlayTemplate['createXAxisFigures']
 
 let ctx2d: CanvasRenderingContext2D | null | undefined;
 /** Width of `text` in `font` (canvas when available, else ≈ 0.6 em per character). */
-function textWidth(text: string, size: number, family: string, weight: string): number {
+export function textWidth(text: string, size: number, family: string, weight: string): number {
   if (ctx2d === undefined) {
     try { ctx2d = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null; } catch { ctx2d = null; }
   }
