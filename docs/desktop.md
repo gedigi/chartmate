@@ -137,6 +137,9 @@ The renderer is treated as untrusted web content, and the main process exposes n
   requests carry Host `localhost`) and `allowedOrigins: ['app://chartmate']`, so a state-changing API request is
   accepted only from the renderer's own origin. The environment cannot change either (`CHARTMATE_ALLOWED_HOSTS`
   is ignored on desktop); `test/hostGuard.test.ts` runs the real protocol handler against the real server.
+  The guard also refuses API requests marked `Sec-Fetch-Site: cross-site` or `same-site`. Chromium sends no
+  fetch-metadata header (and no `Origin`) on the renderer's app:// requests, so they pass; the handler forwards
+  the header unchanged, and the test covers both cases.
 - **Window settings** (`src/lib/hardening.ts`, pinned by a snapshot test):
   - `sandbox`, `contextIsolation` and `webSecurity` are on;
   - Node is off everywhere, including workers and subframes;

@@ -64,6 +64,19 @@ describe('desktop app:// requests pass the server Host and Origin guard', () => 
     expect(put.status).toBeLessThan(300);
   });
 
+  // Chromium (Electron 44, checked with a probe page fetching its own app:// origin) sends neither Sec-Fetch-Site
+  // nor Origin on app:// requests, so the server's fetch-metadata rule never sees them; if it ever does, the
+  // renderer's own requests are same-origin and still pass.
+  it('the Sec-Fetch-Site rule: absent or same-origin passes through the handler, cross-site is refused', async () => {
+    expect((await handler(new Request(`${APP_ORIGIN}/api/watchlist`))).status).toBe(200);
+    const same = await handler(new Request(`${APP_ORIGIN}/api/watchlist`, { headers: { 'sec-fetch-site': 'same-origin' } }));
+    expect(same.status).toBe(200);
+    for (const site of ['cross-site', 'same-site']) {
+      const r = await handler(new Request(`${APP_ORIGIN}/api/watchlist`, { headers: { 'sec-fetch-site': site } }));
+      expect(r.status, site).toBe(403);
+    }
+  });
+
   it('a state-changing request with a foreign Origin is still refused', async () => {
     const put = await handler(new Request(`${APP_ORIGIN}/api/watchlist`, {
       method: 'PUT', headers: { 'content-type': 'application/json', origin: 'https://evil.example' }, body: '[]',
