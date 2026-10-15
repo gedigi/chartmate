@@ -446,7 +446,10 @@ run no dependency code, can read them:
    expected Electron layout (`expected_code` in the script: the main executable, the four helper apps, the
    Electron, Squirrel, Mantle and ReactiveObjC frameworks, Electron's dylibs, the crashpad handler and
    ShipIt) and refuses anything else, so it never signs code a build dependency added. An Electron upgrade that
-   adds a binary fails here first: check the file, then extend the list. It signs the nested code inside-out
+   adds a binary fails here first: check the file, then extend the list. `ci.yml`'s `mac-signing-dry-run` job runs
+   the same check on every pull request and push to `main` that touches the desktop app, the dependencies or the
+   script: it packages the arm64 app unsigned and signs a copy ad hoc (`IDENTITY=-`, no secrets), so a Dependabot
+   Electron bump fails on its pull request rather than on the release tag. It signs the nested code inside-out
    (deepest first, then the app) with the hardened runtime, a secure timestamp and the entitlements from
    `build/entitlements.mac*.plist`. It verifies the signature (`codesign --verify --deep --strict`), notarizes
    each app (`notarytool` with a keychain profile), staples it, checks it with `spctl`, and records each app's

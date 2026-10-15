@@ -276,7 +276,9 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   rebuilds, signs, verifies and replaces the Windows assets of that release. Changes to the signing hook, the
   login script or the secret scoping are security changes.
 - `.github/workflows/ci.yml` runs `pnpm audit`, typecheck, tests, the license gate, the indicator scaffold check, the
-  web build, e2e and the Docker build on pull requests and pushes to `main`; the release workflows audit and check
+  web build, e2e, the Docker build and a macOS signing dry run (`mac-signing-dry-run`: the arm64 app signed ad hoc
+  through `macos-sign.sh`'s allowlist, when the desktop app, the dependencies or the script change) on pull
+  requests and pushes to `main`; the release workflows audit and check
   licenses too. Every workflow gets Node from `.nvmrc`, then corepack and pnpm from `.github/scripts/install-pnpm.sh`
   (corepack pinned by version and sha512, which Dependabot does not bump; pnpm by the `packageManager` sha512 and its
   native binary by `pnpm-lock.yaml`); only `ci.yml` caches the pnpm store (no cache on a release path). ci.yml's

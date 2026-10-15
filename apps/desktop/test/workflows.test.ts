@@ -88,6 +88,33 @@ describe.each(files)('%s', (file) => {
   });
 });
 
+describe('ci.yml macOS signing dry run (the release allowlist, on every relevant pull request)', () => {
+  const job = yaml.load(read('ci.yml')).jobs['mac-signing-dry-run'] as Job;
+
+  it('packages the arm64 app unsigned, signs a copy ad hoc through macos-sign.sh and verifies it, with no secrets', () => {
+    expect(job['runs-on']).toMatch(/^macos-/);
+    expect(job.permissions).toBeUndefined();
+    expect(job.environment).toBeUndefined();
+    expect(JSON.stringify(job)).not.toMatch(/secrets\./);
+    const pack = job.steps.find((s) => s.name === 'Package the arm64 app (unsigned)')!;
+    expect(pack.run).toContain('pnpm exec electron-builder --config electron-builder.config.cjs --mac dir --arm64 --publish never');
+    const sign = job.steps.find((s) => s.name === 'Sign a copy ad hoc through the release allowlist, then verify it')!;
+    expect(sign.env).toEqual({ IDENTITY: '-' });
+    expect(sign.run).toContain('.github/scripts/macos-sign.sh sign-app "$RUNNER_TEMP/Chartmate.app"');
+    expect(sign.run).toContain('codesign --verify --deep --strict');
+    expect(job.steps.indexOf(pack)).toBeLessThan(job.steps.indexOf(sign));
+  });
+
+  it('runs when the desktop app, the dependencies or the signing script change, and still reports a status otherwise', () => {
+    const changes = job.steps.find((s) => s.id === 'changes')!;
+    expect(job.steps.indexOf(changes)).toBe(1);
+    expect(job.if).toBeUndefined(); // the job always runs (a required check never waits forever); its steps skip
+    for (const p of ['apps/desktop/', 'pnpm-lock', 'package', 'macos-sign', 'ci']) expect(changes.run).toContain(p);
+    expect(changes.run).toContain('echo "run=true" >> "$GITHUB_OUTPUT"   # no usable base');
+    for (const s of job.steps.slice(2)) expect(s.if, s.name ?? s.uses ?? s.run).toBe("steps.changes.outputs.run == 'true'");
+  });
+});
+
 describe('ci.yml Postgres job', () => {
   const wf = yaml.load(read('ci.yml'));
   const job = wf.jobs.postgres as { services: { postgres: { image: string } }; steps: Step[] };

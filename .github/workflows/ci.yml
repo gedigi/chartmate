@@ -151,3 +151,71 @@ jobs:
       # Fails on a HIGH or CRITICAL vulnerability with a fix available, in the OS packages or node_modules.
       - name: Vulnerability scan
         run: .github/scripts/scan-image.sh chartmate:ci
+
+  # Dry run of the release's macOS signing allowlist (expected_code in .github/scripts/macos-sign.sh), which otherwise
+  # runs only on a tag: an Electron bump that adds a binary fails here, on its pull request. Packages the arm64 app
+  # unsigned, signs a copy ad hoc (IDENTITY=-: no key, no keychain, no secret) and verifies it. Only when the desktop
+  # app, the dependencies or the signing script change; otherwise the job passes without building.
+  mac-signing-dry-run:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # the base commit, to see what changed
+      - name: Desktop, dependency or signing changes
+        id: changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"   # no usable base (new branch, force push): check anyway
+            exit 0
+          fi
+          if git diff --name-only "$BASE" "$GITHUB_SHA" \
+            | grep -qE '^(apps/desktop/|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|\.pnpmfile\.cjs$|patches/|\.github/scripts/(macos-sign|install-pnpm)\.sh$|\.github/workflows/ci\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No desktop, dependency or signing change: nothing to check."
+          fi
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.changes.outputs.run == 'true'
+        with:
+          node-version-file: .nvmrc
+      - name: pnpm (corepack)
+        if: steps.changes.outputs.run == 'true'
+        shell: bash
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          bash .github/scripts/install-pnpm.sh
+          want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
+          got="$(pnpm --version)"
+          if [ "$got" != "$want" ]; then
+            echo "::error title=pnpm version::pnpm $got, but package.json pins $want"
+            exit 1
+          fi
+      - if: steps.changes.outputs.run == 'true'
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Package the arm64 app (unsigned)
+        if: steps.changes.outputs.run == 'true'
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          pnpm --filter @chartmate/web build
+          node scripts/bundle.mjs --platform=darwin
+          pnpm exec electron-builder --config electron-builder.config.cjs --mac dir --arm64 --publish never
+      - name: Sign a copy ad hoc through the release allowlist, then verify it
+        if: steps.changes.outputs.run == 'true'
+        env:
+          IDENTITY: '-'
+        run: |
+          set -euo pipefail
+          ditto apps/desktop/release/mac-arm64/Chartmate.app "$RUNNER_TEMP/Chartmate.app"
+          .github/scripts/macos-sign.sh sign-app "$RUNNER_TEMP/Chartmate.app" \
+            apps/desktop/build/entitlements.mac.plist apps/desktop/build/entitlements.mac.inherit.plist
+          codesign --verify --deep --strict --verbose=2 "$RUNNER_TEMP/Chartmate.app"
