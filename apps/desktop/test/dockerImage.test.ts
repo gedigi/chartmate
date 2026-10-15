@@ -30,6 +30,10 @@ describe('Dockerfile', () => {
     expect(text).not.toMatch(/^FROM\s.*@sha256:/m);
   });
 
+  it('pins the BuildKit frontend by digest (no frontend resolved by tag at build time)', () => {
+    expect(text.split('\n')[0]).toMatch(/^# syntax=docker\/dockerfile:1@sha256:[0-9a-f]{64}$/);
+  });
+
   it('gets pnpm through install-pnpm.sh (everything hash-checked) and asserts the version package.json pins', () => {
     const install = text.indexOf('RUN bash .github/scripts/install-pnpm.sh');
     expect(install).toBeGreaterThan(0);

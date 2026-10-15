@@ -18,7 +18,8 @@
 #                                           Chartmate.app, the Applications link, the background and Finder files,
 #                                           and the app verifies and has exactly that code directory hash (the app
 #                                           sign-mac signed).
-#   macos-sign.sh check-zip <zip> <cdhash>  The same for a release zip: exactly Chartmate.app inside, verified, that cdhash.
+#   macos-sign.sh check-zip <zip> <cdhash>  The same for a release zip: exactly Chartmate.app inside, verified,
+#                                           with that code directory hash.
 #   macos-sign.sh sign-dmg <dmg>            IDENTITY: signs the disk image itself.
 #   macos-sign.sh notarize <file>           Submits (an .app is zipped with ditto first), waits, fails unless
 #                                           Accepted (printing the notary log), then staples and validates.

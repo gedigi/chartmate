@@ -2,7 +2,8 @@
 # Smoke test for the Chartmate Docker image: runs it the hardened way (read-only root filesystem with a tmpfs
 # /tmp, all capabilities dropped, fixture providers, a throwaway volume), waits for the image's own healthcheck,
 # checks the user (numeric 1000:1000), the license files, that no package manager ships in it, the API, the web UI
-# and SQLite (including temp-file spills), then stops it and checks that it shut down cleanly. Removes everything it created. Works under emulation (e.g. an arm64 image on an amd64 runner).
+# and SQLite (including temp-file spills), then stops it and checks that it shut down cleanly. Removes everything
+# it created. Works under emulation (e.g. an arm64 image on an amd64 runner).
 #
 #   scripts/docker-smoke.sh <image> [--platform <os/arch>] [--expect-repository <owner/name>]
 #

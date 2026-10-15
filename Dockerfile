@@ -1,4 +1,6 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+# The BuildKit frontend (the line above) is pinned by digest. To move it: `docker buildx imagetools inspect
+# docker/dockerfile:1`, then update the digest (Dependabot's docker updates propose it too).
 # Chartmate server + web UI. Multi-arch (linux/amd64, linux/arm64): the build stage runs on the build host's
 # platform (its output is plain JavaScript plus better-sqlite3's bundled prebuilds), only the runtime stage is
 # per-target.
@@ -32,7 +34,8 @@ COPY . .
 # owner/name of the repository the image is built from: the web UI's About dialog links to its source code (AGPL-3.0
 # section 13). Pass it with --build-arg GITHUB_REPOSITORY=...; unset, the dialog points to the LICENSE in the image.
 ARG GITHUB_REPOSITORY=""
-# The tag or commit it is built from, so the dialog links that exact source (apps/web/build/sourceRef.cjs).
+# The ref it is built from (the workflows pass GitHub's GITHUB_REF_TYPE, GITHUB_REF_NAME and GITHUB_SHA): the
+# dialog links the release tag for a build of exactly that tag, else the commit (apps/web/build/sourceRef.cjs).
 ARG GITHUB_REF_TYPE="" GITHUB_REF_NAME="" GITHUB_SHA=""
 RUN pnpm build
 # THIRD_PARTY_NOTICES.txt for what the image ships (server runtime + web UI); fails on a license outside the
