@@ -278,13 +278,15 @@ export class BasketRepo {
    */
   async appendVersion(id: string, v: BasketVersion, expected: BasketVersion[]): Promise<Basket | null | 'conflict'> {
     return this.db.transaction().execute(async trx => {
+      // Touching the row first locks it (Postgres), so a concurrent append waits here and then reads the
+      // committed versions; SQLite runs one transaction at a time anyway.
+      const touched = await trx.updateTable('baskets').set({ updated_at: this.now() }).where('id', '=', id).executeTakeFirst();
+      if (Number(touched.numUpdatedRows) === 0) return null;
       const current = await getBasket(trx, id);
-      if (!current) return null;
-      if (JSON.stringify(current.versions) !== JSON.stringify(expected)) return 'conflict';
+      if (!current || JSON.stringify(current.versions) !== JSON.stringify(expected)) return 'conflict';
       await trx.insertInto('basket_versions')
         .values({ basket_id: id, idx: current.versions.length, effective_from: v.effectiveFrom, weights_json: JSON.stringify(v.weights) })
         .execute();
-      await trx.updateTable('baskets').set({ updated_at: this.now() }).where('id', '=', id).execute();
       return getBasket(trx, id);
     });
   }

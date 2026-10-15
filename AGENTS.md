@@ -75,6 +75,7 @@ or an unpackaged smoke run, fetch it once with `node apps/desktop/node_modules/e
 | All unit tests | `pnpm test` |
 | One package | `pnpm --filter @chartmate/<shared\|server\|web\|desktop> test` (or `typecheck`) |
 | One file | `pnpm --filter @chartmate/web exec vitest run test/chart/theme.test.ts` |
+| Server DB suites on Postgres (as CI's `postgres` job; e.g. `docker run` the digest-pinned image from `compose.yaml` on a free port) | `TEST_PG_URL=postgres://… CHARTMATE_TEST_DB=postgres pnpm --filter @chartmate/server exec vitest run --no-file-parallelism test/db test/market test/baskets test/routes test/http` |
 | End-to-end | `pnpm e2e` (first time: `pnpm exec playwright install chromium`); `E2E_PORT=8873 pnpm e2e` for another port |
 | Docker image | `docker build -t chartmate .` |
 | Docker image smoke test (read-only rootfs + tmpfs, healthcheck, API, UI, SQLite temp files, SIGTERM) | `scripts/docker-smoke.sh chartmate` (another arch: `--platform linux/arm64`) |

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { nyParts } from '@chartmate/shared';
-import { createDb } from '../../src/db/connect.js';
+import { createTestDb, type TestDb } from '../helpers/testDb.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';
 import { AppError, NotFoundError, ProviderError } from '../../src/errors.js';
@@ -18,7 +18,7 @@ const NEXT_1H = Date.UTC(2026, 10, 4, 19); // NOW ceiled to the 1h grid (fetch/c
 const H = (x: number) => Math.floor(x / HOUR) * HOUR;
 
 describe('MarketDataService', () => {
-  let h: ReturnType<typeof createDb>;
+  let h: TestDb;
   let repos: Repos;
   let now: number;
   let stock: FakeProvider;
@@ -27,7 +27,7 @@ describe('MarketDataService', () => {
   let svc: MarketDataService;
 
   beforeEach(async () => {
-    h = createDb('sqlite::memory:');
+    h = await createTestDb();
     await migrate(h.db);
     repos = createRepos(h.db);
     now = NOW;

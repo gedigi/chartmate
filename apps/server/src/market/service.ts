@@ -125,10 +125,14 @@ export class MarketDataService {
     // A derived bucket starting before `to` needs its natives up to the bucket's end.
     const nativeTo = derived && a.to > a.from ? Math.max(a.to, bucketEnd(a.to - 1, a.tf, cal)) : a.to;
 
-    const [native, earliestTs] = await Promise.all([
+    // Both settle before returning (no lookup left running after a failed fetch); earliest never rejects.
+    const [nativeR, earliestR] = await Promise.allSettled([
       this.getNativeBars(a.symbol, base, a.from, nativeTo),
       this.earliest(a.symbol, a.tf),
     ]);
+    if (nativeR.status === 'rejected') throw nativeR.reason;
+    const native = nativeR.value;
+    const earliestTs = earliestR.status === 'fulfilled' ? earliestR.value : null;
 
     let bars = native.bars;
     if (assetClass === 'stock' && isIntraday(base)) bars = filterSession(bars, a.session);

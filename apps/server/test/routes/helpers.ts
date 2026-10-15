@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app.js';
 import { BasketService } from '../../src/baskets/service.js';
 import type { Config } from '../../src/config.js';
-import { createDb } from '../../src/db/connect.js';
+import { createTestDb } from '../helpers/testDb.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';
 import { MarketDataService } from '../../src/market/service.js';
@@ -36,7 +36,7 @@ export function testConfig(): Config {
 export interface TestApp { app: FastifyInstance; market: MarketDataService; baskets: BasketService; repos: Repos; close(): Promise<void> }
 
 export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () => number } = {}): Promise<TestApp> {
-  const h = createDb('sqlite::memory:');
+  const h = await createTestDb();
   await migrate(h.db);
   const repos = createRepos(h.db, h.dialect);
   const registry = createRegistry({ mode: 'fixture', cryptoProvider: 'binance', binanceBaseUrl: 'http://unused' });

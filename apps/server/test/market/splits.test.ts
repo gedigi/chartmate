@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sql } from 'kysely';
-import { createDb } from '../../src/db/connect.js';
+import { createTestDb, USE_PG, type TestDb } from '../helpers/testDb.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';
 import { ProviderError } from '../../src/errors.js';
@@ -13,7 +13,7 @@ const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 10, 4, 18, 20);
 
 describe('MarketDataService stock split check', () => {
-  let h: ReturnType<typeof createDb>;
+  let h: TestDb;
   let repos: Repos;
   let now: number;
   let stock: FakeProvider;
@@ -30,7 +30,7 @@ describe('MarketDataService stock split check', () => {
   const daily = (s = svc) => s.getNativeBars('stock:AAPL', '1D', NOW - 30 * DAY, NOW);
 
   beforeEach(async () => {
-    h = createDb('sqlite::memory:');
+    h = await createTestDb();
     await migrate(h.db);
     repos = createRepos(h.db);
     now = NOW;
@@ -135,7 +135,8 @@ describe('MarketDataService stock split check', () => {
     expect((await repos.symbols.get('stock:AAPL'))?.splitsCheckedAt).toBe(NOW + HOUR);
   });
 
-  it('a failing stamp write rolls the whole split back; the retry rescales exactly once', async () => {
+  // The failure is injected with an SQLite trigger.
+  it.skipIf(USE_PG)('a failing stamp write rolls the whole split back; the retry rescales exactly once', async () => {
     await h.db.updateTable('symbols').set({ splits_checked_at: NOW - 3 * DAY }).where('id', '=', 'stock:AAPL').execute();
     const old = bar(NOW - 800 * DAY);
     await repos.bars.upsert('stock:AAPL', '1h', [old]);

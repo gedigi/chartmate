@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { nyDateUtcMidnight, tfMs, type BasketVersion, type NativeTimeframe } from '@chartmate/shared';
-import { createDb } from '../../src/db/connect.js';
+import { createTestDb, type TestDb } from '../helpers/testDb.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';
 import { AppError, NotFoundError, ProviderError } from '../../src/errors.js';
@@ -38,7 +38,7 @@ async function expectAppError(p: Promise<unknown>, status: number, code: string,
 }
 
 describe('BasketService', () => {
-  let h: ReturnType<typeof createDb>;
+  let h: TestDb;
   let repos: Repos;
   let now: number;
   let stock: FakeProvider;
@@ -47,7 +47,7 @@ describe('BasketService', () => {
   let svc: BasketService;
 
   beforeEach(async () => {
-    h = createDb('sqlite::memory:');
+    h = await createTestDb();
     await migrate(h.db);
     repos = createRepos(h.db);
     now = NOW;

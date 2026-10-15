@@ -5,15 +5,18 @@ import type { Database } from './schema.js';
 
 const dbl = sql`double precision`;
 
+/** The current schema on Postgres (first existing entry of the search_path); undefined on SQLite. */
+async function currentPgSchema(db: Kysely<any>): Promise<string | undefined> {
+  if (!(db.getExecutor().adapter instanceof PostgresAdapter)) return undefined;
+  return (await sql<{ s: string }>`select current_schema() as s`.execute(db)).rows[0]?.s ?? undefined;
+}
+
 /**
  * Column names of `table` in the current schema (on Postgres a same-named table in another schema on the
  * search_path, e.g. a leftover `public.symbols`, must not be mistaken for ours).
  */
 async function columnsOf(db: Kysely<any>, table: string): Promise<Set<string>> {
-  let schema: string | undefined;
-  if (db.getExecutor().adapter instanceof PostgresAdapter) {
-    schema = (await sql<{ s: string }>`select current_schema() as s`.execute(db)).rows[0]?.s;
-  }
+  const schema = await currentPgSchema(db);
   const t = (await db.introspection.getTables()).find(x => x.name === table && (schema === undefined || x.schema === schema));
   return new Set(t?.columns.map(c => c.name) ?? []);
 }
@@ -313,7 +316,10 @@ const provider: MigrationProvider = {
 
 /** Migrates to the latest version (or up to and including `target`, for tests). */
 export async function migrate(db: Kysely<Database>, target?: string): Promise<void> {
-  const migrator = new Migrator({ db, provider });
+  // On Postgres the migration bookkeeping lives in the current schema, named explicitly: otherwise Kysely takes a
+  // kysely_migration table in any other schema of the database as ours.
+  const migrationTableSchema = await currentPgSchema(db);
+  const migrator = new Migrator({ db, provider, ...(migrationTableSchema ? { migrationTableSchema } : {}) });
   const { error, results } = target === undefined ? await migrator.migrateToLatest() : await migrator.migrateTo(target);
   const failed = results?.find(r => r.status === 'Error');
   if (error || failed) throw error instanceof Error ? error : new Error(`migration failed: ${failed?.migrationName ?? String(error)}`);

@@ -48,6 +48,9 @@ app, the Docker image and the release tag share one version number.
 - An unknown symbol is answered with a plain "Unknown symbol" message; the data provider's own error text is only
   logged by the server.
 - `BINANCE_BASE_URL` must be an `https://` URL (as in the desktop app); the server refuses to start otherwise.
+- Postgres: the migration bookkeeping and column checks use the connection's current schema only, so another
+  schema in the same database (e.g. one with an older copy of the tables) is no longer mistaken for Chartmate's.
+  Appending basket versions concurrently on Postgres no longer fails with an internal error.
 - A stock split the data provider reports a few days late is now still applied to cached history (and never
   twice).
 

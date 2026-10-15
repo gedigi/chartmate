@@ -37,6 +37,7 @@ Every pull request must pass these (CI runs them all):
 | Typecheck (all packages and the e2e suite) | `pnpm typecheck` |
 | Unit tests (no network) | `pnpm test` |
 | One package / one file | `pnpm --filter @chartmate/web test` / `pnpm --filter @chartmate/web exec vitest run test/indicators/calc.test.ts` |
+| Server DB suites on Postgres (CI's `postgres` job; each test file gets its own schema) | `TEST_PG_URL=postgres://… CHARTMATE_TEST_DB=postgres pnpm --filter @chartmate/server exec vitest run --no-file-parallelism test/db test/market test/baskets test/routes test/http` |
 | Dependency vulnerabilities (after any dependency change) | `pnpm audit` |
 | End-to-end, when a UI flow changes (first time: `pnpm exec playwright install chromium`) | `pnpm e2e` (`E2E_PORT=8873 pnpm e2e` for another port) |
 

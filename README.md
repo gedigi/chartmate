@@ -151,7 +151,8 @@ docker compose start chartmate
 In `.env` (see above), set `POSTGRES_PASSWORD` and uncomment `DATABASE_URL` and `COMPOSE_PROFILES=postgres` (all three
 are in `.env.example`), then `docker compose up -d`. This starts the `postgres` service with its own volume and
 points Chartmate at it. Data is not copied over from SQLite. Any other Postgres works too: set
-`DATABASE_URL=postgres://user:pass@host:5432/chartmate`.
+`DATABASE_URL=postgres://user:pass@host:5432/chartmate`. Chartmate keeps its tables, and its migration bookkeeping, in the connection's current
+schema (the first schema of its `search_path`).
 
 ### Behind a reverse proxy (HTTPS)
 
@@ -327,6 +328,7 @@ running the desktop app unpackaged: `node apps/desktop/node_modules/electron/ins
 | Typecheck everything (incl. e2e) | `pnpm typecheck` |
 | Unit and route tests of every package (no network) | `pnpm test` |
 | One package | `pnpm --filter @chartmate/<shared\|server\|web\|desktop> test` |
+| Server DB suites on Postgres | `TEST_PG_URL=postgres://… CHARTMATE_TEST_DB=postgres pnpm --filter @chartmate/server exec vitest run --no-file-parallelism test/db test/market test/baskets test/routes test/http` |
 | End-to-end tests (Chromium) | `pnpm e2e` (first time: `pnpm exec playwright install chromium`) |
 | Dependency vulnerabilities | `pnpm audit` |
 | New indicator | `pnpm new:indicator <Name>` (see [Custom indicators](#custom-indicators)) |

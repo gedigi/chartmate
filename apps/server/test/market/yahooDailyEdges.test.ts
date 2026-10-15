@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createDb } from '../../src/db/connect.js';
+import { createTestDb, type TestDb } from '../helpers/testDb.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';
 import { MarketDataService } from '../../src/market/service.js';
@@ -37,13 +37,13 @@ function stampedAtOpen(): { client: YahooLike; calls: Array<[number, number]> } 
 }
 
 describe('Yahoo daily bars at non-midnight range edges (I-1)', () => {
-  let h: ReturnType<typeof createDb>;
+  let h: TestDb;
   let repos: Repos;
   let yahoo: ReturnType<typeof stampedAtOpen>;
   let svc: MarketDataService;
 
   beforeEach(async () => {
-    h = createDb('sqlite::memory:');
+    h = await createTestDb();
     await migrate(h.db);
     repos = createRepos(h.db);
     yahoo = stampedAtOpen();
