@@ -805,22 +805,23 @@ Fetched history is cached in the database and not re-downloaded. An empty answer
 remembered as "no bars here" when it cannot be a passing glitch: the range ended more than 7 days ago, lies
 before the symbol's listing date, or holds no trading session (a stock's weekend or night); otherwise it is
 asked again on the next load. Bars and the record of the range they cover are written in one transaction.
-Yahoo's bars are split- and
-dividend-adjusted *as of the day they were fetched*, so the server checks each stock for splits at most
-once a day when serving its bars (a lightweight Yahoo chart call with split events since the last check,
-stamped in `symbols.splits_checked_at`). When a split occurred since the last check, that symbol's daily
-bars and the intraday bars still within Yahoo's lookback are dropped and refetched on demand; older intraday
-bars (no longer downloadable) are kept and rescaled by the split ratio. Baskets holding the stock recompute
-their units. Each check also looks back 7 days before the previous one, so a split the provider reports a few
-days late is still applied; applied splits are recorded by their New York date (`applied_splits`), so none is applied twice, even when the
-provider restamps an event a few hours later. A stock
-whose bars were cached before its metadata row existed (e.g. the lookup failed at the time) has its refetchable
-bars dropped once when the row appears, since when they were fetched is unknown. Note for upgrades: the first check after upgrading looks for splits since each symbol's last
-metadata refresh (`symbols.updated_at`) minus 7 days, so older splits (already reflected in the cache) change
-nothing; a split between an older cached fetch and that baseline is not detected (delete the symbol's cache as
-in Troubleshooting if a chart shows such a jump). Split events dated in the future are applied only once they
-have happened. A failed check
-never fails a request; it is retried after an hour. Dividends are not detected: after one, older cached
+Yahoo's bars are split- and dividend-adjusted *as of the day they were fetched*, so the server checks each stock
+for splits at most once a day when serving its bars (a lightweight Yahoo chart call with split events since the
+last check, stamped in `symbols.splits_checked_at`). When a split occurred since the last check, that symbol's
+daily bars and the intraday bars still within Yahoo's lookback are dropped and refetched on demand; older
+intraday bars (no longer downloadable) are kept and rescaled by the split ratio. Baskets holding the stock
+recompute their units. Each check also looks back 7 days before the previous one, so a split the provider
+reports a few days late is still applied. Applied splits are recorded with their New York date and ratio
+(`applied_splits`), so none is applied twice: a split with the same ratio within one New York trading day of an
+applied one (weekends skipped, exchange holidays not) is the same split, even when the provider restamps it
+across a date boundary (00:00 UTC is the evening before in New York). Splits recorded before the ratio was
+(migration 007) match any ratio. A stock whose bars were cached before its metadata row existed (e.g. the lookup
+failed at the time) has its refetchable bars dropped once when the row appears, since when they were fetched is
+unknown. Note for upgrades: the first check after upgrading looks for splits since each symbol's last metadata
+refresh (`symbols.updated_at`) minus 7 days, so older splits (already reflected in the cache) change nothing; a
+split between an older cached fetch and that baseline is not detected (delete the symbol's cache as in
+Troubleshooting if a chart shows such a jump). Split events dated in the future are applied only once they have
+happened. A failed check never fails a request; it is retried after an hour. Dividends are not detected: after one, older cached
 bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting) to refetch a symbol).
 
 ## Troubleshooting
@@ -855,11 +856,12 @@ mirrored `watchlist` table (symbols only; sections are not visible to it). Upgra
 the existing `watchlist_entries` rows, so watchlist edits made while downgraded are not carried over (empty that
 table before upgrading to re-import the old list instead).
 
-**Rolling back to 1.0.0.** This version adds migrations 004 (symbol ids), 005 (applied splits) and 006
-(settings), and 1.0.0 refuses to start while they are recorded. Stop the server, back up the database, then
-`DELETE FROM kysely_migration WHERE name IN ('004_symbol_ids', '005_applied_splits', '006_settings');` and start
-1.0.0. Migration 004 cannot be undone: ids stay in their normalized spelling (1.0.0 reads them fine) and merged
-or dropped entries do not come back. The added `applied_splits` and `settings` tables and the
+**Rolling back to 1.0.0.** This version adds migrations 004 (symbol ids), 005 (applied splits), 006 (settings)
+and 007 (applied split ratios), and 1.0.0 refuses to start while they are recorded. Stop the server, back up the
+database, then
+`DELETE FROM kysely_migration WHERE name IN ('004_symbol_ids', '005_applied_splits', '006_settings', '007_applied_split_factor');`
+and start 1.0.0. Migration 004 cannot be undone: ids stay in their normalized spelling (1.0.0 reads them fine)
+and merged or dropped entries do not come back. The added `applied_splits` and `settings` tables and the
 `symbols.splits_tracked_from` column are left in place and ignored by 1.0.0. Sessions issued by either version
 are not accepted by the other, so expect to log in again. Before upgrading again, run
 `UPDATE symbols SET splits_tracked_from = splits_checked_at;`: splits 1.0.0 applied in the meantime are not in
