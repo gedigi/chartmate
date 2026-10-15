@@ -401,6 +401,25 @@ Where to read next:
   the chart sits on its own rounded sheet, chrome is solid panels with hairline edges (no glass, glow or drop
   shadows), and every font is the system sans-serif (no web fonts). The time axis labels read with context
   ("Sep 21", "22", "13:30"; daily: "Sep", "22"), the crosshair date chip reads "Wed Sep 30 '26 · 12:30".
+- **Date ranges**: the row under the time axis (**1D 5D 1M 3M 6M YTD 1Y All**) shows that period, ending at the
+  latest bar, and switches to a fitting interval (still changeable in the top bar afterwards). Older bars are
+  loaded first when the range needs them, never past the data source's intraday limits; a symbol with less
+  history than the range shows all of it. Next to the buttons the selected range's span reads, e.g.,
+  "Oct 16, 2025 – Oct 15, 2026". The range stays selected until you zoom or scroll the chart or change the
+  interval, session or symbol; resizing the window refits it. It is not stored in the layout (zoom and scroll
+  never are), so a reload opens at the usual view.
+
+  | Range | Interval | Shows |
+  | --- | --- | --- |
+  | 1D | 5m | Stocks: the latest session (with pre- and post-market on ETH). Crypto: the last 24 hours. |
+  | 5D | 15m | Stocks: the last five sessions (weekends and holidays skipped). Crypto: the last 5 × 24 hours. |
+  | 1M | 1h | From the day after the same date one month earlier. |
+  | 3M, 6M, 1Y | 1D | From the day after the same date 3, 6 or 12 months earlier. |
+  | YTD | 1D | From January 1 of the latest bar's year (on the January 1 holiday, the year that just ended). |
+  | All | 1W or 1M | The whole history: weekly bars when each gets at least 2 px of the chart's width, else monthly bars (on a 1000 px wide chart, about 10 years of weekly bars fit). |
+
+  Dates are New York dates for stocks and baskets of stocks, UTC dates for crypto and baskets holding crypto
+  (which trade around the clock).
 - **Symbol search**: the top bar search field (**⌘K** on macOS, **Ctrl+K** elsewhere, focuses it from anywhere).
 - **RTH / ETH toggle** for stocks (and baskets containing a stock): RTH shows regular-hours bars only,
   ETH adds pre- and post-market bars, shaded on intraday stock charts (basket charts are not shaded). The shade
