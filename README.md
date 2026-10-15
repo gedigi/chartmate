@@ -413,7 +413,8 @@ Where to read next:
   loaded first when the range needs them, never past the data source's intraday limits; a symbol with less
   history than the range shows all of it. Next to the buttons the selected range's span reads, e.g.,
   "Oct 16, 2025 – Oct 15, 2026". The range stays selected until you zoom or scroll the chart or change the
-  interval, session or symbol; resizing the window refits it. It is not stored in the layout (zoom and scroll
+  interval, session or symbol; resizing the window refits it, and so does each new bar, so it keeps ending at the
+  latest one (1D moves on to a new session as it opens). It is not stored in the layout (zoom and scroll
   never are), so a reload opens at the usual view.
 
   | Range | Interval | Shows |
