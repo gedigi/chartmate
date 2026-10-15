@@ -187,7 +187,9 @@ describe('DrawingStyleBar', () => {
       const { c, emit } = makeControls();
       render(<DrawingStyleBar controls={c} />);
       emit({ ...LINE, price: { value: 100, precision: 2 } });
-      for (const bad of ['', '0', '-5', '1.123456789']) {
+      // Exponent notation ('1e-9' rounds to 0 at 8 decimals; '1e3' is not how prices are written) and values that round
+      // to 0 at 8 decimals are rejected too.
+      for (const bad of ['', '0', '-5', '1.123456789', '1e-9', '1e3', '2E2', '0.000000004']) {
         fireEvent.change(price(), { target: { value: bad } });
         fireEvent.keyDown(price(), { key: 'Enter' });
         expect(screen.getByRole('alert'), bad).toBeInTheDocument();

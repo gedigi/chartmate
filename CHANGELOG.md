@@ -36,6 +36,8 @@ app, the Docker image and the release tag share one version number.
   the chart does not flicker.
 - A stored drawing without points is skipped when drawings load (it used to leave the chart in drawing mode),
   and the server drops such a drawing on save instead of rejecting the whole list.
+- The price field of horizontal drawings rejects exponent notation (such as `1e-9`) and prices that round to
+  zero at 8 decimals.
 
 ## [1.0.0] - 2026-10-14
 
