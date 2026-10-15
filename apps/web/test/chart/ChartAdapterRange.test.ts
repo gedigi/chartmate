@@ -120,6 +120,19 @@ describe('ChartAdapter.showRange', () => {
     expect(chart().setBarSpace).toHaveBeenLastCalledWith(920 / 261);
   });
 
+  it('reports the bars it shows and their span (the newest that fit when there are too many)', async () => {
+    const a = await loadWith(AAPL, '1D', weekdays(Date.UTC(2023, 0, 2), Date.UTC(2026, 9, 15)));
+    const shown = vi.fn();
+    a.onRangeShown(shown);
+    a.showRange('1Y', 'stock');
+    expect(shown).toHaveBeenLastCalledWith({
+      preset: '1Y', first: Date.UTC(2025, 9, 16), last: Date.UTC(2026, 9, 15), bars: 261, label: 'Oct 16, 2025 – Oct 15, 2026',
+    });
+    chart().width = 300; // 220 px for 261 bars at 1 px at least: the newest 220
+    a.resize();
+    expect(shown).toHaveBeenLastCalledWith(expect.objectContaining({ bars: 220, last: Date.UTC(2026, 9, 15) }));
+  });
+
   it('a short history fits every bar', async () => {
     const bars = weekdays(Date.UTC(2026, 8, 1), Date.UTC(2026, 9, 15));
     const a = await loadWith(AAPL, '1D', bars);

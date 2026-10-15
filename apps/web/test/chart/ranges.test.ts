@@ -2,7 +2,7 @@ import { nyToUtc, tfMs, type Timeframe } from '@chartmate/shared';
 import { describe, expect, it } from 'vitest';
 import { initialWindowMs } from '../../src/chart/periods';
 import {
-  allTimeframe, fitBarSpace, MAX_BAR_SPACE, MIN_ALL_BAR_PX, MIN_BAR_SPACE, RANGE_PRESETS, rangeLookbackMs, rangeStart,
+  allTimeframe, fitBarSpace, MAX_BAR_SPACE, MIN_ALL_BAR_PX, MIN_BAR_SPACE, RANGE_PRESETS, rangeLabel, rangeLookbackMs, rangeStart,
   rangeTimeframe, visibleBarCount,
 } from '../../src/chart/ranges';
 
@@ -226,5 +226,23 @@ describe('rangeLookbackMs: intraday ranges stay inside the stock data source\'s 
   it('daily and longer ranges are unbounded', () => {
     expect(rangeLookbackMs('1Y')).toBe(Infinity);
     expect(rangeLookbackMs('All')).toBe(Infinity);
+  });
+});
+
+describe('rangeLabel: the dates a shown range spans, in the chart timezone', () => {
+  it('daily bars: dates, the year once when both ends share it', () => {
+    expect(rangeLabel(Date.UTC(2025, 9, 16), Date.UTC(2026, 9, 15), '1D', 'UTC')).toBe('Oct 16, 2025 – Oct 15, 2026');
+    expect(rangeLabel(Date.UTC(2026, 0, 2), Date.UTC(2026, 9, 15), '1D', 'UTC')).toBe('Jan 2 – Oct 15, 2026');
+    expect(rangeLabel(Date.UTC(2026, 9, 15), Date.UTC(2026, 9, 15), '1D', 'UTC')).toBe('Oct 15, 2026');
+  });
+  it('weekly bars read like daily ones; monthly bars by month', () => {
+    expect(rangeLabel(Date.UTC(2015, 0, 5), Date.UTC(2026, 9, 12), '1W', 'UTC')).toBe('Jan 5, 2015 – Oct 12, 2026');
+    expect(rangeLabel(Date.UTC(2015, 0, 1), Date.UTC(2026, 9, 1), '1M', 'UTC')).toBe('Jan 2015 – Oct 2026');
+  });
+  it('intraday bars: date and time of the first and latest bar, the date once within a day', () => {
+    const tz = 'America/New_York';
+    expect(rangeLabel(nyToUtc(2026, 10, 14, 9, 30), nyToUtc(2026, 10, 14, 15, 55), '5m', tz)).toBe('Oct 14, 09:30 – 15:55');
+    expect(rangeLabel(nyToUtc(2026, 10, 8, 9, 30), nyToUtc(2026, 10, 14, 15, 45), '15m', tz)).toBe('Oct 8, 09:30 – Oct 14, 15:45');
+    expect(rangeLabel(Date.UTC(2026, 9, 17, 12, 5), Date.UTC(2026, 9, 18, 12, 0), '5m', 'UTC')).toBe('Oct 17, 12:05 – Oct 18, 12:00');
   });
 });

@@ -1,7 +1,7 @@
 import { isIntraday, parseSymbolId, type DrawingState, type IndicatorState, type Layout, type SessionMode, type SymbolId, type SymbolInfo, type Timeframe } from '@chartmate/shared';
 import { memo, useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import { api, errorMessage } from '../api/client';
-import { ChartAdapter, type IndicatorSpec } from '../chart/ChartAdapter';
+import { ChartAdapter, type IndicatorSpec, type ShownRange } from '../chart/ChartAdapter';
 import { migrateCalcParams } from '../chart/indicators/catalog';
 import type { LoaderMeta } from '../chart/dataLoader';
 import { initialWindowMs, pollIntervalMs } from '../chart/periods';
@@ -212,6 +212,8 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
     setRange((r) => (r && (r.symbol !== symbol || r.tf !== tf || r.session !== session) ? null : r));
   }, [symbol, tf, session]);
   useEffect(() => adapter?.onRangeCanceled(() => setRange(null)), [adapter]);
+  const [shown, setShown] = useState<ShownRange | null>(null);
+  useEffect(() => adapter?.onRangeShown(setShown), [adapter]);
   const calendar: RangeCalendar = info?.assetClass === 'crypto' || basketHasCrypto ? 'crypto' : 'stock';
   const selectRange = useCallback((preset: RangePreset) => {
     if (!adapter || !info) return;
@@ -233,6 +235,7 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
     );
   }, [adapter, info, session, calendar, setLayout]);
   const activeRange = range && range.symbol === symbol && range.tf === tf && range.session === session ? range.preset : null;
+  const rangeSpan = activeRange !== null && shown?.preset === activeRange ? shown.label : '';
 
   const shade = session === 'eth' && isIntraday(tf) && info?.assetClass === 'stock'; // only stock bars carry session tags
   useEffect(() => { adapter?.setSessionShading(shade); }, [adapter, shade]);
@@ -431,6 +434,7 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
         {/* Bottom row, under the time axis (in flow, like the top row: it never covers plot data). */}
         <div className="chart-bottomrow">
           <RangeBar value={activeRange} onSelect={selectRange} disabled={!info || pollMs === null || !dataReceived || symbolFailed} />
+          <span className="range-span" role="status" data-testid="range-span">{rangeSpan}</span>
         </div>
       </div>
     </div>

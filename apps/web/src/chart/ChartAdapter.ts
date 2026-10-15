@@ -31,7 +31,7 @@ import { levelsDraw, levelsRange } from './indicators/levels';
 import { registerCustomIndicators } from './indicators/register';
 import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
-import { fitBarSpace, rangeLookbackMs, rangeStart, visibleBarCount, type RangeCalendar, type RangePreset } from './ranges';
+import { fitBarSpace, rangeLabel, rangeLookbackMs, rangeStart, visibleBarCount, type RangeCalendar, type RangePreset } from './ranges';
 import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
 import {
   MEASURE_OVERLAY, measureColors, measureLines, measureStats, registerMeasureOverlay, snapValue,
@@ -106,6 +106,9 @@ export type SelectedDrawing = SelectedLock & (
   });
 
 const INDICATOR_DASH = [4, 4];
+
+/** A date range as fitted on the chart: its first and latest bar times, how many bars, and its span as text. */
+export interface ShownRange { preset: RangePreset; first: number; last: number; bars: number; label: string }
 
 export interface LoadParams {
   symbol: SymbolInfo; tf: Timeframe; session: SessionMode; pollMs: number;
@@ -380,6 +383,7 @@ export class ChartAdapter {
     if (this.basketHasCrypto) ext.utcDays = true; // its intraday bars use the UTC grid
     this.setIndicatorContext(ext);
     const timezone = timezoneFor(p.symbol, p.tf);
+    this.rangeTimeZone = timezone;
     this.chart.setTimezone(timezone);
     this.setTimeTexts(p.tf, timezone, p.session);
     this.chart.setSymbol({
@@ -1967,6 +1971,9 @@ export class ChartAdapter {
    */
   private range: { preset: RangePreset; calendar: RangeCalendar; pages: number; fitted: boolean } | null = null;
   private readonly rangeListeners = new Set<() => void>();
+  private readonly rangeShownListeners = new Set<(shown: ShownRange) => void>();
+  /** The chart timezone of the current load (range labels read in it). */
+  private rangeTimeZone = 'UTC';
   /** > 0 while the adapter itself moves the view (its zoom / scroll is not the user's). */
   private fitting = 0;
 
@@ -1984,6 +1991,12 @@ export class ChartAdapter {
   onRangeCanceled(cb: () => void): () => void {
     this.rangeListeners.add(cb);
     return () => this.rangeListeners.delete(cb);
+  }
+
+  /** Called each time a range shown with showRange is fitted (again on resize): the bars it shows. */
+  onRangeShown(cb: (shown: ShownRange) => void): () => void {
+    this.rangeShownListeners.add(cb);
+    return () => this.rangeShownListeners.delete(cb);
   }
 
   /** Width (px) of the price pane's plot area, where bars are laid out (0 before the first layout). */
@@ -2027,14 +2040,23 @@ export class ChartAdapter {
     if (this.tf === null) return;
     const times = this.chart.getDataList().map((d) => d.timestamp);
     const count = visibleBarCount(times, rangeStart(r.preset, times, this.tf, r.calendar));
+    const width = this.plotWidth();
+    const space = fitBarSpace(count, width, RANGE_RIGHT_MARGIN_PX);
     r.fitted = true;
     this.fitting++;
     try {
-      this.chart.setBarSpace(fitBarSpace(count, this.plotWidth(), RANGE_RIGHT_MARGIN_PX));
+      this.chart.setBarSpace(space);
       this.chart.setOffsetRightDistance(RANGE_RIGHT_MARGIN_PX); // back to the latest bar, at the chart's default gap
     } finally {
       this.fitting--;
     }
+    // Too many bars for the width (at the narrowest bars): the newest that fit are shown.
+    const bars = width > 0 ? Math.min(count, Math.max(1, Math.floor((width - RANGE_RIGHT_MARGIN_PX) / space))) : count;
+    const first = times[times.length - bars];
+    const last = times.at(-1);
+    if (first === undefined || last === undefined) return;
+    const shown: ShownRange = { preset: r.preset, first, last, bars, label: rangeLabel(first, last, this.tf, this.rangeTimeZone) };
+    for (const cb of [...this.rangeShownListeners]) cb(shown);
   }
 
   // ── lifecycle ─────────────────────────────────────────────────────────────
@@ -2052,6 +2074,7 @@ export class ChartAdapter {
     this.chart.unsubscribeAction?.('onScroll', this.onUserView);
     this.range = null;
     this.rangeListeners.clear();
+    this.rangeShownListeners.clear();
     this.stopMeasureTracking();
     this.measure = null;
     this.measureListeners.clear();

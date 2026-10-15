@@ -1,4 +1,5 @@
 import { isIntraday, nyParts, nyToUtc, tfMs, type Timeframe } from '@chartmate/shared';
+import { zonedParts } from './timeLabels';
 
 /**
  * Date range presets of the range bar under the chart: each picks a fitting interval and shows that period, ending
@@ -144,4 +145,30 @@ export const MAX_BAR_SPACE = 50;
 export function fitBarSpace(count: number, width: number, rightMargin: number): number {
   if (count <= 0) return MAX_BAR_SPACE;
   return Math.min(MAX_BAR_SPACE, Math.max(MIN_BAR_SPACE, (width - rightMargin) / count));
+}
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * The span of a shown range, from its first bar to the latest one, in the chart's `timeZone`: "Oct 16, 2025 –
+ * Oct 15, 2026" (daily and weekly bars; the year once when both ends share it), "Jan 2015 – Oct 2026" (monthly bars),
+ * "Oct 14, 09:30 – 15:55" / "Oct 8, 09:30 – Oct 14, 15:45" (intraday bars, by bar time).
+ */
+export function rangeLabel(first: number, last: number, tf: Timeframe, timeZone: string): string {
+  const a = zonedParts(first, timeZone);
+  const b = zonedParts(last, timeZone);
+  const sameDay = a.year === b.year && a.month === b.month && a.day === b.day;
+  if (isIntraday(tf)) {
+    const day = (p: typeof a) => `${MONTH_NAMES[p.month]} ${p.day}`;
+    const time = (p: typeof a) => `${pad2(p.hour)}:${pad2(p.minute)}`;
+    return sameDay ? `${day(a)}, ${time(a)} – ${time(b)}` : `${day(a)}, ${time(a)} – ${day(b)}, ${time(b)}`;
+  }
+  if (tf === '1M') {
+    const month = (p: typeof a) => `${MONTH_NAMES[p.month]} ${p.year}`;
+    return a.year === b.year && a.month === b.month ? month(b) : `${month(a)} – ${month(b)}`;
+  }
+  const date = (p: typeof a) => `${MONTH_NAMES[p.month]} ${p.day}`;
+  if (sameDay) return `${date(b)}, ${b.year}`;
+  return a.year === b.year ? `${date(a)} – ${date(b)}, ${b.year}` : `${date(a)}, ${a.year} – ${date(b)}, ${b.year}`;
 }

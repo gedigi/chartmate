@@ -48,6 +48,12 @@
 .chart-bottomrow .range-bar button { flex: none; min-height: 22px; padding: 1px 8px; font-size: 11.5px; font-weight: 500; letter-spacing: 0.01em; }
 .chart-bottomrow .range-bar button:disabled { opacity: 0.5; cursor: default; }
 .chart-bottomrow .range-bar button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+/* The span the selected range shows, quietly after the buttons (read out as it changes; empty, it takes no room). */
+.chart-bottomrow .range-span {
+  flex: none; margin-left: 10px; padding-left: 10px; border-left: 1px solid var(--border-strong); color: var(--text-muted);
+  font-size: 11.5px; line-height: 14px; white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.chart-bottomrow .range-span:empty { margin: 0; padding: 0; border: 0; } /* kept rendered: a live region must exist before it speaks */
 .chart-init-error { position: absolute; inset: 0; color: var(--error); }
 
 .chart-notice, .chart-toast {

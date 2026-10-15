@@ -60,6 +60,8 @@ const fake = vi.hoisted(() => {
     rangeCanceledCb: (() => void) | null = null;
     onRangeCanceled = vi.fn((cb: () => void) => { this.rangeCanceledCb = cb; return () => { this.rangeCanceledCb = null; }; });
     plotWidth = vi.fn(() => 1000);
+    rangeShownCb: ((s: unknown) => void) | null = null;
+    onRangeShown = vi.fn((cb: (s: unknown) => void) => { this.rangeShownCb = cb; return () => { this.rangeShownCb = null; }; });
     constructor() { instances.push(this); }
   }
   return { instances, FakeAdapter };
@@ -705,6 +707,20 @@ describe('ChartView date ranges', () => {
     act(() => { fireEvent.click(rangeButton('1D')); });
     expect(v.layout().tf).toBe('5m');
     expect(adapter().showRange).toHaveBeenLastCalledWith('1D', 'crypto');
+  });
+
+  it('shows the span of the fitted range next to the buttons while it is selected', async () => {
+    renderLive(LAYOUT);
+    await flush();
+    dataIn();
+    const span = screen.getByTestId('range-span');
+    expect(span).toHaveAttribute('role', 'status');
+    expect(span).toHaveTextContent('');
+    act(() => { fireEvent.click(rangeButton('1Y')); });
+    act(() => adapter().rangeShownCb!({ preset: '1Y', first: 1, last: 2, bars: 252, label: 'Oct 16, 2025 – Oct 15, 2026' }));
+    expect(span).toHaveTextContent('Oct 16, 2025 – Oct 15, 2026');
+    act(() => adapter().rangeCanceledCb!());
+    expect(span).toHaveTextContent('');
   });
 
   it('deselects when the user zooms or scrolls (the adapter cancels the range)', async () => {

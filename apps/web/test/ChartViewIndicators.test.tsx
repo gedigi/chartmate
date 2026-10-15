@@ -14,7 +14,7 @@ vi.mock('../src/chart/ChartAdapter', () => ({
     setAppearance = vi.fn(); setPositionDefaults = vi.fn(); setNewDrawingColor = vi.fn(); onSelectionChange = vi.fn(() => () => {}); setMagnetOverride = vi.fn(); deselect = vi.fn();
     setSelectedPrice = vi.fn(() => true); setSelectedLabel = vi.fn(); setSelectedExtend = vi.fn(); setShiftConstraint = vi.fn(); onPriceEditRequest = vi.fn(() => () => {});
     clearMeasure = vi.fn(); onMeasureChange = vi.fn(() => () => {});
-    showRange = vi.fn(); onRangeCanceled = vi.fn(() => () => {}); plotWidth = vi.fn(() => 1000);
+    showRange = vi.fn(); onRangeCanceled = vi.fn(() => () => {}); onRangeShown = vi.fn(() => () => {}); plotWidth = vi.fn(() => 1000);
   },
 }));
 
