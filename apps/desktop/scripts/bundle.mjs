@@ -119,6 +119,10 @@ if (!testInspectable) {
   writeFileSync(here('../.bundle-meta/main.json'), JSON.stringify(main.metafile));
 }
 
+// What kind of bundle this is: build/after-pack.cjs refuses to package anything but "prod".
+const kind = testInspectable ? 'test-inspectable' : dev ? 'dev' : 'prod';
+writeFileSync(`${out}/bundle-kind.json`, JSON.stringify({ kind }));
+
 // Runtime window/dock icon (Windows/Linux BrowserWindow icon, macOS dock icon in development).
 cpSync(here('../../../assets/brand/png/icon-512.png'), `${out}/icon.png`);
 cpSync(webDist, `${out}/web`, { recursive: true, filter: (src) => !src.endsWith('.map') });

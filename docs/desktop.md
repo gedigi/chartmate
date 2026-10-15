@@ -68,7 +68,10 @@ lockdown, the `devtools:` request exception and the fixed data directory apply i
 by `isHardened()` (`src/lib/buildMode.ts`): a production bundle is **always** hardened, and the dev bundle is
 hardened when packaged. Electron's `app.isPackaged` alone is not used as a gate, because it only compares the
 executable's file name with `electron`/`electron.exe`: a user-level copy of the installed app with the executable
-renamed would otherwise run without the guards.
+renamed would otherwise run without the guards. `bundle.mjs` writes `dist/bundle-kind.json`
+(`{"kind":"prod"|"dev"|"test-inspectable"}`), and the `afterPack` hook (`build/after-pack.cjs`) fails the build
+unless the packaged `app.asar` holds a `prod` bundle, so a dev bundle can never be packaged. TEST-ONLY copies are
+made from an already packaged app by `smoke/prepare-inspectable.mjs`, outside electron-builder.
 
 ## Smoke tests
 
