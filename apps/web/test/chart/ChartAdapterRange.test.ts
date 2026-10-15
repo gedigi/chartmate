@@ -40,7 +40,7 @@ vi.mock('klinecharts', () => ({
   getSupportedIndicators: () => [],
 }));
 
-const { ChartAdapter } = await import('../../src/chart/ChartAdapter');
+const { ChartAdapter, MAX_HISTORY_PAGES } = await import('../../src/chart/ChartAdapter');
 const { api } = await import('../../src/api/client');
 
 const AAPL: SymbolInfo = { id: 'stock:AAPL', assetClass: 'stock', ticker: 'AAPL', name: 'Apple', pricePrecision: 2 };
@@ -131,6 +131,78 @@ describe('ChartAdapter.showRange', () => {
     chart().width = 300; // 220 px for 261 bars at 1 px at least: the newest 220
     a.resize();
     expect(shown).toHaveBeenLastCalledWith(expect.objectContaining({ bars: 220, last: Date.UTC(2026, 9, 15) }));
+  });
+
+  it('older pages for ranges are capped per load, however often a range is picked', async () => {
+    const a = await loadWith(AAPL, '1D', weekdays(Date.UTC(2026, 9, 1), Date.UTC(2026, 9, 15)), true);
+    const store = { _dataLoadMore: { forward: true }, _loading: false, _processDataLoad: vi.fn() };
+    (chart() as unknown as { getChartStore: () => typeof store }).getChartStore = () => store;
+    for (let i = 0; i < 100; i++) a.showRange('All', 'stock'); // each pick asks for a page (none ever arrives)
+    expect(store._processDataLoad.mock.calls.length).toBe(MAX_HISTORY_PAGES);
+    expect(chart().setBarSpace).toHaveBeenCalled(); // past the cap it fits what is loaded
+  });
+
+  describe('live bars', () => {
+    /** Subscribes like KLineChart after the init page: polled bars are appended (or replace the forming one). */
+    function subscribe() {
+      const l = chart().setDataLoader.mock.calls.at(-1)![0] as { subscribeBar: (p: unknown) => void };
+      l.subscribeBar({
+        symbol: { ticker: AAPL.id }, period: { type: 'minute', span: 5 },
+        callback: (bar: { timestamp: number }) => {
+          if (chart().data.at(-1)?.timestamp === bar.timestamp) chart().data[chart().data.length - 1] = bar;
+          else chart().data.push(bar);
+        },
+      });
+    }
+    const latest = (b: Bar) => vi.spyOn(api, 'latest').mockResolvedValue({ bar: b, stale: false });
+
+    it('a new bar refits the active range (a new session for 1D) and updates its span, never deselecting it', async () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      try {
+        const open = nyToUtc(2025, 10, 14, 9, 30);
+        const a = await loadWith(AAPL, '5m', Array.from({ length: 78 }, (_, i) => bar(open + i * 5 * MIN)));
+        const shown = vi.fn();
+        const canceled = vi.fn();
+        a.onRangeShown(shown);
+        a.onRangeCanceled(canceled);
+        a.showRange('1D', 'stock');
+        expect(chart().setBarSpace).toHaveBeenLastCalledWith(920 / 78);
+        subscribe();
+        // The next session opens: one bar of Oct 15 (too few alone, so Oct 14 stays in view).
+        const next = nyToUtc(2025, 10, 15, 9, 30);
+        latest(bar(next));
+        vi.spyOn(api, 'bars').mockResolvedValue(response(AAPL, [], false));
+        await vi.advanceTimersByTimeAsync(15000);
+        expect(chart().data.at(-1)!.timestamp).toBe(next);
+        expect(chart().setBarSpace).toHaveBeenLastCalledWith(920 / 79);
+        expect(shown).toHaveBeenLastCalledWith(expect.objectContaining({ last: next, bars: 79, label: 'Oct 14, 09:30 – Oct 15, 09:30' }));
+        // An update of the forming bar (same time): nothing to refit.
+        chart().setBarSpace.mockClear();
+        await vi.advanceTimersByTimeAsync(15000);
+        expect(chart().setBarSpace).not.toHaveBeenCalled();
+        expect(canceled).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('without an active range new bars leave the view alone', async () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      try {
+        const open = nyToUtc(2025, 10, 14, 9, 30);
+        const a = await loadWith(AAPL, '5m', Array.from({ length: 78 }, (_, i) => bar(open + i * 5 * MIN)));
+        a.showRange('1D', 'stock');
+        chart().fire('onScroll'); // the user scrolled: no range any more
+        chart().setBarSpace.mockClear();
+        subscribe();
+        latest(bar(nyToUtc(2025, 10, 15, 9, 30)));
+        vi.spyOn(api, 'bars').mockResolvedValue(response(AAPL, [], false));
+        await vi.advanceTimersByTimeAsync(15000);
+        expect(chart().setBarSpace).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it('a short history fits every bar', async () => {

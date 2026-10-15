@@ -355,6 +355,7 @@ export class ChartAdapter {
     this.dataSymbol = null;
     this.loadSymbol = p.symbol.id;
     this.range = null; // a range shown with showRange belongs to the data it was fitted to
+    this.rangePages = 0;
     this.historyPages = 0;
     this.historyBlocked = false;
     // Blank the chart at once: KLineChart keeps the previous series until the new init page arrives, which
@@ -1983,14 +1984,20 @@ export class ChartAdapter {
 
   /**
    * The date range shown with showRange: fitted once the current load's bars cover it (older pages are requested
-   * as needed), then re-fitted on resize until the user zooms or scrolls, or the data reloads.
+   * as needed), then re-fitted on resize and when a new bar arrives (`lastTs`: the latest bar it was fitted to) until
+   * the user zooms or scrolls, or the data reloads.
    */
-  private range: { preset: RangePreset; calendar: RangeCalendar; pages: number; fitted: boolean } | null = null;
+  private range: { preset: RangePreset; calendar: RangeCalendar; fitted: boolean; lastTs: number } | null = null;
+  /** Older pages requested for ranges since the last load(), at most MAX_HISTORY_PAGES whatever is picked. */
+  private rangePages = 0;
   private readonly rangeListeners = new Set<() => void>();
   private readonly rangeShownListeners = new Set<(shown: ShownRange) => void>();
   /** The chart timezone of the current load (range labels read in it). */
   private rangeTimeZone = 'UTC';
-  /** > 0 while the adapter itself moves the view (its zoom / scroll is not the user's). */
+  /**
+   * > 0 while the adapter itself moves the view. Defensive: KLineChart 10.0.x's setBarSpace / setOffsetRightDistance
+   * emit neither onZoom nor onScroll, but a version that did must not cancel the range being fitted.
+   */
   private fitting = 0;
 
   /**
@@ -1999,7 +2006,7 @@ export class ChartAdapter {
    * soon as it is; a load() or clear() drops it.
    */
   showRange(preset: RangePreset, calendar: RangeCalendar): void {
-    this.range = { preset, calendar, pages: 0, fitted: false };
+    this.range = { preset, calendar, fitted: false, lastTs: Number.NaN };
     if (this.dataSymbol !== null && this.dataSymbol === this.loadSymbol) this.continueRange();
   }
 
@@ -2020,28 +2027,42 @@ export class ChartAdapter {
     return this.chart.getSize?.(CANDLE_PANE, 'main')?.width ?? 0;
   }
 
+  /**
+   * The user zoomed or scrolled: the range is dropped. A touch fling (KLineChart 10.0.x animates one after a quick
+   * swipe; mouse drags have none) still running when a range is picked keeps scrolling, rewriting the scroll position
+   * the fit set, so its next frame both moves the view and deselects the range: telling such frames apart would take
+   * KLineChart's private event state, and the deselection matches what the chart then shows.
+   */
   private readonly onUserView = (): void => {
     if (this.fitting > 0 || this.range === null) return;
     this.range = null;
     for (const cb of [...this.rangeListeners]) cb();
   };
 
-  /** Requests the next older page while the pending range needs one, else fits it (page arrivals call this again). */
+  /**
+   * Requests the next older page while the pending range needs one, else fits it (page arrivals call this again).
+   * A fitted range is fitted again when a newer bar arrives, so it keeps ending at the latest bar (1D moves on to a
+   * new session) and its span stays current.
+   */
   private continueRange(): void {
     const r = this.range;
-    if (!r || r.fitted || this.destroyed || this.tf === null) return;
+    if (!r || this.destroyed || this.tf === null) return;
     const data = this.chart.getDataList();
     const first = data[0];
     const latest = data.at(-1);
     if (!first || !latest) return;
+    if (r.fitted) {
+      if (latest.timestamp !== r.lastTs) this.fitRange(r);
+      return;
+    }
     const start = rangeStart(r.preset, data.map((d) => d.timestamp), this.tf, r.calendar);
     const deeper = start < first.timestamp && first.timestamp > latest.timestamp - rangeLookbackMs(r.preset);
-    if (deeper && !this.historyBlocked && r.pages < MAX_HISTORY_PAGES && this.hasOlderData()) {
+    if (deeper && !this.historyBlocked && this.rangePages < MAX_HISTORY_PAGES && this.hasOlderData()) {
       const store = this.dataStore();
       const load = store?._processDataLoad;
       if (typeof load === 'function') {
         if (store?._loading === true) return; // a page is on its way: its arrival calls this again
-        r.pages++;
+        this.rangePages++;
         try {
           load.call(store, 'forward');
           return;
@@ -2059,6 +2080,7 @@ export class ChartAdapter {
     const width = this.plotWidth();
     const space = fitBarSpace(count, width, RANGE_RIGHT_MARGIN_PX);
     r.fitted = true;
+    r.lastTs = times.at(-1) ?? Number.NaN;
     this.fitting++;
     try {
       this.chart.setBarSpace(space);
