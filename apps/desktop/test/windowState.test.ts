@@ -9,14 +9,24 @@ describe('visibleBounds: size clamped to the chosen display', () => {
     expect(visibleBounds({ x: 100, y: 50, width: 1000, height: 700 }, [laptop])).toEqual({ x: 100, y: 50, width: 1000, height: 700 });
   });
 
-  it('shrinks a window saved on a larger display to the work area it reopens on', () => {
+  it('shrinks a window saved on a larger display to the work area it reopens on, fully inside it', () => {
     // Saved full size on the external display, which is now gone.
-    expect(visibleBounds({ x: 10, y: 0, width: 2560, height: 1415 }, [laptop])).toEqual({ x: 10, y: 0, width: 1440, height: 875 });
+    expect(visibleBounds({ x: 10, y: 0, width: 2560, height: 1415 }, [laptop])).toEqual({ x: 0, y: 0, width: 1440, height: 875 });
   });
 
-  it('clamps to the display the top-left lands on, not to another one', () => {
+  it('1440×900 screen (menu bar: work area from y=25): a full-screen-sized window fits exactly', () => {
+    const mac = { x: 0, y: 25, width: 1440, height: 875 };
+    expect(visibleBounds({ x: 0, y: 0, width: 1440, height: 900 }, [mac])).toEqual({ x: 0, y: 25, width: 1440, height: 875 });
+    // Fits in size but hangs off the right and bottom edges: moved in, not shrunk.
+    expect(visibleBounds({ x: 200, y: 100, width: 1400, height: 850 }, [mac])).toEqual({ x: 40, y: 50, width: 1400, height: 850 });
+  });
+
+  it('uses the display the window overlaps most, not the first match', () => {
+    // Top-left on the laptop, but most of the window is on the external display.
+    expect(visibleBounds({ x: 1300, y: 20, width: 2000, height: 1200 }, [laptop, external]))
+      .toEqual({ x: 1440, y: 20, width: 2000, height: 1200 });
     expect(visibleBounds({ x: 1500, y: 20, width: 3000, height: 2000 }, [laptop, external]))
-      .toEqual({ x: 1500, y: 20, width: 2560, height: 1415 });
+      .toEqual({ x: 1440, y: 0, width: 2560, height: 1415 });
   });
 
   it('still drops bounds that are off every display', () => {

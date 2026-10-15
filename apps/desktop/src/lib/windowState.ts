@@ -32,19 +32,32 @@ export function parseWindowState(raw: unknown): WindowState {
   };
 }
 
+const overlap = (b: Rect, a: Rect): number =>
+  Math.max(0, Math.min(b.x + b.width, a.x + a.width) - Math.max(b.x, a.x))
+  * Math.max(0, Math.min(b.y + b.height, a.y + a.height) - Math.max(b.y, a.y));
+
 /**
- * Keeps saved bounds only if their top-left area is visible on one of the current displays' work areas, with the
- * size clamped to that work area (a window saved on a larger, now missing display would otherwise open bigger
- * than the screen, with its bottom and right edges out of reach).
+ * Restores saved bounds onto the current displays, or returns null (default size) when the window's title bar
+ * area is on none of them. The work area chosen is the one the window overlaps most; the size is clamped to it
+ * (a window saved on a larger, now missing display would otherwise open bigger than the screen), then the position,
+ * so the whole window, edges and title bar included, is inside that work area.
  */
 export function visibleBounds(bounds: Rect | null, workAreas: readonly Rect[]): Rect | null {
   if (!bounds) return null;
   const grab = 100; // enough of the title bar to drag the window back
-  const area = workAreas.find((a) =>
+  const titleBarVisible = (a: Rect) =>
     bounds.x + grab <= a.x + a.width && bounds.x + bounds.width - grab >= a.x
-    && bounds.y >= a.y && bounds.y + grab <= a.y + a.height);
+    && bounds.y + grab > a.y && bounds.y < a.y + a.height - grab;
+  let area: Rect | null = null;
+  for (const a of workAreas) {
+    if (titleBarVisible(a) && (area === null || overlap(bounds, a) > overlap(bounds, area))) area = a;
+  }
   if (!area) return null;
-  return { ...bounds, width: Math.min(bounds.width, area.width), height: Math.min(bounds.height, area.height) };
+  const width = Math.min(bounds.width, area.width);
+  const height = Math.min(bounds.height, area.height);
+  const x = Math.min(Math.max(bounds.x, area.x), area.x + area.width - width);
+  const y = Math.min(Math.max(bounds.y, area.y), area.y + area.height - height);
+  return { x, y, width, height };
 }
 
 /**
