@@ -45,7 +45,7 @@ otherwise.
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
 node apps/desktop/node_modules/electron/install.js   # Electron binary (skipped by --ignore-scripts); once
-pnpm --filter @chartmate/desktop start      # build the web UI, bundle, run unpackaged (DevTools enabled)
+pnpm --filter @chartmate/desktop start      # build the web UI, dev bundle, run unpackaged (DevTools enabled)
 pnpm --filter @chartmate/desktop pack:dir   # unpacked app only, e.g. release/mac-arm64/Chartmate.app
 pnpm --filter @chartmate/desktop dist:mac   # release/Chartmate-<v>-mac-{arm64,x64}.{dmg,zip}
 pnpm --filter @chartmate/desktop dist:win   # release/Chartmate-<v>-win-{x64,arm64}.{exe,zip}; needs Windows or CI
@@ -55,10 +55,19 @@ pnpm --filter @chartmate/desktop test       # unit + security tests (protocol, g
 Building the NSIS installer on Apple-silicon Macs fails unless Rosetta is installed, because electron-builder's
 `makensis` is an x86_64 binary. Build Windows installers in CI.
 
+**Hardened and development bundles.** `scripts/bundle.mjs --dev` produces the development bundle (unminified,
+source maps, `__DEV_BUNDLE__ = true`); `start` and the unpackaged smoke run use it. Every other bundle (`bundle`,
+`pack:dir`, `dist:*`, the TEST-ONLY copy) is a production bundle. Whether the startup guards, the DevTools
+lockdown, the `devtools:` request exception and the fixed data directory apply is decided once, in `src/boot.ts`,
+by `isHardened()` (`src/lib/buildMode.ts`): a production bundle is **always** hardened, and the dev bundle is
+hardened when packaged. Electron's `app.isPackaged` alone is not used as a gate, because it only compares the
+executable's file name with `electron`/`electron.exe`: a user-level copy of the installed app with the executable
+renamed would otherwise run without the guards.
+
 ## Smoke tests
 
 ```sh
-pnpm --filter @chartmate/desktop bundle && pnpm --filter @chartmate/desktop smoke     # unpackaged app
+pnpm --filter @chartmate/web build && node apps/desktop/scripts/bundle.mjs --dev && pnpm --filter @chartmate/desktop smoke   # unpackaged app (dev bundle)
 
 # packaged app: the shipped build + a TEST-ONLY inspectable copy of it
 cd apps/desktop
@@ -73,12 +82,18 @@ SMOKE_LIVE=1 pnpm smoke                                                       # 
 `app.spec.ts` uses the fixture providers unless `SMOKE_PROVIDERS=live`. The packaged example needs a packaged
 app first (`pack:dir` or `dist:mac`).
 
+The unpackaged run needs the dev bundle: a production bundle is hardened even unpackaged, so it refuses
+Playwright's `--inspect`/`--remote-debugging-port` switches (the specs check for the dev bundle's source map and
+say so).
+
 A packaged build refuses to start with a debugging or weakening switch (see [Security model](#security-model)), so no
 test harness can attach to it. `smoke/prepare-inspectable.mjs` therefore builds a separate copy for the
 functional tests:
 
 - the copy is named `… TEST-ONLY` and carries a `TEST-ONLY-NOT-FOR-DISTRIBUTION.txt` marker;
-- its only code difference is that the switch guard is compiled out (`bundle.mjs --test-inspectable`);
+- its only code differences: the switch guard is compiled out, and it honors `CHARTMATE_USER_DATA_DIR` so the
+  functional tests run on a scratch directory (`bundle.mjs --test-inspectable`, a production bundle otherwise:
+  it cannot be combined with `--dev`);
 - on macOS, asar integrity stays on: the Info.plist hash is updated and the copy is re-signed ad hoc;
 - on Windows, the copy turns asar integrity validation off, because the hash lives in a PE resource.
 
@@ -91,6 +106,9 @@ The functional tests (`app.spec.ts`) drive that copy over CDP. `packaged-hardeni
 - it refuses the forbidden environment variables in the same way;
 - `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` have no effect;
 - it ignores `CHARTMATE_USER_DATA_DIR`;
+- a copy whose executable is renamed to `Electron` / `electron.exe` (Electron then reports `isPackaged = false`)
+  stays hardened: the log says `hardened=true`, it ignores `CHARTMATE_USER_DATA_DIR`, and it refuses
+  `--remote-debugging-port` and `--inspect`;
 - a tampered `app.asar` refuses to start (macOS);
 - the updater is present only in signed builds (`SMOKE_EXPECT_UNSIGNED`).
 
@@ -107,7 +125,7 @@ locally with `SMOKE_ALLOW_REAL_USERDATA=1`.
 
 The desktop app honors only `CHARTMATE_PROVIDERS`, `CRYPTO_PROVIDER`, `BINANCE_BASE_URL` (https only) and
 `CHARTMATE_DISABLE_UPDATES=1` from the environment (`src/lib/desktopConfig.ts`, `src/lib/updatePolicy.ts`), plus
-`CHARTMATE_USER_DATA_DIR` in development runs. Everything else that concerns the network surface or storage is
+`CHARTMATE_USER_DATA_DIR` in dev-bundle runs and the TEST-ONLY copy. Everything else that concerns the network surface or storage is
 fixed: no listener, no login, SQLite in the per-user data directory.
 
 A packaged build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY` or `SSLKEYLOGFILE` is set.
@@ -142,12 +160,12 @@ The renderer is treated as untrusted web content, and the main process exposes n
   - Node is off everywhere, including workers and subframes;
   - there is no preload script and no `webview`;
   - spellcheck and experimental features are off;
-  - DevTools are available only in unpackaged runs. In a packaged build, DevTools are also closed if they ever
-    open, and the menu has no DevTools item.
+  - DevTools are available only when the dev bundle runs unpackaged. In every hardened build (see
+    [Build and run](#build-and-run)), DevTools are also closed if they ever open, and the menu has no DevTools item.
 - **Sandboxing and crashes**: `app.enableSandbox()` is called before ready, and only a single instance can run. A
   crashed renderer is reloaded at most 3 times per minute. After that, a static error page is shown once, and if
   that page crashes too, the window is closed with an error dialog. There is never a reload loop.
-- **Command-line switches and environment** (`src/boot.ts`, the first module evaluated): a packaged build exits
+- **Command-line switches and environment** (`src/boot.ts`, the first module evaluated): a hardened build exits
   with code 1 if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE` or `NODE_EXTRA_CA_CERTS` is set (see
   [Network and environment](#network-and-environment)), or any of these switches is present (`--x`, `-x`, and `/x`
   on Windows):
@@ -185,7 +203,7 @@ The renderer is treated as untrusted web content, and the main process exposes n
   HID/serial/USB pickers): all denied, and downloads are blocked. These rules apply to **every** session, including
   ones created later, through `session-created`.
 - **Renderer network**: `webRequest.onBeforeRequest` cancels every request that is not `app://chartmate`. `devtools:`
-  is also allowed in development.
+  is also allowed when the dev bundle runs unpackaged.
 - **Main-process network**: `globalThis.fetch` is wrapped by an allowlist on top of the direct, CA-pinned undici
   transport described above. It allows HTTPS only, exact hosts and
   the default port, and it follows redirects itself so that every hop is checked. On a redirect to another

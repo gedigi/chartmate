@@ -22,6 +22,9 @@ app, the Docker image and the release tag share one version number.
   update is ready to install.
 - Chartmate 1.0.0 shipped with updates turned off: install this version by hand once, and later versions arrive
   automatically.
+- The released app keeps all of its startup and window protections even when its executable is renamed (for
+  example a copy renamed to `electron.exe`): it still refuses debugging switches, keeps DevTools off and ignores
+  `CHARTMATE_USER_DATA_DIR`.
 
 ### Self-hosting
 

@@ -79,7 +79,8 @@ export function findForbiddenEnv(env: Record<string, string | undefined>): strin
 }
 
 export interface StartupGuardDeps {
-  isPackaged: boolean;
+  /** isHardened() (lib/buildMode.ts): false only for the dev bundle run unpackaged. */
+  hardened: boolean;
   /** False only in the TEST-ONLY inspectable copy (the switch check is compiled out there). */
   checkSwitches: boolean;
   argv: readonly string[];
@@ -93,11 +94,11 @@ export interface StartupGuardDeps {
 }
 
 /**
- * Packaged builds refuse to start with a forbidden environment variable or command-line switch: the reason goes to
+ * Hardened builds refuse to start with a forbidden environment variable or command-line switch: the reason goes to
  * stderr and to a native error box naming the offending items, then the process exits with code 1.
  */
 export function runStartupGuards(d: StartupGuardDeps): void {
-  if (!d.isPackaged) return;
+  if (!d.hardened) return;
   const refuse = (kind: string, items: string[], hint: string) => {
     d.writeStderr(`refusing to start: forbidden ${kind}: ${items.join(', ')}\n`);
     d.showError(`${d.productName} cannot start`,

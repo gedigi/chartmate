@@ -5,10 +5,10 @@
 // and previous product names). They are moved aside first and put back afterwards; nothing is deleted (the run's
 // own directory is renamed to *.smoke-trash-<timestamp>). Runs only in CI or with SMOKE_ALLOW_REAL_USERDATA=1, and
 // the app must not be running.
-import { spawn, type ChildProcess } from 'node:child_process';
-import { closeSync, cpSync, existsSync, fstatSync, mkdtempSync, openSync, readFileSync, readSync, writeFileSync, writeSync } from 'node:fs';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { closeSync, cpSync, existsSync, fstatSync, mkdtempSync, openSync, readFileSync, readSync, renameSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { debugEndpointKind, defaultUserDataDir, executableOf, isolateUserData, listeningSockets, processTree, realUserDataAllowed } from './helpers.js';
 
@@ -126,8 +126,8 @@ test('NodeOptions fuse: NODE_OPTIONS --require is ignored', async () => {
  * keeps the process alive until dismissed, so the harness kills it), no window, no debugger, no listener at all.
  * The exit code (1) after the box is dismissed is covered by test/startupGuards.test.ts.
  */
-async function expectRefused(args: string[], env: Record<string, string> = {}, what = /forbidden command-line switch/): Promise<string> {
-  const { child, output } = start(env, args);
+async function expectRefused(args: string[], env: Record<string, string> = {}, what = /forbidden command-line switch/, bin = exe()): Promise<string> {
+  const { child, output } = start(env, args, bin);
   try {
     expect(await waitFor(() => /refusing to start/.test(output()) || child.exitCode !== null, 15_000), `${args.join(' ')} ${JSON.stringify(env)} should be refused`).toBe(true);
     expect(output()).toMatch(what);
@@ -235,4 +235,47 @@ test('ASAR integrity: a tampered app.asar refuses to run', async () => {
   } finally {
     await stop(child);
   }
+});
+
+/**
+ * A copy of the shipped app whose executable is named like the stock Electron binary (`Electron` in the macOS
+ * bundle, `electron.exe` on Windows), which makes Electron report app.isPackaged = false. The production bundle must
+ * stay hardened anyway (src/lib/buildMode.ts). macOS: CFBundleExecutable is updated and the copy re-signed ad hoc
+ * (asar integrity stays on: app.asar and its Info.plist hash are unchanged).
+ */
+function renamedElectronCopy(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'chartmate-renamed-'));
+  if (appPath!.endsWith('.app')) {
+    const copy = join(dir, 'Renamed.app');
+    cpSync(appPath!, copy, { recursive: true, verbatimSymlinks: true });
+    const macos = join(copy, 'Contents', 'MacOS');
+    renameSync(executableOf(copy), join(macos, 'Electron'));
+    execFileSync('plutil', ['-replace', 'CFBundleExecutable', '-string', 'Electron', join(copy, 'Contents', 'Info.plist')]);
+    execFileSync('codesign', ['--force', '--deep', '--sign', '-', copy], { stdio: 'ignore' });
+    return join(macos, 'Electron');
+  }
+  const copy = join(dir, 'app');
+  cpSync(dirname(exe()), copy, { recursive: true });
+  const renamed = join(copy, 'electron.exe');
+  renameSync(join(copy, basename(exe())), renamed);
+  return renamed;
+}
+
+test('renamed executable (isPackaged=false): still hardened, ignores CHARTMATE_USER_DATA_DIR, refuses debugging switches', async () => {
+  test.skip(process.platform !== 'darwin' && process.platform !== 'win32', 'macOS bundle or Windows executable layout');
+  const bin = renamedElectronCopy();
+  const elsewhere = mkdtempSync(join(tmpdir(), 'chartmate-ignored-'));
+  const { child } = start({ CHARTMATE_USER_DATA_DIR: elsewhere }, [], bin);
+  try {
+    expect(await waitFor(shown, 30_000)).toBe(true);
+    // The rename did flip Electron's isPackaged. DevTools, the DevTools menu entry, the devtools:// request
+    // exception and the data-directory override all key off `hardened` (src/lib/buildMode.ts), which stays true.
+    expect(log()).toMatch(/packaged=false, hardened=true/);
+    expect(existsSync(join(userData, 'chartmate.db'))).toBe(true);
+    expect(existsSync(join(elsewhere, 'chartmate.db'))).toBe(false);
+  } finally {
+    await stop(child);
+  }
+  await expectRefused(['--remote-debugging-port=0'], {}, /forbidden command-line switch/, bin);
+  await expectRefused(['--inspect=0'], {}, /forbidden command-line switch/, bin);
 });

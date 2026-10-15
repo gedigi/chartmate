@@ -15,12 +15,12 @@ const flatRoles = (items: unknown[]): string[] => items.flatMap((i) => {
 describe('menuTemplate', () => {
   it('packaged builds have no DevTools entry', () => {
     for (const isMac of [true, false]) {
-      expect(flatRoles(menuTemplate({ isMac, isPackaged: true, appName: 'Chartmate' }))).not.toContain('toggleDevTools');
+      expect(flatRoles(menuTemplate({ isMac, hardened: true, appName: 'Chartmate' }))).not.toContain('toggleDevTools');
     }
-    expect(flatRoles(menuTemplate({ isMac: true, isPackaged: false, appName: 'Chartmate' }))).toContain('toggleDevTools');
+    expect(flatRoles(menuTemplate({ isMac: true, hardened: false, appName: 'Chartmate' }))).toContain('toggleDevTools');
   });
   it('macOS has the standard app menu and Edit menu', () => {
-    const roles = flatRoles(menuTemplate({ isMac: true, isPackaged: true, appName: 'Chartmate' }));
+    const roles = flatRoles(menuTemplate({ isMac: true, hardened: true, appName: 'Chartmate' }));
     expect(roles).toEqual(expect.arrayContaining(['about', 'hide', 'quit', 'editMenu', 'windowMenu']));
   });
 });

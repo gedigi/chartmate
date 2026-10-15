@@ -777,7 +777,8 @@ What gets logged:
 - **Before writing any line**: absolute paths, URL credentials and secret-looking values are scrubbed.
 
 Migrations run before the window loads. `CHARTMATE_USER_DATA_DIR=/abs/path` overrides the directory in
-development runs only; packaged builds ignore it, just as they refuse `--user-data-dir`.
+development runs (`pnpm --filter @chartmate/desktop start`) and in the test-only copy the smoke tests build; the
+released app ignores it (even when its executable is renamed), just as it refuses `--user-data-dir`.
 
 ### Environment
 

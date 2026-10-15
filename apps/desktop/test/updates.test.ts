@@ -219,10 +219,10 @@ describe('update menu (macOS only: the Windows window has no visible menu bar)',
   });
   it('macOS: the update items sit right after About; Windows gets no update menu (it would be unreachable)', () => {
     const updates = { state: { kind: 'enabled', automatic: true } as UpdateMenuState, ...handlers };
-    const mac = menuTemplate({ isMac: true, isPackaged: true, appName: 'Chartmate', updates });
+    const mac = menuTemplate({ isMac: true, hardened: true, appName: 'Chartmate', updates });
     const appMenu = mac[0]!.submenu as MenuItemConstructorOptions[];
     expect(labels(appMenu).slice(0, 4)).toEqual(['about', 'Check for Updates…', 'Check for Updates Automatically', 'separator']);
-    const win = menuTemplate({ isMac: false, isPackaged: true, appName: 'Chartmate', updates });
+    const win = menuTemplate({ isMac: false, hardened: true, appName: 'Chartmate', updates });
     const all = JSON.stringify(win);
     expect(all).not.toMatch(/update/i);
     expect(win.some((m) => m.role === 'help')).toBe(false);

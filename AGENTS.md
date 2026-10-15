@@ -93,7 +93,7 @@ Desktop (`apps/desktop`; `pnpm --filter @chartmate/desktop <script>`):
 | `smoke` | Playwright + Electron smoke tests. |
 
 Smoke env vars: `SMOKE_APP` (the TEST-ONLY copy from `smoke/prepare-inspectable.mjs`; unset = unpackaged
-app), `SMOKE_HARDENED_APP` (the unmodified packaged app), `SMOKE_EXPECT_UNSIGNED` (`1` unsigned, `0` signed),
+app, which needs the dev bundle: `node apps/desktop/scripts/bundle.mjs --dev`), `SMOKE_HARDENED_APP` (the unmodified packaged app), `SMOKE_EXPECT_UNSIGNED` (`1` unsigned, `0` signed),
 `SMOKE_ALLOW_REAL_USERDATA=1` (needed outside CI for the hardened spec; it moves the real per-user data aside
 and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by default). See "Smoke tests" in
 `docs/desktop.md` for the full sequence.
@@ -177,6 +177,9 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   write HTML strings into the DOM.
 - Main-process network goes through the outbound allowlist (`netAllowlist.ts`) on the direct, CA-pinned
   transport (`directFetch.ts`). Adding a host is a security change.
+- Security gates use `hardened` (`isHardened()` in `buildMode.ts`, computed once in `src/boot.ts`), never
+  `app.isPackaged`, which only reflects the executable's file name. Only the `--dev` bundle run unpackaged is
+  unhardened.
 - Fuses (`build/fuses.cjs`), window hardening (`hardening.ts`), startup guards (`startupGuards.ts`), the listen
   guard and the navigation/permission handlers are pinned by tests. Changing any of them needs a security
   review.

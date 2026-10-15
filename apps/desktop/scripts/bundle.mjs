@@ -6,7 +6,8 @@
 //   builds do not contain the auto-updater at all (and main.cjs has the updater code path compiled out).
 //
 // Usage: node scripts/bundle.mjs [--dev] [--platform=darwin|win32] [--out=<dir>] [--test-inspectable]
-//   --dev               unminified, with source maps
+//   --dev               development bundle: unminified, source maps, and __DEV_BUNDLE__ = true, the only bundle that
+//                       runs unhardened when started unpackaged (src/lib/buildMode.ts). Never for release builds.
 //   --platform          target platform for the signing decision (default: the host platform)
 //   --test-inspectable  TEST-ONLY variant used by smoke/prepare-inspectable.mjs: the command-line switch guard is
 //                       compiled out so a test harness can attach. Never packaged by electron-builder.
@@ -48,6 +49,10 @@ function canonical(p) {
 // The test-only variant must never land in dist/ (which electron-builder packages).
 const distCanon = canonical(here('../dist'));
 const outCanon = canonical(out);
+if (testInspectable && dev) {
+  console.error('--test-inspectable cannot be combined with --dev (the TEST-ONLY copy must stay a hardened production bundle)');
+  process.exit(2);
+}
 if (testInspectable && (!arg('out') || outCanon === distCanon || outCanon.startsWith(distCanon + sep))) {
   console.error('--test-inspectable requires --out=<dir> outside apps/desktop/dist (it must never be packaged)');
   process.exit(2);
@@ -87,6 +92,8 @@ const common = {
     // updates (src/lib/winSignature.ts, updatePolicy.ts).
     __WIN_PUBLISHER_DN__: JSON.stringify(String(process.env.CHARTMATE_WIN_PUBLISHER_DN ?? '').trim()),
     __TEST_INSPECTABLE__: JSON.stringify(testInspectable),
+    // Only the --dev bundle may run unhardened, and only unpackaged (src/lib/buildMode.ts).
+    __DEV_BUNDLE__: JSON.stringify(dev),
     'process.env.NODE_ENV': JSON.stringify(dev ? 'development' : 'production'),
   },
   logLevel: 'warning',

@@ -9,7 +9,7 @@ import { CONTENT_SECURITY_POLICY } from '../src/lib/securityHeaders.js';
 
 describe('webPreferences (security configuration snapshot)', () => {
   it('packaged: sandboxed, isolated, no Node, no webviews, no DevTools', () => {
-    expect(secureWebPreferences({ isPackaged: true })).toEqual({
+    expect(secureWebPreferences({ hardened: true })).toEqual({
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -30,13 +30,13 @@ describe('webPreferences (security configuration snapshot)', () => {
   });
 
   it('has no preload script', () => {
-    expect(secureWebPreferences({ isPackaged: true })).not.toHaveProperty('preload');
-    expect(secureWebPreferences({ isPackaged: false })).not.toHaveProperty('preload');
+    expect(secureWebPreferences({ hardened: true })).not.toHaveProperty('preload');
+    expect(secureWebPreferences({ hardened: false })).not.toHaveProperty('preload');
   });
 
   it('development keeps every protection and only enables DevTools', () => {
-    const dev = secureWebPreferences({ isPackaged: false });
-    const prod = secureWebPreferences({ isPackaged: true });
+    const dev = secureWebPreferences({ hardened: false });
+    const prod = secureWebPreferences({ hardened: true });
     expect({ ...dev, devTools: false }).toEqual(prod);
     expect(dev.devTools).toBe(true);
   });
@@ -82,10 +82,10 @@ class FakeContents extends EventEmitter {
 const ev = () => ({ preventDefault: vi.fn() });
 
 describe('hardenWebContents', () => {
-  const setup = (isPackaged = true) => {
+  const setup = (hardened = true) => {
     const c = new FakeContents();
     const onBlocked = vi.fn();
-    hardenWebContents(c as unknown as WebContents, { isPackaged, onBlocked });
+    hardenWebContents(c as unknown as WebContents, { hardened, onBlocked });
     return { c, onBlocked };
   };
 
@@ -153,7 +153,7 @@ describe('hardenSession', () => {
 
   it('denies all permissions, devices, display capture, downloads; disables spellcheck', () => {
     const s = fakeSession();
-    hardenSession(s as unknown as Session, { isPackaged: true });
+    hardenSession(s as unknown as Session, { hardened: true });
     for (const p of ['media', 'geolocation', 'notifications', 'clipboard-read', 'midi', 'openExternal', 'fullscreen']) {
       const cb = vi.fn();
       s.permissionRequest!(null, p, cb);
@@ -177,7 +177,7 @@ describe('hardenSession', () => {
 
   it('cancels every renderer request that is not app://chartmate', () => {
     const s = fakeSession();
-    hardenSession(s as unknown as Session, { isPackaged: true });
+    hardenSession(s as unknown as Session, { hardened: true });
     const decide = (url: string) => {
       let r: { cancel: boolean } | undefined;
       s.beforeRequest!({ url }, (x) => { r = x; });
@@ -207,7 +207,7 @@ describe('hardenAllSessions', () => {
   it('hardens the existing sessions and every session created later, once each', () => {
     const app = new EventEmitter();
     const def = fake();
-    hardenAllSessions(app as unknown as App, [def as unknown as Session], { isPackaged: true });
+    hardenAllSessions(app as unknown as App, [def as unknown as Session], { hardened: true });
     expect(def.calls).toBe(1);
     const partition = fake();
     app.emit('session-created', partition);
@@ -221,7 +221,7 @@ describe('hardenAllSessions', () => {
 describe('hardenApp', () => {
   it('hardens every WebContents created later', () => {
     const app = new EventEmitter();
-    hardenApp(app as unknown as App, { isPackaged: true });
+    hardenApp(app as unknown as App, { hardened: true });
     const c = new FakeContents();
     app.emit('web-contents-created', {}, c);
     expect(c.openHandler!({ url: 'https://x' })).toEqual({ action: 'deny' });

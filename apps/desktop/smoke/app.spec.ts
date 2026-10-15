@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { ChildProcess } from 'node:child_process';
 import { _electron as electron, chromium, expect, test, type Browser, type ElectronApplication, type Page } from '@playwright/test';
 import { TITLE_BAR_OVERLAY } from '../src/lib/titleBar.js';
-import { debugEndpointKind, executableOf, listeningSockets, processTree, spawnWithCdp } from './helpers.js';
+import { debugEndpointKind, executableOf, listeningSockets, processTree, requireDevBundle, spawnWithCdp } from './helpers.js';
 
 const APP_DIR = fileURLToPath(new URL('..', import.meta.url));
 const packaged = process.env.SMOKE_APP ? executableOf(process.env.SMOKE_APP) : null;
@@ -42,6 +42,7 @@ test.beforeAll(async () => {
     const ctx = browser.contexts()[0]!;
     page = ctx.pages().find((p) => p.url().startsWith('app://')) ?? await ctx.waitForEvent('page');
   } else {
+    requireDevBundle(APP_DIR);
     app = await electron.launch({ args: [APP_DIR], env });
     page = await app.firstWindow();
   }

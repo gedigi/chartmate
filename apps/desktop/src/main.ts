@@ -1,7 +1,7 @@
 // Electron main process: the Chartmate server (Fastify, in-process, no listener; see listenGuard.ts for the single
 // macOS update-install exception) + one hardened window that talks
 // to it only through the privileged app:// scheme. Bundled by scripts/bundle.mjs into dist/main.cjs.
-import './boot.js'; // MUST stay first: command-line switch guard + environment sanitizing
+import { hardened } from './boot.js'; // MUST stay first: command-line switch guard + environment sanitizing
 import net from 'node:net';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -47,14 +47,15 @@ declare const __RELEASES_URL__: string;
 declare const __WIN_PUBLISHER_DN__: string;
 
 const t0 = Date.now() - Math.round(process.uptime() * 1000);
+// Not a security gate (renaming the executable flips it; see lib/buildMode.ts): `hardened` from boot.ts is.
 const isPackaged = app.isPackaged;
 
 // Everything the main process creates (DB, WAL/SHM, logs, state) is owner-only.
 process.umask(0o077);
 
 app.setName(product.productName);
-// Packaged builds always use the per-user default (only dev runs and the TEST-ONLY copy honor CHARTMATE_USER_DATA_DIR).
-const userData = resolveUserDataDir(join(app.getPath('appData'), product.productName), process.env, { allowOverride: !isPackaged || __TEST_INSPECTABLE__ });
+// Hardened builds always use the per-user default (only the dev bundle and the TEST-ONLY copy honor CHARTMATE_USER_DATA_DIR).
+const userData = resolveUserDataDir(join(app.getPath('appData'), product.productName), process.env, { allowOverride: !hardened || __TEST_INSPECTABLE__ });
 app.setPath('userData', userData);
 app.setPath('sessionData', userData);
 app.setAppLogsPath(join(userData, 'logs'));
@@ -66,7 +67,7 @@ const listenGuard = installListenGuard(net.Server.prototype, { audit: (m) => log
 
 app.enableSandbox();
 protocol.registerSchemesAsPrivileged([...PRIVILEGED_SCHEMES]);
-const hardenOpts = { isPackaged, onBlocked: (what: string, url: string) => log.warn(`blocked ${what} ${url}`) };
+const hardenOpts = { hardened, onBlocked: (what: string, url: string) => log.warn(`blocked ${what} ${url}`) };
 hardenApp(app, hardenOpts);
 
 const { config } = desktopConfig({ userData, env: process.env });
@@ -97,7 +98,7 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 async function start(): Promise<void> {
-  log.info(`starting ${product.productName} ${app.getVersion()} (electron ${process.versions.electron}, node ${process.versions.node}, packaged=${isPackaged})`);
+  log.info(`starting ${product.productName} ${app.getVersion()} (electron ${process.versions.electron}, node ${process.versions.node}, packaged=${isPackaged}, hardened=${hardened})`);
   ensurePrivateDir(userData);
   const legacyDirs = (product.previousProductNames as string[]).map((n) => join(app.getPath('appData'), n));
   const dbFiles = [DB_FILE_NAME, `${DB_FILE_NAME}-wal`, `${DB_FILE_NAME}-shm`];
@@ -171,7 +172,7 @@ function setMenu(): void {
     ? { kind: 'enabled', automatic: updates.automatic }
     : { kind: updateState === 'enabled' ? 'unavailable' : updateState };
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({
-    isMac, isPackaged, appName: product.productName,
+    isMac, hardened, appName: product.productName,
     updates: {
       state,
       onCheck: () => {
@@ -210,7 +211,7 @@ function createWindow(): void {
     ...(process.platform === 'darwin' ? {} : { icon: join(__dirname, 'icon.png') }),
     // Frameless: the web top bar is the title bar (macOS traffic lights / Windows caption overlay on top of it).
     ...frameOptions(process.platform, state.theme),
-    webPreferences: secureWebPreferences({ isPackaged }),
+    webPreferences: secureWebPreferences({ hardened }),
   });
   mainWindow = win;
   if (state.maximized) win.maximize();
