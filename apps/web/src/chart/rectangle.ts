@@ -100,16 +100,28 @@ export const HIDDEN_HANDLE: Readonly<Coord> = { x: -1e5, y: -1e5 };
 /** A side shorter than this many handle diameters hides its midpoint handle, so the corners stay easy to grab. */
 export const MIDPOINT_MIN_DIAMETERS = 3;
 
+/** Space (px) kept between two handles side by side, on top of one handle diameter. */
+export const HANDLE_PAIR_GAP = 6;
+
 /**
  * Pixel positions of the eight handles (see RECTANGLE): corners where they are, midpoints halfway along the box. On a
  * side shorter than `minSpan` px the two midpoints along it are hidden (HIDDEN_HANDLE): the corners win.
+ * A box narrower than `minPair` px (two handles side by side would overlap) gets one centered column instead: the
+ * horizontal edges' midpoints at its top and bottom (they resize vertically) and A's vertical edge in the middle (it
+ * widens the box again); likewise a box shorter than `minPair` gets one centered row (the vertical edges' midpoints at
+ * its ends, A's horizontal edge in the middle). A box too small both ways keeps only its first corner.
  */
-export function handleCoordinates(a: Coord, b: Coord, box: Box, minSpan = 0): Coord[] {
+export function handleCoordinates(a: Coord, b: Coord, box: Box, minSpan = 0, minPair = 0): Coord[] {
   const midX = (box.left + box.right) / 2;
   const midY = (box.top + box.bottom) / 2;
   const tall = box.bottom - box.top >= minSpan;
   const wide = box.right - box.left >= minSpan;
   const hidden = () => ({ ...HIDDEN_HANDLE });
+  const column = box.right - box.left < minPair;
+  const row = box.bottom - box.top < minPair;
+  if (column && row) return [{ ...a }, hidden(), hidden(), hidden(), hidden(), hidden(), hidden(), hidden()];
+  if (column) return [hidden(), hidden(), hidden(), hidden(), { x: midX, y: midY }, hidden(), { x: midX, y: a.y }, { x: midX, y: b.y }];
+  if (row) return [hidden(), hidden(), hidden(), hidden(), { x: a.x, y: midY }, { x: b.x, y: midY }, { x: midX, y: midY }, hidden()];
   return [
     { ...a }, { ...b }, { x: a.x, y: b.y }, { x: b.x, y: a.y },
     tall ? { x: a.x, y: midY } : hidden(), tall ? { x: b.x, y: midY } : hidden(),
@@ -159,14 +171,18 @@ const template: OverlayTemplate = {
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: true,
   createPointFigures: (p: FigureParams) => {
-    const [a, b] = p.coordinates;
-    if (!a || !b) return [];
+    const [pa, pb] = p.coordinates;
+    if (!pa || !pb) return [];
+    // Copies: the handle positions below are written into the coordinates array itself.
+    const a = { x: pa.x, y: pa.y };
+    const b = { x: pb.x, y: pb.y };
     const box = rectangleBox(a, b);
     // KLineChart draws the handles after these figures from this same coordinates array (10.0.x; a real-chart test
-    // pins it): the midpoint handles go halfway along the edges, or out of the way on a small box.
+    // pins it): the midpoints go halfway along the edges, and a small box gets fewer handles (handleCoordinates).
     if (p.coordinates.length >= 8) {
-      const handles = handleCoordinates(a, b, box, MIDPOINT_MIN_DIAMETERS * handleDiameter(p));
-      for (let i = 4; i < 8; i++) Object.assign(p.coordinates[i]!, handles[i]);
+      const d = handleDiameter(p);
+      const handles = handleCoordinates(a, b, box, MIDPOINT_MIN_DIAMETERS * d, d + HANDLE_PAIR_GAP);
+      for (let i = 0; i < 8; i++) Object.assign(p.coordinates[i]!, handles[i]);
     }
     const line = lineStyles(p);
     const size = typeof line.size === 'number' && line.size > 0 ? line.size : 1;

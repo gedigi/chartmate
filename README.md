@@ -580,7 +580,9 @@ Where to read next:
   - **Editing**: a selected rectangle has eight handles. Drag a corner to move the two edges it touches, an edge's
     midpoint to move that edge only, or the inside (or the border) to move the whole box. Dragging a corner past the
     opposite one simply flips the box. On a box narrower or shorter than about three handles, the midpoints along
-    that side are hidden, so the corners are easy to grab. The time axis shows the start and end times, the left
+    that side are hidden, so the corners are easy to grab. A box too narrow for two handles side by side shows
+    a single centered column instead (top and bottom resize it vertically, the middle one widens it again), and a
+    very short box a single centered row. The time axis shows the start and end times, the left
     one ending at its time and the right one starting at its time, kept inside the axis.
     On a narrow box, or when they would run into each other, they merge into one "start – end" label (naming the
     day once for a range within one day).

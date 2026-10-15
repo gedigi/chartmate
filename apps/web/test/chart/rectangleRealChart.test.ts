@@ -199,6 +199,42 @@ describe('rectangle handles and placement with the real KLineChart', () => {
     expect(drawingContext.selectedId).toBeNull();
   });
 
+  it('a rectangle one bar wide draws a single centered column of handles (no doubled dots)', async () => {
+    const { a, i } = await setup();
+    const conv = chartOf(a) as unknown as { convertFromPixel: (c: object[], f: object) => Array<{ timestamp: number; value: number }> };
+    // Two neighboring bars: find the pixel where the bar changes right of x = 200.
+    const [first] = conv.convertFromPixel([{ x: 200, y: 100 }], { paneId: 'candle_pane' });
+    let x = 201;
+    while (conv.convertFromPixel([{ x, y: 100 }], { paneId: 'candle_pane' })[0]!.timestamp === first!.timestamp) x++;
+    const [second] = conv.convertFromPixel([{ x, y: 300 }], { paneId: 'candle_pane' });
+    const corners = [first!, second!].map((p) => ({ timestamp: p.timestamp, value: p.value }));
+    a.restoreDrawings([{ name: 'rectangle', points: corners, lock: false }], BTC.id);
+    await vi.waitFor(() => expect(a.drawingCount().total).toBe(1));
+    const o = i.userOverlays()[0]!;
+    i.selectOverlay(o.id);
+    const [pa, pb] = chartOf(a).convertToPixel(corners, { paneId: 'candle_pane' });
+    const width = Math.abs(pb!.x - pa!.x);
+    expect(width).toBeGreaterThan(0);
+    expect(width).toBeLessThan(18); // narrower than a handle and a gap
+    const midX = (Math.round(Math.min(pa!.x, pb!.x)) + Math.round(Math.max(pa!.x, pb!.x))) / 2;
+    const midY = (Math.round(Math.min(pa!.y, pb!.y)) + Math.round(Math.max(pa!.y, pb!.y))) / 2;
+    const near = (x0: number, y0: number) => arcs.some((c) => Math.abs(c.x - x0) < 0.01 && Math.abs(c.y - y0) < 0.01);
+    arcs.length = 0;
+    const store = (chartOf(a) as unknown as { getChartStore: () => { setClickOverlayInfo: (...x: unknown[]) => void } }).getChartStore();
+    const overlay = chartOf(a).getOverlays().find((ov) => ov.id === o.id);
+    store.setClickOverlayInfo({ paneId: 'candle_pane', overlay, figureType: 'other', figureIndex: 0, figure: null }, () => {}, () => {});
+    chartOf(a).resize();
+    await vi.waitFor(() => {
+      expect(near(midX, pa!.y), 'top / bottom center').toBe(true);
+      expect(near(midX, pb!.y), 'top / bottom center').toBe(true);
+      expect(near(midX, midY), 'middle center').toBe(true);
+    });
+    // No handle at the corners' own x on screen: the left / right pairs are gone.
+    const visible = arcs.filter((c) => c.x > -1000);
+    expect(visible.every((c) => Math.abs(c.x - midX) < 0.01)).toBe(true);
+    a.destroy();
+  });
+
   it('a rectangle placed with no width or height is dropped when drawing ends; a real one is kept', async () => {
     const { a } = await setup();
     const changes = vi.fn();

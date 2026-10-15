@@ -129,6 +129,33 @@ describe('small and collapsed boxes', () => {
     expect(R.HIDDEN_HANDLE.x).toBeLessThan(-1000);
   });
 
+  it('a box too narrow for two handles side by side gets one centered column: top, middle and bottom', () => {
+    const H = R.HIDDEN_HANDLE;
+    const a = { x: 20, y: 80 };
+    const b = { x: 34, y: 10 }; // 14 wide < 18, 70 tall
+    const c = R.handleCoordinates(a, b, R.rectangleBox(a, b), 36, 18);
+    // Corners and B's vertical edge parked; A's vertical edge (re-widen) in the middle; the horizontal edges'
+    // midpoints (resize vertically) at the top and bottom of the column.
+    expect(c).toEqual([H, H, H, H, { x: 27, y: 45 }, H, { x: 27, y: 80 }, { x: 27, y: 10 }]);
+    // Wide enough for a pair: the usual corners (the horizontal midpoints still hidden below 36 px).
+    expect(R.handleCoordinates(a, { x: 38, y: 10 }, R.rectangleBox(a, { x: 38, y: 10 }), 36, 18).slice(0, 2)).toEqual([a, { x: 38, y: 10 }]);
+  });
+
+  it('a box too short for two handles one above the other gets one centered row: left, middle and right', () => {
+    const H = R.HIDDEN_HANDLE;
+    const a = { x: 20, y: 50 };
+    const b = { x: 120, y: 40 }; // 100 wide, 10 tall
+    const c = R.handleCoordinates(a, b, R.rectangleBox(a, b), 36, 18);
+    expect(c).toEqual([H, H, H, H, { x: 20, y: 45 }, { x: 120, y: 45 }, { x: 70, y: 45 }, H]);
+  });
+
+  it('a box too small both ways keeps only its first corner', () => {
+    const H = R.HIDDEN_HANDLE;
+    const a = { x: 20, y: 50 };
+    const b = { x: 30, y: 40 };
+    expect(R.handleCoordinates(a, b, R.rectangleBox(a, b), 36, 18)).toEqual([a, H, H, H, H, H, H, H]);
+  });
+
   it('degenerate: zero width or height on whole pixels', () => {
     expect(R.isDegenerateBox({ x: 10.2, y: 5 }, { x: 9.9, y: 50 })).toBe(true);
     expect(R.isDegenerateBox({ x: 10, y: 5.1 }, { x: 90, y: 4.8 })).toBe(true);
