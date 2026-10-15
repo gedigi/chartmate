@@ -7,6 +7,13 @@ app, the Docker image and the release tag share one version number.
 
 ### Everywhere
 
+- **Date ranges**: 1D, 5D, 1M, 3M, 6M, YTD, 1Y and All under the chart show that period, ending at the latest
+  bar, at a fitting interval (1D on 5-minute bars, 1Y on daily bars, All on weekly or monthly bars), with the
+  span it covers next to the buttons. Stocks count trading sessions and New York dates, crypto the clock in UTC.
+  Zooming, scrolling or changing the interval deselects the range.
+- Time axis ticks and grid lines fall on calendar boundaries (months, quarters, years, days, hours…), evenly spaced
+  and never crowded, instead of every so many bars: month labels no longer skip unevenly.
+
 - **About Chartmate**: click the Chartmate mark in the top bar to see the version (self-hosted: also the
   server's, when it differs) and get the source code of that version and the license, as the AGPL-3.0 asks of
   software used over a network. The desktop app shows the source address as text to copy, since it opens no

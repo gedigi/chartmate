@@ -1,18 +1,21 @@
-import { isIntraday, parseSymbolId, type DrawingState, type IndicatorState, type Layout, type SymbolId, type SymbolInfo } from '@chartmate/shared';
+import { isIntraday, parseSymbolId, type DrawingState, type IndicatorState, type Layout, type SessionMode, type SymbolId, type SymbolInfo, type Timeframe } from '@chartmate/shared';
 import { memo, useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import { api, errorMessage } from '../api/client';
-import { ChartAdapter, type IndicatorSpec } from '../chart/ChartAdapter';
+import { ChartAdapter, type IndicatorSpec, type ShownRange } from '../chart/ChartAdapter';
 import { migrateCalcParams } from '../chart/indicators/catalog';
 import type { LoaderMeta } from '../chart/dataLoader';
-import { pollIntervalMs } from '../chart/periods';
+import { initialWindowMs, pollIntervalMs } from '../chart/periods';
+import { allTimeframe, rangeTimeframe, type RangeCalendar, type RangePreset } from '../chart/ranges';
 import { onBasketChanged } from '../state/useBaskets';
 import { drawingsStore } from '../state/drawingsStore';
 import { DrawingsNote } from './DrawingsSave';
 import { SaveNote, type SaveNoteState } from './SaveNote';
 import { retryDelayMs } from '../state/retry';
+import { scrollFade, useScrollEdges } from '../state/useScrollEdges';
 import { DrawingStyleBar } from './DrawingStyleBar';
 import { DrawingToolbar } from './DrawingToolbar';
 import { IndicatorChips } from './IndicatorChips';
+import { RangeBar } from './RangeBar';
 import { StaleBadge } from './StaleBadge';
 import './ChartView.css';
 
@@ -84,6 +87,9 @@ function toSpec(s: IndicatorState): IndicatorSpec {
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
+/** A date range picked in the range bar, for the symbol / interval / session it was shown on. */
+interface ActiveRange { preset: RangePreset; symbol: SymbolId; tf: Timeframe; session: SessionMode; calendar: RangeCalendar }
+
 /**
  * Owns the whole chart region: the left drawing-toolbar column and the chart area (with indicator chips,
  * stale badge, etc.). The root fills its grid cell; `.chart-view` is itself a 2-column grid.
@@ -112,6 +118,13 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
   const info = symbolInfo && symbolInfo.id === layout.symbol ? symbolInfo : null;
   const { pollMs, basketHasCrypto } = usePollMs(info);
   const { symbol, tf, session, chartType, indicators } = layout;
+  const [range, setRange] = useState<ActiveRange | null>(null);
+  /** Bumped by each range pick and by symbol / interval / session changes: a pending All probe then gives up. */
+  const rangeSeq = useRef(0);
+  /** The pending All history lookup: aborted by the next pick, a symbol / interval / session change or unmounting. */
+  const allLookup = useRef<AbortController | null>(null);
+  /** The symbol whose data has arrived at least once: until then the range row is disabled (not on every reload). */
+  const [dataFor, setDataFor] = useState<SymbolId | null>(null);
 
   // Adapter lifetime + resize.
   useEffect(() => {
@@ -175,6 +188,7 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
         setMeta(m);
         setDataSettled(true);
         setDataReceived(true);
+        setDataFor(info.id);
       },
       onError: (e) => { if (active) setToast(errorMessage(e)); },
       onConnection: (lost, e) => {
@@ -191,6 +205,55 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
     });
     return () => { active = false; };
   }, [adapter, info, tf, session, pollMs, basketHasCrypto, reloadKey]);
+
+  // Date ranges: shown once the range's interval is loaded (declared after the load effect, which drops the adapter's
+  // range: a reload of the same interval, e.g. Retry, shows it again). Changing the symbol, interval or session, or
+  // zooming / scrolling the chart, deselects it.
+  useEffect(() => {
+    if (!adapter || !range || info?.id !== range.symbol || range.tf !== tf || range.session !== session || pollMs === null) return;
+    adapter.showRange(range.preset, range.calendar);
+  }, [adapter, range, info, tf, session, pollMs, basketHasCrypto, reloadKey]);
+  useEffect(() => {
+    rangeSeq.current++;
+    allLookup.current?.abort();
+    setRange((r) => (r && (r.symbol !== symbol || r.tf !== tf || r.session !== session) ? null : r));
+  }, [symbol, tf, session]);
+  useEffect(() => () => {
+    rangeSeq.current++;
+    allLookup.current?.abort();
+  }, []);
+  useEffect(() => adapter?.onRangeCanceled(() => setRange(null)), [adapter]);
+  const [shown, setShown] = useState<ShownRange | null>(null);
+  useEffect(() => adapter?.onRangeShown(setShown), [adapter]);
+  const calendar: RangeCalendar = info?.assetClass === 'crypto' || basketHasCrypto ? 'crypto' : 'stock';
+  const selectRange = useCallback((preset: RangePreset) => {
+    if (!adapter || !info) return;
+    const seq = ++rangeSeq.current;
+    allLookup.current?.abort(); // a newer pick wins over a pending All
+    const show = (rangeTf: Timeframe) => {
+      if (seq !== rangeSeq.current) return; // superseded while All looked up the history
+      setRange({ preset, symbol: info.id, tf: rangeTf, session, calendar });
+      setLayout((l) => (l.tf === rangeTf ? l : { ...l, tf: rangeTf }));
+    };
+    if (preset !== 'All') {
+      show(rangeTimeframe(preset));
+      return;
+    }
+    // All: weekly bars, or monthly ones when the weekly history would not fit the chart (one monthly page tells).
+    const now = Date.now();
+    const lookup = new AbortController();
+    allLookup.current = lookup;
+    api.bars({ symbol: info.id, tf: '1M', session, from: now - initialWindowMs('1M'), to: now }, lookup.signal).then(
+      (r) => {
+        if (lookup.signal.aborted) return;
+        show(rangeTimeframe('All', allTimeframe(r.hasMoreBefore ? 0 : (r.bars[0]?.ts ?? null), r.bars.at(-1)?.ts ?? now, adapter.plotWidth())));
+      },
+      () => { if (!lookup.signal.aborted) show(rangeTimeframe('All')); },
+    ).finally(() => { if (allLookup.current === lookup) allLookup.current = null; });
+  }, [adapter, info, session, calendar, setLayout]);
+  const [bottomRowRef, bottomRowEdges] = useScrollEdges();
+  const activeRange = range && range.symbol === symbol && range.tf === tf && range.session === session ? range.preset : null;
+  const rangeSpan = activeRange !== null && shown?.preset === activeRange ? shown.label : '';
 
   const shade = session === 'eth' && isIntraday(tf) && info?.assetClass === 'stock'; // only stock bars carry session tags
   useEffect(() => { adapter?.setSessionShading(shade); }, [adapter, shade]);
@@ -385,6 +448,13 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
               <button type="button" className="chart-notice-dismiss" aria-label="Dismiss error" onClick={() => setToast(null)}>×</button>
             </div>
           )}
+        </div>
+        {/* Bottom row, under the time axis (in flow, like the top row: it never covers plot data). */}
+        {/* Scrolls sideways on a narrow chart, its hidden edge(s) faded. Enabled once the symbol has data (not on each
+            reload: a range switching the interval must not take the focus away from its button). */}
+        <div className="chart-bottomrow" ref={bottomRowRef} data-fade={scrollFade(bottomRowEdges)}>
+          <RangeBar value={activeRange} onSelect={selectRange} disabled={!info || pollMs === null || dataFor !== symbol || symbolFailed} />
+          <span className="range-span" role="status" data-testid="range-span">{rangeSpan}</span>
         </div>
       </div>
     </div>

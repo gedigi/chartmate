@@ -32,6 +32,7 @@ import { levelsDraw, levelsRange } from './indicators/levels';
 import { registerCustomIndicators } from './indicators/register';
 import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
+import { fitBarSpace, rangeLabel, rangeLookbackMs, rangeStart, visibleBarCount, type RangeCalendar, type RangePreset } from './ranges';
 import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
 import {
   MEASURE_OVERLAY, measureColors, measureLines, measureStats, registerMeasureOverlay, snapValue,
@@ -40,7 +41,8 @@ import {
 import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS } from './sessionShade';
 import { textColoredLegends } from './barLegends';
 import { solidBarFigures } from './solidBars';
-import { axisTickLabels, countdownText, crosshairDate, hasCountdown } from './timeLabels';
+import { calendarTicks, countdownText, crosshairDate, hasCountdown, tickLabelFits } from './timeLabels';
+import { textWidth } from './axisRange';
 import {
   candleStyles, CHART_FONT, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, defaultIndicatorCircles, effectiveBarColors, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeSoftTone, themeTokens,
   type ThemeName,
@@ -109,6 +111,9 @@ export type SelectedDrawing = SelectedLock & (
 
 const INDICATOR_DASH = [4, 4];
 
+/** A date range as fitted on the chart: its first and latest bar times, how many bars, and its span as text. */
+export interface ShownRange { preset: RangePreset; first: number; last: number; bars: number; label: string }
+
 export interface LoadParams {
   symbol: SymbolInfo; tf: Timeframe; session: SessionMode; pollMs: number;
   /** A basket with crypto constituents: its bars follow the UTC grid, so daily anchors are not remapped. */
@@ -116,6 +121,8 @@ export interface LoadParams {
 }
 
 const CANDLE_PANE = 'candle_pane';
+/** Gap (px) after the latest bar when a date range is shown: KLineChart's default right offset. */
+const RANGE_RIGHT_MARGIN_PX = 80;
 /** KLineChart's double-click window and distance (Delay.ResetClick, ManhattanDistance.DoubleClick). */
 const DOUBLE_CLICK_MS = 500;
 const DOUBLE_CLICK_PX = 5;
@@ -255,6 +262,8 @@ export class ChartAdapter {
     this.chart = chart;
     // Capture phase on the host: runs before KLineChart's own mousedown handler on its inner container.
     el.addEventListener('mousedown', this.onPressCapture, true);
+    chart.subscribeAction?.('onZoom', this.onUserView);
+    chart.subscribeAction?.('onScroll', this.onUserView);
   }
 
   private styles(): DeepPartial<Styles> {
@@ -348,6 +357,8 @@ export class ChartAdapter {
     this.clearMeasure();
     this.dataSymbol = null;
     this.loadSymbol = p.symbol.id;
+    this.range = null; // a range shown with showRange belongs to the data it was fitted to
+    this.rangePages = 0;
     this.historyPages = 0;
     this.historyBlocked = false;
     // Blank the chart at once: KLineChart keeps the previous series until the new init page arrives, which
@@ -378,6 +389,7 @@ export class ChartAdapter {
     if (this.basketHasCrypto) ext.utcDays = true; // its intraday bars use the UTC grid
     this.setIndicatorContext(ext);
     const timezone = timezoneFor(p.symbol, p.tf);
+    this.rangeTimeZone = timezone;
     this.chart.setTimezone(timezone);
     this.setTimeTexts(p.tf, timezone, p.session);
     this.chart.setSymbol({
@@ -410,13 +422,29 @@ export class ChartAdapter {
       // Stock-like charts: the bar also closes with the session (16:00 / 20:00 New York).
       formatExtendText: ({ data }) => countdownText(data.timestamp, tf, Date.now(), this.stockLike() ? session : undefined),
     });
-    this.chart.overrideXAxis({
-      createTicks: ({ defaultTicks }) => {
-        const labels = axisTickLabels(defaultTicks.map((t) => Number(t.value)), tf, timezone);
-        return defaultTicks.map((t, i) => ({ ...t, text: labels[i]! }));
-      },
-    });
+    this.chart.overrideXAxis({ createTicks: ({ range, bounding }) => this.axisTicks(range, bounding.width, tf, timezone) });
     this.chart.setStyles(this.styles());
+  }
+
+  /**
+   * Time-axis ticks on calendar boundaries of the bars in view (see calendarTicks), placed at their bars; KLineChart's
+   * own ticks fall every n bars whatever the date, so their labels would skip months unevenly. A tick whose label
+   * would come within AXIS_EDGE_PX of the plot's edges is left out (it would be cut).
+   */
+  private axisTicks(range: { realFrom: number; realTo: number }, width: number, tf: Timeframe, timezone: string) {
+    const data = this.chart.getDataList();
+    const from = Math.max(0, Math.floor(range.realFrom) - 1); // the bar before the view: is the first one a boundary?
+    const to = Math.min(data.length, Math.ceil(range.realTo));
+    if (to - from < 2) return [];
+    const times = data.slice(from, to).map((d) => d.timestamp);
+    const tick: { size?: unknown; family?: unknown; weight?: unknown } = this.chart.getStyles?.()?.xAxis?.tickText ?? {};
+    const tickWidth = (s: string) => textWidth(s, Number(tick.size ?? 11), String(tick.family ?? CHART_FONT), String(tick.weight ?? 'normal'));
+    return calendarTicks(times, this.chart.getBarSpace().bar, tf, timezone).flatMap(({ index, label }) => {
+      const at = from + index;
+      const x = (this.chart.convertToPixel({ dataIndex: at }, { paneId: CANDLE_PANE }) as Partial<Coordinate>).x;
+      if (x === undefined || !tickLabelFits(x, label, width, tickWidth)) return [];
+      return [{ coord: x, value: data[at]!.timestamp, text: label }];
+    });
   }
 
   /**
@@ -424,6 +452,7 @@ export class ChartAdapter {
    * the previous symbol's data is neither shown nor polled any more. The next load() starts afresh.
    */
   clear(): void {
+    this.range = null;
     this.clearMeasure();
     this.loader?.dispose();
     this.loader = null;
@@ -560,6 +589,7 @@ export class ChartAdapter {
   private onBarsAdded(): void {
     if (this.destroyed) return;
     this.ensurePositionHistory();
+    this.continueRange();
     this.refreshMeasure(); // older bars shift the indexes: bars / volume are recounted from the bar times
     // The selected position's outcome follows new bars (polling / backfill).
     if (this.selectedId && this.userOverlays().some((o) => o.id === this.selectedId && isPositionTool(o.name))) this.emitSelection();
@@ -1689,6 +1719,7 @@ export class ChartAdapter {
 
   private onDataReady(): void {
     this.dataSymbol = this.loadSymbol;
+    this.continueRange();
     const pending = this.pendingRestore;
     if (!pending || (pending.symbol !== undefined && pending.symbol !== this.dataSymbol)) return;
     this.pendingRestore = null;
@@ -1987,10 +2018,128 @@ export class ChartAdapter {
     window.removeEventListener('blur', this.onMeasureBlur);
   }
 
+  // ── date ranges ───────────────────────────────────────────────────────────
+
+  /**
+   * The date range shown with showRange: fitted once the current load's bars cover it (older pages are requested
+   * as needed), then re-fitted on resize and when a new bar arrives (`lastTs`: the latest bar it was fitted to) until
+   * the user zooms or scrolls, or the data reloads.
+   */
+  private range: { preset: RangePreset; calendar: RangeCalendar; fitted: boolean; lastTs: number } | null = null;
+  /** Older pages requested for ranges since the last load(), at most MAX_HISTORY_PAGES whatever is picked. */
+  private rangePages = 0;
+  private readonly rangeListeners = new Set<() => void>();
+  private readonly rangeShownListeners = new Set<(shown: ShownRange) => void>();
+  /** The chart timezone of the current load (range labels read in it). */
+  private rangeTimeZone = 'UTC';
+  /**
+   * > 0 while the adapter itself moves the view. Defensive: KLineChart 10.0.x's setBarSpace / setOffsetRightDistance
+   * emit neither onZoom nor onScroll, but a version that did must not cancel the range being fitted.
+   */
+  private fitting = 0;
+
+  /**
+   * Shows date range `preset` (in `calendar`'s days and sessions) on the current data, ending at the latest bar:
+   * the chart's interval must already be the preset's (see rangeTimeframe). Before the data is in, it is fitted as
+   * soon as it is; a load() or clear() drops it.
+   */
+  showRange(preset: RangePreset, calendar: RangeCalendar): void {
+    this.range = { preset, calendar, fitted: false, lastTs: Number.NaN };
+    if (this.dataSymbol !== null && this.dataSymbol === this.loadSymbol) this.continueRange();
+  }
+
+  /** Called when the user zooms or scrolls away from a range shown with showRange (it is then dropped). */
+  onRangeCanceled(cb: () => void): () => void {
+    this.rangeListeners.add(cb);
+    return () => this.rangeListeners.delete(cb);
+  }
+
+  /** Called each time a range shown with showRange is fitted (again on resize): the bars it shows. */
+  onRangeShown(cb: (shown: ShownRange) => void): () => void {
+    this.rangeShownListeners.add(cb);
+    return () => this.rangeShownListeners.delete(cb);
+  }
+
+  /** Width (px) of the price pane's plot area, where bars are laid out (0 before the first layout). */
+  plotWidth(): number {
+    return this.chart.getSize?.(CANDLE_PANE, 'main')?.width ?? 0;
+  }
+
+  /**
+   * The user zoomed or scrolled: the range is dropped. A touch fling (KLineChart 10.0.x animates one after a quick
+   * swipe; mouse drags have none) still running when a range is picked keeps scrolling, rewriting the scroll position
+   * the fit set, so its next frame both moves the view and deselects the range: telling such frames apart would take
+   * KLineChart's private event state, and the deselection matches what the chart then shows.
+   */
+  private readonly onUserView = (): void => {
+    if (this.fitting > 0 || this.range === null) return;
+    this.range = null;
+    for (const cb of [...this.rangeListeners]) cb();
+  };
+
+  /**
+   * Requests the next older page while the pending range needs one, else fits it (page arrivals call this again).
+   * A fitted range is fitted again when a newer bar arrives, so it keeps ending at the latest bar (1D moves on to a
+   * new session) and its span stays current.
+   */
+  private continueRange(): void {
+    const r = this.range;
+    if (!r || this.destroyed || this.tf === null) return;
+    const data = this.chart.getDataList();
+    const first = data[0];
+    const latest = data.at(-1);
+    if (!first || !latest) return;
+    if (r.fitted) {
+      if (latest.timestamp !== r.lastTs) this.fitRange(r);
+      return;
+    }
+    const start = rangeStart(r.preset, data.map((d) => d.timestamp), this.tf, r.calendar);
+    const deeper = start < first.timestamp && first.timestamp > latest.timestamp - rangeLookbackMs(r.preset);
+    if (deeper && !this.historyBlocked && this.rangePages < MAX_HISTORY_PAGES && this.hasOlderData()) {
+      const store = this.dataStore();
+      const load = store?._processDataLoad;
+      if (typeof load === 'function') {
+        if (store?._loading === true) return; // a page is on its way: its arrival calls this again
+        this.rangePages++;
+        try {
+          load.call(store, 'forward');
+          return;
+        } catch { /* internal API changed: fit what is loaded */ }
+      }
+    }
+    this.fitRange(r);
+  }
+
+  /** Bar width and scroll that show `r` from its first bar to the latest one (plus the usual right margin). */
+  private fitRange(r: NonNullable<ChartAdapter['range']>): void {
+    if (this.tf === null) return;
+    const times = this.chart.getDataList().map((d) => d.timestamp);
+    const count = visibleBarCount(times, rangeStart(r.preset, times, this.tf, r.calendar));
+    const width = this.plotWidth();
+    const space = fitBarSpace(count, width, RANGE_RIGHT_MARGIN_PX);
+    r.fitted = true;
+    r.lastTs = times.at(-1) ?? Number.NaN;
+    this.fitting++;
+    try {
+      this.chart.setBarSpace(space);
+      this.chart.setOffsetRightDistance(RANGE_RIGHT_MARGIN_PX); // back to the latest bar, at the chart's default gap
+    } finally {
+      this.fitting--;
+    }
+    // Too many bars for the width (at the narrowest bars): the newest that fit are shown.
+    const bars = width > 0 ? Math.min(count, Math.max(1, Math.floor((width - RANGE_RIGHT_MARGIN_PX) / space))) : count;
+    const first = times[times.length - bars];
+    const last = times.at(-1);
+    if (first === undefined || last === undefined) return;
+    const shown: ShownRange = { preset: r.preset, first, last, bars, label: rangeLabel(first, last, this.tf, this.rangeTimeZone) };
+    for (const cb of [...this.rangeShownListeners]) cb(shown);
+  }
+
   // ── lifecycle ─────────────────────────────────────────────────────────────
 
   resize(): void {
     this.chart.resize();
+    if (this.range?.fitted) this.fitRange(this.range);
   }
 
   destroy(): void {
@@ -1998,6 +2147,11 @@ export class ChartAdapter {
     this.destroyed = true;
     if (this.selectedId !== null && drawingContext.selectedId === this.selectedId) drawingContext.selectedId = null;
     this.el.removeEventListener('mousedown', this.onPressCapture, true);
+    this.chart.unsubscribeAction?.('onZoom', this.onUserView);
+    this.chart.unsubscribeAction?.('onScroll', this.onUserView);
+    this.range = null;
+    this.rangeListeners.clear();
+    this.rangeShownListeners.clear();
     this.stopMeasureTracking();
     this.measure = null;
     this.measureListeners.clear();

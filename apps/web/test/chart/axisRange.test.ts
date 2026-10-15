@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeRangeText, rangeLabels, RANGE_MERGE_GAP } from '../../src/chart/axisRange';
+import { mergeRangeText, rangeLabels, RANGE_MERGE_GAP, tickMasks } from '../../src/chart/axisRange';
 
 /** 10 px per character: easy widths. */
 const measure = (s: string) => s.length * 10;
@@ -46,5 +46,22 @@ describe('time-axis range labels', () => {
     expect(mergeRangeText("Thu Oct 15 '26 · 07:15", "Thu Oct 15 '26 · 09:30")).toBe("Thu Oct 15 '26 · 07:15 – 09:30");
     expect(mergeRangeText("Thu Oct 15 '26 · 07:15", "Fri Oct 16 '26 · 09:30")).toBe("Thu Oct 15 '26 · 07:15 – Fri Oct 16 '26 · 09:30");
     expect(mergeRangeText("Thu Oct 15 '26", "Fri Oct 16 '26")).toBe("Thu Oct 15 '26 – Fri Oct 16 '26");
+  });
+});
+
+describe('tickMasks: time-axis tick labels a range label would partly cover are masked whole', () => {
+  const labels = [{ x: 300, text: 'AAAA', align: 'right' as const }, { x: 600, text: 'BBBB', align: 'left' as const }];
+  // Label boxes: [260, 300] and [600, 640]; tick text boxes: coord ± length × 5.
+  it('masks each tick whose text overlaps a label (with a little air), and nothing else', () => {
+    const ticks = [{ coord: 250, text: 'Mar' }, { coord: 320, text: 'Apr' }, { coord: 450, text: 'May' }, { coord: 655, text: 'Jul' }, { coord: 700, text: 'Aug' }];
+    expect(tickMasks(labels, ticks, measure)).toEqual([
+      { x: 233, width: 34 }, // Mar: [235, 265] overlaps [260, 300]; masked with 2 px to spare on each side
+      { x: 303, width: 34 }, // Apr: [305, 335] is 5 px from the label: within the 6 px of air, masked too
+      { x: 638, width: 34 }, // Jul: [640, 670] touches [600, 640]
+    ]);
+  });
+  it('a centered (merged) label', () => {
+    expect(tickMasks([{ x: 500, text: 'AA – BB', align: 'center' }], [{ coord: 540, text: 'Jun' }, { coord: 600, text: 'Jul' }], measure))
+      .toEqual([{ x: 523, width: 34 }]);
   });
 });

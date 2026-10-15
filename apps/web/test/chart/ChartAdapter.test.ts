@@ -25,6 +25,8 @@ const k = vi.hoisted(() => {
     const chart = {
       overlays, indicators, data,
       setStyles: vi.fn(), setFormatter: vi.fn(), overrideXAxis: vi.fn(), setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(), setTimezone: vi.fn(), resetData: vi.fn(),
+      getBarSpace: vi.fn(() => ({ bar: 10, halfBar: 5, gapBar: 8, halfGapBar: 4 })),
+      convertToPixel: vi.fn((p: { dataIndex?: number }) => (p.dataIndex === undefined ? {} : { x: p.dataIndex * 10 })),
       resize: vi.fn(), getDataList: vi.fn(() => data),
       getStyles: vi.fn(() => ({
         indicator: {
@@ -810,9 +812,20 @@ describe('ChartAdapter', () => {
       const spy = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-13T19:45:00Z'));
       expect(fmt.formatExtendText({ data: { timestamp: Date.parse('2026-10-13T19:30:00Z') } })).toBe('15:00');
       spy.mockRestore();
-      const x = chart().overrideXAxis.mock.calls.at(-1)![0] as { createTicks: (p: { defaultTicks: Array<{ coord: number; value: number; text: string }> }) => Array<{ text: string }> };
-      const ticks = x.createTicks({ defaultTicks: [Date.parse('2026-09-29T14:00:00Z'), Date.parse('2026-09-30T14:00:00Z')].map((value, i) => ({ coord: i * 50, value, text: '' })) });
-      expect(ticks.map((t) => t.text)).toEqual(['Sep 29', '30']);
+      // Axis ticks on calendar boundaries of the bars in view (here days: 7 hourly bars × 10 px a day), placed at their bars.
+      const sessions = ['2026-09-28', '2026-09-29', '2026-09-30'].flatMap((d) => Array.from({ length: 7 }, (_, i) => Date.parse(`${d}T13:30:00Z`) + i * 3_600_000));
+      chart().data.splice(0, chart().data.length, ...sessions.map((timestamp) => ({ timestamp, high: 1 })));
+      const x = chart().overrideXAxis.mock.calls.at(-1)![0] as {
+        createTicks: (p: { range: { realFrom: number; realTo: number }; bounding: { width: number }; defaultTicks: unknown[] }) => Array<{ coord: number; value: number; text: string }>;
+      };
+      const ticks = x.createTicks({ range: { realFrom: 1, realTo: 21 }, bounding: { width: 400 }, defaultTicks: [] });
+      expect(ticks).toEqual([
+        { coord: 70, value: sessions[7], text: '29' },
+        { coord: 140, value: sessions[14], text: '30' },
+      ]);
+      // A tick whose label would come within 12 px of the plot edge (estimated 7 px a character) is left out.
+      expect(x.createTicks({ range: { realFrom: 1, realTo: 21 }, bounding: { width: 159 }, defaultTicks: [] }).map((t) => t.text)).toEqual(['29', '30']);
+      expect(x.createTicks({ range: { realFrom: 1, realTo: 21 }, bounding: { width: 158 }, defaultTicks: [] }).map((t) => t.text)).toEqual(['29']);
       expect(chart().setStyles.mock.calls.at(-1)![0].candle.priceMark.last.extendTexts[0].show).toBe(true);
       a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 15000 }, events());
       expect(chart().setStyles.mock.calls.at(-1)![0].candle.priceMark.last.extendTexts[0].show).toBe(false);
