@@ -18,6 +18,8 @@ export function createBundledRootsDispatcher(): Agent {
     connect: { ca: [...rootCertificates], rejectUnauthorized: true },
     keepAliveTimeout: 10_000,
     connections: 8,
+    // HTTP/1.1 only, as before undici 8 (which negotiates h2 by default): `connections` caps sockets per origin.
+    allowH2: false,
   });
 }
 

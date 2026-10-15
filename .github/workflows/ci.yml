@@ -23,14 +23,15 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-      # pnpm exactly as pinned in package.json (packageManager): corepack checks its sha512.
+      # corepack and pnpm, every download hash-checked (install-pnpm.sh): corepack at the version and sha512 the
+      # script pins, the pnpm that package.json pins (packageManager, sha512) and its native binary (pnpm-lock.yaml).
       - name: pnpm (corepack)
         shell: bash
         env:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
         run: |
           set -euo pipefail
-          corepack enable pnpm
+          bash .github/scripts/install-pnpm.sh
           want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
           got="$(pnpm --version)"
           if [ "$got" != "$want" ]; then
@@ -104,7 +105,7 @@ jobs:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
         run: |
           set -euo pipefail
-          corepack enable pnpm
+          bash .github/scripts/install-pnpm.sh
           want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
           got="$(pnpm --version)"
           if [ "$got" != "$want" ]; then

@@ -19,7 +19,7 @@ import { cpSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } f
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import asar from '@electron/asar';
+import * as asar from '@electron/asar';
 import { flipFuses, FuseV1Options, FuseVersion } from '@electron/fuses';
 
 const [srcArg, outArg] = process.argv.slice(2);

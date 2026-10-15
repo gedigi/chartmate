@@ -11,8 +11,11 @@ Maintainers: see [Releases](#releases) at the end.
 
 ## Setup
 
-Requires Node 22 (`.nvmrc` pins the exact version CI uses) and pnpm 8: `corepack enable` installs the exact version
-pinned (with its sha512) in the root `package.json`.
+Requires Node 26 (`.nvmrc` pins the exact version CI uses) and pnpm 12: `corepack enable` installs the exact version
+pinned (with its sha512) in the root `package.json`. Node 25 and later no longer bundle corepack, so install it once
+with `npm install --global corepack@0.36.0`. pnpm 12 then downloads its native binary on first use, checked against
+npm's registry signature; to hash-check it against `pnpm-lock.yaml` as CI does, run
+`bash .github/scripts/install-pnpm.sh` instead (it installs corepack, enables pnpm and places the checked binary).
 
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
@@ -56,6 +59,15 @@ Write the failing test first, then the code; a bug fix comes with a regression t
 - **Dependencies**: only licenses compatible with AGPL-3.0 (MIT, BSD, ISC, Apache-2.0, MPL-2.0 and similar).
   `pnpm licenses:check` checks every shipped dependency against the allowlist in
   `scripts/third-party-notices.mjs` (CI runs it too).
+- **Release age and provenance**: `pnpm-workspace.yaml` makes every install, the frozen one in CI included, refuse
+  a version published less than 3 days ago (`minimumReleaseAge: 4320`, strict) or one published with weaker
+  provenance than an earlier version (`trustPolicy: no-downgrade`). An urgent security fix that cannot wait gets
+  an exact-version entry in `minimumReleaseAgeExclude` (`- name@1.2.3`, never a bare name), with a comment saying
+  why and `remove after YYYY-MM-DD`; a reviewed provenance exception goes in `trustPolicyExclude` the same way.
+  Dependabot's security pull requests are not delayed, so one that bumps to a fix published less than 3 days ago
+  fails the frozen install in CI: add that exact version to `minimumReleaseAgeExclude` in the same pull request,
+  with a remove-after date 3 days after its publication. A test fails once a remove-after date is 30 days past, so
+  stale entries get cleaned up.
 
 ## License
 
@@ -332,9 +344,10 @@ After the first image is published, make the GHCR package public once (the packa
 On every pull request and push to `main`, `.github/workflows/ci.yml` runs `pnpm audit` (any known vulnerability in a
 runtime or build-time dependency fails it), typecheck, tests, an indicator scaffold check (`pnpm new:indicator`,
 then typecheck and the indicator tests), the web build, e2e and a Docker build. Every workflow defaults to a
-read-only token, pins each action to a commit SHA, gets pnpm through corepack (hash-checked) and installs with
-`--ignore-scripts`; only `ci.yml` caches dependencies. The macOS signing secrets reach only jobs that run no
-dependency code; the Certum login runs first in the Windows job, before any dependency code. Dependabot opens weekly
-update pull requests for npm packages, the pinned actions, the Docker base image and the Compose Postgres image, but
-never for a new Node or Postgres major: move to the next Node LTS (`.nvmrc`, the Docker image, `@types/node`) or
-Postgres major by hand.
+read-only token, pins each action to a commit SHA, gets corepack and pnpm from `.github/scripts/install-pnpm.sh`
+(corepack, the pnpm wrapper and pnpm's native binary all hash-checked) and installs with `--ignore-scripts`; only
+`ci.yml` caches dependencies. The macOS signing secrets reach only jobs that run no dependency code; the Certum
+login runs first in the Windows job, before any dependency code. Dependabot opens weekly update pull requests for
+npm packages, the pinned actions, the Docker base image and the Compose Postgres image, but never for a new Node or
+Postgres major: move to the next Node LTS (`.nvmrc`, the Docker image, `@types/node`) or Postgres major by hand.
+Dependabot does not see the corepack pin either: bump it by hand (the script says how).

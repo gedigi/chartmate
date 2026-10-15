@@ -10,6 +10,7 @@ import type { ProviderRegistry } from '../providers/registry.js';
 import type { MarketDataProvider } from '../providers/types.js';
 import { bucketEnd } from './buckets.js';
 import { mergeRanges, missingRanges, splitRange } from './coverage.js';
+import { isSameSplit, type AppliedSplit } from './splitMatch.js';
 
 const DAY = 86_400_000;
 const BACKOFF_MS = 30_000;
@@ -210,18 +211,22 @@ export class MarketDataService {
       ]);
       // Only splits that already happened (a future-dated, announced event is applied once it has occurred), and
       // each one once.
-      // Splits are identified by their NY trading date: a provider may restamp the same event a few hours apart.
-      const seen = new Set(applied);
-      const relevant = [...splits].sort((x, y) => x.ts - y.ts).filter((sp) => {
-        const day = nyDateUtcMidnight(sp.ts);
-        if (sp.ts <= lookFrom || sp.ts > now || seen.has(day)) return false;
-        seen.add(day);
-        return true;
-      });
+      // A provider may restamp the same event a few hours apart, even across a NY date boundary: a split with the
+      // same ratio within one NY trading day of an applied one is that split (isSameSplit).
+      const seen = [...applied];
+      const relevant: { ts: number; factor?: number; record: AppliedSplit }[] = [];
+      for (const sp of [...splits].sort((x, y) => x.ts - y.ts)) {
+        if (sp.ts <= lookFrom || sp.ts > now) continue;
+        const factor = sp.factor !== undefined && Number.isFinite(sp.factor) && sp.factor > 0 ? sp.factor : null;
+        const record = { day: nyDateUtcMidnight(sp.ts), factor };
+        if (seen.some((s) => isSameSplit(s, record))) continue;
+        seen.push(record);
+        relevant.push({ ...sp, record });
+      }
       if (relevant.length > 0) {
         // Stamps and records the splits in the same transaction. A row from before migration 005 starts its record
         // at this check's baseline, so later checks get the late-report look-back.
-        await this.repos.bars.applySplit(symbol, this.splitOps(relevant), now, relevant.map((sp) => nyDateUtcMidnight(sp.ts)), since);
+        await this.repos.bars.applySplit(symbol, this.splitOps(relevant), now, relevant.map((sp) => sp.record), since);
         this.epoch++;
       } else {
         await this.repos.symbols.markSplitsChecked(symbol, now, since);
