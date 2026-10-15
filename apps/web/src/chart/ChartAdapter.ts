@@ -1608,7 +1608,9 @@ export class ChartAdapter {
    * new symbol never land on the previous symbol's data), else for the current load. Queued until then.
    * The "lock all" state is re-derived from the restored drawings.
    */
-  restoreDrawings(drawings: DrawingState[], symbol?: string): void {
+  restoreDrawings(stored: DrawingState[], symbol?: string): void {
+    // A drawing without points (older versions could store one) would put the chart into drawing mode: skipped.
+    const drawings = stored.filter((d) => Array.isArray(d.points) && d.points.length > 0);
     this.endDrawing();
     this.withSilence(() => this.removeUserOverlays());
     this.pendingRestore = null;

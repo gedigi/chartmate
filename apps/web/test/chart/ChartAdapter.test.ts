@@ -371,6 +371,15 @@ describe('ChartAdapter', () => {
     expect(changed).not.toHaveBeenCalled();
   });
 
+  it('skips a stored drawing without points (it would start drawing mode); the others are restored', () => {
+    const a = make();
+    chart().data.push({ timestamp: 1000, high: 10 });
+    const ok = { name: 'segment', points: [{ timestamp: 1, value: 2 }, { timestamp: 3, value: 4 }], lock: false };
+    a.restoreDrawings([{ name: 'segment', points: [], lock: false }, ok]);
+    expect(a.serializeDrawings()).toEqual([ok]);
+    expect(chart().createOverlay).not.toHaveBeenCalledWith(expect.objectContaining({ points: [] }));
+  });
+
   it('fires onDrawingsChange on draw end, move end and remove; clearDrawings fires once', () => {
     const a = make();
     const changed = vi.fn();

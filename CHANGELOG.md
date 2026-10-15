@@ -34,6 +34,8 @@ app, the Docker image and the release tag share one version number.
   instead of a plain translucent color, and the extended-hours shade uses a color tuned for each theme.
 - Removing an indicator no longer re-creates the indicators after it, so their panes keep their heights and
   the chart does not flicker.
+- A stored drawing without points is skipped when drawings load (it used to leave the chart in drawing mode),
+  and the server drops such a drawing on save instead of rejecting the whole list.
 
 ## [1.0.0] - 2026-10-14
 
