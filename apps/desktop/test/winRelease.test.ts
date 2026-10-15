@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -5,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 // @ts-expect-error plain ESM script without types
 import * as verifyScript from '../scripts/verify-win-signatures.mjs';
 // @ts-expect-error plain ESM script without types
-import { buildAffectingIgnored, builderEnv, rewriteReleaseNotes, takePin, windowsAssets, withSignalCleanup, writePinFile } from '../scripts/sign-win-release.mjs';
+import { buildAffectingIgnored, builderEnv, rewriteReleaseNotes, stopChild, takePin, windowsAssets, withSignalCleanup, writePinFile } from '../scripts/sign-win-release.mjs';
 
 const {
   appUpdateProblems, commonName, latestYmlProblems, parseOsslVerify, parseSigntoolVerify, signatureProblems, signLogProblems, zipExtractCommand,
@@ -145,20 +146,126 @@ describe('sign:win PIN hand-off', () => {
     expect(takePin(env)).toBeUndefined();
   });
 
-  it('SIGINT / SIGTERM while electron-builder runs: removes the PIN file, then re-raises the signal', async () => {
+  /** A stand-in for the electron-builder child: `exit()` makes it end, as a real child does after a signal. */
+  const fakeChild = (pid = 777) => {
+    const child = Object.assign(new EventEmitter(), {
+      pid,
+      exitCode: null as number | null,
+      signalCode: null as string | null,
+      kill: vi.fn(() => true),
+      exit(signal: string) {
+        child.signalCode = signal;
+        child.emit('exit', null, signal);
+      },
+    });
+    return child;
+  };
+  const fakeProc = () => Object.assign(new EventEmitter(), { pid: 4242, kill: vi.fn() });
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  it('SIGINT / SIGTERM before electron-builder starts: removes the PIN file, then re-raises the signal', async () => {
     for (const sig of ['SIGINT', 'SIGTERM'] as const) {
-      const proc = Object.assign(new EventEmitter(), { pid: 4242, kill: vi.fn() });
+      const proc = fakeProc();
       const cleanup = vi.fn();
-      let finish: () => void = () => {};
-      const done = withSignalCleanup(cleanup, () => new Promise<void>((r) => { finish = r; }), proc);
+      void withSignalCleanup(cleanup, () => new Promise<void>(() => {}), proc);
       await Promise.resolve();
       proc.emit(sig);
-      expect(cleanup).toHaveBeenCalled();
+      await tick();
+      expect(cleanup).toHaveBeenCalledTimes(1);
       expect(proc.kill).toHaveBeenCalledWith(4242, sig);
       expect(proc.listenerCount('SIGINT') + proc.listenerCount('SIGTERM')).toBe(0);
-      finish();
-      await done;
     }
+  });
+
+  it('SIGINT / SIGTERM while electron-builder runs: forwards it, waits for the child to exit, then cleans up and re-raises', async () => {
+    for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+      const proc = fakeProc();
+      const child = fakeChild();
+      const cleanup = vi.fn();
+      const stop = vi.fn((c: ReturnType<typeof fakeChild>) => new Promise<void>((r) => { c.once('exit', () => r()); }));
+      let settled = false;
+      void withSignalCleanup(cleanup, (track: (c: unknown) => void) => {
+        track(child);
+        return new Promise<void>((_, reject) => { child.once('exit', () => reject(new Error('electron-builder failed (SIGTERM)'))); });
+      }, proc, { stopChild: stop }).finally(() => { settled = true; });
+      await Promise.resolve();
+      proc.emit(sig);
+      await tick();
+      expect(stop).toHaveBeenCalledWith(child, sig);
+      // The child still runs (it may hold the PIN in memory): nothing is cleaned up or re-raised yet.
+      expect(cleanup).not.toHaveBeenCalled();
+      expect(proc.kill).not.toHaveBeenCalled();
+      // A second Ctrl-C while waiting is absorbed: the parent does not die before the child is gone.
+      proc.emit(sig);
+      expect(proc.listenerCount(sig)).toBe(1);
+      child.exit(sig);
+      await tick();
+      await tick();
+      expect(cleanup).toHaveBeenCalledTimes(1);
+      expect(proc.kill).toHaveBeenCalledWith(4242, sig);
+      expect(proc.listenerCount('SIGINT') + proc.listenerCount('SIGTERM')).toBe(0);
+      // The step's own failure never reaches the caller (which would exit 1 and race the re-raised signal).
+      expect(settled).toBe(false);
+    }
+  });
+
+  it('stopChild (POSIX): signals the child\'s process group, then SIGKILLs it after the timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const child = fakeChild(777);
+      const killGroup = vi.fn();
+      let stopped = false;
+      const done = stopChild(child, 'SIGTERM', { platform: 'darwin', killGroup, timeoutMs: 5000 }).then(() => { stopped = true; });
+      expect(killGroup).toHaveBeenCalledWith(777, 'SIGTERM');
+      await vi.advanceTimersByTimeAsync(4999);
+      expect(stopped).toBe(false);
+      expect(killGroup).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(killGroup).toHaveBeenLastCalledWith(777, 'SIGKILL');
+      child.exit('SIGKILL');
+      await done;
+      expect(stopped).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stopChild (POSIX): falls back to the child alone without a process group; nothing to do once it has exited', async () => {
+    const child = fakeChild();
+    const killGroup = vi.fn(() => { throw new Error('ESRCH'); });
+    const done = stopChild(child, 'SIGINT', { platform: 'linux', killGroup, timeoutMs: 5000 });
+    expect(child.kill).toHaveBeenCalledWith('SIGINT');
+    child.exit('SIGINT');
+    await done;
+
+    const gone = fakeChild();
+    gone.exitCode = 0;
+    await stopChild(gone, 'SIGINT', { platform: 'linux', killGroup });
+    expect(gone.kill).not.toHaveBeenCalled();
+    expect(killGroup).toHaveBeenCalledTimes(1);
+  });
+
+  it.runIf(process.platform !== 'win32')('stopChild: a real child group that ignores SIGTERM is SIGKILLed after the timeout', async () => {
+    const child = spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
+    await new Promise((r) => setTimeout(r, 200));
+    await stopChild(child, 'SIGTERM', { timeoutMs: 300 });
+    expect(child.signalCode).toBe('SIGKILL');
+  });
+
+  it('stopChild (Windows): kills the whole tree with taskkill /T, or the child alone if taskkill fails', async () => {
+    const child = fakeChild(31337);
+    const taskkill = vi.fn(() => true);
+    const done = stopChild(child, 'SIGINT', { platform: 'win32', taskkill, timeoutMs: 5000 });
+    expect(taskkill).toHaveBeenCalledWith(31337);
+    expect(child.kill).not.toHaveBeenCalled();
+    child.exit('SIGTERM');
+    await done;
+
+    const other = fakeChild();
+    const done2 = stopChild(other, 'SIGTERM', { platform: 'win32', taskkill: vi.fn(() => false), timeoutMs: 5000 });
+    expect(other.kill).toHaveBeenCalledWith('SIGTERM');
+    other.exit('SIGTERM');
+    await done2;
   });
 
   it('without a signal: cleanup runs once the step ends (success or failure) and no handler is left', async () => {

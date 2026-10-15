@@ -78,38 +78,105 @@ export function takePin(env) {
 }
 
 /**
- * Runs `run` (the electron-builder step) with `cleanup` (removing the PIN file) guaranteed: when the step ends,
- * whatever the outcome, and on SIGINT / SIGTERM, after which the signal is re-raised with its default action so the
- * exit status still says how the script ended. The handlers are removed afterwards.
+ * Stops `child` (electron-builder) and everything it started, resolving once it has exited. POSIX: `sig` goes to its
+ * process group (shAsync starts it as a group leader), or to the child alone if there is no group; after `timeoutMs`
+ * the group gets SIGKILL. Windows has no signals: `taskkill /T /F` ends the whole tree, `child.kill()` if that fails.
  */
-export function withSignalCleanup(cleanup, run, proc = process) {
+export function stopChild(child, sig, {
+  platform = process.platform,
+  killGroup = (pid, s) => process.kill(-pid, s),
+  taskkill = (pid) => spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' }).status === 0,
+  timeoutMs = 10_000,
+} = {}) {
+  return new Promise((done) => {
+    if (child.exitCode !== null || child.signalCode !== null) return done();
+    const timers = [];
+    const finish = () => {
+      for (const t of timers) clearTimeout(t);
+      done();
+    };
+    child.once('exit', finish);
+    const send = (s) => {
+      if (platform === 'win32') {
+        if (!taskkill(child.pid)) child.kill(s);
+        return;
+      }
+      try {
+        killGroup(child.pid, s);
+      } catch {
+        child.kill(s);
+      }
+    };
+    send(sig);
+    timers.push(setTimeout(() => {
+      send('SIGKILL');
+      // Give up waiting shortly after SIGKILL, so the parent still cleans up and exits.
+      timers.push(setTimeout(finish, 2000));
+    }, timeoutMs));
+  });
+}
+
+/**
+ * Runs `run` (the electron-builder step) with `cleanup` (removing the PIN file) guaranteed: when the step ends,
+ * whatever the outcome, and on SIGINT / SIGTERM. `run` gets a `track(child)` function for the process it starts. On a
+ * signal, the child (and its process group) gets the signal too, and the PIN file is removed only once it has exited
+ * (SIGKILL after a timeout): the sign hook may hold the PIN in memory, and a child left running would keep signing
+ * with it. Then the signal is re-raised with its default action, so the exit status still says how the script ended;
+ * the returned promise never settles in that case. Further signals while waiting are absorbed.
+ */
+export function withSignalCleanup(cleanup, run, proc = process, { stopChild: stop = stopChild } = {}) {
   const handlers = new Map();
+  let child = null;
+  let interrupted = null;
   const remove = () => {
     for (const [sig, h] of handlers) proc.removeListener(sig, h);
     handlers.clear();
   };
-  for (const sig of ['SIGINT', 'SIGTERM']) {
-    const h = () => {
+  const interrupt = async (sig) => {
+    try {
+      if (child) await stop(child, sig);
+    } finally {
       remove();
       try {
         cleanup();
       } finally {
         proc.kill(proc.pid, sig);
       }
+    }
+  };
+  for (const sig of ['SIGINT', 'SIGTERM']) {
+    const h = () => {
+      if (!interrupted) interrupted = interrupt(sig);
     };
     handlers.set(sig, h);
-    proc.once(sig, h);
+    proc.on(sig, h);
   }
-  return Promise.resolve().then(run).finally(() => {
-    remove();
-    cleanup();
-  });
+  const track = (c) => {
+    child = c;
+  };
+  const pending = () => interrupted.then(() => new Promise(() => {}), () => new Promise(() => {}));
+  return Promise.resolve().then(() => run(track)).then(
+    (value) => {
+      if (interrupted) return pending();
+      remove();
+      cleanup();
+      return value;
+    },
+    (error) => {
+      if (interrupted) return pending();
+      remove();
+      cleanup();
+      throw error;
+    },
+  );
 }
 
 /** sh(), asynchronously: the event loop keeps running, so signal handlers fire while the child runs. */
 function shAsync(command, args, opts = {}) {
   return new Promise((resolveRun, reject) => {
-    const child = spawn(command, args, { stdio: 'inherit', cwd: opts.cwd ?? desktop, env: opts.env ?? process.env });
+    // Its own process group on POSIX, so a forwarded signal reaches everything electron-builder starts.
+    const child = spawn(command, args, { stdio: 'inherit', cwd: opts.cwd ?? desktop, env: opts.env ?? process.env, detached: process.platform !== 'win32' });
+    opts.onSpawn?.(child);
     child.once('error', reject);
     child.once('exit', (code, signal) => (code === 0 ? resolveRun() : reject(new Error(`${command} ${args.join(' ')} failed (${code ?? signal})`))));
   });
@@ -199,12 +266,13 @@ async function main() {
     }
     if (pin) pinFile = writePinFile(pin);
     pin = undefined;
-    // The PIN file goes away when packaging ends, and also on Ctrl-C / SIGTERM (the signal is then re-raised).
+    // The PIN file goes away when packaging ends. On Ctrl-C / SIGTERM, electron-builder and its children get the signal
+    // too, and the PIN file is removed once they have exited (SIGKILL after 10 s); then the signal is re-raised.
     await withSignalCleanup(() => {
       pinFile?.cleanup();
       pinFile = null;
-    }, () => shAsync(process.execPath, [require.resolve('electron-builder/cli.js'), '--config', 'electron-builder.config.cjs', '--win', '--publish', 'never',
-      `-c.directories.output=${out}`], { env: builderEnv(env, pinFile?.file ?? null) }));
+    }, (track) => shAsync(process.execPath, [require.resolve('electron-builder/cli.js'), '--config', 'electron-builder.config.cjs', '--win', '--publish', 'never',
+      `-c.directories.output=${out}`], { env: builderEnv(env, pinFile?.file ?? null), onSpawn: track }));
 
     console.log('\n== Verifying ==');
     const problems = verifyRelease(out, { publisher, signLog: env.CHARTMATE_WIN_SIGN_LOG });
