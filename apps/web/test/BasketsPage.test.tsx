@@ -60,6 +60,20 @@ describe('BasketsPage', () => {
     expect(api.quotes).toHaveBeenCalledWith(['basket:b1', 'basket:b2']);
   });
 
+  it('a change that rounds to zero reads "0.00%" without an up or down color (never "-0.00%")', async () => {
+    vi.mocked(api.quotes).mockResolvedValue([
+      { id: 'basket:b1', price: 1, changePct: -0.001, ts: 0 },
+      { id: 'basket:b2', price: 1, changePct: 0, ts: 0 },
+    ]);
+    render(<BasketsPage onOpenChart={() => {}} />);
+    for (const name of ['Tech + BTC', 'Crypto pair']) {
+      const row = await rowFor(name);
+      const pct = await within(row).findByText('0.00%');
+      expect(pct).not.toHaveClass('up');
+      expect(pct).not.toHaveClass('down');
+    }
+  });
+
   it('a missing quote shows "—" titled "Quote unavailable"; no page note while some quotes loaded', async () => {
     vi.mocked(api.quotes).mockResolvedValue([{ id: 'basket:b1', price: 1, changePct: 0, ts: 0 }]);
     render(<BasketsPage onOpenChart={() => {}} />);

@@ -4,6 +4,7 @@ import {
 } from '@chartmate/shared';
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { api, errorMessage } from '../api/client';
+import { fmtChange } from '../format';
 
 const DAY = 86_400_000;
 /** Server cap is 4000 bars per request; stay a little under it for 1D. */
@@ -129,7 +130,7 @@ const H = 160;
 const PAD_Y = 8;
 
 function fmt(n: number): string {
-  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function PreviewChart({ result, baseValue }: { result: PreviewResult; baseValue: number }): JSX.Element {
@@ -160,7 +161,7 @@ function PreviewChart({ result, baseValue }: { result: PreviewResult; baseValue:
   const simulated = bars.some((b) => b.simulated);
   const startTs = result.startTs;
   const showStart = startTs > t0 && startTs <= last.ts;
-  const change = (last.close / baseValue - 1) * 100;
+  const change = fmtChange((last.close / baseValue - 1) * 100);
   const up = last.close >= baseValue; // performance since the start (simulated history excluded)
 
   return (
@@ -168,7 +169,7 @@ function PreviewChart({ result, baseValue }: { result: PreviewResult; baseValue:
       {noticeList}
       <div className="preview-summary">
         <span>{fmt(baseValue)} → <strong>{fmt(last.close)}</strong></span>
-        <span className={up ? 'up' : 'down'}>{change >= 0 ? '+' : ''}{change.toFixed(2)}%</span>
+        <span className={change.dir || 'muted'}>{change.text}</span>
       </div>
       <div className="preview-chart-wrap">
         <div className="preview-axis">

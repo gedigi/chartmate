@@ -38,6 +38,8 @@ app, the Docker image and the release tag share one version number.
   and the server drops such a drawing on save instead of rejecting the whole list.
 - The price field of horizontal drawings rejects exponent notation (such as `1e-9`) and prices that round to
   zero at 8 decimals.
+- Basket changes that round to zero read "0.00%" in the neutral color, as in the watchlist (no more "-0.00%"
+  in the down color or "+0.00%" in the up color), and the basket preview formats numbers like the rest of the app.
 
 ## [1.0.0] - 2026-10-14
 

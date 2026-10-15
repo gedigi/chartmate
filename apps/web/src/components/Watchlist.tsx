@@ -1,6 +1,7 @@
 import { MAX_SECTION_TITLE, MAX_WATCHLIST_SECTIONS, type Quote, type QuoteExt, type SymbolId, type SymbolInfo, type WatchlistSection } from '@chartmate/shared';
 import { memo, useEffect, useId, useRef, useState, type CSSProperties, type DragEvent, type JSX, type KeyboardEvent } from 'react';
 import { api, ApiError, isPermanentError } from '../api/client';
+import { fmtChange } from '../format';
 import { publishQuotes } from '../state/quoteStore';
 import { retryDelayMs } from '../state/retry';
 import { useElementWidth } from '../state/useElementWidth';
@@ -28,12 +29,6 @@ function fmtPrice(price: number, precision: number): string {
   return price.toLocaleString('en-US', { minimumFractionDigits: precision, maximumFractionDigits: precision });
 }
 
-/** Rounds first so a tiny move never shows "-0.00%"; returns text and direction ('' = neutral). */
-function fmtChange(pct: number): { text: string; dir: 'up' | 'down' | '' } {
-  const r = Math.round(pct * 100) / 100;
-  if (r === 0) return { text: '0.00%', dir: '' };
-  return { text: `${r > 0 ? '+' : ''}${r.toFixed(2)}%`, dir: r > 0 ? 'up' : 'down' };
-}
 
 const EXT_LABEL = { pre: 'Pre', post: 'Post' } as const;
 const EXT_NAME = { pre: 'Pre-market', post: 'Post-market' } as const;

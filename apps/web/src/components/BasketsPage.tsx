@@ -1,6 +1,7 @@
 import type { Basket, Quote, SymbolId } from '@chartmate/shared';
 import { useState, type JSX } from 'react';
 import { errorMessage } from '../api/client';
+import { fmtChange } from '../format';
 import { basketSymbol, useBaskets } from '../state/useBaskets';
 import { BasketEditor, weightsSummary } from './BasketEditor';
 import './Baskets.css';
@@ -16,13 +17,11 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 function QuoteCell({ quote, settled }: { quote: Quote | undefined; settled: boolean }): JSX.Element {
   if (!quote) return <span className="muted" title={settled ? 'Quote unavailable' : undefined}>—</span>;
-  const pct = quote.changePct;
+  const chg = quote.changePct === null ? null : fmtChange(quote.changePct);
   return (
     <span className="basket-quote">
       <span className="basket-price">{quote.price.toFixed(2)}</span>
-      {pct !== null && (
-        <span className={pct >= 0 ? 'up' : 'down'}>{pct >= 0 ? '+' : ''}{pct.toFixed(2)}%</span>
-      )}
+      {chg && <span className={chg.dir || 'muted'}>{chg.text}</span>}
     </span>
   );
 }
