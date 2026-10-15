@@ -115,7 +115,7 @@ app, the Docker image and the release tag share one version number.
   drawings. Two clicks in the same bar or at the same price draw nothing.
 - A selected rectangle or long / short position shows its start and end times on the time axis without overlap:
   the two labels point away from each other, stay inside the axis, and merge into one "start – end" label when
-  they are close.
+  they are close. A position's time labels now show only while it is selected, no longer on hover.
 - A daily chart of a stock or a stock-only basket keeps updating its last bar over the weekend instead of
   getting no latest bar until the next session.
 - On intraday charts and live quotes of a stock-only basket, a new version now takes effect at the start of
