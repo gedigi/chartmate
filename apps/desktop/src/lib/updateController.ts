@@ -264,6 +264,9 @@ export function createUpdateController(o: {
           );
           return;
         case 'checking':
+          // A background check is already running: mark it as the user's, so its outcome is reported in a dialog.
+          // That dialog appears only when the running check ends (at worst after electron-updater's request
+          // timeout). Accepted: starting a second, parallel check would be worse.
           manual = true;
           return;
         default:
