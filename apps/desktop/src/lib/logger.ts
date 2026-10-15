@@ -28,37 +28,66 @@ export function scrub(text: string): string {
     .replace(/((?:password|passwd|secret|token|api[_-]?key|authorization|cookie|crumb)["']?\s*[:=]\s*["']?)[^"'\s,;&}]+/gi, '$1***');
 }
 
+export interface RateLimitedLog {
+  (line: string): void;
+  /** Writes the pending summary now (at quit) and stops its timer. */
+  flush(): void;
+}
+
 /**
- * Wraps `write` so that at most `max` lines get through per `windowMs` (default 20 a minute). Lines over the limit
- * are counted, and the first line of a later window is preceded by one summary. For lines the renderer or the
- * network can trigger at will (blocked requests and navigations): each is a synchronous file append.
+ * Wraps `write` so that at most `max` lines get through per `windowMs` (default 20 a minute). For lines the renderer
+ * or the network can trigger at will (blocked requests and navigations), each of which is a synchronous file append.
+ * Lines over the limit are only counted; a timer at the end of the window (unref'd, so it never keeps the app alive)
+ * or `flush()` writes one summary saying how many were left out and over how long.
  */
 export function createRateLimiter(
   write: (line: string) => void,
-  opts: { max?: number; windowMs?: number; now?: () => number; what?: string } = {},
-): (line: string) => void {
+  opts: {
+    max?: number; windowMs?: number; now?: () => number; what?: string;
+    timers?: { setTimeout: (fn: () => void, ms: number) => unknown; clearTimeout: (h: unknown) => void };
+  } = {},
+): RateLimitedLog {
   const max = opts.max ?? 20;
   const windowMs = opts.windowMs ?? 60_000;
   const now = opts.now ?? Date.now;
   const what = opts.what ?? 'log';
+  const timers = opts.timers ?? {
+    setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms).unref(),
+    clearTimeout: (h: unknown) => clearTimeout(h as NodeJS.Timeout),
+  };
   let windowStart = -Infinity;
   let count = 0;
   let suppressed = 0;
-  return (line) => {
+  let timer: unknown = null;
+
+  const flush = () => {
+    if (timer !== null) timers.clearTimeout(timer);
+    timer = null;
+    if (suppressed > 0) {
+      const seconds = Math.max(1, Math.round((now() - windowStart) / 1000));
+      write(`${suppressed} more ${what} lines suppressed in the last ${seconds} s`);
+    }
+    windowStart = -Infinity;
+    count = 0;
+    suppressed = 0;
+  };
+
+  const limited = ((line: string) => {
     const t = now();
     if (t - windowStart >= windowMs) {
-      if (suppressed > 0) write(`${suppressed} more ${what} lines suppressed in the last minute`);
+      flush();
       windowStart = t;
-      count = 0;
-      suppressed = 0;
     }
     if (count < max) {
       count++;
       write(line);
-    } else {
-      suppressed++;
+      return;
     }
-  };
+    suppressed++;
+    if (timer === null) timer = timers.setTimeout(flush, Math.max(0, windowStart + windowMs - t));
+  }) as RateLimitedLog;
+  limited.flush = flush;
+  return limited;
 }
 
 /**

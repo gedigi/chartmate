@@ -219,9 +219,11 @@ The renderer is treated as untrusted web content, and the main process exposes n
   HID/serial/USB pickers): all denied, and downloads are blocked. These rules apply to **every** session, including
   ones created later, through `session-created`.
 - **Renderer network**: `webRequest.onBeforeRequest` cancels every request that is not `app://chartmate`. `devtools:`
-  is also allowed when the dev bundle runs unpackaged. Blocked navigations and requests (renderer and main
-  process) are logged at most 20 times a minute, then summarized in one line (`createRateLimiter` in
-  `src/lib/logger.ts`), so a page cannot turn them into a stream of synchronous file writes.
+  is also allowed when the dev bundle runs unpackaged. Blocked navigations and requests are logged at most 20 times a
+  minute, then summarized in one line (`createRateLimiter` in `src/lib/logger.ts`), so a page cannot turn them
+  into a stream of synchronous file writes. The renderer's blocks and the main process's outbound allowlist
+  blocks have separate budgets. The summary ("N more … lines suppressed in the last S s") is written by a timer
+  at the end of the minute, or at quit.
 - **Main-process network**: `globalThis.fetch` is wrapped by an allowlist on top of the direct undici
   transport described above. It allows HTTPS only, exact hosts and
   the default port, and it follows redirects itself so that every hop is checked. On a redirect to another

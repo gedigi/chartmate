@@ -77,8 +77,10 @@ const listenGuard = installListenGuard(net.Server.prototype, { audit: (m) => log
 
 app.enableSandbox();
 protocol.registerSchemesAsPrivileged([...PRIVILEGED_SCHEMES]);
-// Blocked requests and navigations are page- or network-triggered: at most 20 lines a minute, then a summary.
-const logBlocked = createRateLimiter((m) => log.warn(m), { what: 'blocked' });
+// Blocked requests and navigations are page- or network-triggered: at most 20 lines a minute each, then a summary.
+// The renderer and the outbound allowlist get separate budgets, so a noisy page cannot hide blocked provider traffic.
+const logBlocked = createRateLimiter((m) => log.warn(m), { what: 'blocked renderer' });
+const logOutbound = createRateLimiter((m) => log.warn(m), { what: 'blocked outbound' });
 const hardenOpts = { hardened, onBlocked: (what: string, url: string) => logBlocked(`blocked ${what} ${url}`) };
 hardenApp(app, hardenOpts);
 
@@ -90,7 +92,7 @@ const { config } = configOrExit(
 const allowed = providerHosts(config);
 // Transport: direct connections (no env proxy) trusting only Node's bundled root CAs, whatever the environment says.
 const directFetch = createDirectFetch();
-const onBlocked = (host: string) => logBlocked(`blocked outbound request to ${host}`);
+const onBlocked = (host: string) => logOutbound(`blocked outbound request to ${host}`);
 installFetchAllowlist(globalThis, allowed, { base: directFetch, onBlocked });
 
 let mainWindow: BrowserWindow | null = null;
@@ -318,6 +320,9 @@ let quitting = false;
 let appQuitRequested = false;
 app.on('before-quit', () => {
   appQuitRequested = true;
+  // Pending "N more … suppressed" summaries are written before the app goes away.
+  logBlocked.flush();
+  logOutbound.flush();
   log.info('quit requested');
 });
 app.on('will-quit', (e) => {

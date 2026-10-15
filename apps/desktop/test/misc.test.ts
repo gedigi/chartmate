@@ -98,18 +98,67 @@ describe('rotating log', () => {
 });
 
 describe('rate-limited log lines (blocked requests)', () => {
-  it('writes at most `max` lines per window, then one summary of what was suppressed', () => {
+  const fakeTimers = () => {
+    const pending: { fn: () => void; ms: number; cleared: boolean }[] = [];
+    return {
+      pending,
+      timers: {
+        setTimeout: (fn: () => void, ms: number) => { const h = { fn, ms, cleared: false }; pending.push(h); return h; },
+        clearTimeout: (h: unknown) => { (h as { cleared: boolean }).cleared = true; },
+      },
+      live: () => pending.filter((p) => !p.cleared),
+    };
+  };
+
+  it('writes at most `max` lines per window; the summary is flushed by a timer at the end of the window', () => {
     let t = 0;
     const out: string[] = [];
-    const limited = createRateLimiter((m) => out.push(m), { max: 3, windowMs: 60_000, now: () => t, what: 'blocked' });
+    const ft = fakeTimers();
+    const limited = createRateLimiter((m) => out.push(m), { max: 3, windowMs: 60_000, now: () => t, what: 'blocked request', timers: ft.timers });
     for (let i = 0; i < 10; i++) limited(`blocked request ${i}`);
     expect(out).toEqual(['blocked request 0', 'blocked request 1', 'blocked request 2']);
+    expect(ft.live()).toHaveLength(1);
+    expect(ft.live()[0]!.ms).toBe(60_000);
     t = 60_000;
-    limited('blocked request 10');
-    expect(out.slice(3)).toEqual(['7 more blocked lines suppressed in the last minute', 'blocked request 10']);
-    t = 120_000;
-    limited('blocked request 11'); // nothing was suppressed in the previous window: no summary
-    expect(out.slice(5)).toEqual(['blocked request 11']);
+    ft.live()[0]!.fn(); // no further line needed for the summary to appear
+    expect(out.slice(3)).toEqual(['7 more blocked request lines suppressed in the last 60 s']);
+    limited('blocked request 10'); // a new window
+    expect(out.slice(4)).toEqual(['blocked request 10']);
+  });
+
+  it('flush (at quit) writes the pending summary with the time actually covered, and stops the timer', () => {
+    let t = 0;
+    const out: string[] = [];
+    const ft = fakeTimers();
+    const limited = createRateLimiter((m) => out.push(m), { max: 1, windowMs: 60_000, now: () => t, what: 'blocked', timers: ft.timers });
+    limited('a');
+    limited('b');
+    limited('c');
+    t = 12_400;
+    limited.flush();
+    expect(out).toEqual(['a', '2 more blocked lines suppressed in the last 12 s']);
+    expect(ft.live()).toHaveLength(0);
+    limited.flush(); // nothing pending: nothing written
+    expect(out).toHaveLength(2);
+  });
+
+  it('nothing suppressed: no timer, no summary', () => {
+    const out: string[] = [];
+    const ft = fakeTimers();
+    const limited = createRateLimiter((m) => out.push(m), { max: 3, timers: ft.timers });
+    limited('a');
+    limited.flush();
+    expect(out).toEqual(['a']);
+    expect(ft.pending).toHaveLength(0);
+  });
+
+  it('the renderer and the outbound allowlist have separate budgets (main.ts)', () => {
+    const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+    expect(main).toMatch(/const logBlocked = createRateLimiter\(/);
+    expect(main).toMatch(/const logOutbound = createRateLimiter\(/);
+    expect(main).toMatch(/onBlocked: \(what: string, url: string\) => logBlocked\(/);
+    expect(main).toMatch(/const onBlocked = \(host: string\) => logOutbound\(/);
+    expect(main).toMatch(/logBlocked\.flush\(\);\s*logOutbound\.flush\(\);/);
   });
 });
 
