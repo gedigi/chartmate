@@ -162,6 +162,9 @@ IP/CIDR). Chartmate then takes the client IP, the `https` scheme and the host fr
 so the login rate limits apply per client and the session cookie is marked `Secure`. Set a password (an
 exposed instance always needs one), and list the public name in `CHARTMATE_ALLOWED_HOSTS`
 (`chartmate.example.com`): without a password that is required, otherwise every request is refused with a 403.
+Without `CHARTMATE_TRUST_PROXY` the server sees plain HTTP from the proxy even when the browser uses HTTPS: it
+then issues the plain `chartmate_session` cookie without `Secure` (and without the `__Host-` prefix), so a
+browser would also send it over plain HTTP. Set the variable whenever a proxy terminates TLS.
 
 The proxy must pass the real host: the `Host` header and every `X-Forwarded-Host` entry must be allowed names
 (the `Host` may also be `127.0.0.1:8787`, which some proxies send by default). Serve Chartmate only from a
@@ -749,6 +752,16 @@ server, back up the database and delete that record —
 mirrored `watchlist` table (symbols only; sections are not visible to it). Upgrading again re-runs 003, which keeps
 the existing `watchlist_entries` rows, so watchlist edits made while downgraded are not carried over (empty that
 table before upgrading to re-import the old list instead).
+
+**Rolling back to 1.0.0.** This version adds migrations 004 (symbol ids), 005 (applied splits) and 006
+(settings), and 1.0.0 refuses to start while they are recorded. Stop the server, back up the database, then
+`DELETE FROM kysely_migration WHERE name IN ('004_symbol_ids', '005_applied_splits', '006_settings');` and start
+1.0.0. Migration 004 cannot be undone: ids stay in their normalized spelling (1.0.0 reads them fine) and merged
+or dropped entries do not come back. The added `applied_splits` and `settings` tables and the
+`symbols.splits_tracked_from` column are left in place and ignored by 1.0.0. Sessions issued by either version
+are not accepted by the other, so expect to log in again. Before upgrading again, run
+`UPDATE symbols SET splits_tracked_from = splits_checked_at;`: splits 1.0.0 applied in the meantime are not in
+`applied_splits`, and without this the first check after the upgrade could apply them a second time.
 
 ## Desktop app
 
