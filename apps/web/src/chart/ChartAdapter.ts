@@ -369,7 +369,9 @@ export class ChartAdapter {
     if (prevSymbol === p.symbol.id && prevMapping !== this.mapsDailyAnchors()) this.replaceForAnchorMapping(p.symbol.id);
     this.markers = [];
     this.renderMarkers();
-    this.setIndicatorContext({ assetClass: p.symbol.assetClass, intraday: isIntraday(p.tf), pricePrecision: p.symbol.pricePrecision });
+    const ext: IndicatorExtendData = { assetClass: p.symbol.assetClass, intraday: isIntraday(p.tf), pricePrecision: p.symbol.pricePrecision };
+    if (this.basketHasCrypto) ext.utcDays = true; // its intraday bars use the UTC grid
+    this.setIndicatorContext(ext);
     const timezone = timezoneFor(p.symbol, p.tf);
     this.chart.setTimezone(timezone);
     this.setTimeTexts(p.tf, timezone, p.session);
@@ -687,16 +689,16 @@ export class ChartAdapter {
   }
 
   /** Updates the indicators' extendData (asset class, intraday, price precision) when it changes. */
-  private setIndicatorContext(ext: Required<IndicatorExtendData>): void {
+  private setIndicatorContext(ext: IndicatorExtendData): void {
     const cur = this.indicatorExt;
-    if (cur.assetClass === ext.assetClass && cur.intraday === ext.intraday && cur.pricePrecision === ext.pricePrecision) return;
+    if (cur.assetClass === ext.assetClass && cur.intraday === ext.intraday && cur.pricePrecision === ext.pricePrecision && cur.utcDays === ext.utcDays) return;
     this.indicatorExt = ext;
     for (const i of this.chart.getIndicators()) {
       if (SHADE_INDICATORS.has(i.name)) continue;
       const override: IndicatorCreate = { id: i.id, name: i.name, extendData: ext };
       // Bounded oscillators keep their fixed precision; price-unit ones follow the symbol.
       if (!BOUNDED_INDICATORS.has(i.name)) {
-        const precision = indicatorPrecision(i.name, ext.pricePrecision);
+        const precision = indicatorPrecision(i.name, ext.pricePrecision ?? 4);
         if (precision !== undefined) override.precision = precision;
       }
       this.chart.overrideIndicator(override);

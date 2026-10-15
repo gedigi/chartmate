@@ -399,6 +399,9 @@ Where to read next:
   MACD its zero line even when the values stay on one side. The settings dialog's **Levels** section hides
   them or edits the values (up to 5, separated by commas; empty = none); Reset restores the defaults. They
   are saved with the layout only when changed (older layouts use the defaults).
+- **VWAP** resets each session on intraday charts: at midnight New York time for stocks and stock-only baskets,
+  at midnight UTC for crypto and for baskets holding crypto (whose intraday bars use the UTC grid). On 1D and
+  longer timeframes it spans the whole loaded series.
 - **Your own**: an indicator is one file; see [Custom indicators](#custom-indicators) and
   [CONTRIBUTING.md](CONTRIBUTING.md#add-an-indicator).
 

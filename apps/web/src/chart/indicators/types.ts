@@ -56,4 +56,6 @@ export interface IndicatorExtendData {
   /** False on 1D and longer timeframes (session-anchored indicators then span the whole series). */
   intraday?: boolean;
   pricePrecision?: number;
+  /** Sessions follow UTC days (set for a basket holding crypto; crypto itself already uses UTC days). */
+  utcDays?: boolean;
 }

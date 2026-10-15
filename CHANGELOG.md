@@ -40,6 +40,7 @@ app, the Docker image and the release tag share one version number.
   zero at 8 decimals.
 - Basket changes that round to zero read "0.00%" in the neutral color, as in the watchlist (no more "-0.00%"
   in the down color or "+0.00%" in the up color), and the basket preview formats numbers like the rest of the app.
+- VWAP on a basket holding crypto resets at midnight UTC, like its bars, instead of midnight New York time.
 
 ## [1.0.0] - 2026-10-14
 

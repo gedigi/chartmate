@@ -257,6 +257,17 @@ describe('ChartAdapter', () => {
     expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({ id: atrId, precision: 6 }));
   });
 
+  it('a basket holding crypto tells session indicators (VWAP) to use UTC days', () => {
+    const a = make();
+    const id = a.addIndicator({ name: 'VWAP', pane: 'main' });
+    const basket = { id: 'basket:b1', assetClass: 'basket' as const, ticker: 'B1', name: 'B1', pricePrecision: 2 };
+    a.load({ symbol: basket, tf: '1h', session: 'rth', pollMs: 15000, basketHasCrypto: true }, events());
+    expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({ id, extendData: { assetClass: 'basket', intraday: true, pricePrecision: 2, utcDays: true } }));
+    chart().overrideIndicator.mockClear();
+    a.load({ symbol: basket, tf: '1h', session: 'rth', pollMs: 15000, basketHasCrypto: false }, events());
+    expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({ id, extendData: { assetClass: 'basket', intraday: true, pricePrecision: 2 } }));
+  });
+
   it('axis / legend precision: price-unit oscillators (MACD, AO, MTM) take the price precision, bounded ones (RSI …) 2', () => {
     const a = make();
     const macd = a.addIndicator({ name: 'MACD', pane: 'sub' });

@@ -69,3 +69,20 @@ describe('collectCustomIndicators', () => {
     expect(PRICE_PRECISION_INDICATORS.has('VWAP')).toBe(false);
   });
 });
+
+describe('VWAP session days', () => {
+  it('resets at UTC midnight for crypto and for baskets holding crypto (utcDays), at New York midnight otherwise', async () => {
+    const { CUSTOM_INDICATORS } = await import('../../src/chart/indicators/extensions');
+    const vwapTpl = CUSTOM_INDICATORS.find((c) => c.template.name === 'VWAP')!.template;
+    // 23:00 and 01:00 UTC: different UTC days, the same New York day (19:00 / 21:00 EDT).
+    const t0 = Date.UTC(2024, 5, 3, 23);
+    const bars = [
+      { timestamp: t0, open: 10, high: 10, low: 10, close: 10, volume: 1 },
+      { timestamp: t0 + 2 * 3_600_000, open: 20, high: 20, low: 20, close: 20, volume: 1 },
+    ];
+    const run = (extendData: unknown) => (vwapTpl.calc as (d: unknown, i: unknown) => Array<{ vwap: number | null }>)(bars, { extendData }).map((r) => r.vwap);
+    expect(run({ assetClass: 'basket', intraday: true })).toEqual([10, 15]); // one NY session
+    expect(run({ assetClass: 'basket', intraday: true, utcDays: true })).toEqual([10, 20]); // reset at UTC midnight
+    expect(run({ assetClass: 'crypto', intraday: true })).toEqual([10, 20]);
+  });
+});
