@@ -5,6 +5,24 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+### Desktop app
+
+- Automatic updates for signed builds: the app checks 15 seconds after it starts and every 6 hours, downloads
+  new versions in the background and asks to restart now or later (later installs on quit), with a short summary
+  of the release notes. A failed check, download or install you asked for is reported in a dialog.
+- macOS: **Check for Updates…** in the Chartmate menu checks right away, and **Check for Updates Automatically**
+  next to it turns the background checks off. An unsigned build says it cannot update itself and offers to open
+  the releases page.
+- Windows has no update menu (the window has no menu bar): signed builds update in the background. Windows builds
+  are unsigned for now and keep updating by hand from the releases page.
+- `CHARTMATE_DISABLE_UPDATES=1` turns updates off entirely.
+- Updates are verified before they install: the downloaded app (macOS) or installer (Windows) must carry the
+  advertised, newer version; on macOS it must be signed by the same developer, and on Windows validly signed by
+  the pinned publisher, with any failure to check refusing it. On macOS the restart prompt appears only once the
+  update is ready to install.
+- Chartmate 1.0.0 shipped with updates turned off: install this version by hand once, and later versions arrive
+  automatically.
+
 ### Self-hosting
 
 - `compose.yaml` runs the published image by default: download it and `docker compose up -d`, no `.env` needed
@@ -19,6 +37,19 @@ app, the Docker image and the release tag share one version number.
   password.
 - State-changing API requests (with or without a password) are refused when their `Origin` is not the page's
   own origin.
+
+### Charts and baskets
+
+- A daily chart of a stock or a stock-only basket keeps updating its last bar over the weekend instead of
+  getting no latest bar until the next session.
+- On intraday charts and live quotes of a stock-only basket, a new version now takes effect at the start of
+  its date's New York session (04:00, pre-market) instead of at midnight UTC, which in winter fell inside the
+  previous evening's post-market and valued it with the new holdings. 2h and 4h extended-hours bars no longer
+  mix two versions, and the version markers move to that time. Daily charts are unchanged.
+- A basket version dated tomorrow is no longer sized for hours at a price from the middle of today's
+  session: its holdings are re-sized every few minutes until today closes, then fixed at the final close.
+- A basket no longer fails to load when a constituent's daily close is zero, negative or missing where a version
+  is sized: the last valid close up to 5 bars earlier is used, and a notice names the dates skipped.
 
 ### Fixes
 

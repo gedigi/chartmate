@@ -1,6 +1,6 @@
 import type { Bar, Timeframe } from './types.js';
-import { tfMs } from './timeframes.js';
-import { nyParts, nyToUtc } from './nytime.js';
+import { isIntraday, tfMs } from './timeframes.js';
+import { memoByNyDay, nyDayTime, nyParts, nyToUtc } from './nytime.js';
 
 export type Calendar = 'utc' | 'nyse-rth' | 'nyse-eth';
 
@@ -20,8 +20,24 @@ export function bucketStart(ts: number, tf: Timeframe, calendar: Calendar): numb
   const ms = tfMs(tf);
   if (calendar === 'utc') return Math.floor(ts / ms) * ms;
   const p = nyParts(ts);
-  const anchor = calendar === 'nyse-rth' ? nyToUtc(p.y, p.m, p.d, 9, 30) : nyToUtc(p.y, p.m, p.d, 4, 0);
+  return anchored(ts, ms, sessionAnchor(p, calendar));
+}
+
+/** The NYSE calendar's bucket anchor on NY date `p`: 09:30 (RTH) or 04:00 (ETH) NY. */
+function sessionAnchor(p: { y: number; m: number; d: number }, calendar: 'nyse-rth' | 'nyse-eth'): number {
+  return calendar === 'nyse-rth' ? nyToUtc(p.y, p.m, p.d, 9, 30) : nyToUtc(p.y, p.m, p.d, 4, 0);
+}
+
+function anchored(ts: number, ms: number, anchor: number): number {
   return anchor + Math.floor((ts - anchor) / ms) * ms;
+}
+
+/** `bucketStart` for one (tf, calendar), memoized per NY day for the NYSE calendars (one Intl lookup per day). */
+function bucketStarter(tf: Timeframe, calendar: Calendar): (ts: number) => number {
+  if (calendar === 'utc' || !isIntraday(tf)) return (ts) => bucketStart(ts, tf, calendar);
+  const ms = tfMs(tf);
+  const anchorOf = memoByNyDay((day) => (calendar === 'nyse-rth' ? nyDayTime(day, 9, 30) : nyDayTime(day, 4, 0)));
+  return (ts) => anchored(ts, ms, anchorOf(ts));
 }
 
 /**
@@ -49,6 +65,7 @@ export function normalizeBars(bars: Bar[]): Bar[] {
  */
 export function resample(input: Bar[], tf: Timeframe, calendar: Calendar): Bar[] {
   const bars = normalizeBars(input);
+  const startOf = bucketStarter(tf, calendar);
   const out: Bar[] = [];
   let cur: Bar | null = null;
   let uniform = true;
@@ -56,11 +73,12 @@ export function resample(input: Bar[], tf: Timeframe, calendar: Calendar): Bar[]
   let allSimulated = true;
   const flush = () => {
     if (!cur) return;
+    // Mixed sessions: no single tag fits. Filter sessions before resampling (see filterSession), never after.
     if (!uniform) cur.session = undefined;
     if (allSimulated) cur.simulated = true;
   };
   for (const b of bars) {
-    const ts = bucketStart(b.ts, tf, calendar);
+    const ts = startOf(b.ts);
     if (cur && cur.ts === ts) {
       cur.high = Math.max(cur.high, b.high);
       cur.low = Math.min(cur.low, b.low);

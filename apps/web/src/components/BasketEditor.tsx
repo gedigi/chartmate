@@ -151,7 +151,7 @@ function CreateBasket({ onSaved, onCancel }: BasketEditorProps): JSX.Element {
             <span>Start date (UTC)</span>
             <input type="date" value={startDate} min={MIN_EFFECTIVE_DATE} max={maxDate} onChange={(e) => setStartDate(e.target.value)} />
           </label>
-          <p className="hint">The basket starts at {DEFAULT_BASE_VALUE} from 00:00 UTC on this date, sized at the prior close.</p>
+          <p className="hint">The basket starts at {DEFAULT_BASE_VALUE} on this date (00:00 UTC, or the New York session start on intraday charts of stock-only baskets), sized at the prior close.</p>
           {dateError && <p className="form-error">{dateError}</p>}
           {error && <p className="form-error" role="alert">{error}</p>}
           <div className="editor-actions">

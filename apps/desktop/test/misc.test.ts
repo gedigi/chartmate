@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createRotatingLog, scrub } from '../src/lib/logger.js';
 import { menuTemplate } from '../src/lib/menu.js';
-import { allowsPrereleaseUpdates, shouldEnableAutoUpdate } from '../src/lib/updatePolicy.js';
+import { allowsPrereleaseUpdates, hasWindowsPublisher, shouldEnableAutoUpdate } from '../src/lib/updatePolicy.js';
 import { BACKGROUND, loadWindowState, parseWindowState, saveWindowState, visibleBounds } from '../src/lib/windowState.js';
 
 const flatRoles = (items: unknown[]): string[] => items.flatMap((i) => {
@@ -92,13 +92,18 @@ describe('allowsPrereleaseUpdates', () => {
     expect(allowsPrereleaseUpdates('1.0.0')).toBe(false);
     expect(allowsPrereleaseUpdates('0.1.2')).toBe(false);
     expect(allowsPrereleaseUpdates('1.1.0-beta.1')).toBe(true);
+    expect(allowsPrereleaseUpdates('1.1.0+build-5')).toBe(false);
   });
 });
 
 describe('shouldEnableAutoUpdate', () => {
+  it('product.json turns auto-update on (it still runs only in signed builds)', () => {
+    const product = JSON.parse(readFileSync(new URL('../product.json', import.meta.url), 'utf8')) as { autoUpdate: unknown };
+    expect(product.autoUpdate).toBe(true);
+  });
   const yml = 'owner: o\nrepo: r\nprovider: github\nupdaterCacheDirName: chartmate-updater\n';
   const winYml = `${yml}publisherName:\n  - CN=Chartmate\n`;
-  const base = { isPackaged: true, productAutoUpdate: true, isSigned: true, platform: 'darwin' as NodeJS.Platform, updateConfig: yml, env: {} };
+  const base = { isPackaged: true, productAutoUpdate: true, isSigned: true, platform: 'darwin' as NodeJS.Platform, updateConfig: yml, env: {}, winPublisherDn: '' };
   it('requires every gate', () => {
     expect(shouldEnableAutoUpdate(base)).toBe(true);
     expect(shouldEnableAutoUpdate({ ...base, isPackaged: false })).toBe(false);
@@ -109,11 +114,25 @@ describe('shouldEnableAutoUpdate', () => {
     expect(shouldEnableAutoUpdate({ ...base, env: { CHARTMATE_DISABLE_UPDATES: '0' } })).toBe(true);
     expect(shouldEnableAutoUpdate({ ...base, platform: 'linux' })).toBe(false);
   });
-  it('Windows: refuses to update unless app-update.yml pins publisherName', () => {
-    expect(shouldEnableAutoUpdate({ ...base, platform: 'win32' })).toBe(false);
-    expect(shouldEnableAutoUpdate({ ...base, platform: 'win32', updateConfig: winYml })).toBe(true);
-    expect(shouldEnableAutoUpdate({ ...base, platform: 'win32', updateConfig: `${yml}publisherName: CN=Chartmate\n` })).toBe(true);
-    expect(shouldEnableAutoUpdate({ ...base, platform: 'win32', updateConfig: `${yml}publisherName: []\n` })).toBe(false);
-    expect(shouldEnableAutoUpdate({ ...base, platform: 'win32', updateConfig: `${yml}publisherName:\n` })).toBe(false);
+  it('Windows: refuses to update unless app-update.yml names a publisher AND the build pins the publisher DN', () => {
+    const dn = 'CN=Chartmate, O=Chartmate, C=PL';
+    const win = { ...base, platform: 'win32' as NodeJS.Platform, winPublisherDn: dn };
+    expect(shouldEnableAutoUpdate({ ...win, updateConfig: yml })).toBe(false);
+    expect(shouldEnableAutoUpdate({ ...win, updateConfig: winYml })).toBe(true);
+    expect(shouldEnableAutoUpdate({ ...win, updateConfig: `${yml}publisherName: CN=Chartmate\n` })).toBe(true);
+    expect(shouldEnableAutoUpdate({ ...win, updateConfig: `${yml}publisherName: []\n` })).toBe(false);
+    expect(shouldEnableAutoUpdate({ ...win, updateConfig: `${yml}publisherName:\n` })).toBe(false);
+    // The DN pin is what the installer is checked against: without a usable one, no Windows updates.
+    expect(shouldEnableAutoUpdate({ ...win, updateConfig: winYml, winPublisherDn: '' })).toBe(false);
+    expect(shouldEnableAutoUpdate({ ...win, updateConfig: winYml, winPublisherDn: 'CN=Chartmate' })).toBe(false);
+  });
+  it('hasWindowsPublisher parses app-update.yml as YAML', () => {
+    expect(hasWindowsPublisher(`${yml}publisherName:\n  - CN=Chartmate\n`)).toBe(true);
+    expect(hasWindowsPublisher(`${yml}publisherName: "Open Source Developer, Jane Doe"\n`)).toBe(true);
+    expect(hasWindowsPublisher(`${yml}publisherName: Jane # comment\n`)).toBe(true);
+    for (const bad of [yml, `${yml}publisherName: ''\n`, `${yml}publisherName: ~\n`, `${yml}publisherName: [""]\n`, `${yml}publisherName: {a: 1}\n`,
+      `${yml}publisherName: 5\n`, `${yml}# publisherName: x\n`, `x:\n  publisherName: CN=Nested\n`, 'publisherName: [unclosed', ': :', '']) {
+      expect(hasWindowsPublisher(bad), bad).toBe(false);
+    }
   });
 });

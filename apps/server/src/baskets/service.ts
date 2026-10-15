@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
-  BasketValidationError, baseTimeframe, basketQuoteExt, bucketStart, buildBasketBars, computeVersionUnits, filterSession,
-  isIntraday, nyDateUtcMidnight, parseDateString, parseSymbolId, resample, tfMs, utcDateString, validateVersions, versionMarkers,
+  BasketValidationError, alignUnitsToNySessions, baseTimeframe, basketQuoteExt, bucketStart, buildBasketBars,
+  computeVersionUnits, filterSession, isIntraday, nyDateUtcMidnight, parseDateString, parseSymbolId, resample, tfMs, utcDateString, validateVersions, versionMarkers,
   type Bar, type Basket, type BasketVersion, type Calendar, type ConstituentSeries, type Marker, type Quote,
   type SessionMode, type SymbolId, type Timeframe, type UnitsResult,
 } from '@chartmate/shared';
@@ -11,6 +11,8 @@ import type { MarketDataService } from '../market/service.js';
 
 const DAY = 86_400_000;
 const UNITS_TTL_MS = 6 * 3_600_000;
+/** Longest reuse of provisional units (a version dated tomorrow sized at today's unfinished daily bar). */
+const PROVISIONAL_UNITS_TTL_MS = 5 * 60_000;
 const INTRADAY_PAD_MS = 5 * DAY;
 /** getLatest's intraday pad for baskets holding a stock: covers a long weekend so forward-fill has a prior close. */
 const LATEST_STOCK_PAD_MS = 4 * DAY;
@@ -32,7 +34,9 @@ export interface BasketBarsArgs {
   padMs?: number;
 }
 
-interface CachedUnits { key: string; units: UnitsResult; at: number }
+/** `until`: provisional units (sized at a daily bar still trading) or units kept through a failed refresh (`stale`)
+ * expire then; others follow UNITS_TTL_MS. */
+interface CachedUnits { key: string; units: UnitsResult; at: number; until?: number; stale?: boolean }
 /** The basket's two latest daily closes, computed once per UTC day per basket (key = units key). */
 interface CachedDaily { key: string; day: number; last: Bar | null; prev: Bar | null }
 
@@ -144,7 +148,11 @@ export class BasketService {
    */
   private async buildBars(a: BasketBarsArgs): Promise<BarsResponseCore & { unseeded: SymbolId[]; realInWindow: boolean }> {
     const basket = await this.get(a.id);
-    const { units, stale: unitsStale } = await this.unitsFor(basket);
+    const { units: dailyUnits, stale: unitsStale } = await this.unitsFor(basket);
+    const all = constituents(basket.versions);
+    const anyCrypto = all.some((id) => parseSymbolId(id).assetClass === 'crypto');
+    // Stock-only intraday: the start and each version switch at the start of the NY session, not 00:00 UTC.
+    const units = isIntraday(a.tf) && !anyCrypto ? alignUnitsToNySessions(dailyUnits) : dailyUnits;
     const S = units.startTs;
     const markers: Marker[] = [
       ...(S >= a.from && S < a.to ? [{ ts: S, label: START_MARKER }] : []),
@@ -153,8 +161,6 @@ export class BasketService {
     const notices = [...units.notices];
     if (isIntraday(a.tf)) notices.push(INTRADAY_HL_NOTICE);
 
-    const all = constituents(basket.versions);
-    const anyCrypto = all.some((id) => parseSymbolId(id).assetClass === 'crypto');
     const calendar: Calendar = anyCrypto ? 'utc' : a.session === 'eth' ? 'nyse-eth' : 'nyse-rth';
     const base = baseTimeframe(a.tf);
     const derived = a.tf !== base;
@@ -221,7 +227,8 @@ export class BasketService {
     const anyCrypto = classes.includes('crypto');
     const cal: Calendar = !isIntraday(tf) || anyCrypto ? 'utc' : session === 'eth' ? 'nyse-eth' : 'nyse-rth';
     const now = this.now();
-    const back = tf === '1W' ? 7 * DAY : tf === '1M' ? 31 * DAY : tfMs(tf);
+    // 1D looks back a week so a stock basket's last session is found over a (long) weekend.
+    const back = tf === '1D' || tf === '1W' ? 7 * DAY : tf === '1M' ? 31 * DAY : tfMs(tf);
     // Polled often: fetch just enough history to seed forward-fill (stocks: across a long weekend).
     const base = baseTimeframe(tf);
     const padMs = !isIntraday(base) ? undefined : classes.includes('stock') ? LATEST_STOCK_PAD_MS : 2 * tfMs(base);
@@ -247,7 +254,11 @@ export class BasketService {
     const plans = await Promise.all(basketIds.map(async (id) => {
       try {
         const basket = await this.get(id);
-        const { units } = await this.unitsFor(basket);
+        const { units: dailyUnits } = await this.unitsFor(basket);
+        // Stock-only: a version takes over at the next NY session's start, as on intraday charts (the eve's winter
+        // post-market runs past 00:00 UTC on the old units).
+        const stockOnly = constituents(basket.versions).every((c) => parseSymbolId(c).assetClass === 'stock');
+        const units = stockOnly ? alignUnitsToNySessions(dailyUnits) : dailyUnits;
         const now = this.now();
         let active = units.versions[0]!;
         for (const ver of units.versions) if (ver.effectiveTs <= now) active = ver;
@@ -391,7 +402,20 @@ export class BasketService {
   }
 
   private seed(id: string, versions: BasketVersion[], r: { units: UnitsResult; stale: boolean }): void {
-    if (!r.stale) this.unitsCache.set(id, { key: this.unitsKey(versions), units: r.units, at: this.now() });
+    if (r.stale) return;
+    const now = this.now();
+    // A version (or the start) dated tomorrow is sized at today's daily bar, which is still trading: those units
+    // are provisional. Keep them briefly (no provider call per request) and recompute once that day has closed.
+    const next = Math.min(...r.units.versions.map((v) => v.effectiveTs).filter((ts) => ts > now));
+    const until = next === Infinity ? undefined : Math.min(next, now + PROVISIONAL_UNITS_TTL_MS);
+    this.unitsCache.set(id, { key: this.unitsKey(versions), units: r.units, at: now, ...(until !== undefined ? { until } : {}) });
+  }
+
+  /** Keeps expired units through a failed refresh for a few minutes, so an outage is not retried per request. */
+  private keepStale(id: string, hit: CachedUnits): { units: UnitsResult; stale: true } {
+    const now = this.now();
+    this.unitsCache.set(id, { ...hit, until: now + PROVISIONAL_UNITS_TTL_MS, stale: true });
+    return { units: hit.units, stale: true };
   }
 
   private async unitsFor(basket: Basket): Promise<{ units: UnitsResult; stale: boolean }> {
@@ -400,7 +424,9 @@ export class BasketService {
     const key = this.unitsKey(basket.versions);
     const hit = this.unitsCache.get(basket.id);
     const now = this.now();
-    if (hit && hit.key === key) {
+    if (hit && hit.key === key && hit.until !== undefined) {
+      if (now < hit.until) return { units: hit.units, stale: hit.stale === true };
+    } else if (hit && hit.key === key) {
       const yesterday = Math.floor(now / DAY) * DAY - DAY;
       const recent = basket.versions.some((v) => parseDateString(v.effectiveFrom) >= yesterday);
       if (!(recent && now - hit.at > UNITS_TTL_MS)) return { units: hit.units, stale: false };
@@ -410,10 +436,10 @@ export class BasketService {
       r = await this.computeUnits(basket.versions, basket.baseValue, 'read');
     } catch (err) {
       // A refresh that fails (e.g. provider outage) falls back to the expired units for the same versions.
-      if (hit && hit.key === key) return { units: hit.units, stale: true };
+      if (hit && hit.key === key) return this.keepStale(basket.id, hit);
       throw err;
     }
-    if (r.stale && hit && hit.key === key) return { units: hit.units, stale: true };
+    if (r.stale && hit && hit.key === key) return this.keepStale(basket.id, hit);
     this.seed(basket.id, basket.versions, r);
     return r;
   }

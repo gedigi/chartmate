@@ -41,10 +41,38 @@ notarized" for macOS, or "unsigned"). An unsigned build needs one extra step the
 - **macOS**: macOS refuses to open the app. Open **System Settings**, **Privacy & Security**, and click **Open
   Anyway** next to the message about Chartmate (on macOS 14 and earlier: right-click the app, then **Open**).
 
-The app does not update itself: to update, install the new version over the old one. Your data is kept.
-
 The desktop app needs no account and no server: your charts, drawings, watchlist and baskets are stored on
 your computer (see [Data location](#data-location)).
+
+### Updates
+
+Signed builds update themselves. The app checks for a new version 15 seconds after it starts and then every 6
+hours, downloads it in the background and then asks whether to restart now or later; with **Later** the update
+is installed the next time you quit. Your data is kept. The dialog shows a short, plain-text summary of the
+release notes. If a check, download or install you asked for fails, a dialog says so; the details are in the
+[log](#data-location), and the next check tries again.
+
+On macOS:
+
+- **Check for Updates…** in the **Chartmate** menu checks right away and tells you the result.
+- **Check for Updates Automatically**, next to it, turns the background checks off or on. **Check for Updates…**
+  works either way. The choice is saved in `update-settings.json` in the [data directory](#data-location).
+- An unsigned build cannot update itself: **Check for Updates…** says so and offers to open the releases page.
+
+On Windows the window has no menu bar, so there is no update menu. A signed build checks and downloads in the
+background and asks to restart when an update is ready. Windows builds are unsigned for now (each release's
+signing table says), and unsigned builds do not update themselves: download the new installer from the
+[releases page](../../releases/latest) and run it over the old version.
+
+Everywhere:
+
+- `CHARTMATE_DISABLE_UPDATES=1` in the environment turns updates off completely (on macOS the menu item is
+  grayed out and says why).
+- A pre-release build (`1.1.0-beta.1`) also updates to newer pre-releases; a regular release only to regular
+  releases. Only a newer version than the one running is offered, and the downloaded app's (macOS) or
+  installer's (Windows) own version is checked against it before it is installed.
+- **Chartmate 1.0.0 shipped with updates turned off**: if you have 1.0.0, download and install the next version
+  once by hand; from then on the app updates itself (on macOS; on Windows once its builds are signed).
 
 ## Self-host
 
@@ -649,9 +677,14 @@ form an untitled top group.
 A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
 
 - A basket has one or more **versions**; each has weights and an `effective from` calendar date.
-  A version applies from 00:00 UTC of that date, on every timeframe.
+  A version applies from 00:00 UTC of that date on daily and longer timeframes, and on intraday charts of
+  baskets holding crypto. On intraday charts and live quotes of a **stock-only** basket it applies from the
+  start of that date's New York session (04:00 New York time, pre-market), so the previous evening's
+  post-market (which runs past midnight UTC in winter) stays on the old holdings; the `Start` and version
+  markers sit at that time too.
 - When a version starts, each constituent is sized in units at the **prior trading close**, so the
-  basket value is continuous across a rebalance (no jump).
+  basket value is continuous across a rebalance (no jump). If that daily close is invalid (zero, negative
+  or missing in the provider's data), the last valid close up to 5 bars earlier is used and a notice says so.
 - Versions are **chained**: the series continues from the previous version's last value, giving one
   continuous index.
 - On intraday timeframes, the basket bar's high/low is an **approximation** (derived from
@@ -672,7 +705,9 @@ A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
   as soon as any version holds crypto. Appending a crypto version to a stock-only basket therefore
   re-grids its **whole** intraday history to UTC buckets (daily and above are unaffected).
 - A version holds at most 50 constituents, and its effective date must lie between 1970-01-01 and
-  tomorrow (UTC).
+  tomorrow (UTC). A version dated tomorrow is sized at the latest daily close before that date, which may
+  not be final yet: until that date begins (00:00 UTC) its holdings are provisional, re-sized every few
+  minutes, and they are then fixed at that final close.
 - **Deleting** a basket (Baskets page) also removes it from the watchlist and clears its drawings; if it was
   on the chart, the chart switches to the first other watchlist symbol. A reference that survives (say, the
   cleanup failed or another tab still lists it) shows as "Deleted basket" in the watchlist and on the chart,
@@ -763,6 +798,7 @@ The directory holds:
 - `chartmate.db` (SQLite with WAL), created with mode 0600 inside a
   0700 directory;
 - `window-state.json`;
+- `update-settings.json` (whether to check for updates automatically), once you change that setting;
 - `logs/main.log`, which rotates at 1 MB and keeps 2 old files.
 
 What gets logged:
@@ -783,7 +819,7 @@ Environment overrides the desktop app honors:
 - `CHARTMATE_PROVIDERS` (`live` (the default) or `fixture`);
 - `CRYPTO_PROVIDER`;
 - `BINANCE_BASE_URL` (https only);
-- `CHARTMATE_DISABLE_UPDATES=1`.
+- `CHARTMATE_DISABLE_UPDATES=1` (no update checks or downloads at all, see [Updates](#updates)).
 
 A packaged build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE` or
 `NODE_EXTRA_CA_CERTS` is set. Node applies the first during pre-execution, before any app code runs, so the app
