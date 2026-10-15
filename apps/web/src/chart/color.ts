@@ -174,6 +174,19 @@ function rgbaOnto(target: Rgb, bg: Rgb): { rgb: Rgb; alpha: number } | null {
 }
 
 /**
+ * The least opaque rgba() that, drawn over the opaque `bg`, shows the opaque `target` (a theme token such as the
+ * extended-hours shade): translucent, so what lies under it keeps its colors, yet it lands on the token's color.
+ * `target` itself when no such rgba exists below 0.6 opacity (or a color cannot be read).
+ */
+export function fillOnto(target: string, bg: string): string {
+  const t = parseColor(target);
+  const b = parseColor(bg);
+  if (!t || !b) return target;
+  const fill = rgbaOnto(t.rgb, b.rgb);
+  return fill ? rgbaText(fill.rgb, fill.alpha) : target;
+}
+
+/**
  * A translucent fill of `color` on `bg`: the least opaque rgba() that composites EXACTLY onto the hue-locked tint of
  * `color` on `bg` (OKLCH lightness `amount` of the way toward bg, chroma scaled by 1 − 0.75 × amount). On white that
  * is a coral / mint tint of the color's own hue, where a plain rgba() of a crimson turns pink. When no such rgba

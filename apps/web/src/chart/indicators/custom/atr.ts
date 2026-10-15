@@ -13,7 +13,7 @@ const indicator: CustomIndicator = {
   },
   usePricePrecision: true,
   catalog: {
-    name: 'ATR', label: 'Average True Range', pane: 'sub', defaultParams: [14], paramLabels: ['Period'], lines: ['ATR'],
+    name: 'ATR', label: 'Average true range', pane: 'sub', defaultParams: [14], paramLabels: ['Period'], lines: ['ATR'],
   },
 };
 

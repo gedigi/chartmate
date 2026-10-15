@@ -169,6 +169,7 @@ describe('last price line', () => {
       expect(THEME_TOKENS.light.lastPrice).toBe(ink);
     }
     expect(contrastRatio(DARK_TEXT, lamp)).toBeGreaterThanOrEqual(4.5);
+    expect(DARK_TEXT).toBe(THEME_TOKENS.light.text); // label ink = the light theme's text token
     expect(contrastRatio(LIGHT_TEXT, ink)).toBeGreaterThanOrEqual(4.5);
   });
 

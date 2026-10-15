@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { api, ApiError } from '../src/api/client';
 import { COLOR_DEFAULTS_REV, INDICATOR_PALETTE, THEME_TOKENS } from '../src/chart/theme';
-import { DEFAULT_LAYOUT, migrateColorDefaults, useLayout, withoutLegacyDefaults } from '../src/state/useLayout';
+import { DEFAULT_LAYOUT, migrateColorDefaults, sanitizeIndicators, useLayout, withoutLegacyDefaults } from '../src/state/useLayout';
 
 const ma = { name: 'MA', pane: 'main' as const, calcParams: [20], visible: true };
 const rsi = { name: 'RSI', pane: 'sub' as const, calcParams: [14], visible: true };
@@ -240,6 +240,34 @@ function deferred<T>() {
   const promise = new Promise<T>((r) => { resolve = r; });
   return { promise, resolve };
 }
+
+describe('sanitizeIndicators (stored indicator values are checked on read)', () => {
+  it('replaces invalid params with the catalog defaults and drops non-hex line colors; valid layouts are returned as is', () => {
+    const l: Layout = {
+      ...saved,
+      indicators: [
+        { name: 'RSI', pane: 'sub', calcParams: [0, 12.5, 1e9], visible: true, lineColors: ['red', '#123456', 'javascript:x'] },
+        { name: 'BOLL', pane: 'main', calcParams: [20, -1], visible: true },
+        { name: 'MA', pane: 'main', calcParams: [5, 10], visible: true, lineColors: ['', '#ABCDEF'] },
+      ],
+    };
+    const out = sanitizeIndicators(l);
+    expect(out.indicators[0]).toEqual({ name: 'RSI', pane: 'sub', calcParams: [6, 12, 24], visible: true, lineColors: ['', '#123456'] });
+    expect(out.indicators[1]).toEqual({ name: 'BOLL', pane: 'main', calcParams: [20, 2], visible: true });
+    expect(out.indicators[2]).toBe(l.indicators[2]);
+    expect(sanitizeIndicators(saved)).toBe(saved);
+    // An indicator this version does not know keeps its finite params (its own validation is unknown).
+    const unknown: Layout = { ...saved, indicators: [{ name: 'FUTURE', pane: 'sub', calcParams: [3, Number.NaN], visible: true }] };
+    expect(sanitizeIndicators(unknown).indicators[0]!.calcParams).toEqual([3]);
+  });
+
+  it('is applied when the default layout loads', async () => {
+    vi.mocked(api.layouts.get).mockResolvedValue({ ...saved, indicators: [{ name: 'RSI', pane: 'sub', calcParams: [-3, 12, 24], visible: true }] });
+    const { result } = renderHook(() => useLayout());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.layout.indicators[0]!.calcParams).toEqual([6, 12, 24]);
+  });
+});
 
 describe('useLayout load failures and early edits', () => {
   it('a non-404 failure of the default load never adopts DEFAULT_LAYOUT or saves; it retries with backoff', async () => {

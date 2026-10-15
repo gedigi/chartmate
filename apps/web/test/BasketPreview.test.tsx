@@ -81,6 +81,14 @@ describe('BasketPreview', () => {
     expect(chartLabel()).toContain('starts 2024-03-01');
   });
 
+  it('a flat basket reads "0.00%" without an up or down color', async () => {
+    render(<BasketPreview versions={[{ effectiveFrom: '2024-01-02', weights: { 'crypto:ETH': 1 } }]} baseValue={100} />);
+    await advance(600);
+    const pct = screen.getByText('0.00%');
+    expect(pct).not.toHaveClass('up');
+    expect(pct).not.toHaveClass('down');
+  });
+
   it('shows engine errors instead of the chart', async () => {
     vi.mocked(api.bars).mockImplementation(async (p) => ({ ...respond(p), bars: p.symbol === 'crypto:ETH' ? [] : respond(p).bars }));
     render(<BasketPreview versions={V_A} baseValue={100} />);

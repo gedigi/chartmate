@@ -1,4 +1,12 @@
-// Tests for the port of 'Wyckoff Accumulation Distribution' by faytterro (MPL-2.0, https://mozilla.org/MPL/2.0/).
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL
+// was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// This code is a port of 'Wyckoff Accumulation Distribution' by faytterro, licensed under the Mozilla Public
+// License 2.0 (https://mozilla.org/MPL/2.0/).
+// Original Pine Script® source © faytterro.
+//
+// Tests for that port.
+
 import { describe, expect, it } from 'vitest';
 import { pineRsi, pivotHigh, pivotLow, wyckoff, type WyckoffBar } from '../../src/chart/indicators/wyckoffCalc';
 

@@ -107,6 +107,39 @@ app, the Docker image and the release tag share one version number.
 - A basket no longer fails to load when a constituent's daily close is zero, negative or missing where a version
   is sized: the last valid close up to 5 bars earlier is used, and a notice names the dates skipped.
 
+### Fixes
+
+- Indicator settings store only the colors you change: the other lines (and the untouched up or down bar
+  color) keep following the theme instead of freezing to the palette of the theme they were edited in. A
+  color equal to that line's default in the other theme counts as a default too, so it follows the theme.
+- Failed drawing and watchlist saves are retried with backoff instead of being dropped, and a failed watchlist
+  load is retried too. Until the watchlist has loaded it shows placeholder rows and cannot be edited, so an
+  early edit is no longer lost. Watchlist trouble shows as one quiet line ("Can't reach the server.
+  Retrying…"); a load refused for good is not retried.
+- Layout, drawing and watchlist saves stop retrying after about 4 minutes and say "not saved" with a Retry
+  button, so a tab left open offline cannot keep writing old data over changes made in another tab. All three
+  use the same small amber note ("Layout not saved. Retrying…"); red is kept for saves refused for good.
+- Unsaved drawings stay with their symbol: switching symbols or opening the Baskets page keeps retrying them,
+  one note names every symbol still waiting, and an edit on another symbol no longer drops them. A save refused
+  for good keeps them until you discard them.
+- Deleting a basket removes it from the watchlist, clears its drawings and moves the chart to another symbol.
+  A stale reference to a deleted basket shows as "Deleted basket" instead of retrying forever, and symbol
+  lookups that fail for good (such as an unknown symbol) are no longer retried every 30 seconds.
+- Parallel channel fills are a tint of the channel's own hue on the chart background (like position zones)
+  instead of a plain translucent color, and the extended-hours shade uses a color tuned for each theme.
+- Removing an indicator no longer re-creates the indicators after it, so their panes keep their heights and
+  the chart does not flicker.
+- A stored drawing without points is skipped when drawings load (it used to leave the chart in drawing mode),
+  and the server drops such a drawing on save instead of rejecting the whole list.
+- The price field of horizontal drawings rejects exponent notation (such as `1e-9`) and prices that round to
+  zero at 8 decimals.
+- Basket changes that round to zero read "0.00%" in the neutral color, as in the watchlist (no more "-0.00%"
+  in the down color or "+0.00%" in the up color), and the basket preview formats numbers like the rest of the app.
+- VWAP on a basket holding crypto resets at midnight UTC, like its bars, instead of midnight New York time.
+- Stored indicator settings are checked when the layout loads: a period or other param outside its allowed
+  range falls back to its default, and an invalid line color follows the theme again.
+- Indicator names and settings labels are in sentence case ("Relative strength index", "RSI length").
+
 ## [1.0.0] - 2026-10-14
 
 The first stable release: a charting app for US stocks and ETFs, crypto and your own baskets, as a desktop app

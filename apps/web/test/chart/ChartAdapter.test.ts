@@ -211,7 +211,8 @@ describe('ChartAdapter', () => {
     const id = a.addIndicator({ name: 'MA', pane: 'main', calcParams: [20] });
     a.updateIndicator(id, { calcParams: [50], visible: false, lineColors: ['#fff'] });
     expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({
-      id, calcParams: [50], visible: false, styles: { lines: [expect.objectContaining({ color: '#fff', size: 1, style: 'solid' })] },
+      id, calcParams: [50], visible: false,
+      styles: { lines: [expect.objectContaining({ color: '#fff', size: 1, style: 'solid' }), ...MA_DARK.slice(1).map((color) => expect.objectContaining({ color }))] },
     }));
     expect(a.listIndicators()).toEqual([expect.objectContaining({ id, calcParams: [50], visible: false, lineColors: ['#fff'] })]);
     a.removeIndicator(id);
@@ -255,6 +256,17 @@ describe('ChartAdapter', () => {
     a.load({ symbol: { ...BTC, pricePrecision: 6 }, tf: '1h', session: 'rth', pollMs: 5000 }, events());
     expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({ id: early, extendData: { assetClass: 'crypto', intraday: true, pricePrecision: 6 } }));
     expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({ id: atrId, precision: 6 }));
+  });
+
+  it('a basket holding crypto tells session indicators (VWAP) to use UTC days', () => {
+    const a = make();
+    const id = a.addIndicator({ name: 'VWAP', pane: 'main' });
+    const basket = { id: 'basket:b1', assetClass: 'basket' as const, ticker: 'B1', name: 'B1', pricePrecision: 2 };
+    a.load({ symbol: basket, tf: '1h', session: 'rth', pollMs: 15000, basketHasCrypto: true }, events());
+    expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({ id, extendData: { assetClass: 'basket', intraday: true, pricePrecision: 2, utcDays: true } }));
+    chart().overrideIndicator.mockClear();
+    a.load({ symbol: basket, tf: '1h', session: 'rth', pollMs: 15000, basketHasCrypto: false }, events());
+    expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({ id, extendData: { assetClass: 'basket', intraday: true, pricePrecision: 2 } }));
   });
 
   it('axis / legend precision: price-unit oscillators (MACD, AO, MTM) take the price precision, bounded ones (RSI …) 2', () => {
@@ -369,6 +381,15 @@ describe('ChartAdapter', () => {
     expect(a.serializeDrawings()).toEqual(drawings);
     expect(chart().overlays.filter((o) => o.groupId === 'markers')).toHaveLength(1);
     expect(changed).not.toHaveBeenCalled();
+  });
+
+  it('skips a stored drawing without points (it would start drawing mode); the others are restored', () => {
+    const a = make();
+    chart().data.push({ timestamp: 1000, high: 10 });
+    const ok = { name: 'segment', points: [{ timestamp: 1, value: 2 }, { timestamp: 3, value: 4 }], lock: false };
+    a.restoreDrawings([{ name: 'segment', points: [], lock: false }, ok]);
+    expect(a.serializeDrawings()).toEqual([ok]);
+    expect(chart().createOverlay).not.toHaveBeenCalledWith(expect.objectContaining({ points: [] }));
   });
 
   it('fires onDrawingsChange on draw end, move end and remove; clearDrawings fires once', () => {
@@ -903,8 +924,8 @@ describe('ChartAdapter', () => {
       a.setAppearance({ dark: { upColor: '#ffffff', downColor: '#e63b7a', drawing: { color: '#ffffff', size: 1, style: 'solid' } } });
       let s = chart().setStyles.mock.calls.at(-1)![0];
       // Neutral last price line by default: the theme's lamp white with dark text on the dark theme.
-      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#e9ecf4', downColor: '#e9ecf4', noChangeColor: '#e9ecf4', text: { color: '#131722' } });
-      expect(s.overlay.text).toMatchObject({ backgroundColor: '#ffffff', color: '#131722' });
+      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#e9ecf4', downColor: '#e9ecf4', noChangeColor: '#e9ecf4', text: { color: '#131726' } });
+      expect(s.overlay.text).toMatchObject({ backgroundColor: '#ffffff', color: '#131726' });
       a.setTheme('light');
       s = chart().setStyles.mock.calls.at(-1)![0];
       expect(s.candle.priceMark.last).toMatchObject({ upColor: '#131726', downColor: '#131726', text: { color: '#ffffff' } });
@@ -912,7 +933,7 @@ describe('ChartAdapter', () => {
       a.setAppearance({ light: { lastPriceLine: 'candle' } });
       s = chart().setStyles.mock.calls.at(-1)![0];
       // Dark text with the light crosshair gray for no change (chosen by contrast over all three fills).
-      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#0b9da0', downColor: '#c43d68', noChangeColor: '#a6abb8', text: { color: '#131722' } });
+      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#0b9da0', downColor: '#c43d68', noChangeColor: '#a6abb8', text: { color: '#131726' } });
       expect(s.overlay.line).toMatchObject({ color: THEME_TOKENS.light.accent });
     });
   });
@@ -943,11 +964,39 @@ describe('ChartAdapter', () => {
       const w = calls.find((c) => c.id === wide)!;
       expect(lineColors(w)).toEqual(MA_LIGHT.slice(0, 3));
       expect(w.styles!.lines![0]!.size).toBe(3); // width override survives
-      expect(calls.find((c) => c.id === user)).toBeUndefined();
+      expect(lineColors(calls.find((c) => c.id === user))).toEqual(['#111111', '#222222', '#333333']);
       expect(a.listIndicators().find((i) => i.id === user)!.lineColors).toEqual(['#111111', '#222222', '#333333']);
       chart().overrideIndicator.mockClear();
       a.setTheme('dark');
       expect(lineColors(chart().overrideIndicator.mock.calls.map((c) => c[0] as { id: string } & LineStyles).find((c) => c.id === plain))).toEqual(MA_DARK);
+    });
+
+    it('a theme toggle re-applies the palette to the lines a user did not edit (sparse or old dense colors)', () => {
+      const a = make();
+      const sparse = a.addIndicator({ name: 'MA', pane: 'main', lineColors: ['', '#123456'] });
+      expect(lineColors(chart().createIndicator.mock.calls.at(-1)![0])).toEqual([MA_DARK[0], '#123456', MA_DARK[2], MA_DARK[3]]);
+      const dense = a.addIndicator({ name: 'EMA', pane: 'main', lineColors: [MA_DARK[0]!, '#654321', MA_DARK[2]!] });
+      chart().overrideIndicator.mockClear();
+      a.setTheme('light');
+      const calls = chart().overrideIndicator.mock.calls.map((c) => c[0] as { id: string } & LineStyles);
+      expect(lineColors(calls.find((c) => c.id === sparse && c.styles?.lines))).toEqual([MA_LIGHT[0], '#123456', MA_LIGHT[2], MA_LIGHT[3]]);
+      expect(lineColors(calls.find((c) => c.id === dense && c.styles?.lines))).toEqual([MA_LIGHT[0], '#654321', MA_LIGHT[2]]);
+    });
+
+    it('an update to a shorter sparse color list writes every line: a dropped override returns to the theme default', () => {
+      const a = make();
+      const id = a.addIndicator({ name: 'RSI', pane: 'sub', lineColors: ['', '', '#abcabc'] });
+      a.updateIndicator(id, { lineColors: ['#defdef'] });
+      expect(lineColors(chart().overrideIndicator.mock.calls.at(-1)![0])).toEqual(['#defdef', MA_DARK[1], MA_DARK[2]]);
+    });
+
+    it('a theme toggle re-applies the default side of partial bar colors', () => {
+      const a = make();
+      const id = a.addIndicator({ name: 'VOL', pane: 'sub', barColors: { up: '#00ff00', down: THEME_TOKENS.dark.down } });
+      chart().overrideIndicator.mockClear();
+      a.setTheme('light');
+      const o = chart().overrideIndicator.mock.calls.map((c) => c[0] as { id: string; styles?: { bars?: unknown[] } }).find((c) => c.id === id && c.styles?.bars);
+      expect(o!.styles!.bars).toEqual([expect.objectContaining({ upColor: '#00ff00', downColor: THEME_TOKENS.light.down })]);
     });
 
     it('removing a user color override (Reset) writes the current theme palette', () => {
@@ -1034,6 +1083,7 @@ describe('ChartAdapter', () => {
       expect(o.styles.lines).toEqual([
         expect.objectContaining({ style: 'solid', lineCap: 'butt' }),
         expect.objectContaining({ style: 'dashed', dashedValue: [4, 4], lineCap: 'butt' }),
+        expect.objectContaining({ style: 'solid', lineCap: 'butt' }), // every line is written (index-merged arrays)
       ]);
     });
 
@@ -1454,6 +1504,31 @@ describe('ChartAdapter', () => {
     expect(chart().resize).toHaveBeenCalled();
     a.destroy();
     expect(k.dispose).toHaveBeenCalledWith(el);
+  });
+
+  it('destroy releases the position context closures it installed (not a newer adapter\'s)', async () => {
+    const { positionContext } = await import('../../src/chart/positionOverlay');
+    const a = make();
+    const mine = positionContext.endFor;
+    a.destroy();
+    expect(positionContext.endFor).not.toBe(mine);
+    expect(positionContext.endFor(0)).toBeGreaterThan(0); // the module default, without any chart
+    expect(positionContext.historyComplete()).toBe(true);
+    const b = make();
+    const c = make(); // e.g. a remount before the old chart is torn down
+    const cEnd = positionContext.endFor;
+    b.destroy();
+    expect(positionContext.endFor).toBe(cEnd);
+    c.destroy();
+  });
+
+  it('keeps the drawing templates\' theme context (channel fills) on the active theme', async () => {
+    const { drawingContext } = await import('../../src/chart/drawingTemplates');
+    const a = make();
+    expect(drawingContext).toEqual({ theme: 'dark', bg: THEME_TOKENS.dark.bg, accent: THEME_TOKENS.dark.accent });
+    a.setTheme('light');
+    expect(drawingContext).toEqual({ theme: 'light', bg: THEME_TOKENS.light.bg, accent: THEME_TOKENS.light.accent });
+    a.setTheme('dark');
   });
 });
 

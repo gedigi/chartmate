@@ -1,7 +1,7 @@
-import { migrateAppearance, type Layout, type SymbolId } from '@chartmate/shared';
+import { HEX_COLOR_RE, migrateAppearance, type IndicatorState, type Layout, type SymbolId } from '@chartmate/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
-import { migrateLegacyLineColors } from '../chart/indicators/catalog';
+import { catalogEntry, migrateLegacyLineColors, validateParam } from '../chart/indicators/catalog';
 import { COLOR_DEFAULTS_REV, dropLegacyAppearanceDefaults, dropLegacyBarColors } from '../chart/theme';
 import { retryDelayMs } from './retry';
 import { useDebouncedSave } from './useDebouncedSave';
@@ -21,6 +21,36 @@ function withThemedAppearance(l: Layout): Layout {
   const { appearance, ...rest } = l;
   const themed = migrateAppearance(appearance);
   return themed ? { ...rest, appearance: themed } : rest;
+}
+
+/** One stored indicator with invalid values replaced (see sanitizeIndicators); the same object when all are valid. */
+function sanitizeIndicator(s: IndicatorState): IndicatorState {
+  const entry = catalogEntry(s.name);
+  const calcParams = entry
+    ? s.calcParams.map((v, i) => (validateParam(s.name, i, String(v)) === null ? v : entry.defaultParams[i] ?? v))
+      .filter((v) => Number.isFinite(v))
+    : s.calcParams.filter((v) => Number.isFinite(v));
+  const paramsChanged = calcParams.length !== s.calcParams.length || calcParams.some((v, i) => v !== s.calcParams[i]);
+  const lineColors = s.lineColors?.map((c) => (c === '' || HEX_COLOR_RE.test(c) ? c : ''));
+  const colorsChanged = lineColors !== undefined && lineColors.some((c, i) => c !== s.lineColors![i]);
+  if (!paramsChanged && !colorsChanged) return s;
+  const out: IndicatorState = { ...s, calcParams };
+  if (colorsChanged) {
+    while (lineColors.length > 0 && lineColors[lineColors.length - 1] === '') lineColors.pop();
+    if (lineColors.length > 0) out.lineColors = lineColors;
+    else delete out.lineColors;
+  }
+  return out;
+}
+
+/**
+ * Stored indicator values are checked on read (the server only checks their types): a param the settings dialog would
+ * reject (not finite, out of the catalog's bounds) becomes the catalog default, a line color that is not '#rrggbb'
+ * follows the theme again. Returns `l` itself when everything is valid.
+ */
+export function sanitizeIndicators(l: Layout): Layout {
+  const indicators = l.indicators.map(sanitizeIndicator);
+  return indicators.some((s, i) => s !== l.indicators[i]) ? { ...l, indicators } : l;
 }
 
 /**
@@ -90,6 +120,11 @@ export interface UseLayout {
   retry: () => void;
   /** Set while the latest layout change could not be saved (it is retried with backoff). */
   saveError: string | null;
+  /** Saving gave up after its retries (see useDebouncedSave); `retrySave` tries again. */
+  saveStalled: boolean;
+  /** The save error is permanent (e.g. 400): not retried. */
+  savePermanent: boolean;
+  retrySave: () => void;
 }
 
 /**
@@ -120,7 +155,7 @@ export function useLayout(): UseLayout {
         (l) => {
           if (canceled) return;
           if (l) {
-            const themed = withThemedAppearance(l);
+            const themed = sanitizeIndicators(withThemedAppearance(l));
             const migrated = migrateColorDefaults(themed);
             setLayoutState(migrated);
             // The loaded value is the save baseline (not saved): persist the one-time color migration explicitly.
@@ -155,7 +190,7 @@ export function useLayout(): UseLayout {
   }, [loaded]);
 
   const saveDefault = useCallback((l: Layout) => api.layouts.put('default', l), []);
-  const { error: saveError } = useDebouncedSave(layout, saveDefault, 1000, loaded, { retry: true });
+  const { error: saveError, stalled: saveStalled, permanent: savePermanent, retryNow: retrySave } = useDebouncedSave(layout, saveDefault, 1000, loaded, { retry: true });
 
   const setLayout = useCallback((fn: (l: Layout) => Layout) => setLayoutState((cur) => {
     if (!loadedRef.current) return cur; // the default load would overwrite it (and saves are off): ignore
@@ -169,5 +204,5 @@ export function useLayout(): UseLayout {
     setLayout((l) => (l.symbol === id ? l : { ...l, symbol: id }));
   }, [setLayout]);
 
-  return { layout, setLayout, selectSymbol, loaded, loadError, retry, saveError };
+  return { layout, setLayout, selectSymbol, loaded, loadError, retry, saveError, saveStalled, savePermanent, retrySave };
 }

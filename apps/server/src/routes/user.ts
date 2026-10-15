@@ -101,7 +101,7 @@ const LayoutSchema = z.object({
 
 const DrawingSchema = z.object({
   name: z.string().max(40),
-  points: z.array(z.object({ timestamp: z.number(), value: z.number() })).max(10),
+  points: z.array(z.object({ timestamp: z.number(), value: z.number() })).min(1).max(10),
   lock: z.boolean(),
   // The drawing's own lock (optional: older drawings have none). Tolerant: an invalid flag is dropped on its own.
   locked: z.boolean().optional().catch(undefined),
@@ -130,7 +130,8 @@ const WatchlistBody = z.union([
     if (problem) ctx.addIssue({ code: 'custom', message: problem });
   }).transform((entries) => ({ entries })),
 ]);
-const DrawingsBody = z.array(DrawingSchema).max(500);
+// A drawing without points (never drawable; older clients could store one) is dropped on its own, not the whole list.
+const DrawingsBody = z.array(z.unknown()).max(500).transform((ds) => ds.filter((d) => { const points = (d as { points?: unknown } | null)?.points; return !(Array.isArray(points) && points.length === 0); })).pipe(z.array(DrawingSchema));
 const LayoutKey = z.object({
   key: z.string().max(110).refine((k) => k === 'default' || (k.startsWith('sym:') && isSymbolId(k.slice(4))), {
     message: "layout key must be 'default' or 'sym:<symbol id>'",

@@ -1,6 +1,7 @@
 import { MAX_SECTION_TITLE, MAX_WATCHLIST_SECTIONS, type Quote, type QuoteExt, type SymbolId, type SymbolInfo, type WatchlistSection } from '@chartmate/shared';
 import { memo, useEffect, useId, useRef, useState, type CSSProperties, type DragEvent, type JSX, type KeyboardEvent } from 'react';
-import { api } from '../api/client';
+import { api, ApiError, isPermanentError } from '../api/client';
+import { fmtChange } from '../format';
 import { publishQuotes } from '../state/quoteStore';
 import { retryDelayMs } from '../state/retry';
 import { useElementWidth } from '../state/useElementWidth';
@@ -9,6 +10,7 @@ import {
   deleteSection, dropEntry, insertSection, moveByKey, newSectionId, renameSection, setCollapsed, visibleRows, type WatchlistRow,
 } from '../state/watchlistModel';
 import { RangeGauge } from './RangeGauge';
+import { SaveNote } from './SaveNote';
 import { Sparkline } from './Sparkline';
 import { SymbolSearch } from './SymbolSearch';
 import './Watchlist.css';
@@ -21,17 +23,13 @@ export interface WatchlistProps {
 const QUOTE_POLL_MS = 15_000;
 const SPARK_POLL_MS = 10 * 60_000;
 const NEW_SECTION_TITLE = 'New section';
+/** Symbol widths (px) of the placeholder rows shown while the list loads. */
+const PLACEHOLDER_ROWS = [38, 46, 30, 42];
 
 function fmtPrice(price: number, precision: number): string {
   return price.toLocaleString('en-US', { minimumFractionDigits: precision, maximumFractionDigits: precision });
 }
 
-/** Rounds first so a tiny move never shows "-0.00%"; returns text and direction ('' = neutral). */
-function fmtChange(pct: number): { text: string; dir: 'up' | 'down' | '' } {
-  const r = Math.round(pct * 100) / 100;
-  if (r === 0) return { text: '0.00%', dir: '' };
-  return { text: `${r > 0 ? '+' : ''}${r.toFixed(2)}%`, dir: r > 0 ? 'up' : 'down' };
-}
 
 const EXT_LABEL = { pre: 'Pre', post: 'Post' } as const;
 const EXT_NAME = { pre: 'Pre-market', post: 'Post-market' } as const;
@@ -83,10 +81,12 @@ export function watchlistSparkWidth(railWidth: number): number {
  * rows in the same ordered list: the symbols below a header belong to it until the next header.
  */
 function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Element {
-  const { entries, ids, loaded, error, add, remove, update } = useWatchlist();
+  const { entries, ids, loaded, status, saveNote, retrySave, add, remove, update } = useWatchlist();
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
   const [sparks, setSparks] = useState<Record<string, number[]>>({});
   const [infos, setInfos] = useState<Record<string, SymbolInfo>>({});
+  /** Baskets whose info load failed with 404: deleted (shown as "Deleted basket", never retried). */
+  const [deleted, setDeleted] = useState<ReadonlySet<string>>(() => new Set());
   /** Entry indexes of the dragged row and the row under the pointer. */
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -111,7 +111,8 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
   const rows = visibleRows(entries);
   const sectionCount = entries.length - ids.length;
 
-  // Symbol info (names, price precision), cached per id; failures are retried with backoff.
+  // Symbol info (names, price precision), cached per id; failures are retried with backoff, except permanent ones
+  // (e.g. 404: a deleted basket or an unknown symbol), which keep the fallback label.
   // Each pending id owns a load chain; canceling it (id removed, or unmount) stops any further retry,
   // including one a request still in flight would otherwise schedule.
   const infoLoads = useRef(new Map<string, { canceled: boolean; timer?: ReturnType<typeof setTimeout> }>());
@@ -132,8 +133,13 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
           loads.delete(id);
           setInfos((cur) => ({ ...cur, [id]: info }));
         },
-        () => {
+        (err: unknown) => {
           if (chain.canceled) return;
+          if (isPermanentError(err)) {
+            loads.delete(id);
+            if (id.startsWith('basket:') && err instanceof ApiError && err.status === 404) setDeleted((cur) => new Set(cur).add(id));
+            return;
+          }
           chain.timer = setTimeout(() => load(id, chain, attempt + 1), retryDelayMs(attempt));
         },
       );
@@ -444,7 +450,8 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
   function renderSymbol(row: WatchlistRow, id: SymbolId, pos: number) {
     const info = infos[id];
     const q = quotes[id];
-    const label = info ? (info.assetClass === 'basket' ? info.name : info.ticker) : fallbackTicker(id);
+    const gone = !info && deleted.has(id);
+    const label = info ? (info.assetClass === 'basket' ? info.name : info.ticker) : gone ? 'Deleted basket' : fallbackTicker(id);
     const chg = q?.changePct == null ? null : fmtChange(q.changePct);
     const spark = sparks[id] ?? [];
     // 30-day closing range: the sparkline's daily closes and the live price.
@@ -454,6 +461,7 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
     const classes = ['watchlist-row'];
     if (row.sectionId !== null) classes.push('in-section');
     if (id === currentSymbol) classes.push('current');
+    if (gone) classes.push('deleted');
     dragClasses(row, classes);
     return (
       <li key={id} className={classes.join(' ')} {...dragProps(row)}>
@@ -469,6 +477,7 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
           onKeyDown={(e) => onSymbolKeyDown(e, id, row, pos)}
         >
           <span className="wl-symbol" title={info?.name}>{label}</span>
+          {gone ? <span className="wl-name">No longer exists</span> : <>
           <span className="wl-spark"><Sparkline values={spark} width={sparkWidth} height={20} /></span>
           <span className="wl-price">{q && info ? fmtPrice(q.price, info.pricePrecision) : '—'}</span>
           <span className={`wl-change ${chg?.dir ?? ''}`}>{chg ? chg.text : '—'}</span>
@@ -489,6 +498,7 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
           >
             {range && <RangeGauge value={q!.price} low={range.lo} high={range.hi} dir={chg?.dir ?? ''} />}
           </span>
+          </>}
         </div>
         <button
           type="button"
@@ -503,7 +513,7 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
   }
 
   return (
-    <section className="watchlist" data-testid="watchlist" aria-label="Watchlist" ref={railRef}
+    <section className="watchlist" data-testid="watchlist" data-keyboard-owner="" aria-label="Watchlist" ref={railRef}
       style={{ '--wl-spark-w': `${sparkWidth}px` } as CSSProperties}>
       <div className="watchlist-head">
         <h2 className="panel-title">Watchlist</h2>
@@ -521,14 +531,35 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
           Section
         </button>
       </div>
-      <SymbolSearch onSelect={(id) => add(id, activeSection)} placeholder="Add symbol…" />
-      {error && <div className="watchlist-error" role="alert">{error}</div>}
+      <SymbolSearch onSelect={(id) => add(id, activeSection)} placeholder="Add symbol…" disabled={!loaded} />
+      {status && (
+        // Loading: one quiet muted line, a pulsing dot (in step with the placeholder rows) while retried. The raw error
+        // is in the tooltip.
+        <div className="watchlist-status" role={status.kind === 'failed' ? 'alert' : 'status'} title={status.detail}>
+          {status.kind === 'retrying' && <span className="wl-status-dot" aria-hidden="true" />}
+          <span className="wl-status-text">{status.text}</span>
+        </div>
+      )}
+      {saveNote && (
+        <div className="watchlist-save-note">
+          <SaveNote thing="Watchlist" state={saveNote.state} detail={saveNote.detail} retryLabel="Retry saving the watchlist" onRetry={retrySave} />
+        </div>
+      )}
       {/* A plain list: each symbol row has a focusable "select" control (aria-current marks the open chart) and a
           sibling remove button; each section row a heading with a collapse toggle and a sibling actions button.
           No interactive element is nested inside another. */}
-      <ul className="watchlist-list" ref={listRef} aria-label="Watchlist symbols">
+      <ul className="watchlist-list" ref={listRef} aria-label="Watchlist symbols" aria-busy={loaded ? undefined : true}>
         {rows.map((row, pos) => (row.entry.type === 'section' ? renderSection(row, row.entry) : renderSymbol(row, row.entry.id, pos)))}
+        {/* Until the list loads (retried with backoff on failure): quiet placeholder rows in the rows' own rhythm. */}
+        {!loaded && PLACEHOLDER_ROWS.map((w) => (
+          <li key={w} className="watchlist-row wl-placeholder" aria-hidden="true">
+            <span className="wl-ph-symbol" style={{ width: w }} />
+            <span className="wl-ph-price" />
+            <span className="wl-ph-name" style={{ width: w + 22 }} />
+          </li>
+        ))}
       </ul>
+      {!loaded && <p className="sr-only" role="status">Loading watchlist…</p>}
       <p id={hintId} className="sr-only">Enter opens the chart, Delete removes, Alt+Arrow keys reorder.</p>
       <p id={sectionHintId} className="sr-only">Enter collapses or expands, F2 or double-click renames, Alt+Arrow keys move the section header.</p>
       {loaded && entries.length === 0 && <div className="watchlist-empty">No symbols. Search above to add one.</div>}

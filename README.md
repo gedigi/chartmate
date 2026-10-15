@@ -394,7 +394,8 @@ Where to read next:
   ("Sep 21", "22", "13:30"; daily: "Sep", "22"), the crosshair date chip reads "Wed Sep 30 '26 · 12:30".
 - **Symbol search**: the top bar search field (**⌘K** on macOS, **Ctrl+K** elsewhere, focuses it from anywhere).
 - **RTH / ETH toggle** for stocks (and baskets containing a stock): RTH shows regular-hours bars only,
-  ETH adds pre- and post-market bars, shaded on intraday stock charts (basket charts are not shaded).
+  ETH adds pre- and post-market bars, shaded on intraday stock charts (basket charts are not shaded). The shade
+  is a per-theme token (`--session-shade`): a faint cool lift on the dark theme, a faint gray-blue on the light one.
   It is hidden for crypto, which trades around the clock.
 - **Chart appearance** ("Chart appearance" button in the top bar): candle up/down colors, body style (filled,
   hollow, hollow up, hollow down; OHLC bars use the colors only), **last price line** (neutral, the default:
@@ -443,7 +444,11 @@ Where to read next:
   timeframe, session, chart type and appearance are global too (all stored in the `default` layout).
   Older per-symbol `sym:<id>` layouts from earlier versions are ignored.
 - **Indicator settings** also set each line's width (1–4 px) and solid/dashed/dotted style, and the up/down bar
-  colors of histogram indicators (VOL, MACD, AO, PPO); unchanged bar colors follow the theme.
+  colors of histogram indicators (VOL, MACD, AO, PPO). Only the colors you change are yours: every other line
+  and bar color keeps following the theme (switch to light and back and they recolor). Layouts from earlier
+  versions stored every line color when one changed; a stored color equal to the dark or light default of
+  its line is read as that default, so those lines follow the theme again (this also applies if you pick exactly
+  the other theme's default color for a line).
 - **Oscillator reference levels**: oscillator panes draw thin dashed lines in the theme's muted level color behind
   the indicator lines: MACD, AO, ROC, MTM, TRIX and PPO at 0; RSI at 70 / 30; KDJ at 80 / 20;
   CCI at ±100; WR at -20 / -80 (KLineChart's WR runs from -100 to 0); DMI at 25 (ADX trend threshold). The levels
@@ -451,6 +456,9 @@ Where to read next:
   MACD its zero line even when the values stay on one side. The settings dialog's **Levels** section hides
   them or edits the values (up to 5, separated by commas; empty = none); Reset restores the defaults. They
   are saved with the layout only when changed (older layouts use the defaults).
+- **VWAP** resets each session on intraday charts: at midnight New York time for stocks and stock-only baskets,
+  at midnight UTC for crypto and for baskets holding crypto (whose intraday bars use the UTC grid). On 1D and
+  longer timeframes it spans the whole loaded series.
 - **Your own**: an indicator is one file; see [Custom indicators](#custom-indicators) and
   [CONTRIBUTING.md](CONTRIBUTING.md#add-an-indicator).
 
@@ -460,7 +468,17 @@ Where to read next:
   vertical line, price line, parallel channel, Fibonacci retracement, text, long position and short
   position; plus magnet, lock all, delete selected (**Delete** / **Backspace**) and clear all. **Escape**
   cancels the active tool and deselects the drawing.
-- **Drawings** are saved per symbol on the server (debounced ~1 s after each change). Points are stored in
+- **Drawings** are saved per symbol on the server (debounced ~1 s after each change; a failed save is retried
+  with backoff, 2 s, 5 s, 10 s, then every 30 s, while a small amber note reads "Drawings not saved for AAPL.
+  Retrying…"; after about 4 minutes it stops at "Drawings not saved for AAPL." with **Retry**). Unsaved drawings
+  stay with their symbol in this browser tab: switching symbols or opening the Baskets page keeps retrying them,
+  one note names every symbol still waiting ("Drawings not saved for AAPL, MSFT and 3 more."; its Retry retries
+  them all), and charting the symbol again shows them from memory instead of the server's older copy (the last
+  save wins over changes another tab made meanwhile). A save the server refuses for good (a 4xx error) turns the
+  note red and keeps the drawings until you choose **Discard** (it asks first when that covers more than one
+  symbol; a charted symbol then shows its saved drawings again). On a narrow chart the note shortens to "Drawings
+  not saved (3)." with the names in its tooltip. Deleting a basket drops its unsaved drawings for good. Reloading or closing the tab drops drawings that
+  were never saved. Points are stored in
   time/price coordinates (bar timestamp + price), not pixels, so they stay anchored to the same price and
   time across timeframes, zoom levels and window sizes.
 - **Drawing styles**: selecting a drawing shows a small style bar at the top of the chart (color, width,
@@ -528,7 +546,10 @@ Where to read next:
 - **Parallel channels** are finite by default: click the start and end of the base line, then a third point for
   the channel's width. Both lines span exactly from the first to the second point's time, with a dashed midline
   halfway between them (in the channel's color and width, longer dashes when the channel itself is dashed or
-  dotted; not a stored point) and a subtle fill (the channel's color at 8% opacity). Clicking a line, the
+  dotted; not a stored point) and a subtle fill: a light tint of the channel's own hue on the chart background,
+  as for position zones, never pink or brown. Its weight is tuned per theme (a touch stronger on dark, so it stays
+  visible inside the extended-hours shade; calm on light), always lighter than position zones, and at most 14%
+  opacity, so the candles stay visible. Clicking a line, the
   midline or the fill selects (and drags) the channel; clicking beyond its ends does not. A right click inside
   the fill is ignored (a right click on a line removes the channel, as for other unlocked drawings).
   - **Extend left / Extend right** (style bar) extend the lines, midline and fill to the
@@ -643,6 +664,17 @@ line ("Pre 231.40 +0.82%") shows the extended price and its change vs the last r
 otherwise the name. A small gauge under the price places the price in its 30-day closing range (the sparkline's daily
 closes and the live price).
 
+The list is loaded from the server when the app opens. Until it arrives, quiet placeholder rows show and the add
+field, adding, removing and reordering are off, so nothing you do is replaced by the loaded list. If the server
+cannot be reached, a muted "Can't reach the server. Retrying…" line shows (the error itself in its tooltip) and
+the load is retried with backoff (2 s, 5 s, 10 s, then every 30 s); a load the server refuses for good (a 4xx
+error) is not retried and the list stays read-only. Changes are saved about half a second after each edit; a
+failed save is retried the same way ("Watchlist not saved. Retrying…"), and after about 4 minutes (10 retries)
+it stops at "Watchlist not saved." with a **Retry** button, so a tab left open offline never keeps writing an old
+list over changes made elsewhere. The layout and drawings use the same small amber note, stacked at the top
+right of the chart panel next to the indicator chips (outside the plot); only a save the server
+rejects for good (a 4xx error) shows in the error color, until the next change.
+
 Below the list, a **detail panel** shows the open symbol: market status (stocks: open / pre-market / after hours /
 closed from the New York clock and the quote's freshness; crypto trades around the clock), the day range as a
 gauge (open → now), and open, previous close, volume, 30-day average volume and the 52-week high / low, all from
@@ -715,6 +747,10 @@ A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
   not be final yet: until that date begins (00:00 UTC) its holdings are provisional, re-sized every few
   minutes, and they are then fixed at that final close. A basket holds at most 100 versions and 100 different symbols across all of
   them.
+- **Deleting** a basket (Baskets page) also removes it from the watchlist and clears its drawings; if it was
+  on the chart, the chart switches to the first other watchlist symbol. A reference that survives (say, the
+  cleanup failed or another tab still lists it) shows as "Deleted basket" in the watchlist and on the chart,
+  and is not reloaded over and over.
 
 ## Data sources and caveats
 

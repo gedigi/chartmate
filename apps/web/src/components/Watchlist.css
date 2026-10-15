@@ -51,6 +51,9 @@
 /* Second line, left: the pre / post-market line ("Pre 231.40 +0.82%") or the name. The slot is on every row. */
 .wl-ext-slot, .wl-name { grid-column: 1 / 3; grid-row: 2; min-width: 0; height: 16px; overflow: hidden; font-size: 11px; line-height: 16px; white-space: nowrap; }
 .wl-name { color: var(--text-muted); text-overflow: ellipsis; }
+/* A basket that no longer exists: muted label, nothing else to show. */
+.watchlist-row.deleted .wl-symbol { grid-column: 1 / -1; color: var(--text-muted); font-weight: 550; }
+.watchlist-row.deleted .wl-name { grid-column: 1 / -1; color: var(--text-muted); }
 .wl-ext { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text); }
 .wl-ext-label { color: var(--text-muted); }
 .wl-ext-change { color: var(--text-muted); }
@@ -127,7 +130,21 @@
   min-height: 0; border: none; background: transparent; text-align: left; padding: 6px 8px; border-radius: 7px; font-size: 13px; font-weight: 400;
 }
 .wl-section-popup [role='menuitem']:hover, .wl-section-popup [role='menuitem']:focus-visible { background: var(--bg-hover); }
-.watchlist-error { color: var(--error); font-size: 12px; padding: 0 16px; }
+/* Load status: one quiet muted line. (Saves that have not reached the server use .save-note, below it.) */
+.watchlist-status {
+  display: flex; align-items: center; gap: 7px; min-height: 18px; padding: 0 16px 4px; font-size: 12px; line-height: 16px;
+  color: var(--text-muted);
+}
+.wl-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wl-status-dot {
+  flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted);
+  animation: wl-placeholder 1.6s ease-in-out infinite alternate;
+}
+.watchlist-save-note { padding: 0 10px 6px; }
+@media (prefers-reduced-motion: reduce) { .wl-status-dot { animation: none; } }
+/* The add field while the list loads (or cannot): visibly off, not interactive. */
+.watchlist > .symbol-search:has(input:disabled) { opacity: 0.5; pointer-events: none; }
+.watchlist .symbol-search input:disabled { background-color: var(--bg-raised); cursor: default; }
 .watchlist-empty { color: var(--text-muted); font-size: 12px; padding: 8px 16px; }
 
 /* Symbol detail panel at the bottom of the rail. */
@@ -164,3 +181,16 @@
   .sd-stats { grid-template-columns: 1fr; }
   .sd-head { flex-wrap: wrap; row-gap: 2px; }
 }
+
+/* Placeholder rows while the list loads: the rows' own grid and rhythm, opaque surface tones, no hover. */
+.watchlist-row.wl-placeholder {
+  display: grid; grid-template-columns: minmax(0, 1fr) 56px; grid-template-rows: 20px 16px; row-gap: 2px; align-items: center;
+  padding: 8px 14px 8px 16px; cursor: default; animation: wl-placeholder 1.6s ease-in-out infinite alternate;
+}
+.watchlist-row.wl-placeholder:hover { background: transparent; }
+.wl-placeholder span { display: block; border-radius: 4px; }
+.wl-ph-symbol { grid-column: 1; grid-row: 1; height: 10px; background: var(--bg-active); }
+.wl-ph-price { grid-column: 2; grid-row: 1; justify-self: end; width: 48px; height: 10px; background: var(--bg-active); }
+.wl-ph-name { grid-column: 1; grid-row: 2; height: 8px; background: var(--bg-hover); }
+@keyframes wl-placeholder { from { opacity: 1; } to { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .watchlist-row.wl-placeholder { animation: none; } }

@@ -3,10 +3,12 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../src/api/client';
-import { notifyBasketChanged } from '../src/state/useBaskets';
+import { notifyBasketChanged, notifyBasketDeleted } from '../src/state/useBaskets';
 import { App } from '../src/App';
+import { drawingsStore } from '../src/state/drawingsStore';
 
 beforeEach(() => {
+  drawingsStore.reset();
   window.location.hash = '';
   vi.spyOn(api.layouts, 'get').mockResolvedValue(null);
   vi.spyOn(api.layouts, 'put').mockResolvedValue(undefined);
@@ -129,6 +131,51 @@ describe('App', () => {
     expect(await screen.findByText("Couldn't load symbol crypto:BTC: Unknown symbol")).toBeInTheDocument();
   });
 
+  it('does not retry a symbol info load that failed permanently (404)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+      vi.mocked(api.symbol).mockRejectedValue(new ApiError(404, 'not_found', 'Unknown symbol'));
+      render(<App />);
+      await screen.findByTestId('symbol-error');
+      const n = vi.mocked(api.symbol).mock.calls.filter((c) => c[0] === 'crypto:BTC').length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(vi.mocked(api.symbol).mock.calls.filter((c) => c[0] === 'crypto:BTC').length).toBe(n);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a charted basket that no longer exists shows a "Deleted basket" state instead of an error', async () => {
+    vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+    const layout: Layout = { symbol: 'basket:gone', tf: '1D', session: 'rth', chartType: 'candle', indicators: [] };
+    vi.mocked(api.layouts.get).mockImplementation(async (key) => (key === 'default' ? layout : null));
+    vi.spyOn(api.baskets, 'get').mockRejectedValue(new ApiError(404, 'not_found', 'Basket gone not found'));
+    vi.mocked(api.symbol).mockRejectedValue(new ApiError(404, 'not_found', 'Basket gone not found'));
+    render(<App />);
+    const panel = await screen.findByTestId('symbol-deleted');
+    expect(panel).toHaveTextContent('Deleted basket');
+    expect(screen.queryByTestId('symbol-error')).not.toBeInTheDocument();
+    // The top bar names it too (never the raw basket id).
+    const bar = screen.getByRole('banner');
+    expect(within(bar).getByText('Deleted basket')).toBeInTheDocument();
+    expect(within(bar).queryByText(/basket:gone/)).not.toBeInTheDocument();
+  });
+
+  it('deleting the charted basket switches the chart to the first other watchlist symbol', async () => {
+    vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+    const layout: Layout = { symbol: 'basket:b1', tf: '1D', session: 'rth', chartType: 'candle', indicators: [] };
+    vi.mocked(api.layouts.get).mockImplementation(async (key) => (key === 'default' ? layout : null));
+    vi.spyOn(api.baskets, 'get').mockRejectedValue(new ApiError(404, 'not_found', 'gone'));
+    vi.spyOn(api.watchlist, 'get').mockResolvedValue([{ type: 'symbol', id: 'basket:b1' }, { type: 'symbol', id: 'stock:MSFT' }]);
+    vi.spyOn(api.watchlist, 'put').mockResolvedValue(undefined);
+    render(<App />);
+    await screen.findByTestId('chart-view');
+    act(() => notifyBasketDeleted('other'));
+    act(() => notifyBasketDeleted('b1'));
+    expect(await within(await screen.findByRole('banner')).findByText('stock:MSFT name')).toBeInTheDocument();
+  });
+
   it('recovers from a failed symbol info load via the Retry button, by re-selecting the symbol, or automatically', async () => {
     vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
     vi.spyOn(api.watchlist, 'get').mockResolvedValue([{ type: 'symbol', id: 'crypto:BTC' }]);
@@ -236,7 +283,7 @@ describe('App', () => {
     await screen.findByTestId('chart-view');
     expect(screen.queryByText(/Couldn't load symbol/)).not.toBeInTheDocument();
   });
-  it('shows a small "Layout not saved — retrying" status while layout saves fail, gone once a retry succeeds', async () => {
+  it('shows a small "Layout not saved. Retrying…" note while layout saves fail, gone once a retry succeeds', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
@@ -245,15 +292,36 @@ describe('App', () => {
       await screen.findByTestId('chart-view');
       await userEvent.click(screen.getByRole('button', { name: '1h' }));
       await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
-      const status = await screen.findByText('Layout not saved — retrying');
+      const status = (await screen.findByText('Layout not saved. Retrying…')).closest('.save-note')!;
       expect(status).toHaveAttribute('role', 'status');
       expect(status).toHaveAttribute('title', expect.stringContaining('down'));
+      expect(status).toHaveClass('is-warn');
+      // In the chart view it sits in the chart's note stack (with the drawings note), inside the chart panel.
+      expect(status.closest('.chart-save-notes')).not.toBeNull();
       await act(async () => { await vi.advanceTimersByTimeAsync(2100); });
-      await waitFor(() => expect(screen.queryByText('Layout not saved — retrying')).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByText('Layout not saved. Retrying…')).not.toBeInTheDocument());
     } finally {
       vi.useRealTimers();
     }
   });
+  it('layout saves that keep failing stop after the retry limit: "Layout not saved" with Retry', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+      render(<App />);
+      await screen.findByTestId('chart-view');
+      vi.mocked(api.layouts.put).mockRejectedValue(new ApiError(503, 'unavailable', 'down'));
+      await userEvent.click(screen.getByRole('button', { name: '1h' }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60_000); });
+      expect(await screen.findByText('Layout not saved.')).toBeInTheDocument();
+      vi.mocked(api.layouts.put).mockResolvedValue(undefined);
+      await userEvent.click(screen.getByRole('button', { name: 'Retry saving the layout' }));
+      await waitFor(() => expect(screen.queryByText('Layout not saved.')).not.toBeInTheDocument());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('resizes the watchlist sidebar with its separator and keeps the width when it is hidden and shown again', async () => {
     vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
     const { container } = render(<App />);

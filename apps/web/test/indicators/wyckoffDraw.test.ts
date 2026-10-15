@@ -1,4 +1,12 @@
-// Tests for the port of 'Wyckoff Accumulation Distribution' by faytterro (MPL-2.0, https://mozilla.org/MPL/2.0/).
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL
+// was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// This code is a port of 'Wyckoff Accumulation Distribution' by faytterro, licensed under the Mozilla Public
+// License 2.0 (https://mozilla.org/MPL/2.0/).
+// Original Pine Script® source © faytterro.
+//
+// Tests for that port.
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { compositeOver } from '../../src/chart/color';
 import { contrastRatio } from '../../src/chart/contrast';
@@ -48,7 +56,7 @@ function run(
 describe('WYCKOFF template', () => {
   it('is a figure-less price overlay with the agreed defaults', () => {
     expect(wyckoffIndicator.template).toMatchObject({ name: 'WYCKOFF', calcParams: [14, 20, 5], figures: [], series: 'price' });
-    expect(wyckoffIndicator.catalog.label).toBe('Wyckoff Accumulation and Distribution');
+    expect(wyckoffIndicator.catalog.label).toBe('Wyckoff accumulation and distribution');
   });
 
   it('calc returns one entry per bar (and nothing on empty data)', () => {

@@ -39,7 +39,9 @@ function qs(q: Query): string {
 
 /**
  * Browsers cap the bodies of all in-flight keepalive requests together at 64 KiB (per page). Only small bodies
- * use keepalive, and only while the bytes already in flight leave room for them.
+ * use keepalive, and only while the bytes already in flight leave room for them. Known limit: a larger PUT (a
+ * layout with many indicators, a long drawing list) flushed while the page closes is sent without keepalive and
+ * may be cut off; the debounced saves (~1 s) make that window small.
  */
 export const KEEPALIVE_MAX_BODY = 16_000;
 export const KEEPALIVE_BUDGET = 48_000;

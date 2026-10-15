@@ -1,12 +1,14 @@
 import { isIntraday, parseSymbolId, type DrawingState, type IndicatorState, type Layout, type SymbolId, type SymbolInfo } from '@chartmate/shared';
-import { memo, useEffect, useRef, useState, type JSX } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import { api, errorMessage } from '../api/client';
 import { ChartAdapter, type IndicatorSpec } from '../chart/ChartAdapter';
 import { migrateCalcParams } from '../chart/indicators/catalog';
 import type { LoaderMeta } from '../chart/dataLoader';
 import { pollIntervalMs } from '../chart/periods';
 import { onBasketChanged } from '../state/useBaskets';
-import { useDebouncedSave } from '../state/useDebouncedSave';
+import { drawingsStore } from '../state/drawingsStore';
+import { DrawingsNote } from './DrawingsSave';
+import { SaveNote, type SaveNoteState } from './SaveNote';
 import { retryDelayMs } from '../state/retry';
 import { DrawingStyleBar } from './DrawingStyleBar';
 import { DrawingToolbar } from './DrawingToolbar';
@@ -21,6 +23,10 @@ export interface ChartViewProps {
   symbolInfo: SymbolInfo | null;
   /** Set when the current symbol's info failed to load (an error panel with Retry replaces the chart). */
   symbolError?: string | null;
+  /** The symbol is a basket that no longer exists (its info load failed with 404). */
+  symbolDeleted?: boolean;
+  /** The layout's unsaved state, shown in the chart's note stack (with unsaved drawings); null when saved. */
+  layoutSaveNote?: { state: SaveNoteState; detail: string; onRetry: () => void } | null;
   /** Retry button of the symbol error panel. */
   onRetrySymbol?: () => void;
   theme: 'dark' | 'light';
@@ -28,7 +34,6 @@ export interface ChartViewProps {
 
 const EMPTY_META: LoaderMeta = { stale: false, notices: [], markers: [] };
 const TOAST_MS = 6000;
-const DRAWINGS_SAVE_MS = 1000;
 
 /**
  * Polling interval for a symbol; baskets poll fast only if they contain crypto (re-checked when the basket is
@@ -84,7 +89,7 @@ const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringif
  * stale badge, etc.). The root fills its grid cell; `.chart-view` is itself a 2-column grid.
  * One ChartAdapter lives for the component's lifetime and is driven from `layout`.
  */
-function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, onRetrySymbol, theme }: ChartViewProps): JSX.Element {
+function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, symbolDeleted = false, layoutSaveNote = null, onRetrySymbol, theme }: ChartViewProps): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
   const [adapter, setAdapter] = useState<ChartAdapter | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
@@ -191,11 +196,19 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, onR
   useEffect(() => { adapter?.setSessionShading(shade); }, [adapter, shade]);
   useEffect(() => { adapter?.setMarkers(meta.markers); }, [adapter, meta.markers]);
 
-  // Indicators: diff by name + pane + index.
+  // Indicators: diff by name + pane + occurrence (the n-th RSI on a sub pane), so removing one leaves the others'
+  // chart indicators (and their pane heights) alone; only later indicators of the same kind shift onto the earlier
+  // one's chart indicator (updated in place).
   useEffect(() => {
     if (!adapter) return;
     const current = indicatorsRef.current;
-    const desired = new Map<string, IndicatorState>(indicators.map((s, i) => [`${s.name}|${s.pane}|${i}`, s]));
+    const seen = new Map<string, number>();
+    const desired = new Map<string, IndicatorState>(indicators.map((s) => {
+      const kind = `${s.name}|${s.pane}`;
+      const n = seen.get(kind) ?? 0;
+      seen.set(kind, n + 1);
+      return [`${kind}|${n}`, s];
+    }));
     for (const [key, { id }] of current) {
       if (!desired.has(key)) {
         adapter.removeIndicator(id);
@@ -223,7 +236,16 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, onR
 
   // Drawings: restore per symbol; save debounced after user edits (only once the symbol's drawings loaded).
   const [drawingsFor, setDrawingsFor] = useState<SymbolId | null>(null);
-  const [drawingsValue, setDrawingsValue] = useState<{ symbol: SymbolId; drawings: DrawingState[] } | null>(null);
+  // Saving goes through the drawings store (savers mounted by the app shell, see DrawingsSave): this symbol takes new
+  // values only while its drawings are loaded. A symbol switch (or leaving the chart view) makes it inactive in the
+  // same commit, which flushes its pending save at once and keeps retrying it.
+  const activeDrawings = drawingsFor === symbol ? symbol : null;
+  useEffect(() => { drawingsStore.setActive(activeDrawings); }, [activeDrawings]);
+  useEffect(() => () => drawingsStore.setActive(null), []);
+  useEffect(() => { if (info) drawingsStore.setTicker(info.id, info.ticker); }, [info]);
+  // Discarding the charted symbol's rejected drawings: show the server's drawings again.
+  const [drawingsReload, setDrawingsReload] = useState(0);
+  useEffect(() => drawingsStore.onDiscard((s) => { if (s === symbolRef.current) setDrawingsReload((k) => k + 1); }), []);
   const symbolRef = useRef(symbol);
   symbolRef.current = symbol;
   const drawingsForRef = useRef(drawingsFor);
@@ -235,6 +257,15 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, onR
     let timer: ReturnType<typeof setTimeout> | undefined;
     setDrawingsFor(null);
     adapter.restoreDrawings([]);
+    // Drawings of this symbol that have not reached the server yet (a save still retrying, stalled or failed) are
+    // restored from memory instead of the server's copy. Last writer wins: this tab's unsaved drawings replace whatever
+    // another tab saved meanwhile once they are saved (drawings are stored as one list per symbol, no merge).
+    const local = drawingsStore.getSnapshot().values.get(symbol);
+    if (local) {
+      adapter.restoreDrawings(local, symbol);
+      setDrawingsFor(symbol);
+      return;
+    }
     // Retried with backoff: saving stays disabled until this symbol's drawings are loaded.
     const fetchDrawings = (attempt: number) => {
       api.drawings.get(symbol).then(
@@ -255,7 +286,7 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, onR
       canceled = true;
       clearTimeout(timer);
     };
-  }, [adapter, symbol]);
+  }, [adapter, symbol, drawingsReload]);
 
   // A finished Shift measure, read out to screen readers (the chart itself is a canvas).
   const [measureText, setMeasureText] = useState('');
@@ -267,18 +298,9 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, onR
   useEffect(() => adapter?.onDrawingsChange(() => {
     const s = symbolRef.current;
     if (drawingsForRef.current !== s) return; // never overwrite drawings we have not loaded
-    setDrawingsValue({ symbol: s, drawings: adapter.serializeDrawings() });
+    drawingsStore.setValue(s, adapter.serializeDrawings());
   }), [adapter]);
 
-  // Enabled only while the current symbol's drawings are loaded: a symbol switch disables it in the same
-  // render, which flushes the previous symbol's pending save immediately instead of losing it.
-  const { error: saveError } = useDebouncedSave(
-    drawingsValue,
-    (v) => (v ? api.drawings.put(v.symbol, v.drawings) : Promise.resolve()),
-    DRAWINGS_SAVE_MS,
-    drawingsFor === symbol,
-  );
-  useEffect(() => { if (saveError) setToast(`Could not save drawings: ${saveError}`); }, [saveError]);
 
   useEffect(() => {
     if (!toast) return;
@@ -298,7 +320,18 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, onR
         <DrawingToolbar controls={adapter} disabled={!drawingReady} ticker={info?.ticker ?? symbol} />
       </div>
       <div className="chart-area">
-        <IndicatorChips layout={layout} setLayout={setLayout} theme={theme} />
+        {/* Top row, outside the plot: the indicator chips (hidden while the symbol failed: they belong to a chart) and,
+            on the right, the stack of chart-level save notes (layout, then each symbol's unsaved drawings). */}
+        <div className="chart-toprow">
+          {!symbolFailed && <IndicatorChips layout={layout} setLayout={setLayout} theme={theme} />}
+          <div className="chart-save-notes">
+            {layoutSaveNote && (
+              <SaveNote thing="Layout" state={layoutSaveNote.state} detail={layoutSaveNote.detail} retryLabel="Retry saving the layout"
+                onRetry={layoutSaveNote.onRetry} />
+            )}
+            <DrawingsNote />
+          </div>
+        </div>
         <div className="chart-stage">
           <div className="chart-host" ref={hostRef} data-testid="chart-host" />
           <div className="sr-only" role="status" data-testid="measure-readout">{measureText}</div>
@@ -308,7 +341,13 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, onR
             onResetColor={() => setLayout(({ drawingColor: _reset, ...l }) => l)}
           />
           {initError && <div className="center-message chart-init-error" role="alert">Chart failed to start: {initError}</div>}
-          {symbolFailed && (
+          {symbolFailed && symbolDeleted && (
+            <div className="center-message chart-deleted-panel" data-testid="symbol-deleted">
+              <p className="chart-deleted-title">Deleted basket</p>
+              <p className="chart-deleted-hint">This basket no longer exists. Pick another symbol in the watchlist or search.</p>
+            </div>
+          )}
+          {symbolFailed && !symbolDeleted && (
             <div className="center-message chart-error-panel" role="alert" data-testid="symbol-error">
               <p>Couldn&apos;t load symbol {symbol}: {symbolError}</p>
               <button type="button" onClick={onRetrySymbol}>Retry</button>

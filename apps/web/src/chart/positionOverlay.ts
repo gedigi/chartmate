@@ -8,7 +8,7 @@ import {
   sideOf, stopLabel, targetLabel, toPositionPoints, type OutcomeBar, type PositionGeometry, type PositionMetrics, type PositionOutcome,
   type PositionSide,
 } from './position';
-import { hexToRgba, LABEL_RADIUS, THEME_TOKENS } from './theme';
+import { CHART_FONT, hexToRgba, LABEL_RADIUS, THEME_TOKENS } from './theme';
 
 /**
  * Zone fills, light so the candles under them keep their colors: the profit / loss zones, and the part already
@@ -46,13 +46,28 @@ export const positionContext: {
   barMs: 86_400_000,
   defaults: { ...DEFAULT_POSITION_DEFAULTS },
   colors: { up: THEME_TOKENS.dark.up, down: THEME_TOKENS.dark.down, neutral: THEME_TOKENS.dark.muted },
-  endFor: (start) => start + DEFAULT_WIDTH_BARS * positionContext.barMs,
-  minEnd: (start) => start + positionContext.barMs,
-  shiftEnd: (end, from, to) => end + (to - from),
-  historyComplete: () => true,
+  ...defaultPlacement(),
   minGapPrice: 0,
   formatTime: (ts) => new Date(ts).toISOString().slice(0, 10),
 };
+
+/** The chart-independent placement helpers (no loaded data): what a destroyed adapter leaves behind. */
+function defaultPlacement(): Pick<typeof positionContext, 'endFor' | 'minEnd' | 'shiftEnd' | 'historyComplete'> {
+  return {
+    endFor: (start) => start + DEFAULT_WIDTH_BARS * positionContext.barMs,
+    minEnd: (start) => start + positionContext.barMs,
+    shiftEnd: (end, from, to) => end + (to - from),
+    historyComplete: () => true,
+  };
+}
+
+/**
+ * Restores the chart-independent placement helpers, so the context no longer holds closures over a destroyed
+ * adapter (and its chart). Only when `owner` (the adapter's endFor) is still installed: a newer adapter's stay.
+ */
+export function releasePositionContext(owner: (start: number) => number): void {
+  if (positionContext.endFor === owner) Object.assign(positionContext, defaultPlacement());
+}
 
 // ── memoized metrics / outcome ──
 
@@ -224,7 +239,7 @@ function template(name: 'longPosition' | 'shortPosition'): OverlayTemplate {
         xOf: (ts) => xAxis?.convertTimestampToPixel?.(ts) ?? p.coordinates[0]!.x,
         yOf: (v) => yAxis?.convertToPixel(v) ?? p.coordinates[0]!.y,
         formatTime: positionContext.formatTime,
-        font: { family: font?.family ?? 'Helvetica Neue', size: font?.size ?? 12 },
+        font: { family: font?.family ?? CHART_FONT, size: font?.size ?? 12 },
         paneWidth: p.bounding?.width ?? 0,
       });
     },

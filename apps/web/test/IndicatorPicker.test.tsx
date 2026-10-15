@@ -14,9 +14,9 @@ describe('IndicatorPicker', () => {
     expect(within(dialog).getByRole('heading', { name: 'Overlays' })).toBeInTheDocument();
     expect(within(dialog).getByRole('heading', { name: 'Oscillators' })).toBeInTheDocument();
     expect(screen.getByRole('searchbox')).toHaveFocus();
-    expect(within(dialog).getByRole('button', { name: /Moving Average \(SMA\)/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: /Moving average \(SMA\)/ })).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: /VWAP \(session, intraday\)/ })).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: /Average True Range/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: /Average true range/ })).toBeInTheDocument();
   });
 
   it('filtering "rsi" shows RSI only; clicking adds it with default params', async () => {
@@ -88,8 +88,8 @@ describe('IndicatorButton', () => {
     expect(button).toBeEnabled();
     await userEvent.click(button);
     const dialog = screen.getByRole('dialog');
-    await userEvent.click(within(dialog).getByRole('button', { name: /Moving Average \(SMA\)/ }));
-    await userEvent.click(within(dialog).getByRole('button', { name: /Moving Average \(SMA\)/ }));
+    await userEvent.click(within(dialog).getByRole('button', { name: /Moving average \(SMA\)/ }));
+    await userEvent.click(within(dialog).getByRole('button', { name: /Moving average \(SMA\)/ }));
     expect(onLayout).toHaveBeenLastCalledWith(expect.objectContaining({
       indicators: [
         { name: 'MA', pane: 'main', calcParams: [5, 10, 30, 60], visible: true },
@@ -106,10 +106,10 @@ describe('IndicatorButton', () => {
     const ind: IndicatorState = { name: 'MA', pane: 'main', calcParams: [5], visible: true };
     render(<Harness onLayout={onLayout} initial={{ ...BASE, indicators: Array.from({ length: MAX_INDICATORS - 1 }, () => ind) }} />);
     await userEvent.click(screen.getByRole('button', { name: 'Indicators' }));
-    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Exponential MA/ }));
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Exponential moving average/ }));
     expect(onLayout).toHaveBeenLastCalledWith(expect.objectContaining({ indicators: expect.any(Array) }));
     expect((onLayout.mock.lastCall![0] as Layout).indicators).toHaveLength(MAX_INDICATORS);
-    expect(within(screen.getByRole('dialog')).getByRole('button', { name: /Exponential MA/ })).toBeDisabled();
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: /Exponential moving average/ })).toBeDisabled();
     expect(screen.getByRole('alert')).toBeInTheDocument();
   });
 
@@ -119,7 +119,7 @@ describe('IndicatorButton', () => {
     const setLayout = vi.fn();
     render(<IndicatorButton layout={BASE} setLayout={setLayout} />);
     await userEvent.click(screen.getByRole('button', { name: 'Indicators' }));
-    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Exponential MA/ }));
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Exponential moving average/ }));
     const update = setLayout.mock.calls[0]![0] as (l: Layout) => Layout;
     expect(update(full)).toBe(full);
     expect(update(BASE).indicators).toHaveLength(1);

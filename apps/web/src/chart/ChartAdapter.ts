@@ -13,18 +13,18 @@ import {
   type TextStyle,
 } from './drawingStyles';
 import {
-  drawingConstraint, EXTEND_STYLE_KEY, extendOptions, flattenBase, LABEL_STYLE_KEY, labelOptions, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
+  drawingConstraint, drawingContext, EXTEND_STYLE_KEY, extendOptions, flattenBase, LABEL_STYLE_KEY, labelOptions, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
   type ExtendOptions, type LabelOptions,
 } from './drawingTemplates';
 import {
   barIndex, barTime, DEFAULT_WIDTH_BARS, defaultGeometry, endAfterBars, fromPositionPoints, nextBarTime, shiftByBars, sideOf,
   toPositionPoints, validatePrices, type OutcomeBar, type PositionMetrics, type PositionOutcome, type PositionSide,
 } from './position';
-import { positionContext, positionState, registerPositionOverlays } from './positionOverlay';
+import { positionContext, positionState, registerPositionOverlays, releasePositionContext } from './positionOverlay';
 import { drawingClipboard, type DrawingClip } from './drawingClipboard';
 import { DEFAULT_DRAWING_COLOR, drawingSwatches, resolveDrawingColor, type DrawingSwatch } from './drawingColors';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
-import { catalogEntry, defaultLineColor, effectiveLevels } from './indicators/catalog';
+import { catalogEntry, defaultLineColor, effectiveLevels, lineColorOverride } from './indicators/catalog';
 import { indicatorColorContext } from './indicators/colors';
 import { CUSTOM_INDICATORS, PRICE_PRECISION_INDICATORS } from './indicators/extensions';
 import { levelsDraw, levelsRange } from './indicators/levels';
@@ -41,7 +41,7 @@ import { textColoredLegends } from './barLegends';
 import { solidBarFigures } from './solidBars';
 import { axisTickLabels, countdownText, crosshairDate, hasCountdown } from './timeLabels';
 import {
-  candleStyles, CHART_FONT, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, defaultIndicatorCircles, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeSoftTone, themeTokens,
+  candleStyles, CHART_FONT, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, defaultIndicatorCircles, effectiveBarColors, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeSoftTone, themeTokens,
   type ThemeName,
 } from './theme';
 
@@ -226,6 +226,8 @@ export class ChartAdapter {
   private readonly changeListeners = new Set<() => void>();
   private silent = 0;
   private destroyed = false;
+  /** The position placement helper this adapter installs (released on destroy). */
+  private readonly ownEndFor = (start: number): number => this.positionEnd(start);
 
   constructor(el: HTMLElement, opts: { theme: ThemeName }) {
     registerSessionShade();
@@ -240,7 +242,7 @@ export class ChartAdapter {
     this.updatePositionColors();
     this.updateIndicatorColors();
     positionContext.defaults = resolvePositionDefaults(undefined);
-    positionContext.endFor = (start) => this.positionEnd(start);
+    positionContext.endFor = this.ownEndFor;
     positionContext.minEnd = (start) => nextBarTime(this.chart.getDataList(), start, positionContext.barMs);
     positionContext.shiftEnd = (end, from, to) => shiftByBars(this.chart.getDataList(), end, from, to, positionContext.barMs);
     positionContext.historyComplete = () => !this.hasOlderData();
@@ -320,11 +322,17 @@ export class ChartAdapter {
     indicatorColorContext.appearance = this.appearance;
   }
 
-  /** Position zones / labels: the candle up / down colors of the active theme, muted gray for neutral parts. */
+  /**
+   * Position zones / labels: the candle up / down colors of the active theme, muted gray for neutral parts. Also the
+   * drawing templates' theme context (channel fills are tinted onto the chart background).
+   */
   private updatePositionColors(): void {
     const a = resolveAppearance(this.theme, this.appearance);
     const t = themeTokens(this.theme);
     positionContext.colors = { up: a.upColor, down: a.downColor, neutral: t.muted, bg: t.bg };
+    drawingContext.theme = this.theme;
+    drawingContext.bg = t.bg;
+    drawingContext.accent = t.accent;
   }
 
   // ── data ──────────────────────────────────────────────────────────────────
@@ -362,7 +370,9 @@ export class ChartAdapter {
     if (prevSymbol === p.symbol.id && prevMapping !== this.mapsDailyAnchors()) this.replaceForAnchorMapping(p.symbol.id);
     this.markers = [];
     this.renderMarkers();
-    this.setIndicatorContext({ assetClass: p.symbol.assetClass, intraday: isIntraday(p.tf), pricePrecision: p.symbol.pricePrecision });
+    const ext: IndicatorExtendData = { assetClass: p.symbol.assetClass, intraday: isIntraday(p.tf), pricePrecision: p.symbol.pricePrecision };
+    if (this.basketHasCrypto) ext.utcDays = true; // its intraday bars use the UTC grid
+    this.setIndicatorContext(ext);
     const timezone = timezoneFor(p.symbol, p.tf);
     this.chart.setTimezone(timezone);
     this.setTimeTexts(p.tf, timezone, p.session);
@@ -437,10 +447,9 @@ export class ChartAdapter {
     this.refreshLockedLook();
     this.refreshColorRefs();
     // Indicator lines without a color override carry the palette of the theme they were written in: rewrite
-    // them (width / style overrides kept; user colors are never touched).
+    // them, per line (width / style overrides kept; the lines a user colored keep that color exactly).
     for (const i of this.chart.getIndicators()) {
       const o = this.overrides.get(i.id) ?? {};
-      if (o.lineColors) continue;
       const styles = this.indicatorStyles(i.name, o, undefined, 'all-lines');
       if (styles?.lines) this.chart.overrideIndicator({ id: i.id, name: i.name, styles: { lines: styles.lines } });
     }
@@ -454,10 +463,15 @@ export class ChartAdapter {
    * (their defaults were written explicitly): give them the current default bars (theme / candle colors).
    */
   private refreshThemedBars(): void {
-    if (this.themedBars.size === 0) return;
+    if (this.themedBars.size === 0 && ![...this.overrides.values()].some((o) => o.barColors)) return;
     const d = this.chart.getStyles().indicator.bars[0]!;
     for (const i of this.chart.getIndicators()) {
       if (this.themedBars.has(i.id)) this.chart.overrideIndicator({ id: i.id, name: i.name, styles: { bars: [{ ...d, ...defaultIndicatorBars(this.theme, this.appearance) }] } });
+      // A bar-color override may leave one side at its default (stored as the default color): that side follows.
+      const stored = this.overrides.get(i.id)?.barColors;
+      if (!stored) continue;
+      const { up, down } = effectiveBarColors(this.theme, this.appearance, stored);
+      if (up !== stored.up || down !== stored.down) this.chart.overrideIndicator({ id: i.id, name: i.name, styles: { bars: [{ ...d, upColor: up, downColor: down }] } });
     }
   }
 
@@ -569,10 +583,11 @@ export class ChartAdapter {
     const lineCount = catalogEntry(name)?.lines.length ?? 0;
     if (hasLines || (reset && (reset.lineColors || reset.lineWidths || reset.lineStyles)) || (force && lineCount > 0)) {
       const defaults = this.defaultLines(name);
-      // Forced writes (create / theme re-apply) cover every catalog line, so lines past a partial override array
-      // still get the theme palette instead of KLineChart's defaults; plain updates write the overridden lines only.
+      // Every catalog line is written, always: KLineChart merges style arrays by index, so a line past a shorter
+      // override array would otherwise keep its previous override (and lines past a partial array would keep
+      // KLineChart's defaults instead of the theme palette). Uncatalogued indicators: the longer of both lists.
       const overridden = Math.max(o.lineColors?.length ?? 0, o.lineWidths?.length ?? 0, o.lineStyles?.length ?? 0);
-      const n = force && lineCount > 0 ? lineCount : hasLines && force !== 'all-lines' ? overridden : lineCount > 0 ? lineCount : defaults.length;
+      const n = lineCount > 0 ? lineCount : Math.max(overridden, defaults.length);
       styles.lines = Array.from({ length: n }, (_, i) => {
         const d = defaults[i % defaults.length]!;
         const style = o.lineStyles?.[i] ?? 'solid';
@@ -580,7 +595,7 @@ export class ChartAdapter {
         const line = klineLine(style, size, INDICATOR_DASH);
         return {
           ...d,
-          color: o.lineColors?.[i] ?? d.color,
+          color: lineColorOverride(name, i, o.lineColors?.[i]) ?? d.color,
           size,
           ...line,
           dashedValue: style === 'solid' ? d.dashedValue : line.dashedValue,
@@ -589,7 +604,8 @@ export class ChartAdapter {
     }
     if (o.barColors || reset?.barColors) {
       const d = this.chart.getStyles().indicator.bars[0]!;
-      styles.bars = [o.barColors ? { ...d, upColor: o.barColors.up, downColor: o.barColors.down } : { ...d, ...defaultIndicatorBars(this.theme, this.appearance) }];
+      const b = o.barColors ? effectiveBarColors(this.theme, this.appearance, o.barColors) : null;
+      styles.bars = [b ? { ...d, upColor: b.up, downColor: b.down } : { ...d, ...defaultIndicatorBars(this.theme, this.appearance) }];
     }
     return styles.lines || styles.bars ? styles : undefined;
   }
@@ -675,16 +691,16 @@ export class ChartAdapter {
   }
 
   /** Updates the indicators' extendData (asset class, intraday, price precision) when it changes. */
-  private setIndicatorContext(ext: Required<IndicatorExtendData>): void {
+  private setIndicatorContext(ext: IndicatorExtendData): void {
     const cur = this.indicatorExt;
-    if (cur.assetClass === ext.assetClass && cur.intraday === ext.intraday && cur.pricePrecision === ext.pricePrecision) return;
+    if (cur.assetClass === ext.assetClass && cur.intraday === ext.intraday && cur.pricePrecision === ext.pricePrecision && cur.utcDays === ext.utcDays) return;
     this.indicatorExt = ext;
     for (const i of this.chart.getIndicators()) {
       if (SHADE_INDICATORS.has(i.name)) continue;
       const override: IndicatorCreate = { id: i.id, name: i.name, extendData: ext };
       // Bounded oscillators keep their fixed precision; price-unit ones follow the symbol.
       if (!BOUNDED_INDICATORS.has(i.name)) {
-        const precision = indicatorPrecision(i.name, ext.pricePrecision);
+        const precision = indicatorPrecision(i.name, ext.pricePrecision ?? 4);
         if (precision !== undefined) override.precision = precision;
       }
       this.chart.overrideIndicator(override);
@@ -1596,7 +1612,9 @@ export class ChartAdapter {
    * new symbol never land on the previous symbol's data), else for the current load. Queued until then.
    * The "lock all" state is re-derived from the restored drawings.
    */
-  restoreDrawings(drawings: DrawingState[], symbol?: string): void {
+  restoreDrawings(stored: DrawingState[], symbol?: string): void {
+    // A drawing without points (older versions could store one) would put the chart into drawing mode: skipped.
+    const drawings = stored.filter((d) => Array.isArray(d.points) && d.points.length > 0);
     this.endDrawing();
     this.withSilence(() => this.removeUserOverlays());
     this.pendingRestore = null;
@@ -1951,6 +1969,7 @@ export class ChartAdapter {
     this.lockListeners.clear();
     this.selectionListeners.clear();
     this.priceEditListeners.clear();
+    releasePositionContext(this.ownEndFor);
     dispose(this.el);
   }
 }

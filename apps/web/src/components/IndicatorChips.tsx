@@ -1,7 +1,7 @@
 import type { IndicatorState, Layout } from '@chartmate/shared';
 import { useState, type JSX } from 'react';
-import { catalogEntry, defaultLineColor, indicatorLabel } from '../chart/indicators/catalog';
-import { resolveAppearance, type ThemeName } from '../chart/theme';
+import { catalogEntry, effectiveLineColor, indicatorLabel } from '../chart/indicators/catalog';
+import { effectiveBarColors, type ThemeName } from '../chart/theme';
 import { IndicatorSettings } from './IndicatorSettings';
 import './Indicators.css';
 
@@ -58,13 +58,13 @@ export function IndicatorChips({ layout, setLayout, theme = 'dark' }: IndicatorC
           {indicators.map((s, i) => {
             const label = indicatorLabel(s);
             return (
-              // Index keys match ChartView's index-based indicator diff.
+              // Index keys: chips have no identity of their own (the list only changes by append or remove).
               <li key={i} className={`indicator-chip${s.visible ? '' : ' is-hidden'}`} title={chipTitle(s.name)}>
                 {(() => {
                   // The chip's key: the indicator's first line color, or the candle up color for histogram-only ones.
                   const e = catalogEntry(s.name);
-                  const color = e && e.lines.length > 0 ? s.lineColors?.[0] ?? defaultLineColor(0, s.name, theme)
-                    : e?.bars ? s.barColors?.up ?? resolveAppearance(theme, layout.appearance).upColor : null;
+                  const color = e && e.lines.length > 0 ? effectiveLineColor(s, 0, theme)
+                    : e?.bars ? effectiveBarColors(theme, layout.appearance, s.barColors).up : null;
                   return color ? <span className="indicator-chip-dot" aria-hidden="true" style={{ backgroundColor: color }} /> : null;
                 })()}
                 <span className="indicator-chip-label">{label}</span>

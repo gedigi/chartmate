@@ -22,10 +22,14 @@ function priceError(text: string, badInput = false): string | null {
   if (badInput) return 'Price must be a positive number';
   const t = text.trim();
   if (t === '') return 'Enter a price';
+  // Plain decimal notation only: exponents ('1e-9') would slip past the decimals check and round to 0.
+  if (/e/i.test(t)) return 'Price must be a positive number';
   const v = Number(t);
   if (!Number.isFinite(v) || v <= 0) return 'Price must be a positive number';
   const decimals = /\.(\d+)$/.exec(t)?.[1]?.length ?? 0;
   if (decimals > MAX_PRICE_DECIMALS) return `At most ${MAX_PRICE_DECIMALS} decimals`;
+  // The price is applied rounded to MAX_PRICE_DECIMALS: it must stay positive.
+  if (!(Number(v.toFixed(MAX_PRICE_DECIMALS)) > 0)) return 'Price must be a positive number';
   return null;
 }
 

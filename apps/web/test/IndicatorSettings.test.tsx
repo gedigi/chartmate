@@ -58,8 +58,8 @@ describe('IndicatorSettings', () => {
     await userEvent.click(save());
     const saved = onSave.mock.calls[0]![0] as IndicatorState;
     expect(saved.calcParams).toEqual([20, 2.5]);
-    expect(saved.lineColors).toHaveLength(3);
-    expect(saved.lineColors![1]).toBe('#00ff00');
+    // Only the edited line is stored ('' = theme default), so the others keep following the theme.
+    expect(saved.lineColors).toEqual(['', '#00ff00']);
   });
 
   it('Reset restores default params and colors', async () => {

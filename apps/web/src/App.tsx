@@ -1,16 +1,18 @@
 import { parseSymbolId, type SymbolId, type SymbolInfo } from '@chartmate/shared';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type JSX, type RefObject } from 'react';
-import { api, errorMessage, setUnauthorizedHandler } from './api/client';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type RefObject } from 'react';
+import { api, ApiError, errorMessage, isPermanentError, setUnauthorizedHandler } from './api/client';
 import { BasketsPage } from './components/BasketsPage';
 import { ChartView } from './components/ChartView';
 import { Login } from './components/Login';
+import { DrawingsNote, DrawingsSavers } from './components/DrawingsSave';
+import { SaveNote, type SaveNoteState } from './components/SaveNote';
 import { TopBar, type Theme, type View } from './components/TopBar';
 import { SidebarResizer } from './components/SidebarResizer';
 import { SymbolDetails } from './components/SymbolDetails';
 import { Watchlist } from './components/Watchlist';
 import { syncShellThemeColor } from './desktopShell';
-import { onBasketChanged } from './state/useBaskets';
-import { useLayout } from './state/useLayout';
+import { onBasketChanged, onBasketDeleted } from './state/useBaskets';
+import { DEFAULT_LAYOUT, useLayout } from './state/useLayout';
 import { retryDelayMs } from './state/retry';
 import { useSidebarWidth } from './state/sidebarWidth';
 import { readStored, writeStored } from './state/storage';
@@ -55,11 +57,12 @@ function useHashView(): [View, (v: View) => void] {
 type SymbolInfoState =
   | { status: 'loading' }
   | { status: 'ready'; info: SymbolInfo }
-  | { status: 'error'; message: string };
+  | { status: 'error'; message: string; deleted: boolean };
 
 /**
  * Info for the current symbol, distinguishing loading from a failed load. A failed load is retried with
- * backoff (2 s, 5 s, 10 s, then every 30 s); `retry()` retries at once.
+ * backoff (2 s, 5 s, 10 s, then every 30 s), except a permanent failure (e.g. 404: an unknown symbol or a
+ * deleted basket, `deleted`), which cannot succeed later; `retry()` retries at once.
  */
 function useSymbolInfo(symbol: SymbolId): { state: SymbolInfoState; retry: () => void } {
   const [state, setState] = useState<{ id: SymbolId; value: SymbolInfoState } | null>(null);
@@ -72,8 +75,9 @@ function useSymbolInfo(symbol: SymbolId): { state: SymbolInfoState; retry: () =>
         (info) => { if (!canceled) setState({ id: symbol, value: { status: 'ready', info } }); },
         (err: unknown) => {
           if (canceled) return;
-          setState({ id: symbol, value: { status: 'error', message: errorMessage(err) } });
-          timer = setTimeout(() => load(attempt + 1), retryDelayMs(attempt));
+          const deleted = symbol.startsWith('basket:') && err instanceof ApiError && err.status === 404;
+          setState({ id: symbol, value: { status: 'error', message: errorMessage(err), deleted } });
+          if (!isPermanentError(err)) timer = setTimeout(() => load(attempt + 1), retryDelayMs(attempt));
         },
       );
     };
@@ -121,13 +125,14 @@ function useShowSession(symbol: SymbolId): boolean {
 }
 
 function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme: () => void; onLogout?: () => void }): JSX.Element {
-  const { layout, setLayout, selectSymbol: selectLayoutSymbol, loaded, loadError, retry: retryLayout, saveError: layoutSaveError } = useLayout();
+  const { layout, setLayout, selectSymbol: selectLayoutSymbol, loaded, loadError, retry: retryLayout, saveError: layoutSaveError, saveStalled: layoutSaveStalled, savePermanent: layoutSavePermanent, retrySave: retryLayoutSave } = useLayout();
   const [view, setView] = useHashView();
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= SIDEBAR_BREAKPOINT);
   const sidebar = useSidebarWidth();
   const { state: symbolInfoState, retry: retrySymbolInfo } = useSymbolInfo(layout.symbol);
   const symbolInfo = symbolInfoState.status === 'ready' ? symbolInfoState.info : null;
   const symbolError = symbolInfoState.status === 'error' ? symbolInfoState.message : null;
+  const symbolDeleted = symbolInfoState.status === 'error' && symbolInfoState.deleted;
   const showSession = useShowSession(layout.symbol);
 
   const current = useRef({ symbol: layout.symbol, failed: symbolError !== null });
@@ -137,9 +142,25 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
     if (id === current.current.symbol && current.current.failed) retrySymbolInfo();
     selectLayoutSymbol(id);
   }, [selectLayoutSymbol, retrySymbolInfo]);
+
+  // The charted basket was deleted: switch to the first other watchlist symbol (or the default symbol).
+  useEffect(() => onBasketDeleted((id) => {
+    const gone: SymbolId = `basket:${id}`;
+    if (current.current.symbol !== gone) return;
+    const fallback = (ids: SymbolId[]) => ids.find((s) => s !== gone) ?? DEFAULT_LAYOUT.symbol;
+    api.watchlist.get().then(
+      (list) => fallback(list.flatMap((e) => (e.type === 'symbol' ? [e.id] : []))),
+      () => fallback([]),
+    ).then((next) => { if (current.current.symbol === gone) selectLayoutSymbol(next); });
+  }), [selectLayoutSymbol]);
   const openChart = useCallback((id: SymbolId) => { selectSymbol(id); setView('chart'); }, [selectSymbol, setView]);
 
   const layoutBlocked = !loaded && loadError !== null;
+  // Memoized: ChartView is memoized and must not re-render on every shell render.
+  const layoutSaveNote = useMemo(() => (layoutSaveError === null ? null : {
+    state: (layoutSavePermanent ? 'failed' : layoutSaveStalled ? 'stalled' : 'retrying') as SaveNoteState,
+    detail: layoutSaveError, onRetry: retryLayoutSave,
+  }), [layoutSaveError, layoutSavePermanent, layoutSaveStalled, retryLayoutSave]);
 
   return (
     <div className={`app-shell view-${view}${sidebarOpen && view === 'chart' ? '' : ' sidebar-collapsed'}`}
@@ -150,6 +171,7 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
         layout={layout}
         setLayout={setLayout}
         symbolInfo={symbolInfo}
+        symbolDeleted={symbolDeleted}
         showSession={showSession}
         onSelectSymbol={selectSymbol}
         theme={theme}
@@ -159,15 +181,26 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
         onLogout={onLogout}
         controlsDisabled={!loaded}
       />
-      {layoutSaveError !== null && (
-        <div className="save-status" role="status" title={`Last error: ${layoutSaveError}`}>Layout not saved — retrying</div>
+      {/* Retried with backoff; once the retries give up (a tab left open must not keep writing an old layout over
+          newer changes) a manual Retry. In the chart view the note sits in the chart's note stack; elsewhere here. */}
+      {view !== 'chart' && (
+        <div className="save-status">
+          {layoutSaveError !== null && (
+            <SaveNote thing="Layout" state={layoutSavePermanent ? 'failed' : layoutSaveStalled ? 'stalled' : 'retrying'}
+              detail={layoutSaveError} retryLabel="Retry saving the layout" onRetry={retryLayoutSave} />
+          )}
+          <DrawingsNote />
+        </div>
       )}
+      {/* Drawings savers live here, above the view switch: unsaved drawings keep being retried on the Baskets page. */}
+      <DrawingsSavers />
       {view === 'chart' ? (
         <>
           <main className="chart-main">
             {loaded && (
               <ChartView layout={layout} setLayout={setLayout} symbolInfo={symbolInfo} symbolError={symbolError}
-                onRetrySymbol={retrySymbolInfo} theme={theme} />
+                symbolDeleted={symbolDeleted} onRetrySymbol={retrySymbolInfo} theme={theme}
+                layoutSaveNote={layoutSaveNote} />
             )}
             {layoutBlocked && (
               <div className="center-message">

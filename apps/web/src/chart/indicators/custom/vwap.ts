@@ -3,7 +3,7 @@ import type { CustomIndicator, IndicatorExtendData } from '../types';
 
 /**
  * Session VWAP on the price pane. On intraday charts the session resets on the New York calendar date for
- * stocks/baskets and on the UTC date for crypto; on 1D and longer timeframes (where every bar is its own
+ * stocks and stock-only baskets and on the UTC date for crypto and baskets holding crypto (`utcDays`); on 1D and longer timeframes (where every bar is its own
  * session) it is anchored to the first loaded bar instead. The chart adapter supplies asset class and
  * timeframe via `extendData`.
  */
@@ -18,7 +18,7 @@ const indicator: CustomIndicator = {
     calc: (dataList, ind) => {
       const ext = ind.extendData as IndicatorExtendData | undefined;
       if (ext?.intraday === false) return vwap(dataList, () => 0);
-      return vwap(dataList, ext?.assetClass === 'crypto' ? utcDayKey : nyDayKey);
+      return vwap(dataList, ext?.assetClass === 'crypto' || ext?.utcDays === true ? utcDayKey : nyDayKey);
     },
   },
   catalog: {

@@ -22,6 +22,8 @@ export interface TopBarProps {
   layout: Layout;
   setLayout: (fn: (l: Layout) => Layout) => void;
   symbolInfo: SymbolInfo | null;
+  /** The current symbol is a basket that no longer exists: labeled "Deleted basket" instead of its id. */
+  symbolDeleted?: boolean;
   showSession: boolean;
   onSelectSymbol: (id: SymbolId) => void;
   theme: Theme;
@@ -51,8 +53,8 @@ export function TopBar(p: TopBarProps): JSX.Element {
       {p.view === 'chart' && (
         <>
           <SymbolSearch onSelect={p.onSelectSymbol} disabled={p.controlsDisabled} shortcut />
-          <div className="symbol-label" title={symbolInfo?.name ?? layout.symbol}>
-            <strong>{symbolInfo?.ticker ?? layout.symbol}</strong>
+          <div className="symbol-label" title={symbolInfo?.name ?? (p.symbolDeleted ? 'Deleted basket' : layout.symbol)}>
+            <strong>{symbolInfo?.ticker ?? (p.symbolDeleted ? 'Deleted basket' : layout.symbol)}</strong>
             {/* A basket's ticker is its name: show it once. */}
             {symbolInfo && symbolInfo.assetClass !== 'basket' && symbolInfo.name !== symbolInfo.ticker
               && <span className="symbol-name">{symbolInfo.name}</span>}

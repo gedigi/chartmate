@@ -1,6 +1,7 @@
 import type { Basket, Quote, SymbolId } from '@chartmate/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
+import { drawingsStore } from './drawingsStore';
 
 export type BasketsStatus = 'loading' | 'ready' | 'error';
 
@@ -15,7 +16,10 @@ export interface UseBaskets {
   reload: () => void;
   /** Replaces (or adds) a basket after a save and refreshes its quote. */
   upsert: (b: Basket) => void;
-  /** Deletes on the server, then locally. Rejects with the API error. */
+  /**
+   * Deletes on the server, then locally; then drops the basket from the watchlist and clears its drawings (best
+   * effort, in the background: never delays or fails the delete). Rejects with the API error of the delete only.
+   */
   remove: (id: string) => Promise<void>;
 }
 
@@ -33,6 +37,39 @@ export function onBasketChanged(cb: BasketListener): () => void {
 /** Tells subscribers (e.g. the chart's RTH/ETH toggle) that a basket changed on the server. */
 export function notifyBasketChanged(id: string): void {
   for (const cb of [...basketListeners]) cb(id);
+}
+
+const deletedListeners = new Set<BasketListener>();
+
+/** Subscribes to "basket `id` was deleted" (e.g. the chart switches away from it). Returns the unsubscribe function. */
+export function onBasketDeleted(cb: BasketListener): () => void {
+  deletedListeners.add(cb);
+  return () => { deletedListeners.delete(cb); };
+}
+
+/** Tells subscribers that basket `id` was deleted on the server. */
+export function notifyBasketDeleted(id: string): void {
+  for (const cb of [...deletedListeners]) cb(id);
+}
+
+/**
+ * Best-effort cleanup of a deleted basket's references, in the background: its watchlist row (the stored list; the
+ * watchlist is not mounted on the Baskets page and reloads when it is) and its drawings. A failure is logged and
+ * leaves a stale reference, which the watchlist and the chart show as "Deleted basket". A legacy per-symbol layout
+ * row (`sym:basket:<id>`) cannot be removed: the API has no layout delete, and those rows are never read.
+ */
+function dropBasketReferences(symbol: SymbolId): void {
+  void Promise.allSettled([
+    api.watchlist.get().then((list) => {
+      const next = list.filter((e) => !(e.type === 'symbol' && e.id === symbol));
+      return next.length === list.length ? undefined : api.watchlist.put(next);
+    }),
+    api.drawings.put(symbol, []),
+  ]).then((results) => {
+    for (const r of results) {
+      if (r.status === 'rejected') console.warn(`Cleanup after deleting ${symbol} failed:`, errorMessage(r.reason));
+    }
+  });
 }
 
 /** Basket list + current values for the Baskets page. Quote failures are non-fatal (values show as "—"). */
@@ -104,6 +141,10 @@ export function useBaskets(): UseBaskets {
       return next;
     });
     notifyBasketChanged(id);
+    // Its unsaved drawings (a save still retrying or stalled) must never be re-sent after the cleanup below.
+    drawingsStore.cancel(basketSymbol(id));
+    notifyBasketDeleted(id);
+    dropBasketReferences(basketSymbol(id));
   }, []);
 
   return { baskets, quotes, quotesStatus, status, error, reload, upsert, remove };
