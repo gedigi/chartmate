@@ -403,6 +403,9 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
     notices state the license their `package.json` declares, its declared author and repository, and that no
     license file was distributed, followed by the standard license text labeled as such (no copyright line is made
     up).
+  - **Electron and Chromium credits**: Windows builds keep Electron's `LICENSE.electron.txt` and
+    `LICENSES.chromium.html` next to `chartmate.exe`. electron-builder drops both on macOS, so the `afterExtract`
+    hook (`build/after-extract.cjs`) copies them into `Contents/Resources` first and fails the build without them.
   - **1.0.0 shipped with `autoUpdate: false`**, so 1.0.0 installs never check for updates: their users install
     the next version once by hand, and update automatically from then on.
   - **Untestable without a real signed release**: the GitHub feed lookup, the Squirrel.Mac hand-over and
@@ -414,9 +417,12 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
 ### macOS signing in CI
 
 A tag build is signed when the repository variable `CHARTMATE_MAC_SIGN_IDENTITY` holds the identity name
-(`Developer ID Application: Jane Doe (TEAMID)`); without it the build is unsigned and has no updater. The key and
-the Apple credentials live only in the `macos-signing` environment, and only two jobs, which run no dependency
-code, can read them:
+(`Developer ID Application: Jane Doe (TEAMID)`). Every macOS job decides from that variable and the ref alone,
+never from an output of a job that ran dependency code. A tag without it fails in the `test` job, before any
+dependency code runs, because 1.0.0 shipped signed and a release must not silently lose its signature and its
+updater; set the repository variable `CHARTMATE_ALLOW_UNSIGNED_MAC` to `true` to release macOS unsigned on
+purpose. The key and the Apple credentials live only in the `macos-signing` environment, and only two jobs, which
+run no dependency code, can read them:
 
 1. `package-mac` (no secrets) installs the dependencies and builds both apps unsigned. It bundles with
    `CSC_NAME` set to the identity name, so `build/signing.cjs` compiles the updater in; electron-builder itself
@@ -424,16 +430,28 @@ code, can read them:
 2. `sign-mac` (`macos-signing`) starts on a fresh runner with only `.github/scripts/macos-sign.sh` and the two
    entitlements plists checked out: no Node.js setup, no package manager, no npm package. It imports the `.p12`
    into a temporary keychain with a random password, the key non-extractable (`security import -x`) and usable by
-   `codesign` only. It signs the nested code inside-out (Mach-O files, then helper apps and frameworks, deepest
-   first, then the app) with the hardened runtime, a secure timestamp and the entitlements from
-   `build/entitlements.mac*.plist`. It verifies the signature (`codesign --verify --deep --strict`), then
-   notarizes each app (`notarytool` with a keychain profile), staples it and checks it with `spctl`.
+   `codesign` only. Before signing anything it checks every Mach-O file and bundle in the app against the
+   expected Electron layout (`expected_code` in the script: the main executable, the four helper apps, the
+   Electron, Squirrel, Mantle and ReactiveObjC frameworks, Electron's dylibs, the crashpad handler and
+   ShipIt) and refuses anything else, so it never signs code a build dependency added. An Electron upgrade that
+   adds a binary fails here first: check the file, then extend the list. It signs the nested code inside-out
+   (deepest first, then the app) with the hardened runtime, a secure timestamp and the entitlements from
+   `build/entitlements.mac*.plist`. It verifies the signature (`codesign --verify --deep --strict`), notarizes
+   each app (`notarytool` with a keychain profile), staples it, checks it with `spctl`, and records each app's
+   code directory hash.
 3. `dist-mac` (no secrets) builds the dmgs, zips, blockmaps and `latest-mac.yml` from the signed apps with
    `electron-builder --prepackaged` (which packages without signing), and smoke-tests the signed arm64 app.
-4. `notarize-mac-dmg` (`macos-signing`, no dependency code) signs each dmg, notarizes and staples it, and checks
-   it with `spctl`.
+4. `notarize-mac-dmg` (`macos-signing`, no dependency code) first mounts each dmg read-only and checks that the
+   app inside verifies and has exactly the code directory hash `sign-mac` recorded (before the key is even
+   imported), then signs the dmg, notarizes and staples it, and checks it with `spctl`.
 
-Set up the repository once:
+The release job downloads exactly the three release artifacts by name and runs `scripts/check-release-assets.mjs`
+(repository root): the release must hold exactly the expected files for the version, and `latest-mac.yml` and
+`latest.yml` must match their files' SHA-512 and size.
+
+Set up the repository once, in this order. The environment must exist with its tag rule, and hold the secrets,
+before the variable turns signing on: a job that names an environment which does not exist yet creates it, with
+no protection rules, and the repository secrets would then reach it unguarded.
 
 1. Create an environment named `macos-signing` (Settings, Environments). Under deployment branches and tags,
    allow only tags matching `v*`. Optionally add yourself as a required reviewer: each signed release then waits
@@ -453,6 +471,9 @@ Residual risk:
   `pnpm audit`, Dependabot's cooldown and the smoke tests are what limit that.
 - The signing jobs unpack the app archive built by `package-mac` and run `codesign`, `ditto` and `notarytool` on
   it, but never execute anything from it.
+- Everything that gets signed carries the Developer ID signature for good: anyone can copy a signed helper or
+  dylib out of a release and reuse it. The layout check keeps that to Electron's own binaries, which are signed
+  with the hardened runtime and only the JIT entitlement.
 - Approving a signing run approves whatever the tagged commit builds.
 
 ### Windows signing with Certum
@@ -530,8 +551,9 @@ If the SimplySign login or the sign hook fails, the release is created as a **dr
   another method is configured.
 - The release notes say "Windows signing step failed in CI — sign with `sign:win`".
 - macOS is unaffected.
-- Run step 3, then publish the draft: `gh release edit vX.Y.Z --draft=false --latest=<true|false>`. Use `true`
-  only when no higher full release exists (from the repository root,
+- The draft is never marked Latest. Run step 3, then publish it:
+  `gh release edit vX.Y.Z --draft=false --latest=<true|false>`. Use `true` only when no higher full release
+  exists: the ranking compares the repository's `v*` tags (from the repository root,
   `git tag --list 'v*' | node scripts/release-tags.mjs vX.Y.Z` prints `latest=…`). Until it is published,
   installed copies are not offered the update.
 
@@ -549,6 +571,9 @@ Residual risk:
   leave behind (a background process, `GITHUB_ENV` or `GITHUB_PATH` entries), because no dependency code has run
   yet. It is not a hard boundary: GitHub hands every secret a job references to that job's runner, and later
   steps run with administrator rights on the same machine.
+- Tracking note: the seed stays reachable from the Windows job's memory until signing can move to a job without
+  dependency code (needs electron-builder's NSIS build split around the uninstaller signature, or a signing
+  service that takes a short-lived token instead of the seed). Revisit at each electron-builder upgrade.
 - What actually protects the build:
   - dependencies are installed with `--ignore-scripts` from the frozen lockfile;
   - `pnpm audit` runs before packaging;

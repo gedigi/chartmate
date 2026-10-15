@@ -34,7 +34,8 @@ app, the Docker image and the release tag share one version number.
   light theme's background when the page is slow to answer at close, and launching the app again on macOS with
   no window open now opens one.
 - The app now includes the AGPL-3.0 license and the licenses of the third-party software it contains
-  (`LICENSE` and `THIRD_PARTY_NOTICES.txt` next to the app's resources).
+  (`LICENSE` and `THIRD_PARTY_NOTICES.txt` next to the app's resources); on macOS also Electron's license and the
+  Chromium credits (`LICENSE.electron.txt`, `LICENSES.chromium.html`), which Windows already had.
 
 ### Self-hosting
 

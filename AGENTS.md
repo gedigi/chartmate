@@ -200,19 +200,23 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   `.github/workflows/desktop.yml` tests, then builds macOS arm64/x64 (dmg + zip) and Windows x64/arm64 (NSIS +
   zip), smoke-tests both, and publishes a full GitHub Release with the binaries. The notes start with the tag's
   `CHANGELOG.md` section (`apps/desktop/scripts/changelog-section.mjs`), followed by the signing table. The
-  release is marked Latest only when no higher full release exists (`scripts/release-tags.mjs`), so a backport
-  never takes Latest.
+  release is marked Latest only when no higher full release exists among the repository's `v*` tags
+  (`scripts/release-tags.mjs`), so a backport never takes Latest. `scripts/check-release-assets.mjs` requires
+  exactly the expected files, with `latest*.yml` matching them, before the release is created.
 - A suffixed tag (`vX.Y.Z-beta.1`) publishes a pre-release instead.
 - Builds are unsigned unless signing is configured; unsigned builds contain no auto-updater.
 - macOS signing (`docs/desktop.md`, "macOS signing in CI"): the repository variable `CHARTMATE_MAC_SIGN_IDENTITY`
-  turns it on for tags. `package-mac` builds the apps unsigned with no secrets; `sign-mac` and `notarize-mac-dmg`
-  run in the `macos-signing` environment on fresh runners with no dependency code (only
-  `.github/scripts/macos-sign.sh`, the entitlements and Apple's tools): key imported non-extractable into a
-  temporary keychain, inside-out `codesign` with the hardened runtime and a timestamp, `notarytool`, `stapler`,
-  `spctl`. `dist-mac` (no secrets) makes the dmgs, zips, blockmaps and `latest-mac.yml` from the signed apps
-  (`electron-builder --prepackaged`, one run per arch, merged by `scripts/merge-update-info.mjs`). The Apple
-  secrets are `macos-signing` environment secrets only. Residual risk: the dependencies build the code that is
-  signed. Changes to the signing script, those jobs or the secret scoping are security changes.
+  turns it on for tags; a tag without it fails unless `CHARTMATE_ALLOW_UNSIGNED_MAC` is `true`. Jobs decide from the
+  ref and the variable, never from a dependency-running job's output. `package-mac` builds the apps unsigned with no
+  secrets; `sign-mac` and `notarize-mac-dmg` run in the `macos-signing` environment on fresh runners with no
+  dependency code (only `.github/scripts/macos-sign.sh`, the entitlements and Apple's tools): key imported
+  non-extractable into a temporary keychain, inside-out `codesign` with the hardened runtime and a timestamp,
+  `notarytool`, `stapler`, `spctl`. `sign-mac` refuses any Mach-O file outside the expected Electron layout
+  (`expected_code`), and `notarize-mac-dmg` checks each dmg's app against the cdhash `sign-mac` recorded. `dist-mac`
+  (no secrets) makes the dmgs, zips, blockmaps and `latest-mac.yml` from the signed apps (`electron-builder
+  --prepackaged`, one run per arch, merged by `scripts/merge-update-info.mjs`). The Apple secrets are
+  `macos-signing` environment secrets only. Residual risk: the dependencies build the code that is signed. Changes
+  to the signing script, those jobs or the secret scoping are security changes.
 - The same tag runs `.github/workflows/docker.yml`: tests, `scripts/docker-smoke.sh` (amd64, and arm64 under
   QEMU), then pushes the multi-arch self-hosting image (`linux/amd64`, `linux/arm64`) to
   `ghcr.io/<owner>/<repo>`, derived from `github.repository` (lowercased), as `X.Y.Z`, plus `X.Y`, `X` and
@@ -231,7 +235,8 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
     first step of the job: before any dependency code runs there, and with the login secrets in no other step.
   - `scripts/verify-win-signatures.mjs` gates the result; SimplySign Desktop is closed right after packaging.
   - If the login or the sign hook fails, Windows ships without Certum, the release notes say so, and the release
-    is created as a draft (the owner publishes it after `sign:win`). A failed verification fails the job.
+    is created as a draft, never marked Latest (the owner publishes it after `sign:win`). A failed verification
+    fails the job, and so does a signing setting `build/signing.cjs` rejects.
   - The Certum secrets are `windows-signing` environment secrets only, never repository secrets.
   - Residual risk: the signing cannot move to a job without dependency code (the session is bound to the runner,
     and the uninstaller is signed in the middle of the NSIS build), so code running in that job can use the live
