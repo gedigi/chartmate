@@ -76,6 +76,8 @@ export function defaultLineColor(i: number, name: string | undefined, theme: The
  * `lineColors` is sparse: an empty entry (or a missing one) is the theme default. An entry equal to that line's
  * default in EITHER theme is read as a default too: older versions saved the whole list when one line changed,
  * freezing the untouched lines to the palette of the theme they were edited in.
+ * Known trade-off: a color the user picks that equals this line's default in the OTHER theme is read as a default
+ * too (it follows the theme). Old dense payloads cannot be told apart from such a pick, and the case is rare.
  */
 export function lineColorOverride(name: string, i: number, stored: string | undefined): string | undefined {
   if (!stored) return undefined;

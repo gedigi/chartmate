@@ -203,6 +203,7 @@ export function defaultBarColors(theme: ThemeName, appearance?: ThemedAppearance
  * Bar colors drawn for an indicator's stored `barColors` in `theme`, per side. The stored pair always holds both
  * sides (the settings dialog writes the shown default next to the edited side), so a side equal to a default bar
  * color of EITHER theme (the theme's own or the custom candle color) is read as "default" and follows `theme`.
+ * Known trade-off: picking exactly the other theme's default for a side therefore also follows the theme.
  */
 export function effectiveBarColors(theme: ThemeName, appearance: ThemedAppearance | undefined, stored?: { up: string; down: string }): { up: string; down: string } {
   const d = defaultBarColors(theme, appearance);

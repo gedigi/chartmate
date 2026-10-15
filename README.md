@@ -391,7 +391,8 @@ Where to read next:
   colors of histogram indicators (VOL, MACD, AO, PPO). Only the colors you change are yours: every other line
   and bar color keeps following the theme (switch to light and back and they recolor). Layouts from earlier
   versions stored every line color when one changed; a stored color equal to the dark or light default of
-  its line is read as that default, so those lines follow the theme again.
+  its line is read as that default, so those lines follow the theme again (this also applies if you pick exactly
+  the other theme's default color for a line).
 - **Oscillator reference levels**: oscillator panes draw thin dashed lines in the theme's muted level color behind
   the indicator lines: MACD, AO, ROC, MTM, TRIX and PPO at 0; RSI at 70 / 30; KDJ at 80 / 20;
   CCI at ±100; WR at -20 / -80 (KLineChart's WR runs from -100 to 0); DMI at 25 (ADX trend threshold). The levels

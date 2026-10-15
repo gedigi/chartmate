@@ -23,7 +23,8 @@ app, the Docker image and the release tag share one version number.
 ### Fixes
 
 - Indicator settings store only the colors you change: the other lines (and the untouched up or down bar
-  color) keep following the theme instead of freezing to the palette of the theme they were edited in.
+  color) keep following the theme instead of freezing to the palette of the theme they were edited in. A
+  color equal to that line's default in the other theme counts as a default too, so it follows the theme.
 - Failed drawing and watchlist saves are retried with backoff instead of being dropped, and a failed watchlist
   load is retried too. Until the watchlist has loaded it shows placeholder rows and cannot be edited, so an
   early edit is no longer lost.
