@@ -322,10 +322,20 @@ What the tag runs:
   [docs/desktop.md](docs/desktop.md#signing-notarization-updates). The release also gets the tag's `compose.yaml`
   and `.env.example` (as `env.example`: GitHub renames assets that start with a dot), so
   `releases/latest/download/compose.yaml` always matches the latest image.
-- `.github/workflows/docker.yml`: tests, smoke-tests the amd64 and arm64 images (`scripts/docker-smoke.sh`), then
-  pushes the multi-arch image to `ghcr.io/gedigi/chartmate` with provenance and SBOM attestations. `X.Y`, `X` and
+- `.github/workflows/docker.yml`: tests, builds on the newest `node:26-trixie-slim` (always pulled; the digest it
+  resolved is in the job summary), smoke-tests the amd64 and arm64 images (`scripts/docker-smoke.sh`), scans them
+  (a fixable high or critical vulnerability fails the release), then pushes the multi-arch image to
+  `ghcr.io/gedigi/chartmate` with provenance and SBOM attestations. `X.Y`, `X` and
   `latest` move only for the highest release in their range (ranked by the repository's `v*` tags), so a backport
   never moves them backward.
+
+Every Monday `.github/workflows/docker-refresh.yml` rebuilds, scans and re-pushes the latest release's image under
+its tags and `latest` (only from the default branch, never on a fork; run it by hand from the Actions tab after a
+Debian or Node.js security fix). If its scan fails, update the dependency and release, or, when a finding does not
+apply, add it to `.trivyignore` after review: one ID per line with `exp:YYYY-MM-DD` (at most 90 days out) and a
+comment line above it saying what was reviewed, by whom and why it does not apply. The Compose Postgres follows the
+same idea (`postgres:18-trixie`, pulled by `docker compose up`); a new Postgres major needs a documented dump and
+restore for users, as in the README's "Upgrading from Postgres 17".
 
 After the first image is published, make the GHCR package public once (the package's **Package settings**,
 **Change visibility**) and check that it is linked to this repository; until then, pulls need a login.
@@ -337,6 +347,7 @@ read-only token, pins each action to a commit SHA, installs corepack at the vers
 `.github/scripts/install-corepack.sh`, gets pnpm through it (hash-checked) and installs with `--ignore-scripts`;
 only `ci.yml` caches dependencies. The macOS signing secrets reach only jobs that run no dependency code; the Certum
 login runs first in the Windows job, before any dependency code. Dependabot opens weekly update pull requests for
-npm packages, the pinned actions, the Docker base image and the Compose Postgres image, but never for a new Node or
-Postgres major: move to the next Node LTS (`.nvmrc`, the Docker image, `@types/node`) or Postgres major by hand.
+npm packages and the pinned actions (the Docker base image and the Compose Postgres image are tags pulled fresh, so
+there is nothing to bump within a major), but never for a new Node or Postgres major: move to the next Node LTS
+(`.nvmrc`, the Dockerfile, `@types/node`) or Postgres major by hand.
 Dependabot does not see the corepack pin either: bump it by hand (the script says how).

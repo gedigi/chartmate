@@ -82,6 +82,13 @@ Run Chartmate on your own server and use it from any browser. Every release publ
 line never moves them backward); a pre-release only gets its full version (`X.Y.Z-beta.1`). The image runs as the
 numeric user `1000:1000` and carries `LICENSE` and `THIRD_PARTY_NOTICES.txt` in `/app`.
 
+The image is Node.js 26 on Debian 13 (trixie) slim, with Debian's security updates applied when it is built and
+no package manager (npm, npx, corepack) inside. Every build pulls the newest base image, and every image is
+scanned before it is published: a high or critical vulnerability with a fix available stops the release. Each
+Monday the latest release's image is rebuilt the same way (same code, newest base and OS updates) and pushed
+under that release's tags and `latest`, so Debian and Node.js fixes reach you between releases. See
+[Security](#security) to verify an image or pin one.
+
 ### Quick try
 
 One line, no files:
@@ -132,16 +139,20 @@ curl -fsSL -o .env.example https://raw.githubusercontent.com/gedigi/chartmate/ma
   sorts, `VACUUM`) to the `/tmp` tmpfs.
 - `CHARTMATE_IMAGE` overrides the image: pin a version (`ghcr.io/gedigi/chartmate:1.0.0`, or by digest, see
   [Security](#security)) or run your own build (`docker build -t chartmate:local .`, then
-  `CHARTMATE_IMAGE=chartmate:local`). A fork publishes under its own name; pulling a private package needs
-  `docker login ghcr.io` with a token that has the `read:packages` scope.
+  `CHARTMATE_IMAGE=chartmate:local` and `CHARTMATE_PULL_POLICY=never`). A fork publishes under its own name;
+  pulling a private package needs `docker login ghcr.io` with a token that has the `read:packages` scope.
+- `docker compose up` checks the registry for a newer image every time (`pull_policy: always`, for the bundled
+  Postgres too), so restarting with `up` is also how you pick up the weekly rebuild. It needs the registry to be
+  reachable; set `CHARTMATE_PULL_POLICY=missing` to pull Chartmate's image only when it is not there yet.
 
 ### Upgrading
 
 ```sh
-docker compose pull && docker compose up -d
+docker compose up -d
 ```
 
-For the quick-try container: `docker pull ghcr.io/gedigi/chartmate:latest && docker rm -f chartmate`, then run the
+It pulls the newest images first (`docker compose pull && docker compose up -d` does the same explicitly). For the
+quick-try container: `docker pull ghcr.io/gedigi/chartmate:latest && docker rm -f chartmate`, then run the
 same `docker run` line again (the volume keeps your data).
 
 Database migrations run at startup, and data saved by older versions stays loadable. To upgrade on your own
@@ -184,6 +195,44 @@ are in `.env.example`), then `docker compose up -d`. This starts the `postgres` 
 points Chartmate at it. Data is not copied over from SQLite. Any other Postgres works too: set
 `DATABASE_URL=postgres://user:pass@host:5432/chartmate`. Chartmate keeps its tables, and its migration bookkeeping, in the connection's current
 schema (the first schema of its `search_path`).
+
+The bundled service runs Postgres 18 on Debian trixie (`postgres:18-trixie`); `docker compose up` pulls its
+newest 18.x release, which reads the same data. Its volume (`chartmate_postgres-data`) is mounted at
+`/var/lib/postgresql`, and Postgres 18 keeps the data in `18/docker` inside it.
+
+#### Upgrading from Postgres 17
+
+Before this release the bundled service was Postgres 17, with the volume mounted at `/var/lib/postgresql/data`.
+Postgres 18 cannot open Postgres 17 data: with the new `compose.yaml` the `postgres` container stops at start with
+an error that names `/var/lib/postgresql` ("there appears to be PostgreSQL data in"), restarts, and never touches
+the old files. Chartmate cannot reach its database until you move the data over, once, with a dump and restore
+(a few seconds for a typical Chartmate database). Run these next to your `compose.yaml` and `.env`:
+
+```sh
+# 1. Stop everything (the volumes stay).
+docker compose down
+
+# 2. Dump the database with a temporary Postgres 17 container on the old volume.
+docker run -d --name chartmate-pg17 -v chartmate_postgres-data:/var/lib/postgresql/data postgres:17-bookworm
+docker exec chartmate-pg17 sh -c 'until pg_isready -q -h 127.0.0.1 -U chartmate -d chartmate; do sleep 1; done'
+docker exec chartmate-pg17 pg_dump -U chartmate --clean --if-exists chartmate > chartmate-pg17.sql
+docker rm -f chartmate-pg17
+
+# 3. Archive the old volume (keep it until you have checked the upgrade), then remove it.
+docker run --rm -v chartmate_postgres-data:/data:ro -v "$PWD:/backup" alpine \
+  tar czf /backup/chartmate-postgres17.tgz -C /data .
+docker volume rm chartmate_postgres-data
+
+# 4. Start Postgres 18 (a new, empty database), restore the dump, then start Chartmate.
+docker compose up -d --wait postgres
+docker compose exec -T postgres psql -q -U chartmate -d chartmate -v ON_ERROR_STOP=1 < chartmate-pg17.sql
+docker compose up -d
+```
+
+Open Chartmate and check your watchlist, layouts and baskets. To go back instead, restore the archive into a
+new `chartmate_postgres-data` volume (`tar xzf … -C /data`) and run the previous `compose.yaml` (Postgres 17). If
+step 4 fails, nothing is lost: the dump and the archive are still there. Large databases can use `pg_upgrade`
+instead (both versions in one container); the official image's documentation describes that route.
 
 ### Behind a reverse proxy (HTTPS)
 
@@ -269,7 +318,15 @@ location / {
   `CHARTMATE_PASSWORD` (or `CHARTMATE_SESSION_SECRET`, or deleting the generated `session_secret` row) signs
   every session out. Over HTTPS the cookie is named `__Host-chartmate_session` (Secure, `Path=/`, no `Domain`,
   so no other site or subdomain can set it); over plain HTTP it is `chartmate_session`. Logout clears both.
-- **Pin the image.** `latest` follows every release. To run exactly the image you checked, look up the
+- **A fresh, scanned image.** Every image build pulls the newest `node:26-trixie-slim` and applies Debian's
+  security updates. Before anything is pushed, each platform's image is scanned with Trivy (a pinned release,
+  checked against its sha256): a vulnerability rated high or critical that has a fix available, in a Debian
+  package or in the app's Node.js dependencies, fails the release. Findings without a fix yet do not block it;
+  the weekly rebuild (Mondays) picks the fix up once Debian or Node.js ships it, and re-tags the latest release
+  with it. The base image digest each build used is in the workflow's log and in the image's BuildKit provenance.
+  To scan an image yourself: `trivy image --ignore-unfixed --severity HIGH,CRITICAL ghcr.io/gedigi/chartmate:latest`.
+- **Pin the image.** `latest` follows every release, and each release's tags (`X.Y.Z` too) move to the weekly
+  rebuild. To run exactly the image you checked, look up the
   digest of a version, verify that digest itself, then pin both in `.env`:
 
   ```sh
@@ -280,7 +337,8 @@ location / {
   then `CHARTMATE_IMAGE=ghcr.io/gedigi/chartmate:1.0.0@sha256:<digest>`. Docker then pulls that digest only
   (the tag is just a label), and `docker compose pull` never moves it; upgrade by changing both.
   `gh attestation verify` checks the signed build provenance of exactly that digest: that it was built from
-  this repository by its release workflow. Verifying by digest rather than by tag means the image you run is the
+  this repository by its release workflow (`docker.yml`) or its weekly rebuild (`docker-refresh.yml`). A pinned
+  digest never gets the weekly fixes: move the pin now and then. Verifying by digest rather than by tag means the image you run is the
   one you checked, even if the tag is moved later. Every image also carries BuildKit provenance and an SPDX SBOM
   (`docker buildx imagetools inspect <image> --format '{{json .SBOM}}'`).
 

@@ -82,10 +82,11 @@ or an unpackaged smoke run, fetch it once with `node apps/desktop/node_modules/e
 | All unit tests | `pnpm test` |
 | One package | `pnpm --filter @chartmate/<shared\|server\|web\|desktop> test` (or `typecheck`) |
 | One file | `pnpm --filter @chartmate/web exec vitest run test/chart/theme.test.ts` |
-| Server DB suites on Postgres (as CI's `postgres` job; e.g. `docker run` the digest-pinned image from `compose.yaml` on a free port) | `TEST_PG_URL=postgres://… CHARTMATE_TEST_DB=postgres pnpm --filter @chartmate/server exec vitest run --no-file-parallelism test/db test/market test/baskets test/routes test/http` |
+| Server DB suites on Postgres (as CI's `postgres` job; e.g. `docker run` the Postgres image `compose.yaml` names on a free port) | `TEST_PG_URL=postgres://… CHARTMATE_TEST_DB=postgres pnpm --filter @chartmate/server exec vitest run --no-file-parallelism test/db test/market test/baskets test/routes test/http` |
 | End-to-end | `pnpm e2e` (first time: `pnpm exec playwright install chromium`); `E2E_PORT=8873 pnpm e2e` for another port |
-| Docker image | `docker build -t chartmate .` |
+| Docker image (always pull the base) | `docker build --pull -t chartmate .` |
 | Docker image smoke test (read-only rootfs + tmpfs, healthcheck, API, UI, SQLite temp files, SIGTERM) | `scripts/docker-smoke.sh chartmate` (another arch: `--platform linux/arm64`; an image built with `--build-arg GITHUB_REPOSITORY=owner/name`: add `--expect-repository owner/name` to check its source link) |
+| Docker image vulnerability gate (as CI) | `.github/scripts/install-trivy.sh ~/.local/bin`, then `.github/scripts/scan-image.sh chartmate` (fails on a fixable HIGH/CRITICAL; reviewed exceptions in `.trivyignore`, each with a reason and an `exp:` date) |
 | Re-record provider fixtures (network) | `pnpm --filter @chartmate/server exec tsx scripts/record-fixtures.ts` |
 | Scaffold a custom indicator + its test (see `CONTRIBUTING.md`) | `pnpm new:indicator <Name> [--pane main]` |
 
@@ -225,14 +226,26 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   --prepackaged`, one run per arch, merged by `scripts/merge-update-info.mjs`). The Apple secrets are
   `macos-signing` environment secrets only. Residual risk: the dependencies build the code that is signed. Changes
   to the signing script, those jobs or the secret scoping are security changes.
-- The same tag runs `.github/workflows/docker.yml`: tests, `scripts/docker-smoke.sh` (amd64, and arm64 under
-  QEMU), then pushes the multi-arch self-hosting image (`linux/amd64`, `linux/arm64`) to
+- The same tag runs `.github/workflows/docker.yml`: tests, resolves the base image tag (`node:26-trixie-slim`, no
+  digest pin) once with `.github/scripts/resolve-base-image.sh` (digest in the log and job summary, every build of
+  the run pinned to it with a build context, always `--pull`), `scripts/docker-smoke.sh` (amd64, and arm64 under
+  QEMU) and the Trivy gate (`.github/scripts/scan-image.sh`: fixable HIGH/CRITICAL in Debian packages or
+  node_modules fails; Trivy itself is a pinned, sha256-checked release from `install-trivy.sh`), then rescans
+  both platforms in the publish job and pushes the multi-arch self-hosting image (`linux/amd64`, `linux/arm64`) to
   `ghcr.io/<owner>/<repo>`, derived from `github.repository` (lowercased), as `X.Y.Z`, plus `X.Y`, `X` and
   `latest` each only when no higher full release exists in that range (pre-releases: `X.Y.Z-suffix` only), with
   provenance and SBOM attestations. The image runs as the numeric user `1000:1000`. Manual dispatch never publishes.
   `compose.yaml` (no `.env` needed) is the documented way to run it, with `.env.example` as the optional
   template; the desktop workflow's release job attaches both to the GitHub Release (`.env.example` as
   `env.example`, since GitHub renames assets that start with a dot).
+- `.github/workflows/docker-refresh.yml` (Mondays, or manual dispatch from the default branch; never on forks)
+  rebuilds the latest full release's tag the same way (fresh base, Debian updates, smoke tests, scan) and
+  re-pushes its `X.Y.Z`, `X.Y`, `X` and `latest` with the same attestations, only if that tag is still the latest
+  release (`scripts/release-tags.mjs --latest`). Both publish jobs share the `ghcr-publish` concurrency group. A
+  failed weekly scan means a fixed dependency needs a release (or a reviewed `.trivyignore` entry).
+- The Compose Postgres is `postgres:18-trixie` with `pull_policy: always`, mounted at `/var/lib/postgresql` (18's
+  layout); a Postgres 17 volume is refused at start. The README's "Upgrading from Postgres 17" is the tested
+  dump-and-restore path; a future major needs the same.
 - `CHANGELOG.md` keeps an `## Unreleased` section at the top for user-visible changes; it is renamed to
   `## [X.Y.Z] - YYYY-MM-DD` at release time (CONTRIBUTING, "Releases").
 - Windows signing uses a Certum SimplySign cloud certificate (`docs/desktop.md`, "Windows signing with Certum"):
@@ -259,11 +272,13 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   the web build, e2e and the Docker build on pull requests and pushes to `main`; the release workflows audit and
   check licenses too. Every workflow gets Node from `.nvmrc`, corepack from `.github/scripts/install-corepack.sh`
   (pinned version and sha512; Dependabot does not bump it) and pnpm through corepack (which checks the
-  `packageManager` sha512); only `ci.yml` caches the pnpm store (no cache on a release path). Dependabot
-  (`.github/dependabot.yml`) opens weekly update PRs for npm packages (7-day cooldown), the pinned actions, the
-  digest-pinned Docker base image and the Compose Postgres image (3 days each). It never proposes a new major of
-  Node (the base image, `@types/node`) or Postgres: those are deliberate upgrades (Node: the next LTS, together
-  with `.nvmrc`; Postgres: a dump and restore).
+  `packageManager` sha512); only `ci.yml` caches the pnpm store (no cache on a release path). ci.yml's Docker job
+  builds with `--pull` and runs the same Trivy gate. Dependabot (`.github/dependabot.yml`) opens weekly update PRs
+  for npm packages (7-day cooldown) and the pinned actions (3 days); the Docker base image and the Compose
+  Postgres image are floating tags pulled fresh on every build or `up`, so its docker entries only matter if a
+  version is pinned again. It never proposes a new major of Node (the base image, `@types/node`) or Postgres:
+  those are deliberate upgrades (Node: the next LTS, together with `.nvmrc` and the Dockerfile; Postgres: a dump
+  and restore, documented for users).
   `apps/desktop/test/workflows.test.ts` pins the workflows' rules (actions pinned to SHAs, read-only default
   tokens, secrets only in the step that needs them, signing jobs without dependency code).
 

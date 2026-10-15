@@ -65,6 +65,21 @@ app, the Docker image and the release tag share one version number.
   moves them backward. The GitHub Release marked Latest follows the same rule.
 - Running from source now needs Node 26 and pnpm 12 (`corepack enable`; Node 26 no longer bundles corepack, so
   install it first with `npm install --global corepack`).
+- The image moves to Node.js 26 on Debian 13 (trixie) slim, applies Debian's security updates when it is built,
+  and pulls the newest base image on every build. Every image is scanned before it is published: a high or
+  critical vulnerability with a fix available stops it. Each Monday the latest release's image is rebuilt and
+  re-pushed under its tags and `latest`, so OS and Node.js fixes arrive between releases.
+- `docker compose up` now pulls newer images itself (`pull_policy: always`); `CHARTMATE_PULL_POLICY=never` keeps
+  a local build.
+- The bundled Postgres is now Postgres 18 on trixie, kept at its newest 18.x. See the upgrade note below.
+
+### Upgrade notes
+
+- **Bundled Postgres (the `postgres` Compose profile): move your data before upgrading.** Postgres 18 cannot open
+  the Postgres 17 data of the previous `compose.yaml`; with the new file the `postgres` container refuses to
+  start (it never touches the old data) and Chartmate cannot reach its database. Follow "Upgrading from Postgres
+  17" in the README: dump with a temporary Postgres 17 container, archive and remove the old volume, restore into
+  Postgres 18. SQLite installs and external Postgres servers are not affected.
 
 ### Data and security
 
