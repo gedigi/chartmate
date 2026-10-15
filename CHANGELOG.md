@@ -99,7 +99,7 @@ app, the Docker image and the release tag share one version number.
 - Postgres: the migration bookkeeping and column checks use the connection's current schema only, so another
   schema in the same database (e.g. one with an older copy of the tables) is no longer mistaken for Chartmate's.
   Appending basket versions concurrently on Postgres no longer fails with an internal error.
-- Rolling back to 1.0.0 now means deleting the records of migrations 004–006 first; see Troubleshooting in the
+- Rolling back to 1.0.0 now means deleting the records of migrations 004–007 first; see Troubleshooting in the
   README (migration 004 cannot be undone).
 - A stock split the data provider reports a few days late is now still applied to cached history (and never
   twice, even when the provider moves its date by a day, e.g. to the evening before in New York time).

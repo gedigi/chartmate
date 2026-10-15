@@ -819,9 +819,9 @@ reports a few days late is still applied. Applied splits are recorded with their
 (`applied_splits`), so none is applied twice: a split with the same ratio within one New York trading day of an
 applied one (weekends skipped, exchange holidays not) is the same split, even when the provider restamps it
 across a date boundary (00:00 UTC is the evening before in New York). Splits recorded before the ratio was
-(migration 007) match any ratio. A stock whose bars were cached before its metadata row existed (e.g. the lookup
-failed at the time) has its refetchable bars dropped once when the row appears, since when they were fetched is
-unknown. Note for upgrades: the first check after upgrading looks for splits since each symbol's last metadata
+recorded (migration 007) match any ratio. A stock whose bars were cached before its metadata row existed (e.g. the
+lookup failed at the time) has its refetchable bars dropped once when the row appears, since when they were fetched
+is unknown. Note for upgrades: the first check after upgrading looks for splits since each symbol's last metadata
 refresh (`symbols.updated_at`) minus 7 days, so older splits (already reflected in the cache) change nothing; a
 split between an older cached fetch and that baseline is not detected (delete the symbol's cache as in
 Troubleshooting if a chart shows such a jump). Split events dated in the future are applied only once they have
