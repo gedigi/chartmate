@@ -125,6 +125,8 @@ export interface LatestParams { symbol: SymbolId; tf: Timeframe; session: Sessio
 
 export const api = {
   session: () => get<{ authRequired: boolean; authenticated: boolean }>('/session'),
+  /** The server's version (null when it does not know it). */
+  about: () => get<{ version: string | null }>('/about'),
   login: async (password: string): Promise<void> => { await request<void>('POST', '/login', { password }); },
   logout: async (): Promise<void> => { await request<void>('POST', '/logout'); },
 

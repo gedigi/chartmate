@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { THEME_TOKENS } from '../src/chart/theme';
-import { applyDesktopShell, detectDesktopShell, syncShellThemeColor } from '../src/desktopShell';
+import { applyDesktopShell, detectDesktopShell, isDesktopApp, syncShellThemeColor } from '../src/desktopShell';
 
 const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
 const APP = { protocol: 'app:', host: 'chartmate' };
@@ -107,5 +107,15 @@ describe('desktop shell styles (styles.css)', () => {
     document.documentElement.dataset['shell'] = 'windows';
     expect(pad('Left')).toBe('10px');
     expect(css).toMatch(/:root\[data-shell='windows'\] \.top-bar \{\s*padding-right: calc\(10px \+ 100vw - env\(titlebar-area-x, 0px\) - env\(titlebar-area-width, calc\(100vw - 138px\)\)\);/);
+  });
+});
+
+describe('isDesktopApp', () => {
+  it('is the app://chartmate origin only, on every platform (Linux keeps the native frame but is still the app)', () => {
+    expect(isDesktopApp(APP)).toBe(true);
+    for (const loc of [{ protocol: 'https:', host: 'chartmate' }, { protocol: 'app:', host: 'other' }, { protocol: 'http:', host: 'localhost:8787' }]) {
+      expect(isDesktopApp(loc), JSON.stringify(loc)).toBe(false);
+    }
+    expect(isDesktopApp()).toBe(false); // jsdom
   });
 });

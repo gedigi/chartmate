@@ -308,14 +308,22 @@ kbd {
 }
 /* Set by the desktop main process while the window is in native full screen. */
 :root[data-shell='mac'][data-fullscreen] .top-bar { padding-left: 10px; }
-.brand {
+/* The brand mark + name: a quiet button that opens About Chartmate (no chrome until hovered or focused). */
+.top-bar .brand {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 8px;
-  padding: 0 6px 0 2px;
+  min-height: 0;
+  padding: 4px 8px 4px 4px;
+  background: none;
+  border-color: transparent;
+  border-radius: var(--radius);
   font: 650 16px/1 var(--font-display);
   letter-spacing: -0.025em;
 }
+.top-bar .brand:hover:not(:disabled) { background: var(--bg-hover); border-color: transparent; }
+.top-bar .brand:active:not(:disabled) { background: var(--bg-active); }
 .brand img { display: block; }
 
 /* Segmented controls: a flat track, the selected item a solid chip. */
@@ -456,7 +464,9 @@ kbd {
 .login-card input, .login-card button { min-height: 34px; }
 
 @media (max-width: 1100px) {
-  .symbol-name, .brand { display: none; }
+  /* Narrow: the brand keeps only its mark (it still opens About Chartmate). */
+  .symbol-name, .brand-name { display: none; }
+  .top-bar .brand { padding: 4px; }
 }
 
 /* Visually hidden, still announced by screen readers. */

@@ -1,0 +1,41 @@
+/* About Chartmate (AboutDialog.tsx): the mark and version, a short license note, then hairline-ruled facts. */
+.about-dialog { gap: 16px; }
+.about-identity { display: flex; align-items: center; gap: 12px; }
+.about-identity img { display: block; flex: none; }
+.about-identity p { margin: 0; }
+.about-name { font: 650 20px/1.15 var(--font-display); letter-spacing: -0.025em; }
+.about-identity .about-version { margin-top: 3px; font-size: 13px; color: var(--text-muted); }
+.about-text { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+
+.about-facts { margin: 0; border-top: 1px solid var(--border); }
+.about-facts > div {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.about-facts dt { color: var(--text-muted); }
+.about-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.about-facts a { color: var(--accent-fg); text-decoration: none; border-radius: 3px; }
+.about-facts a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* Desktop: the address as text to copy (the app opens no links); one click selects all of it. */
+.about-source { display: flex; flex-direction: column; gap: 4px; }
+.about-url {
+  user-select: all;
+  -webkit-user-select: all;
+  cursor: text;
+  padding: 3px 6px;
+  background: var(--field-bg);
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius-sm);
+  font-variant-numeric: tabular-nums;
+}
+.about-hint { color: var(--text-muted); font-size: 12px; }
+
+@media (max-width: 420px) {
+  .about-facts > div { grid-template-columns: 1fr; gap: 2px; }
+}

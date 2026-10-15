@@ -12,11 +12,19 @@ interface LocationLike { protocol: string; host: string }
 interface NavigatorLike { platform?: string; userAgentData?: { platform?: string } }
 
 /**
+ * Whether the page runs in the desktop app (its app://chartmate origin), on any platform. The desktop window opens
+ * no links (no new windows, no navigation away), so external addresses are shown as text there.
+ */
+export function isDesktopApp(loc: LocationLike = location): boolean {
+  return loc.protocol === 'app:' && loc.host === 'chartmate';
+}
+
+/**
  * The desktop shell the page runs in, or null (a browser, or a desktop platform whose window keeps the native
  * frame, i.e. Linux). The platform only distinguishes macOS from Windows inside the app:// origin.
  */
 export function detectDesktopShell(loc: LocationLike, nav: NavigatorLike): DesktopShell | null {
-  if (loc.protocol !== 'app:' || loc.host !== 'chartmate') return null;
+  if (!isDesktopApp(loc)) return null;
   const p = (nav.userAgentData?.platform || nav.platform || '').toLowerCase();
   if (p.startsWith('mac')) return 'mac';
   if (p.startsWith('win')) return 'windows';
