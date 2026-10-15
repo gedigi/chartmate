@@ -12,6 +12,10 @@
   container: chart-toprow / inline-size;
 }
 @container chart-toprow (max-width: 900px) {
+  .chart-save-notes { max-width: none; padding-right: 8px; }
+  .chart-save-notes > .save-note { gap: 5px; padding-left: 8px; }
+  .chart-save-notes .save-note-retry { padding: 0 7px; }
+  .chart-save-notes .save-note-discard { padding: 0 2px; }
   .chart-save-notes .save-note-long { display: none; }
   .chart-save-notes .save-note-short { display: inline; }
 }
