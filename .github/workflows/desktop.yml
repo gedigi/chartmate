@@ -17,8 +17,8 @@ name: Desktop
 #   check-mac-zips   — no secrets, no dependency code: each release zip must hold exactly the app sign-mac signed.
 #   package-win      — Windows build. On tags it runs in the `windows-signing` environment: the Certum (SimplySign)
 #                      login comes first, before any dependency code runs on the runner, and the TOTP seed is in no
-#                      later step's environment; the logged-in session itself lasts for the build (see
-#                      docs/desktop.md, "Residual risk").
+#                      later step's environment; the logged-in session lasts until electron-builder returns, when
+#                      the packaging step ends it (see docs/desktop.md, "Residual risk").
 #   release          — tags only: creates the GitHub Release (notes: the tag's CHANGELOG.md section, then the signing
 #                      table) and attaches the artifacts plus compose.yaml and env.example (contents: write). It is
 #                      marked Latest only when no higher full release exists, and it is a draft when Windows signing
@@ -487,6 +487,7 @@ jobs:
           if pwsh -NoProfile -NonInteractive -File apps/desktop/scripts/certum/login.ps1 -OutFile "$RUNNER_TEMP/certum-thumbprint"; then
             echo "thumbprint=$(cat "$RUNNER_TEMP/certum-thumbprint")" >> "$GITHUB_OUTPUT"
             echo "login_failed=false" >> "$GITHUB_OUTPUT"
+            rm -f "$RUNNER_TEMP/certum-thumbprint" "$RUNNER_TEMP"/SimplySignDesktop-*.msi
           else
             echo "login_failed=true" >> "$GITHUB_OUTPUT"
           fi
@@ -540,11 +541,22 @@ jobs:
           else
             unset CHARTMATE_WIN_CERT_SHA1
           fi
+          # Ends the SimplySign certificate session. Called as soon as electron-builder returns: every signature is
+          # made inside that run, so nothing that runs afterwards (verification, a fallback rebuild, the smoke tests)
+          # gets a live session.
+          end_certum_session() {
+            if [ -n "${CHARTMATE_WIN_CERT_SHA1:-}" ]; then
+              pwsh -NoProfile -NonInteractive -Command 'Get-Process SimplySignDesktop -ErrorAction SilentlyContinue | Stop-Process -Force'
+            fi
+          }
           # build: 0 = ok, 3 = the Certum sign hook failed, 2 = signature verification failed, 1 = anything else.
           build() {
             rm -rf release
-            node scripts/bundle.mjs --platform=win32 || return 1
-            if ! pnpm exec electron-builder --config electron-builder.config.cjs --win --publish never 2>&1 | tee "$RUNNER_TEMP/electron-builder.log"; then
+            node scripts/bundle.mjs --platform=win32 || { end_certum_session; return 1; }
+            local eb=0
+            pnpm exec electron-builder --config electron-builder.config.cjs --win --publish never 2>&1 | tee "$RUNNER_TEMP/electron-builder.log" || eb=$?
+            end_certum_session
+            if [ "$eb" != 0 ]; then
               grep -qE 'Certum signing failed|refusing further attempts' "$RUNNER_TEMP/electron-builder.log" && return 3
               return 1
             fi
@@ -575,7 +587,8 @@ jobs:
           method="$(node -p "require('./build/signing.cjs').signingFor(process.env, 'win32').method")"
           echo "signing=$method" >> "$GITHUB_OUTPUT"
           echo "sign_failed=$sign_failed" >> "$GITHUB_OUTPUT"
-      # Ends the certificate session as soon as packaging is done (before the smoke tests run any more code).
+      # Backstop: the packaging step already ends the session right after electron-builder returns; this also covers a
+      # cancelled or crashed step, before the smoke tests run any more code.
       - name: Close SimplySign Desktop
         if: always()
         shell: pwsh

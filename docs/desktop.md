@@ -583,12 +583,14 @@ If the files were signed but `verify-win-signatures.mjs` rejects them, the job f
 
 Residual risk:
 
-- Windows cannot be signed in a separate job the way macOS is. The SimplySign session belongs to the runner that
+- Windows is not yet signed in a separate job the way macOS is. The SimplySign session belongs to the runner that
   logged in, and electron-builder signs the uninstaller in the middle of building the NSIS installer, which then
   embeds it (and `chartmate.exe`); the installer, `latest.yml` and the blockmaps are computed afterwards. Signing
-  only the finished files would ship an unsigned uninstaller and need electron-builder's NSIS steps split apart.
-- So the dependencies run on the runner where the certificate session is live, for the whole build: anything
-  executed during the build could sign files with your certificate while that session lasts.
+  only the finished files would ship an unsigned uninstaller. See "Moving Windows signing out of the build job"
+  below for what was examined.
+- So the dependencies run on the runner where the certificate session is live, from the login until
+  electron-builder returns (the packaging step then ends the session at once, before verification, a fallback
+  rebuild or the smoke tests): anything executed during that window could sign files with your certificate.
 - Logging in first keeps the seed out of every later step's environment and away from anything a dependency could
   leave behind (a background process, `GITHUB_ENV` or `GITHUB_PATH` entries), because no dependency code has run
   yet. It is not a hard boundary: GitHub hands every secret a job references to that job's runner, and later
@@ -603,10 +605,43 @@ Residual risk:
   - a required reviewer on `windows-signing` makes you approve each signing run.
 - The Azure Trusted Signing and `.p12` (`WIN_CSC_*`) options, when configured, are read by the packaging step
   itself, next to the dependencies.
-- Only `chartmate.exe`, the uninstaller and the installer carry Authenticode signatures. The other executables
+- Only `chartmate.exe`, `elevate.exe` (the NSIS elevation helper, which electron-builder hands to the sign hook
+  too), the uninstaller and the installer carry Authenticode signatures. The other executables
   and DLLs that come with Electron (`ffmpeg.dll`, `libEGL.dll`, `libGLESv2.dll`, `vk_swiftshader.dll`, and so
   on) are not signed individually. Windows does not require it, the installer's signature covers what it
   installs, and the update check verifies the installer.
+
+#### Moving Windows signing out of the build job
+
+Examined in October 2026 (electron-builder 26.15), not adopted yet:
+
+- **Sign the finished files only.** Ships an unsigned uninstaller: NSIS embeds the uninstaller in the installer
+  during the build, and electron-builder signs it between the two `makensis` runs (`NsisTarget`,
+  `computeScriptAndSignUninstaller`). There is no option to supply a pre-built, pre-signed uninstaller (a custom
+  NSIS script turns uninstaller signing off altogether).
+- **`--prepackaged`, as on macOS.** Works for one app directory per run, so it makes the per-architecture
+  installers but not `Chartmate-X.Y.Z-win.exe`, the combined x64 + arm64 installer that `latest.yml` points the
+  updater at. And the NSIS build would still have to sign the uninstaller in the middle.
+- **Two builds around a signing job (the candidate design).** A no-secrets job builds once with the sign hook in a
+  "collect" mode that copies every file it is asked to sign (`chartmate.exe` and `elevate.exe` per architecture,
+  each uninstaller) and leaves them unsigned. A signing job with no dependency code logs in and signs those copies
+  with signtool. A second no-secrets build runs the hook in a "substitute" mode: each file it is asked to sign
+  must be byte-identical to the collected unsigned copy, and is then replaced by the signed one, so the zips, the
+  NSIS packages and the installers embed signed files. A second signing job signs the three installers, and a
+  last no-secrets job recomputes the blockmaps and `latest.yml`, runs `verify-win-signatures.mjs` and the smoke
+  tests. It needs two Windows builds (about 25 minutes each) and two Certum logins per release, and the
+  `sign:win` fallback and the draft logic reworked around it.
+- **What it depends on, and what was verified.** Two builds must produce byte-identical unsigned files.
+  `chartmate.exe` and `elevate.exe` (both architectures) came out identical across two separate builds. The
+  uninstaller could not be checked locally (electron-builder's macOS `makensis` is an Intel binary); that needs one
+  unsigned Windows run building twice and comparing the collected files. If the uninstaller is reproducible, the
+  design is sound and removes the live session from every job that runs dependency code; if it is not, the
+  substitute check fails closed and the design cannot work as described.
+
+Until then, the exposure is reduced where it does not cost the seed's protection: the login stays the job's first
+step (moving it later, next to the first signature, would hand the seed to a runner where dependency code has
+already run, and the seed is the long-lived secret), the session ends as soon as electron-builder returns, and
+the login step deletes the thumbprint file and the SimplySign installer it downloaded.
 
 Limitations:
 

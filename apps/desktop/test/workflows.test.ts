@@ -507,6 +507,15 @@ describe('desktop.yml secret scoping and release', () => {
     expect(run).toContain('export CHARTMATE_WIN_SIGN_LOG=');
     expect(run).toContain('--sign-log=');
     expect(run.indexOf('scripts/verify-win-signatures.mjs release')).toBeGreaterThan(run.indexOf('electron-builder --config'));
+    // The session ends as soon as electron-builder returns (every signature is made inside that run), before the
+    // verification and any fallback rebuild.
+    const builder = run.indexOf('pnpm exec electron-builder --config');
+    const end = run.indexOf('end_certum_session', builder);
+    expect(end).toBeGreaterThan(builder);
+    expect(end).toBeLessThan(run.indexOf('if [ "$eb" != 0 ]; then'));
+    expect(end).toBeLessThan(run.indexOf('scripts/verify-win-signatures.mjs release'));
+    expect(run).toContain("pwsh -NoProfile -NonInteractive -Command 'Get-Process SimplySignDesktop -ErrorAction SilentlyContinue | Stop-Process -Force'");
+    expect(steps('package-win').find((x) => x.name === 'Certum SimplySign login')!.run).toContain('rm -f "$RUNNER_TEMP/certum-thumbprint"');
     // SimplySign Desktop is closed whatever happened, before the smoke tests, in a step that holds no secrets.
     const close = s.findIndex((x) => x.name === 'Close SimplySign Desktop');
     expect(s[close]).toMatchObject({ if: 'always()' });

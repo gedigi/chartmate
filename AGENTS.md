@@ -261,14 +261,17 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
     installer, using signtool by thumbprint or osslsigncode + PKCS#11.
   - CI logs in with `scripts/certum/login.ps1`, on tag builds only, in the `windows-signing` environment, as the
     first step of the job: before any dependency code runs there, and with the login secrets in no other step.
-  - `scripts/verify-win-signatures.mjs` gates the result; SimplySign Desktop is closed right after packaging.
+  - `scripts/verify-win-signatures.mjs` gates the result. The packaging step ends the SimplySign session as soon as
+    electron-builder returns (before verification, a fallback rebuild or the smoke tests); a later `always()` step
+    closes it again as a backstop.
   - If the login or the sign hook fails, Windows ships without Certum, the release notes say so, and the release
     is created as a draft, never marked Latest (the owner publishes it after `sign:win`). A failed verification
     fails the job, and so does a signing setting `build/signing.cjs` rejects.
   - The Certum secrets are `windows-signing` environment secrets only, never repository secrets.
-  - Residual risk: the signing cannot move to a job without dependency code (the session is bound to the runner,
-    and the uninstaller is signed in the middle of the NSIS build), so code running in that job can use the live
-    certificate session, and with administrator rights on the runner could reach the job's secrets.
+  - Residual risk: the signing has not moved to a job without dependency code yet (the session is bound to the
+    runner, and the uninstaller is signed in the middle of the NSIS build; `docs/desktop.md`, "Moving Windows
+    signing out of the build job", has the examined design and the one Windows run it still needs), so code
+    running in that job can use the live certificate session, and with administrator rights on the runner could reach the job's secrets.
     `--ignore-scripts`, the frozen lockfile, `pnpm audit`, Dependabot and the environment's required reviewer are
     what limit it. Electron's own DLLs are not signed individually (acceptable; see `docs/desktop.md`).
   - `CHARTMATE_WIN_PUBLISHER_NAME` (the certificate CN) is required, because electron-updater pins it.
