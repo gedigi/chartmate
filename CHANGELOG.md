@@ -22,6 +22,8 @@ app, the Docker image and the release tag share one version number.
   update is ready to install.
 - Chartmate 1.0.0 shipped with updates turned off: install this version by hand once, and later versions arrive
   automatically.
+- The app now includes the AGPL-3.0 license and the licenses of the third-party software it contains
+  (`LICENSE` and `THIRD_PARTY_NOTICES.txt` next to the app's resources).
 
 ### Self-hosting
 
@@ -37,6 +39,10 @@ app, the Docker image and the release tag share one version number.
   password.
 - State-changing API requests (with or without a password) are refused when their `Origin` is not the page's
   own origin.
+- The image runs as the numeric user `1000:1000` (the same `node` user as before), so Kubernetes'
+  `runAsNonRoot` can verify it, and carries `LICENSE` and `THIRD_PARTY_NOTICES.txt` in `/app`.
+- `latest`, `X` and `X.Y` move only to the highest release in their range: a fix for an older line no longer
+  moves them backward. The GitHub Release marked Latest follows the same rule.
 
 ## [1.0.0] - 2026-10-14
 

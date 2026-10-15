@@ -225,12 +225,14 @@ Signing is configured only through environment variables or CI secrets. `build/s
 platform, whether a build is signed. Without the secrets, the build is unsigned and still succeeds.
 
 - **macOS**:
-  - Signing: set `CSC_LINK` (a base64 `.p12`) and `CSC_KEY_PASSWORD`.
-  - Notarization: also set `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`.
-  - A signed build signs the `.dmg` itself too. In CI, when notarization is configured, the packaging step then
-    notarizes and staples each `.dmg` (`xcrun notarytool submit --wait`, `xcrun stapler staple`) and checks it
-    with `spctl -a -t open --context context:primary-signature`, so Gatekeeper accepts the download as well as
-    the app inside it. A local `dist:mac` notarizes only the app.
+  - Locally (`dist:mac`), electron-builder signs: set `CSC_LINK` (a base64 `.p12`) and `CSC_KEY_PASSWORD`, and for
+    notarization also `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`. A signed build signs the
+    `.dmg` itself too; a local `dist:mac` notarizes only the app.
+  - In CI, electron-builder never sees a key: separate jobs that run no dependency code sign and notarize (see
+    [macOS signing in CI](#macos-signing-in-ci)). Each `.dmg` is signed, notarized and stapled
+    (`xcrun notarytool submit --wait`, `xcrun stapler staple`) and checked with
+    `spctl -a -t open --context context:primary-signature`, so Gatekeeper accepts the download as well as the app
+    inside it.
   - The hardened runtime is on. The only entitlement is `com.apple.security.cs.allow-jit`, which V8 needs. Because
     there are no native modules, there is no `disable-library-validation`.
 - **Windows**: one of these (checked in this order):
@@ -336,11 +338,18 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
     locally trusted roots (unlike the bundled-CA transport that market data uses); the code signature checks above
     are what protect against an intercepted connection. The proxy setting is applied (awaited) and the filter
     installed before the first check can run.
-  - **Release assets**: both packaging steps run with `CHARTMATE_PUBLISH=github`, so electron-builder writes
+  - **Release assets**: the packaging steps run with `CHARTMATE_PUBLISH=github`, so electron-builder writes
     `app-update.yml` (`provider: github`, owner and repository from `GITHUB_REPOSITORY`) into the app and
-    `latest-mac.yml` / `latest.yml` next to the artifacts (`--dir` builds get no `app-update.yml`). The release job
-    attaches the zips, the installers, the blockmaps (for differential downloads) and `latest*.yml`. macOS
-    updates install from the zip, never the dmg. The GitHub provider only sees published (not draft) releases.
+    `latest-mac.yml` / `latest.yml` next to the artifacts (`--dir` builds get no `app-update.yml`). On macOS the
+    zips, blockmaps and `latest-mac.yml` are computed from the signed, stapled apps (`--prepackaged`, one run per
+    architecture, merged by `scripts/merge-update-info.mjs`). The release job attaches the zips, the installers,
+    the blockmaps (for differential downloads) and `latest*.yml`. macOS updates install from the zip, never the
+    dmg. The GitHub provider only sees published (not draft) releases.
+  - **Licenses**: every build ships the AGPL-3.0 `LICENSE` and `THIRD_PARTY_NOTICES.txt` next to `app.asar`
+    (`Contents/Resources` on macOS, `resources` on Windows). A `beforePack` hook in `build/builder-config.cjs`
+    generates the notices from the installed dependency graph (the repository root's
+    `scripts/third-party-notices.mjs`, profile `desktop`) and fails the build if a shipped dependency's license is
+    not on the AGPL-3.0-compatible allowlist.
   - **1.0.0 shipped with `autoUpdate: false`**, so 1.0.0 installs never check for updates: their users install
     the next version once by hand, and update automatically from then on.
   - **Untestable without a real signed release**: the GitHub feed lookup, the Squirrel.Mac hand-over and
@@ -348,6 +357,50 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
     policy, the controller (with a fake updater), the menu, the settings file, the bundle version check (real
     `ditto`/`plutil` on macOS, a fake runner elsewhere), the DN pin, the verifier (with a fake process runner) and
     the sanitizers; the smoke test checks the macOS menu and that unsigned builds contain no updater.
+
+### macOS signing in CI
+
+A tag build is signed when the repository variable `CHARTMATE_MAC_SIGN_IDENTITY` holds the identity name
+(`Developer ID Application: Jane Doe (TEAMID)`); without it the build is unsigned and has no updater. The key and
+the Apple credentials live only in the `macos-signing` environment, and only two jobs, which run no dependency
+code, can read them:
+
+1. `package-mac` (no secrets) installs the dependencies and builds both apps unsigned. It bundles with
+   `CSC_NAME` set to the identity name, so `build/signing.cjs` compiles the updater in; electron-builder itself
+   gets no identity and signs nothing.
+2. `sign-mac` (`macos-signing`) starts on a fresh runner with only `.github/scripts/macos-sign.sh` and the two
+   entitlements plists checked out: no Node.js setup, no package manager, no npm package. It imports the `.p12`
+   into a temporary keychain with a random password, the key non-extractable (`security import -x`) and usable by
+   `codesign` only. It signs the nested code inside-out (Mach-O files, then helper apps and frameworks, deepest
+   first, then the app) with the hardened runtime, a secure timestamp and the entitlements from
+   `build/entitlements.mac*.plist`. It verifies the signature (`codesign --verify --deep --strict`), then
+   notarizes each app (`notarytool` with a keychain profile), staples it and checks it with `spctl`.
+3. `dist-mac` (no secrets) builds the dmgs, zips, blockmaps and `latest-mac.yml` from the signed apps with
+   `electron-builder --prepackaged` (which packages without signing), and smoke-tests the signed arm64 app.
+4. `notarize-mac-dmg` (`macos-signing`, no dependency code) signs each dmg, notarizes and staples it, and checks
+   it with `spctl`.
+
+Set up the repository once:
+
+1. Create an environment named `macos-signing` (Settings, Environments). Under deployment branches and tags,
+   allow only tags matching `v*`. Optionally add yourself as a required reviewer: each signed release then waits
+   for your approval twice (`sign-mac` and `notarize-mac-dmg`).
+2. Add these as `macos-signing` environment secrets, and delete any repository secrets of the same names (any
+   workflow can read repository secrets, and they bypass the environment's rules): `CSC_LINK` (the base64 `.p12`,
+   exported with its certificate chain), `CSC_KEY_PASSWORD`, and for notarization `APPLE_ID`,
+   `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` (without these three the build is signed, not notarized).
+3. Set the repository variable `CHARTMATE_MAC_SIGN_IDENTITY` to the identity name exactly as
+   `security find-identity -v -p codesigning` prints it. With the variable set but the secrets missing, the
+   signing job fails: the build would otherwise ship an updater without a signature.
+
+Residual risk:
+
+- The dependencies still build the code that gets signed: a compromised build dependency in `package-mac` could
+  plant code in the app, and it would be signed and notarized. `--ignore-scripts`, the frozen lockfile,
+  `pnpm audit`, Dependabot's cooldown and the smoke tests are what limit that.
+- The signing jobs unpack the app archive built by `package-mac` and run `codesign`, `ditto` and `notarytool` on
+  it, but never execute anything from it.
+- Approving a signing run approves whatever the tagged commit builds.
 
 ### Windows signing with Certum
 
@@ -403,7 +456,8 @@ To get the SHA-256, download
 On Windows, check that **Properties, Digital Signatures** shows Asseco Data Systems S.A. Then run
 `Get-FileHash -Algorithm SHA256 <file>` (or `shasum -a 256 <file>` on a Mac).
 
-On a tag build, the Windows packaging step runs `scripts/certum/login.ps1`:
+On a tag build, the first step of the Windows job runs `scripts/certum/login.ps1`, before any dependency is installed
+or any dependency code runs on that runner:
 
 1. It downloads SimplySign Desktop and installs it only if the SHA-256 matches and the installer carries a valid,
    revocation-checked signature whose organization is exactly Asseco Data Systems S.A.
@@ -411,32 +465,48 @@ On a tag build, the Windows packaging step runs `scripts/certum/login.ps1`:
    login is never retried in a loop.
 3. It waits for the certificate to appear in the user's certificate store.
 
-The two login secrets are then unset, before any build tool runs. `build/win-sign.cjs` signs with
-`signtool /sha1 <thumbprint>`; signtool gets a minimal environment. Finally `scripts/verify-win-signatures.mjs`
-checks every signature, the SHA-256 digests, the uninstallers (from the hook's log), `app-update.yml`,
-`latest.yml` and the blockmaps.
+The two login secrets exist only in that step's environment; the packaging step gets just the certificate
+thumbprint. `build/win-sign.cjs` signs with `signtool /sha1 <thumbprint>`; signtool gets a minimal environment.
+Then `scripts/verify-win-signatures.mjs` checks every signature, the SHA-256 digests, the uninstallers (from the
+hook's log), `app-update.yml`, `latest.yml` and the blockmaps, and SimplySign Desktop is closed right away, before
+the smoke tests run.
 
-If the SimplySign login or the sign hook fails, the release still goes out:
+If the SimplySign login or the sign hook fails, the release is created as a **draft**:
 
 - Windows is rebuilt without Certum, and the run shows a warning. The build is unsigned, with no updater, unless
   another method is configured.
 - The release notes say "Windows signing step failed in CI — sign with `sign:win`".
 - macOS is unaffected.
-- Run step 3 afterwards.
+- Run step 3, then publish the draft: `gh release edit vX.Y.Z --draft=false --latest=<true|false>`. Use `true`
+  only when no higher full release exists (from the repository root,
+  `git tag --list 'v*' | node scripts/release-tags.mjs vX.Y.Z` prints `latest=…`). Until it is published,
+  installed copies are not offered the update.
 
 If the files were signed but `verify-win-signatures.mjs` rejects them, the job fails and nothing is published.
 
 Residual risk:
 
-- Any code that runs in the Windows packaging job can reach the secrets that job uses: the login secrets until
-  they are unset, and the live certificate session for the whole build. Anything executed during the build could
-  sign files with your certificate while that session lasts.
+- Windows cannot be signed in a separate job the way macOS is. The SimplySign session belongs to the runner that
+  logged in, and electron-builder signs the uninstaller in the middle of building the NSIS installer, which then
+  embeds it (and `chartmate.exe`); the installer, `latest.yml` and the blockmaps are computed afterwards. Signing
+  only the finished files would ship an unsigned uninstaller and need electron-builder's NSIS steps split apart.
+- So the dependencies run on the runner where the certificate session is live, for the whole build: anything
+  executed during the build could sign files with your certificate while that session lasts.
+- Logging in first keeps the seed out of every later step's environment and away from anything a dependency could
+  leave behind (a background process, `GITHUB_ENV` or `GITHUB_PATH` entries), because no dependency code has run
+  yet. It is not a hard boundary: GitHub hands every secret a job references to that job's runner, and later
+  steps run with administrator rights on the same machine.
 - What actually protects the build:
   - dependencies are installed with `--ignore-scripts` from the frozen lockfile;
   - `pnpm audit` runs before packaging;
-  - Dependabot keeps dependencies current;
+  - Dependabot keeps dependencies current, a week after each release (cooldown);
   - a required reviewer on `windows-signing` makes you approve each signing run.
-- Unsetting the secrets early only narrows the window; it does not remove the risk.
+- The Azure Trusted Signing and `.p12` (`WIN_CSC_*`) options, when configured, are read by the packaging step
+  itself, next to the dependencies.
+- Only `chartmate.exe`, the uninstaller and the installer carry Authenticode signatures. The other executables
+  and DLLs that come with Electron (`ffmpeg.dll`, `libEGL.dll`, `libGLESv2.dll`, `vk_swiftshader.dll`, and so
+  on) are not signed individually. Windows does not require it, the installer's signature covers what it
+  installs, and the update check verifies the installer.
 
 Limitations:
 

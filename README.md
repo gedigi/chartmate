@@ -78,7 +78,9 @@ Everywhere:
 
 Run Chartmate on your own server and use it from any browser. Every release publishes a Docker image for
 `linux/amd64` and `linux/arm64` to GitHub Container Registry as `ghcr.io/gedigi/chartmate`. Tags: `X.Y.Z`,
-`X.Y`, `X` and `latest`; a pre-release only gets its full version (`X.Y.Z-beta.1`).
+`X.Y`, `X` and `latest` (the last three always point at the highest release in their range, so a fix for an older
+line never moves them backward); a pre-release only gets its full version (`X.Y.Z-beta.1`). The image runs as the
+numeric user `1000:1000` and carries `LICENSE` and `THIRD_PARTY_NOTICES.txt` in `/app`.
 
 ### Quick try
 

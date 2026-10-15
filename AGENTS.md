@@ -18,7 +18,8 @@ Visual beauty is the core value proposition. A change that works but looks worse
 ## Repo layout
 
 pnpm 8 workspace (8.15.9, pinned with its sha512 in the root `package.json` `packageManager`; `corepack enable`
-uses it), Node 22 (`.nvmrc`), TypeScript 5.9, Vitest everywhere.
+uses it, and so does CI), Node 22 (the exact version in `.nvmrc`, used by every workflow), TypeScript 5.9, Vitest
+everywhere.
 
 | Path | Package | Responsibility |
 | --- | --- | --- |
@@ -107,7 +108,8 @@ and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by defa
   `.pnpmfile.cjs`) or replaced, never ignored.
 - `patches/` holds pnpm patches for upstream bugs (`pnpm.patchedDependencies` in the root `package.json`):
   `app-builder-lib` passes the keychain password to `security set-key-partition-list` (upstream passes the
-  `.p12` password, which breaks macOS signing in CI). Re-check each patch when bumping that dependency.
+  `.p12` password, which breaks electron-builder's macOS signing with `CSC_LINK`, as a local `dist:mac` uses it;
+  CI signs with `.github/scripts/macos-sign.sh` instead). Re-check each patch when bumping that dependency.
 - Unit tests never touch the network; providers are tested against recorded fixtures.
 - e2e uses its own database per port (`test-results/e2e-<port>.db`), so parallel worktrees just pick different
   `E2E_PORT`s.
@@ -134,7 +136,11 @@ and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by defa
   `CRYPTO_PROVIDER`, `BINANCE_BASE_URL`). No other prefixes.
 - License: the project is `AGPL-3.0-only` (`LICENSE`); new packages carry `"license": "AGPL-3.0-only"`. The
   Wyckoff indicator files keep their MPL-2.0 headers. Only add dependencies whose licenses are compatible with
-  AGPL-3.0 (MIT, BSD, ISC, Apache-2.0, MPL-2.0 and similar).
+  AGPL-3.0 (MIT, BSD, ISC, Apache-2.0, MPL-2.0 and similar). `scripts/third-party-notices.mjs` holds the
+  allowlist and writes `THIRD_PARTY_NOTICES.txt`; the Docker image (`/app`) and the desktop app (next to
+  `app.asar`) ship it with `LICENSE`. `pnpm licenses:check` (CI and the release workflows) and both builds fail on
+  a shipped dependency outside the allowlist or without a license text. A new license goes on the allowlist only
+  after checking its AGPL-3.0 compatibility.
 - Never hardcode the GitHub repository URL or owner: use relative links in docs and
   `github.repository` / `GITHUB_REPOSITORY` in workflows and build config. One exception: the user-facing
   self-host docs (README, `compose.yaml`, `.env.example`) name the published image `ghcr.io/gedigi/chartmate`
@@ -186,18 +192,28 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
 - Before tagging: add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md` and set `"version"` in
   `apps/desktop/package.json` (the product version; a test requires a changelog entry for it). The step-by-step
   list is in `CONTRIBUTING.md`, "Releases".
-- Push a tag `vX.Y.Z`: `.github/workflows/desktop.yml` tests, then builds macOS arm64/x64 (dmg + zip) and
-  Windows x64/arm64 (NSIS + zip), smoke-tests both, and publishes a full GitHub Release with the binaries. The
-  notes start with the tag's `CHANGELOG.md` section (`apps/desktop/scripts/changelog-section.mjs`), followed by
-  the signing table.
+- Push a tag `vX.Y.Z` (the tagged commit must be on `main`, or both release workflows stop):
+  `.github/workflows/desktop.yml` tests, then builds macOS arm64/x64 (dmg + zip) and Windows x64/arm64 (NSIS +
+  zip), smoke-tests both, and publishes a full GitHub Release with the binaries. The notes start with the tag's
+  `CHANGELOG.md` section (`apps/desktop/scripts/changelog-section.mjs`), followed by the signing table. The
+  release is marked Latest only when no higher full release exists (`scripts/release-tags.mjs`), so a backport
+  never takes Latest.
 - A suffixed tag (`vX.Y.Z-beta.1`) publishes a pre-release instead.
-- Builds are unsigned unless the signing secrets are configured; unsigned builds contain no auto-updater. A
-  signed macOS build signs the dmg too, and with the notarization secrets the packaging step notarizes and
-  staples each dmg (`xcrun notarytool`, `stapler`, checked with `spctl`).
+- Builds are unsigned unless signing is configured; unsigned builds contain no auto-updater.
+- macOS signing (`docs/desktop.md`, "macOS signing in CI"): the repository variable `CHARTMATE_MAC_SIGN_IDENTITY`
+  turns it on for tags. `package-mac` builds the apps unsigned with no secrets; `sign-mac` and `notarize-mac-dmg`
+  run in the `macos-signing` environment on fresh runners with no dependency code (only
+  `.github/scripts/macos-sign.sh`, the entitlements and Apple's tools): key imported non-extractable into a
+  temporary keychain, inside-out `codesign` with the hardened runtime and a timestamp, `notarytool`, `stapler`,
+  `spctl`. `dist-mac` (no secrets) makes the dmgs, zips, blockmaps and `latest-mac.yml` from the signed apps
+  (`electron-builder --prepackaged`, one run per arch, merged by `scripts/merge-update-info.mjs`). The Apple
+  secrets are `macos-signing` environment secrets only. Residual risk: the dependencies build the code that is
+  signed. Changes to the signing script, those jobs or the secret scoping are security changes.
 - The same tag runs `.github/workflows/docker.yml`: tests, `scripts/docker-smoke.sh` (amd64, and arm64 under
   QEMU), then pushes the multi-arch self-hosting image (`linux/amd64`, `linux/arm64`) to
-  `ghcr.io/<owner>/<repo>`, derived from `github.repository` (lowercased), as `X.Y.Z`, `X.Y`, `X` and `latest`
-  (pre-releases: `X.Y.Z-suffix` only), with provenance and SBOM attestations. Manual dispatch never publishes.
+  `ghcr.io/<owner>/<repo>`, derived from `github.repository` (lowercased), as `X.Y.Z`, plus `X.Y`, `X` and
+  `latest` each only when no higher full release exists in that range (pre-releases: `X.Y.Z-suffix` only), with
+  provenance and SBOM attestations. The image runs as the numeric user `1000:1000`. Manual dispatch never publishes.
   `compose.yaml` (no `.env` needed) is the documented way to run it, with `.env.example` as the optional
   template; the desktop workflow's release job attaches both to the GitHub Release (`.env.example` as
   `env.example`, since GitHub renames assets that start with a dot).
@@ -207,24 +223,29 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   - `build/signing.cjs` picks the method.
   - `build/win-sign.cjs` is electron-builder's sign hook. It signs `chartmate.exe`, the uninstaller and the
     installer, using signtool by thumbprint or osslsigncode + PKCS#11.
-  - CI logs in with `scripts/certum/login.ps1`, on tag builds only, in the `windows-signing` environment.
-  - The login secrets are unset before any build tool runs.
-  - `scripts/verify-win-signatures.mjs` gates the result.
-  - If the login or the sign hook fails, Windows ships without Certum and the release notes say so. A failed
-    verification fails the job.
+  - CI logs in with `scripts/certum/login.ps1`, on tag builds only, in the `windows-signing` environment, as the
+    first step of the job: before any dependency code runs there, and with the login secrets in no other step.
+  - `scripts/verify-win-signatures.mjs` gates the result; SimplySign Desktop is closed right after packaging.
+  - If the login or the sign hook fails, Windows ships without Certum, the release notes say so, and the release
+    is created as a draft (the owner publishes it after `sign:win`). A failed verification fails the job.
   - The Certum secrets are `windows-signing` environment secrets only, never repository secrets.
-  - Residual risk: code running in that job can reach the secrets it uses and the live certificate session.
+  - Residual risk: the signing cannot move to a job without dependency code (the session is bound to the runner,
+    and the uninstaller is signed in the middle of the NSIS build), so code running in that job can use the live
+    certificate session, and with administrator rights on the runner could reach the job's secrets.
     `--ignore-scripts`, the frozen lockfile, `pnpm audit`, Dependabot and the environment's required reviewer are
-    what limit it.
+    what limit it. Electron's own DLLs are not signed individually (acceptable; see `docs/desktop.md`).
   - `CHARTMATE_WIN_PUBLISHER_NAME` (the certificate CN) is required, because electron-updater pins it.
 - If CI cannot log in, the owner runs `pnpm --filter @chartmate/desktop sign:win` from a checkout of the tag. It
   rebuilds, signs, verifies and replaces the Windows assets of that release. Changes to the signing hook, the
   login script or the secret scoping are security changes.
-- `.github/workflows/ci.yml` runs `pnpm audit`, typecheck, tests, the indicator scaffold check, the web build, e2e
-  and the Docker build on pull requests and pushes to `main`; the release workflow audits too. Dependabot
-  (`.github/dependabot.yml`) opens weekly update PRs for npm packages, the pinned actions, the digest-pinned
-  Docker base image and the Compose Postgres image. `apps/desktop/test/workflows.test.ts` pins the workflows'
-  rules (actions pinned to SHAs, read-only default tokens, secrets only in the step that needs them).
+- `.github/workflows/ci.yml` runs `pnpm audit`, typecheck, tests, the license gate, the indicator scaffold check,
+  the web build, e2e and the Docker build on pull requests and pushes to `main`; the release workflows audit and
+  check licenses too. Every workflow gets pnpm through corepack (which checks the `packageManager` sha512) and Node
+  from `.nvmrc`; only `ci.yml` caches the pnpm store (no cache on a release path). Dependabot
+  (`.github/dependabot.yml`) opens weekly update PRs for npm packages (7-day cooldown), the pinned actions, the
+  digest-pinned Docker base image and the Compose Postgres image (3 days each).
+  `apps/desktop/test/workflows.test.ts` pins the workflows' rules (actions pinned to SHAs, read-only default
+  tokens, secrets only in the step that needs them, signing jobs without dependency code).
 
 ## Specs and plans
 

@@ -11,7 +11,7 @@ Maintainers: see [Releases](#releases) at the end.
 
 ## Setup
 
-Requires Node 22 (`.nvmrc`) and pnpm 8: `corepack enable` installs the exact version pinned (with its sha512) in
+Requires Node 22 (`.nvmrc` pins the exact version CI uses) and pnpm 8: `corepack enable` installs the exact version pinned (with its sha512) in
 the root `package.json`.
 
 ```sh
@@ -53,6 +53,8 @@ Write the failing test first, then the code; a bug fix comes with a regression t
   `CHANGELOG.md` (renamed to the version at release time).
 - **UI changes**: attach screenshots of the running app in **both** the dark and the light theme.
 - **Dependencies**: only licenses compatible with AGPL-3.0 (MIT, BSD, ISC, Apache-2.0, MPL-2.0 and similar).
+  `pnpm licenses:check` checks every shipped dependency against the allowlist in
+  `scripts/third-party-notices.mjs` (CI runs it too).
 
 ## License
 
@@ -292,7 +294,8 @@ A release is a pushed `vX.Y.Z` tag. The tag builds and publishes everything; not
    desktop app reports. A test fails while the desktop version has no changelog section. Start a new empty
    `## Unreleased` section after the release.
 2. Run the full checks (`pnpm audit`, `pnpm typecheck`, `pnpm test`, `pnpm e2e`) and merge.
-3. Tag the merge commit and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. A suffixed tag
+3. Tag the merge commit on `main` and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. Both release
+   workflows stop if the tagged commit is not on `main`. A suffixed tag
    (`vX.Y.Z-beta.1`) makes a pre-release. Who can create `v*` tags, and whether they can be moved or deleted,
    depends on the repository's tag rulesets (docs/desktop.md recommends restricting creation to the owner and
    blocking updates and deletions).
@@ -304,15 +307,18 @@ A release is a pushed `vX.Y.Z` tag. The tag builds and publishes everything; not
 
 What the tag runs:
 
-- `.github/workflows/desktop.yml`: tests and `pnpm audit`, then builds, signs and smoke-tests macOS (arm64, x64:
-  dmg + zip) and Windows (x64, arm64: NSIS installer + zip), and creates the GitHub Release. Its notes are the
-  tag's `CHANGELOG.md` section followed by a table saying how each platform was signed. Signing setup (Apple
+- `.github/workflows/desktop.yml`: tests, `pnpm audit` and the license gate, then builds, signs and smoke-tests
+  macOS (arm64, x64: dmg + zip) and Windows (x64, arm64: NSIS installer + zip), and creates the GitHub Release.
+  Its notes are the tag's `CHANGELOG.md` section followed by a table saying how each platform was signed. It is
+  marked Latest only when no higher full release exists, and it stays a draft when Windows signing failed in CI
+  (sign with `sign:win`, then publish it). Signing setup (Apple
   Developer ID and notarization, the Certum certificate for Windows, the manual `sign:win` fallback):
   [docs/desktop.md](docs/desktop.md#signing-notarization-updates). The release also gets the tag's `compose.yaml`
   and `.env.example` (as `env.example`: GitHub renames assets that start with a dot), so
   `releases/latest/download/compose.yaml` always matches the latest image.
 - `.github/workflows/docker.yml`: tests, smoke-tests the amd64 and arm64 images (`scripts/docker-smoke.sh`), then
-  pushes the multi-arch image to `ghcr.io/gedigi/chartmate` with provenance and SBOM attestations.
+  pushes the multi-arch image to `ghcr.io/gedigi/chartmate` with provenance and SBOM attestations. `X.Y`, `X` and
+  `latest` move only for the highest release in their range, so a backport never moves them backward.
 
 After the first image is published, make the GHCR package public once (the package's **Package settings**,
 **Change visibility**) and check that it is linked to this repository; until then, pulls need a login.
@@ -320,6 +326,7 @@ After the first image is published, make the GHCR package public once (the packa
 On every pull request and push to `main`, `.github/workflows/ci.yml` runs `pnpm audit` (any known vulnerability in
 a runtime or build-time dependency fails it), typecheck, tests, an indicator scaffold check (`pnpm new:indicator`,
 then typecheck and the indicator tests), the web build, e2e and a Docker build. Every workflow defaults to a
-read-only token, pins each action to a commit SHA and installs with `--ignore-scripts`; signing secrets reach only
-the packaging step of their own OS. Dependabot opens weekly update pull requests for npm packages, the pinned
+read-only token, pins each action to a commit SHA, gets pnpm through corepack (hash-checked) and installs with
+`--ignore-scripts`; only `ci.yml` caches dependencies. The macOS signing secrets reach only jobs that run no
+dependency code; the Certum login runs first in the Windows job, before any dependency code. Dependabot opens weekly update pull requests for npm packages, the pinned
 actions, the Docker base image and the Compose Postgres image.
