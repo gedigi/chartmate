@@ -3,8 +3,9 @@ import type { MessageOptions } from './updateController.js';
 import type { UpdateAvailability } from './updatePolicy.js';
 
 /**
- * The update items of the native application menu (macOS: app menu, under About; Windows: Help menu). Labels follow
- * each platform's menu capitalization: title case on macOS, sentence case on Windows.
+ * The update items of the native macOS app menu (under About). Native macOS menu items and dialog buttons use the
+ * platform's title case. Windows gets none: its frameless window (title bar overlay) shows no menu bar, so a menu
+ * item there would be unreachable; Windows updates run in the background only.
  */
 export type UpdateMenuState =
   | { kind: 'enabled'; automatic: boolean }
@@ -16,14 +17,14 @@ export interface UpdateMenuOptions {
   onToggleAutomatic: (on: boolean) => void;
 }
 
-export function updateMenuItems(isMac: boolean, o: UpdateMenuOptions): MenuItemConstructorOptions[] {
-  const check = isMac ? 'Check for Updates…' : 'Check for updates…';
+export function updateMenuItems(o: UpdateMenuOptions): MenuItemConstructorOptions[] {
+  const check = 'Check for Updates…';
   switch (o.state.kind) {
     case 'enabled':
       return [
         { label: check, click: () => o.onCheck() },
         {
-          label: isMac ? 'Check for Updates Automatically' : 'Check for updates automatically',
+          label: 'Check for Updates Automatically',
           type: 'checkbox',
           checked: o.state.automatic,
           click: (item) => o.onToggleAutomatic(item.checked),
@@ -40,17 +41,34 @@ export function updateMenuItems(isMac: boolean, o: UpdateMenuOptions): MenuItemC
   }
 }
 
-/** The dialog shown by "Check for updates" when this build cannot update itself. Plain text only. */
+/** The dialog shown by "Check for Updates…" when this build cannot update itself (macOS). Plain text only. */
 export function unsupportedUpdateMessage(
   kind: 'unsigned' | 'unavailable',
-  o: { appName: string; isMac: boolean; hasReleasesPage: boolean },
+  o: { appName: string; hasReleasesPage: boolean },
 ): MessageOptions {
   const download = o.hasReleasesPage
     ? 'Download new versions from the releases page and install them over this one. Your data is kept.'
     : 'Download new versions from the project’s releases page and install them over this one. Your data is kept.';
-  const buttons = o.hasReleasesPage ? [o.isMac ? 'Open Releases Page' : 'Open releases page', 'Close'] : ['OK'];
+  const buttons = o.hasReleasesPage ? ['Open Releases Page', 'Close'] : ['OK'];
   const common = { type: 'info' as const, buttons, defaultId: 0, cancelId: buttons.length - 1 };
   return kind === 'unsigned'
     ? { ...common, message: 'Automatic updates need a signed build', detail: `This copy of ${o.appName} is not code-signed, so it cannot update itself. ${download}` }
     : { ...common, message: 'Automatic updates are not available in this build', detail: download };
+}
+
+/**
+ * Starts the updater without ever taking the app down with it: a failure (say, updater.cjs cannot load) is reported
+ * through `onError`, and the app keeps running with updates `unavailable`.
+ */
+export function startUpdatesSafely<T>(
+  start: () => T | null,
+  onError: (err: unknown) => void,
+): { controller: T | null; availability: 'enabled' | 'unavailable' } {
+  try {
+    const controller = start();
+    return controller ? { controller, availability: 'enabled' } : { controller: null, availability: 'unavailable' };
+  } catch (err) {
+    onError(err);
+    return { controller: null, availability: 'unavailable' };
+  }
 }

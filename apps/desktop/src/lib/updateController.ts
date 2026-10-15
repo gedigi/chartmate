@@ -5,10 +5,11 @@ import { allowsPrereleaseUpdates } from './updatePolicy.js';
  * Update UX, entirely in the main process: native dialogs only, nothing reaches the renderer. Pure logic over
  * injected ports (electron-updater, dialogs, timers, log), so it is unit-tested with fakes.
  *
- * Phases: idle → checking → downloading → downloaded. Once an update is downloaded, no further check runs (a new
- * check would make electron-updater hand the zip to Squirrel.Mac again; the loopback listener for that is single
- * use per hand-over): "Check for updates" then re-offers the restart. An error resets to idle so a later check can
- * retry.
+ * Phases: idle → checking → downloading → downloaded → installing (after Restart now). Once an update is downloaded,
+ * no further check runs (a new check would make electron-updater hand the zip to Squirrel.Mac again; the loopback
+ * listener for that is single use per hand-over): "Check for updates" then re-offers the restart. An error resets
+ * to idle so a later check can retry; it is reported in a dialog only when the user is waiting on the outcome (a
+ * manual check, or Restart now), worded by what failed (check, download or install), never with the raw error.
  */
 
 export const STARTUP_CHECK_DELAY_MS = 15_000;
@@ -53,12 +54,14 @@ export interface TimerPort {
   clearTimeout(handle: unknown): void;
 }
 
-export type UpdatePhase = 'idle' | 'checking' | 'downloading' | 'downloaded';
+export type UpdatePhase = 'idle' | 'checking' | 'downloading' | 'downloaded' | 'installing';
 
 export interface UpdateController {
   /** Starts the background schedule (if automatic checks are on). */
   start(): void;
-  /** "Check for updates": always available; reports the outcome in a dialog. */
+  /** Stops the background schedule (the app is quitting). */
+  stop(): void;
+  /** "Check for updates": reports the outcome in a dialog. */
   checkNow(): Promise<void>;
   setAutomatic(on: boolean): void;
   readonly automatic: boolean;
@@ -75,9 +78,10 @@ export interface ConfigurableUpdater {
 }
 
 /**
- * Downloads automatically, installs on quit when the user picks "Later", never downgrades, offers pre-releases only
+ * Downloads automatically, installs on quit when the user picks "Later", refuses versions older than the running one
+ * (as advertised by the release metadata; see updateBundle.ts for the macOS bundle check), offers pre-releases only
  * to pre-release builds, and never runs from an unpackaged app. `channel` is never set (setting it would allow
- * downgrades), and signature verification is left at electron-updater's defaults.
+ * downgrades).
  */
 export function configureUpdater(u: ConfigurableUpdater, currentVersion: string): void {
   u.autoDownload = true;
@@ -87,11 +91,17 @@ export function configureUpdater(u: ConfigurableUpdater, currentVersion: string)
   u.forceDevUpdateConfig = false;
 }
 
-/** First line of an error message, capped, for the log only (never shown in a dialog). */
-function errorSummary(err: unknown): string {
-  const msg = err instanceof Error ? err.message : String(err);
-  return (msg.split('\n')[0] ?? '').slice(0, 300);
+/** One log line from untrusted text: CR/LF escaped (no forged log lines), capped. */
+export function logLine(v: unknown): string {
+  const text = v instanceof Error ? `${v.name}: ${v.message}` : String(v);
+  return text.replace(/\r/g, '\\r').replace(/\n/g, '\\n').slice(0, 500);
 }
+
+const FAILURE: Record<'checking' | 'downloading' | 'installing', { message: string; detail: string }> = {
+  checking: { message: 'Couldn’t check for updates', detail: 'Check your internet connection and try again later. Details are in the log.' },
+  downloading: { message: 'Couldn’t download the update', detail: 'It will be tried again later. Details are in the log.' },
+  installing: { message: 'Couldn’t install the update', detail: 'Your current version keeps running. It will be tried again later. Details are in the log.' },
+};
 
 export function createUpdateController(o: {
   updater: UpdaterPort;
@@ -103,13 +113,13 @@ export function createUpdateController(o: {
   currentVersion: string;
   automatic: boolean;
   saveAutomatic: (on: boolean) => void;
+  /** Called after automatic checks were toggled (the menu checkbox is rebuilt). */
   onChange?: () => void;
   startupDelayMs?: number;
   intervalMs?: number;
 }): UpdateController {
   const startupDelay = o.startupDelayMs ?? STARTUP_CHECK_DELAY_MS;
   const interval = o.intervalMs ?? UPDATE_CHECK_INTERVAL_MS;
-  const t = (mac: string, win: string) => (o.isMac ? mac : win);
   let automatic = o.automatic;
   let phase: UpdatePhase = 'idle';
   /** The current check/download was asked for by the user: report its outcome. */
@@ -123,15 +133,16 @@ export function createUpdateController(o: {
 
   const show = (m: MessageOptions): Promise<number> =>
     o.dialog.show(m).catch((err: unknown) => {
-      o.log.error(`updater: dialog failed: ${errorSummary(err)}`);
+      o.log.error(`updater: dialog failed: ${logLine(err)}`);
       return m.cancelId;
     });
 
   const info = (message: string, detail: string) => show({ type: 'info', message, detail, buttons: ['OK'], defaultId: 0, cancelId: 0 });
 
-  const setPhase = (p: UpdatePhase) => {
-    phase = p;
-  };
+  function stopSchedule(): void {
+    if (timer !== null) o.timers.clearTimeout(timer);
+    timer = null;
+  }
 
   const remember = (i: UpdateInfoLike) => {
     version = safeVersion(i?.version);
@@ -139,18 +150,16 @@ export function createUpdateController(o: {
   };
 
   function fail(err: unknown): void {
-    o.log.error(`updater: ${phase === 'downloaded' ? 'install hand-over' : phase} failed: ${errorSummary(err)}`);
-    const wasManual = manual;
+    const failed: UpdatePhase = phase;
+    o.log.error(`updater: ${failed === 'downloaded' ? 'install hand-over' : failed} failed: ${logLine(err)}`);
+    // Who is waiting on the outcome: the user after a manual check (check or download) or after Restart now. An
+    // error after a download nobody acted on (phase downloaded) stays in the log; the next check retries.
+    const kind = failed === 'installing' ? failed
+      : manual && (failed === 'checking' || failed === 'downloading') ? failed
+        : null;
     manual = false;
-    setPhase('idle');
-    if (wasManual) {
-      void show({
-        type: 'error',
-        message: 'Couldn’t check for updates',
-        detail: 'Check your internet connection and try again later. Details are in the log.',
-        buttons: ['OK'], defaultId: 0, cancelId: 0,
-      });
-    }
+    phase = 'idle';
+    if (kind) void show({ type: 'error', ...FAILURE[kind], buttons: ['OK'], defaultId: 0, cancelId: 0 });
   }
 
   async function promptRestart(): Promise<void> {
@@ -162,12 +171,15 @@ export function createUpdateController(o: {
         type: 'info',
         message: name() ? `${name()} is ready to install` : `A new version of ${o.appName} is ready to install`,
         detail: notes ? `${notes}\n\n${tail}` : tail,
-        buttons: [t('Restart Now', 'Restart now'), 'Later'],
+        buttons: [o.isMac ? 'Restart Now' : 'Restart now', 'Later'],
         defaultId: 0,
         cancelId: 1,
       });
       if (choice === 0 && phase === 'downloaded') {
         o.log.info('updater: restarting to install the update');
+        phase = 'installing';
+        stopSchedule();
+        // A failure here (sync or later) arrives as an 'error' event and is reported as an install failure.
         o.updater.quitAndInstall();
       }
     } finally {
@@ -178,7 +190,7 @@ export function createUpdateController(o: {
   o.updater.on('update-available', (i) => {
     remember(i);
     o.log.info(`updater: update available (${version ?? 'unknown version'})`);
-    setPhase('downloading');
+    phase = 'downloading';
     if (manual) {
       void info(
         name() ? `${name()} is available` : `A new version of ${o.appName} is available`,
@@ -189,26 +201,26 @@ export function createUpdateController(o: {
   o.updater.on('update-not-available', () => {
     const wasManual = manual;
     manual = false;
-    setPhase('idle');
+    phase = 'idle';
     if (wasManual) void info('You’re up to date', `${o.appName} ${o.currentVersion} is the latest version.`);
   });
   o.updater.on('update-downloaded', (i) => {
     remember(i);
     o.log.info(`updater: update downloaded (${version ?? 'unknown version'})`);
     manual = false;
-    setPhase('downloaded');
+    phase = 'downloaded';
     void promptRestart();
   });
   o.updater.on('error', (err) => {
     if (phase === 'idle') {
-      o.log.warn(`updater: ${errorSummary(err)}`);
+      o.log.warn(`updater: ${logLine(err)}`);
       return;
     }
     fail(err);
   });
 
   function runCheck(): void {
-    setPhase('checking');
+    phase = 'checking';
     o.updater.checkForUpdates().then(
       (result) => {
         // No result and no event: the updater is inactive (should not happen in a packaged, configured build).
@@ -222,7 +234,7 @@ export function createUpdateController(o: {
   }
 
   function schedule(ms: number): void {
-    if (timer !== null) o.timers.clearTimeout(timer);
+    stopSchedule();
     timer = o.timers.setTimeout(() => {
       timer = null;
       if (!automatic) return;
@@ -231,19 +243,19 @@ export function createUpdateController(o: {
     }, ms);
   }
 
-  function stopSchedule(): void {
-    if (timer !== null) o.timers.clearTimeout(timer);
-    timer = null;
-  }
-
   return {
     start() {
       if (automatic) schedule(startupDelay);
+    },
+    stop() {
+      stopSchedule();
     },
     async checkNow() {
       switch (phase) {
         case 'downloaded':
           await promptRestart();
+          return;
+        case 'installing':
           return;
         case 'downloading':
           await info(

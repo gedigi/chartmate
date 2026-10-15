@@ -34,8 +34,11 @@ function htmlToText(html: string): string {
     .replace(/<[^>]*>?/g, ''));
 }
 
-/** Control characters (except newline), zero-width and bidirectional formatting characters. */
-const UNSAFE_CHARS = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
+/**
+ * Every Unicode control (Cc, except newline), format (Cf: zero-width, bidirectional overrides and isolates, soft
+ * hyphen, tags …), line separator (Zl) and paragraph separator (Zp) character.
+ */
+const UNSAFE_CHARS = /(?!\n)[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
 
 /**
  * Release notes (electron-updater gives the GitHub release body as HTML, or an array of { version, note }) as short
@@ -54,6 +57,7 @@ export function releaseNotesText(notes: unknown): string | null {
   } else return null;
 
   const lines = htmlToText(html.slice(0, 50_000))
+    .replace(/\t/g, ' ')
     .replace(UNSAFE_CHARS, '')
     .split('\n')
     .map((l) => l.replace(/[ \t\u00A0]+/g, ' ').trim())

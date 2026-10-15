@@ -30,7 +30,7 @@ import { ensurePrivateDir, migrateLegacyUserData, restrictFiles } from './lib/st
 import { frameOptions, themeFromThemeColor, titleBarOverlay } from './lib/titleBar.js';
 import { isAllowedReleasesUrl } from './lib/releasesPage.js';
 import type { UpdateController } from './lib/updateController.js';
-import { unsupportedUpdateMessage, type UpdateMenuState } from './lib/updateMenu.js';
+import { startUpdatesSafely, unsupportedUpdateMessage, type UpdateMenuState } from './lib/updateMenu.js';
 import { updateAvailability, type UpdateAvailability } from './lib/updatePolicy.js';
 import {
   BACKGROUND, DEFAULT_SIZE, loadWindowState, MIN_SIZE, saveWindowState, visibleBounds, type WindowState,
@@ -43,6 +43,8 @@ declare const __TEST_INSPECTABLE__: boolean;
 declare const __BUILD_SIGNED__: boolean;
 /** https://github.com/<owner>/<name>/releases of the repository the app was built from (GITHUB_REPOSITORY), or ''. */
 declare const __RELEASES_URL__: string;
+/** Windows publisher DN pinned at bundle time (CHARTMATE_WIN_PUBLISHER_DN), or ''. */
+declare const __WIN_PUBLISHER_DN__: string;
 
 const t0 = Date.now() - Math.round(process.uptime() * 1000);
 const isPackaged = app.isPackaged;
@@ -152,7 +154,10 @@ async function start(): Promise<void> {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
   if (updateState === 'enabled') {
-    updates = startUpdater();
+    // A broken updater never takes the app down: log it and carry on with updates unavailable.
+    const started = startUpdatesSafely(startUpdater, (err) => log.error('updater failed to start', err));
+    updates = started.controller;
+    updateState = started.availability;
     setMenu();
   }
 }
@@ -178,11 +183,11 @@ function setMenu(): void {
   })));
 }
 
-/** "Check for updates" in a build that cannot update itself: explain, and offer the releases page. */
+/** "Check for Updates…" (macOS) in a build that cannot update itself: explain, and offer the releases page. */
 async function explainNoUpdates(kind: 'unsigned' | 'unavailable'): Promise<void> {
   const url = __RELEASES_URL__;
   const hasReleasesPage = isAllowedReleasesUrl(url, url);
-  const m = unsupportedUpdateMessage(kind, { appName: product.productName, isMac: process.platform === 'darwin', hasReleasesPage });
+  const m = unsupportedUpdateMessage(kind, { appName: product.productName, hasReleasesPage });
   const opts = { ...m, title: product.productName, noLink: true };
   const { response } = mainWindow ? await dialog.showMessageBox(mainWindow, opts) : await dialog.showMessageBox(opts);
   // The only URL ever handed to the OS browser: the exact build-time releases page, re-validated right here.
@@ -272,7 +277,9 @@ function createWindow(): void {
 }
 
 function updatesAvailability(): UpdateAvailability {
-  const input = { isPackaged, productAutoUpdate: product.autoUpdate === true, platform: process.platform, env: process.env };
+  const input = {
+    isPackaged, productAutoUpdate: product.autoUpdate === true, platform: process.platform, env: process.env, winPublisherDn: __WIN_PUBLISHER_DN__,
+  };
   // Unsigned builds: the rest of this function is compiled out (and dist/updater.cjs is not even produced).
   if (!__BUILD_SIGNED__) return updateAvailability({ ...input, isSigned: false, updateConfig: null });
   const ymlPath = join(process.resourcesPath, 'app-update.yml');
