@@ -213,18 +213,19 @@ location / {
   proxy's IP and they all share one rate-limit budget, and the session cookie is not marked `Secure`.
 - The session cookie lasts 30 days. Changing `CHARTMATE_SESSION_SECRET` (or the password, if the secret
   is derived from it) revokes all existing sessions.
-- **Pin the image.** `latest` follows every release. To run exactly the image you checked, pin a version and
-  its digest in `.env`:
+- **Pin the image.** `latest` follows every release. To run exactly the image you checked, look up the
+  digest of a version, verify that digest itself, then pin both in `.env`:
 
   ```sh
   docker buildx imagetools inspect ghcr.io/gedigi/chartmate:1.0.0   # prints "Digest: sha256:…"
-  gh attestation verify oci://ghcr.io/gedigi/chartmate:1.0.0 --repo gedigi/chartmate
+  gh attestation verify oci://ghcr.io/gedigi/chartmate@sha256:<digest> --repo gedigi/chartmate
   ```
 
   then `CHARTMATE_IMAGE=ghcr.io/gedigi/chartmate:1.0.0@sha256:<digest>`. Docker then pulls that digest only
   (the tag is just a label), and `docker compose pull` never moves it; upgrade by changing both.
-  `gh attestation verify` checks the signed build provenance: that the image was built from this repository by
-  its release workflow. Every image also carries BuildKit provenance and an SPDX SBOM
+  `gh attestation verify` checks the signed build provenance of exactly that digest: that it was built from
+  this repository by its release workflow. Verifying by digest rather than by tag means the image you run is the
+  one you checked, even if the tag is moved later. Every image also carries BuildKit provenance and an SPDX SBOM
   (`docker buildx imagetools inspect <image> --format '{{json .SBOM}}'`).
 
 ### Advanced: hardened `docker run`

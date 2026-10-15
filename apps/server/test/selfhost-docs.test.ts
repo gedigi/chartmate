@@ -38,6 +38,12 @@ describe('self-hosting docs use the published image', () => {
     }
   });
 
+  it('the README verifies the attestation of a digest, not a tag', () => {
+    const readme = read('README.md');
+    expect(readme).toContain(`gh attestation verify oci://${IMAGE}@sha256:<digest> --repo gedigi/chartmate`);
+    expect(readme).not.toMatch(/gh attestation verify oci:\/\/\S+:[\w.-]+ /);
+  });
+
   it('.env.example documents the same default, commented out', () => {
     const env = read('.env.example');
     expect(env).toContain(`# CHARTMATE_IMAGE=${IMAGE}:latest`);
