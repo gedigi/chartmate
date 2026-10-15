@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync as moveFileForTest, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -55,6 +55,33 @@ describe('migrateLegacyUserData', () => {
     expect(readFileSync(join(target, 'chartmate.db-wal'), 'utf8')).toBe('wal');
     expect(existsSync(join(target, 'window-state.json'))).toBe(true);
     expect(existsSync(join(old2, 'chartmate.db'))).toBe(false);
+  });
+
+  it('moves the marker database last, so an interrupted migration is retried on the next launch', () => {
+    const old = join(base, 'Old Name');
+    const target = join(base, 'New Name');
+    mkdirSync(old);
+    writeFileSync(join(old, 'chartmate.db'), 'db');
+    writeFileSync(join(old, 'chartmate.db-wal'), 'wal');
+    writeFileSync(join(old, 'chartmate.db-shm'), 'shm');
+    const order: string[] = [];
+    // First launch: the move of the SHM file fails (e.g. a locked file, a full disk).
+    const failing = (from: string, to: string) => {
+      order.push(from.slice(old.length + 1));
+      if (from.endsWith('-shm')) throw new Error('EBUSY');
+      moveFileForTest(from, to);
+    };
+    expect(() => migrateLegacyUserData({ target, legacyDirs: [old], files, marker: 'chartmate.db', move: failing })).toThrow('EBUSY');
+    expect(order).not.toContain('chartmate.db');
+    expect(existsSync(join(target, 'chartmate.db'))).toBe(false); // no marker: not considered migrated
+    expect(readFileSync(join(old, 'chartmate.db'), 'utf8')).toBe('db');
+
+    // Next launch: the migration completes, nothing is lost.
+    expect(migrateLegacyUserData({ target, legacyDirs: [old], files, marker: 'chartmate.db' })).toBe(old);
+    for (const [f, v] of [['chartmate.db', 'db'], ['chartmate.db-wal', 'wal'], ['chartmate.db-shm', 'shm']] as const) {
+      expect(readFileSync(join(target, f), 'utf8')).toBe(v);
+      expect(existsSync(join(old, f))).toBe(false);
+    }
   });
 
   it('never overwrites an existing database in the target', () => {
