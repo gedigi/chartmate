@@ -252,7 +252,9 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   check licenses too. Every workflow gets pnpm through corepack (which checks the `packageManager` sha512) and Node
   from `.nvmrc`; only `ci.yml` caches the pnpm store (no cache on a release path). Dependabot
   (`.github/dependabot.yml`) opens weekly update PRs for npm packages (7-day cooldown), the pinned actions, the
-  digest-pinned Docker base image and the Compose Postgres image (3 days each).
+  digest-pinned Docker base image and the Compose Postgres image (3 days each). It never proposes a new major of
+  Node (the base image, `@types/node`) or Postgres: those are deliberate upgrades (Node: the next LTS, together
+  with `.nvmrc`; Postgres: a dump and restore).
   `apps/desktop/test/workflows.test.ts` pins the workflows' rules (actions pinned to SHAs, read-only default
   tokens, secrets only in the step that needs them, signing jobs without dependency code).
 
