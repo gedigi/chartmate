@@ -654,7 +654,9 @@ A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
   as soon as any version holds crypto. Appending a crypto version to a stock-only basket therefore
   re-grids its **whole** intraday history to UTC buckets (daily and above are unaffected).
 - A version holds at most 50 constituents, and its effective date must lie between 1970-01-01 and
-  tomorrow (UTC).
+  tomorrow (UTC). A version dated tomorrow is sized at today's close, which is not final until the day
+  ends: until then its holdings are provisional (re-sized from the latest price every few minutes), and
+  they are fixed at the final close once the day is over.
 
 ## Data sources and caveats
 

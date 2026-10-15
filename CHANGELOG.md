@@ -28,6 +28,8 @@ app, the Docker image and the release tag share one version number.
   its date's New York session (04:00, pre-market) instead of at midnight UTC, which in winter fell inside the
   previous evening's post-market and valued it with the new holdings. 2h and 4h extended-hours bars no longer
   mix two versions, and the version markers move to that time. Daily charts are unchanged.
+- A basket version dated tomorrow is no longer sized for hours at a price from the middle of today's
+  session: its holdings are re-sized every few minutes until today closes, then fixed at the final close.
 
 ## [1.0.0] - 2026-10-14
 

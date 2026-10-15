@@ -11,6 +11,8 @@ import type { MarketDataService } from '../market/service.js';
 
 const DAY = 86_400_000;
 const UNITS_TTL_MS = 6 * 3_600_000;
+/** Longest reuse of provisional units (a version dated tomorrow sized at today's unfinished daily bar). */
+const PROVISIONAL_UNITS_TTL_MS = 5 * 60_000;
 const INTRADAY_PAD_MS = 5 * DAY;
 /** getLatest's intraday pad for baskets holding a stock: covers a long weekend so forward-fill has a prior close. */
 const LATEST_STOCK_PAD_MS = 4 * DAY;
@@ -32,7 +34,8 @@ export interface BasketBarsArgs {
   padMs?: number;
 }
 
-interface CachedUnits { key: string; units: UnitsResult; at: number }
+/** `until`: provisional units (sized at a daily bar still trading) expire then; others follow UNITS_TTL_MS. */
+interface CachedUnits { key: string; units: UnitsResult; at: number; until?: number }
 /** The basket's two latest daily closes, computed once per UTC day per basket (key = units key). */
 interface CachedDaily { key: string; day: number; last: Bar | null; prev: Bar | null }
 
@@ -398,7 +401,13 @@ export class BasketService {
   }
 
   private seed(id: string, versions: BasketVersion[], r: { units: UnitsResult; stale: boolean }): void {
-    if (!r.stale) this.unitsCache.set(id, { key: this.unitsKey(versions), units: r.units, at: this.now() });
+    if (r.stale) return;
+    const now = this.now();
+    // A version (or the start) dated tomorrow is sized at today's daily bar, which is still trading: those units
+    // are provisional. Keep them briefly (no provider call per request) and recompute once that day has closed.
+    const next = Math.min(...r.units.versions.map((v) => v.effectiveTs).filter((ts) => ts > now));
+    const until = next === Infinity ? undefined : Math.min(next, now + PROVISIONAL_UNITS_TTL_MS);
+    this.unitsCache.set(id, { key: this.unitsKey(versions), units: r.units, at: now, ...(until !== undefined ? { until } : {}) });
   }
 
   private async unitsFor(basket: Basket): Promise<{ units: UnitsResult; stale: boolean }> {
@@ -407,7 +416,9 @@ export class BasketService {
     const key = this.unitsKey(basket.versions);
     const hit = this.unitsCache.get(basket.id);
     const now = this.now();
-    if (hit && hit.key === key) {
+    if (hit && hit.key === key && hit.until !== undefined) {
+      if (now < hit.until) return { units: hit.units, stale: false };
+    } else if (hit && hit.key === key) {
       const yesterday = Math.floor(now / DAY) * DAY - DAY;
       const recent = basket.versions.some((v) => parseDateString(v.effectiveFrom) >= yesterday);
       if (!(recent && now - hit.at > UNITS_TTL_MS)) return { units: hit.units, stale: false };

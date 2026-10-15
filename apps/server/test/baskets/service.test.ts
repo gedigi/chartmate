@@ -393,6 +393,33 @@ describe('BasketService', () => {
       await svc.getBars(args);
       expect(daily()).toBe(2); // recent version + older than 6 h → recompute
     });
+
+    it('a version dated tomorrow, sized from today\'s unfinished bar, is resized once that day has closed', async () => {
+      // BTC's daily bar for the current UTC day is still moving: its close drifts by +1 per hour until midnight.
+      crypto.price = (code, tf, ts) => {
+        const p = price('crypto')(code, tf, ts);
+        const today = Math.floor(now / DAY) * DAY;
+        return tf === '1D' && ts === today ? { ...p, close: p.close + (now - today) / HOUR } : p;
+      };
+      now = D(10, 9, 22); // Fri 22:00Z
+      const b = await svc.create({ name: 'm', versions: [v('2026-09-14', { 'crypto:BTC': 1 })] });
+      await svc.appendVersion(b.id, v('2026-10-10', { 'crypto:BTC': 0.5, 'stock:AAA': 0.5 })); // tomorrow
+      const spy = vi.spyOn(market, 'getNativeBars');
+      const daily = () => spy.mock.calls.filter((c) => c[1] === '1D').length;
+      const args = { id: b.id, tf: '1h' as const, session: 'eth' as const, from: D(10, 9, 12), to: D(10, 9, 23) };
+      await svc.getBars(args);
+      await svc.getBars(args);
+      expect(daily()).toBe(0); // provisional units are still cached briefly (no provider call per request)
+      now = D(10, 9, 22, 6);
+      await svc.getBars(args);
+      expect(daily()).toBe(2); // ... for 5 minutes, then re-sized at the bar's latest close
+      now = D(10, 10, 1); // 3 h later, past midnight: the 10-09 bar has closed
+      const after = { ...args, from: D(10, 10), to: D(10, 10, 1) };
+      const fresh = new BasketService({ repos, market, now: () => now });
+      const want = await fresh.getBars(after);
+      expect(want.bars.length).toBeGreaterThan(0);
+      expect((await svc.getBars(after)).bars).toEqual(want.bars);
+    });
   });
 
   describe('units cache + stock splits', () => {
