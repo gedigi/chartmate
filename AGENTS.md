@@ -143,12 +143,13 @@ and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by defa
   a shipped dependency outside the allowlist or without a license text. A new license goes on the allowlist only
   after checking its AGPL-3.0 compatibility.
 - Never hardcode the GitHub repository URL or owner: use relative links in docs and
-  `github.repository` / `GITHUB_REPOSITORY` in workflows and build config. One exception: the user-facing
-  self-host docs (README, `compose.yaml`, `.env.example`) name the published image `ghcr.io/gedigi/chartmate`
-  and the `compose.yaml` / `.env.example` download URLs (raw `main` today, `releases/latest/download` once a
-  release carries them), so a copy-paste install works. `apps/server/test/selfhost-docs.test.ts` pins the
-  image name and both URL bases in constants and asserts every reference in those files against them, so a
-  move is a change to those constants plus a search and replace.
+  `github.repository` / `GITHUB_REPOSITORY` in workflows and build config. One exception: the docs (README,
+  CONTRIBUTING, AGENTS, `docs/*.md`, `compose.yaml`, `.env.example`) may name the published image
+  `ghcr.io/gedigi/chartmate`, the `compose.yaml` / `.env.example` download URLs (raw `main` today,
+  `releases/latest/download` once a release carries them) and the attestation check's `--repo gedigi/chartmate`,
+  so a copy-paste install or verification works. `apps/server/test/selfhost-docs.test.ts` pins the image name,
+  the repository slug and both URL bases in constants and fails on any other mention of the owner in those
+  files, so a move is a change to those constants plus a search and replace.
 - Custom indicators: one file in `apps/web/src/chart/indicators/custom/` (start from `pnpm new:indicator`), colors
   only through palette slots (`lineSlots`) or `activeIndicatorColors()`; a test rejects color literals there.
 - Commits: small and logical, conventional style as in `git log`: `feat(web): …`, `fix(desktop): …`,
