@@ -6,7 +6,7 @@
 // own directory is renamed to *.smoke-trash-<timestamp>). Runs only in CI or with SMOKE_ALLOW_REAL_USERDATA=1, and
 // the app must not be running.
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { closeSync, cpSync, existsSync, fstatSync, mkdtempSync, openSync, readFileSync, readSync, renameSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, cpSync, existsSync, fstatSync, mkdtempSync, openSync, readFileSync, readSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
@@ -241,10 +241,10 @@ test('ASAR integrity: a tampered app.asar refuses to run', async () => {
  * A copy of the shipped app whose executable is named like the stock Electron binary (`Electron` in the macOS
  * bundle, `electron.exe` on Windows), which makes Electron report app.isPackaged = false. The production bundle must
  * stay hardened anyway (src/lib/buildMode.ts). macOS: CFBundleExecutable is updated and the copy re-signed ad hoc
- * (asar integrity stays on: app.asar and its Info.plist hash are unchanged).
+ * (asar integrity stays on: app.asar and its Info.plist hash are unchanged). The copy goes into `dir`, which the
+ * caller removes; returns its executable.
  */
-function renamedElectronCopy(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'chartmate-renamed-'));
+function renamedElectronCopy(dir: string): string {
   if (appPath!.endsWith('.app')) {
     const copy = join(dir, 'Renamed.app');
     cpSync(appPath!, copy, { recursive: true, verbatimSymlinks: true });
@@ -263,19 +263,26 @@ function renamedElectronCopy(): string {
 
 test('renamed executable (isPackaged=false): still hardened, ignores CHARTMATE_USER_DATA_DIR, refuses debugging switches', async () => {
   test.skip(process.platform !== 'darwin' && process.platform !== 'win32', 'macOS bundle or Windows executable layout');
-  const bin = renamedElectronCopy();
+  const dir = mkdtempSync(join(tmpdir(), 'chartmate-renamed-'));
   const elsewhere = mkdtempSync(join(tmpdir(), 'chartmate-ignored-'));
-  const { child } = start({ CHARTMATE_USER_DATA_DIR: elsewhere }, [], bin);
   try {
-    expect(await waitFor(shown, 30_000)).toBe(true);
-    // The rename did flip Electron's isPackaged. DevTools, the DevTools menu entry, the devtools:// request
-    // exception and the data-directory override all key off `hardened` (src/lib/buildMode.ts), which stays true.
-    expect(log()).toMatch(/packaged=false, hardened=true/);
-    expect(existsSync(join(userData, 'chartmate.db'))).toBe(true);
-    expect(existsSync(join(elsewhere, 'chartmate.db'))).toBe(false);
+    const bin = renamedElectronCopy(dir);
+    const { child } = start({ CHARTMATE_USER_DATA_DIR: elsewhere }, [], bin);
+    try {
+      expect(await waitFor(shown, 30_000)).toBe(true);
+      // The rename did flip Electron's isPackaged. DevTools, the DevTools menu entry, the devtools:// request
+      // exception and the data-directory override all key off `hardened` (src/lib/buildMode.ts), which stays true.
+      expect(log()).toMatch(/packaged=false, hardened=true/);
+      expect(existsSync(join(userData, 'chartmate.db'))).toBe(true);
+      expect(existsSync(join(elsewhere, 'chartmate.db'))).toBe(false);
+    } finally {
+      await stop(child);
+    }
+    await expectRefused(['--remote-debugging-port=0'], {}, /forbidden command-line switch/, bin);
+    await expectRefused(['--inspect=0'], {}, /forbidden command-line switch/, bin);
   } finally {
-    await stop(child);
+    // The renamed copy is a full app (~250 MB): never leave it behind. Retries cover Windows handles still closing.
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
+    rmSync(elsewhere, { recursive: true, force: true });
   }
-  await expectRefused(['--remote-debugging-port=0'], {}, /forbidden command-line switch/, bin);
-  await expectRefused(['--inspect=0'], {}, /forbidden command-line switch/, bin);
 });
