@@ -704,7 +704,8 @@ stamped in `symbols.splits_checked_at`). When a split occurred since the last ch
 bars and the intraday bars still within Yahoo's lookback are dropped and refetched on demand; older intraday
 bars (no longer downloadable) are kept and rescaled by the split ratio. Baskets holding the stock recompute
 their units. Each check also looks back 7 days before the previous one, so a split the provider reports a few
-days late is still applied; applied splits are recorded (`applied_splits`), so none is applied twice. A stock
+days late is still applied; applied splits are recorded by their New York date (`applied_splits`), so none is applied twice, even when the
+provider restamps an event a few hours later. A stock
 whose bars were cached before its metadata row existed (e.g. the lookup failed at the time) has its refetchable
 bars dropped once when the row appears, since when they were fetched is unknown. Note for upgrades: the first check after upgrading looks for splits since each symbol's last
 metadata refresh (`symbols.updated_at`) minus 7 days, so older splits (already reflected in the cache) change

@@ -14,6 +14,13 @@ function parseJson<T>(text: string, what: string): T {
 
 const CHUNK = 500;
 
+/** The columns a split check stamps: the check time, and the start of split tracking when the row has none yet. */
+function checkStamp(checkedAt: number, trackFrom: number | undefined) {
+  return trackFrom === undefined
+    ? { splits_checked_at: checkedAt }
+    : { splits_checked_at: checkedAt, splits_tracked_from: sql<number>`coalesce(splits_tracked_from, ${trackFrom})` };
+}
+
 /** One step of a stock-split invalidation for a timeframe (see `BarRepo.applySplit`). */
 export interface SplitOp {
   tf: NativeTimeframe;
@@ -106,7 +113,7 @@ export class BarRepo {
    * symbol's `splits_checked_at` is set to `checkedAt` in the same transaction, so a split can never be applied
    * (rescaled) twice: either everything commits, including the stamp, or nothing does.
    */
-  async applySplit(symbol: string, ops: SplitOp[], checkedAt: number, splitTs: number[] = []): Promise<void> {
+  async applySplit(symbol: string, ops: SplitOp[], checkedAt: number, splitDays: number[] = [], trackFrom?: number): Promise<void> {
     await this.db.transaction().execute(async trx => {
       await lockSymbol(trx, this.dialect, symbol); // never interleaved with a fill of the same symbol (store)
       for (const op of ops) {
@@ -123,9 +130,9 @@ export class BarRepo {
           })).where('symbol', '=', symbol).where('tf', '=', op.tf).where('ts', '<', op.cut).execute();
         }
       }
-      await trx.updateTable('symbols').set({ splits_checked_at: checkedAt }).where('id', '=', symbol).execute();
-      if (splitTs.length > 0) {
-        await trx.insertInto('applied_splits').values([...new Set(splitTs)].map(ts => ({ symbol, ts })))
+      await trx.updateTable('symbols').set(checkStamp(checkedAt, trackFrom)).where('id', '=', symbol).execute();
+      if (splitDays.length > 0) {
+        await trx.insertInto('applied_splits').values([...new Set(splitDays)].map(ts => ({ symbol, ts })))
           .onConflict(oc => oc.columns(['symbol', 'ts']).doNothing()).execute();
       }
     });
@@ -209,14 +216,15 @@ export class SymbolRepo {
       .execute();
   }
 
-  /** Timestamps of the splits already applied to `id`'s cached bars. */
+  /** The splits already applied to `id`'s cached bars, as NY trading dates (UTC midnight of the date). */
   async appliedSplits(id: string): Promise<Set<number>> {
     const rows = await this.db.selectFrom('applied_splits').select('ts').where('symbol', '=', id).execute();
     return new Set(rows.map(r => Number(r.ts)));
   }
 
-  async markSplitsChecked(id: string, ts: number): Promise<void> {
-    await this.db.updateTable('symbols').set({ splits_checked_at: ts }).where('id', '=', id).execute();
+  /** Stamps a split check; `trackFrom` starts the applied-split record of a row that has none (pre-migration 005). */
+  async markSplitsChecked(id: string, ts: number, trackFrom?: number): Promise<void> {
+    await this.db.updateTable('symbols').set(checkStamp(ts, trackFrom)).where('id', '=', id).execute();
   }
 }
 

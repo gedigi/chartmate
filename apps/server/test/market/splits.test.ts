@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sql } from 'kysely';
+import { nyDateUtcMidnight } from '@chartmate/shared';
 import { createTestDb, USE_PG, type TestDb } from '../helpers/testDb.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';
@@ -191,11 +192,47 @@ describe('MarketDataService stock split check', () => {
     expect(svc.cacheEpoch).toBe(epoch + 1);
     const halved = { ...old, open: 50, high: 51, low: 49, close: 50.5, volume: 20 };
     expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([halved]);
-    expect(await repos.symbols.appliedSplits('stock:AAPL')).toEqual(new Set([X]));
+    expect(await repos.symbols.appliedSplits('stock:AAPL')).toEqual(new Set([nyDateUtcMidnight(X)]));
     now = NOW + 2 * DAY; // still inside the look-back window: not applied again
     await svc.ensureSplitsChecked('stock:AAPL');
     expect(svc.cacheEpoch).toBe(epoch + 1);
     expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([halved]);
+  });
+
+  it('a split restamped a few hours later (same NY date) is not applied a second time', async () => {
+    await h.db.updateTable('symbols').set({ splits_checked_at: NOW - 3 * DAY, splits_tracked_from: NOW - 30 * DAY })
+      .where('id', '=', 'stock:AAPL').execute();
+    const old = bar(NOW - 800 * DAY);
+    await repos.bars.upsert('stock:AAPL', '1h', [old]);
+    const X = Date.UTC(2026, 10, 3, 5); // 00:00 NY on 2026-11-03
+    stock.splits.AAPL = [X];
+    await svc.ensureSplitsChecked('stock:AAPL');
+    const halved = { ...old, open: 50, high: 51, low: 49, close: 50.5, volume: 20 };
+    expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([halved]);
+    stock.splits.AAPL = [X + 9 * HOUR + 30 * 60_000]; // the same event, now stamped at the 09:30 open
+    now = NOW + DAY;
+    await svc.ensureSplitsChecked('stock:AAPL');
+    expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([halved]);
+  });
+
+  it('a row from before migration 005 (no tracking start) starts tracking at its first check', async () => {
+    await h.db.updateTable('symbols').set({ splits_checked_at: NOW - 3 * DAY, splits_tracked_from: null })
+      .where('id', '=', 'stock:AAPL').execute();
+    await repos.bars.upsert('stock:AAPL', '1h', [bar(NOW - 800 * DAY)]);
+    await svc.ensureSplitsChecked('stock:AAPL'); // nothing found
+    expect((await repos.symbols.get('stock:AAPL'))?.splitsTrackedFrom).toBe(NOW - 3 * DAY);
+    // The next check looks back past the previous one.
+    now = NOW + DAY;
+    await svc.ensureSplitsChecked('stock:AAPL');
+    expect(stock.splitsCalls.at(-1)).toEqual({ code: 'AAPL', since: NOW - 3 * DAY });
+    // A split applied by a row without tracking also starts it (coalesce: an existing start is kept).
+    await h.db.updateTable('symbols').set({ splits_checked_at: NOW - 2 * DAY, splits_tracked_from: null }).execute();
+    stock.splits.AAPL = [NOW - DAY];
+    now = NOW + 3 * DAY;
+    await svc.ensureSplitsChecked('stock:AAPL');
+    expect((await repos.symbols.get('stock:AAPL'))?.splitsTrackedFrom).toBe(NOW - 2 * DAY);
+    await repos.symbols.markSplitsChecked('stock:AAPL', NOW + 4 * DAY, 123);
+    expect((await repos.symbols.get('stock:AAPL'))?.splitsTrackedFrom).toBe(NOW - 2 * DAY);
   });
 
   it('the look-back never reaches before tracking began (splits an earlier version may have applied)', async () => {

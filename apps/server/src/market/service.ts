@@ -1,5 +1,5 @@
 import {
-  baseTimeframe, bucketStart, filterSession, isIntraday, nyParts, nyToUtc, parseSymbolId, resample, tfMs,
+  baseTimeframe, bucketStart, filterSession, isIntraday, nyDateUtcMidnight, nyParts, nyToUtc, parseSymbolId, resample, tfMs,
   type AssetClass, type Bar, type Calendar, type NativeTimeframe, type Quote, type SessionMode,
   type SymbolId, type SymbolInfo, type Timeframe,
 } from '@chartmate/shared';
@@ -210,13 +210,21 @@ export class MarketDataService {
       ]);
       // Only splits that already happened (a future-dated, announced event is applied once it has occurred), and
       // each one once.
-      const relevant = splits.filter((sp) => sp.ts > lookFrom && sp.ts <= now && !applied.has(sp.ts)).sort((x, y) => x.ts - y.ts);
+      // Splits are identified by their NY trading date: a provider may restamp the same event a few hours apart.
+      const seen = new Set(applied);
+      const relevant = [...splits].sort((x, y) => x.ts - y.ts).filter((sp) => {
+        const day = nyDateUtcMidnight(sp.ts);
+        if (sp.ts <= lookFrom || sp.ts > now || seen.has(day)) return false;
+        seen.add(day);
+        return true;
+      });
       if (relevant.length > 0) {
-        // Stamps and records the splits in the same transaction.
-        await this.repos.bars.applySplit(symbol, this.splitOps(relevant), now, relevant.map((sp) => sp.ts));
+        // Stamps and records the splits in the same transaction. A row from before migration 005 starts its record
+        // at this check's baseline, so later checks get the late-report look-back.
+        await this.repos.bars.applySplit(symbol, this.splitOps(relevant), now, relevant.map((sp) => nyDateUtcMidnight(sp.ts)), since);
         this.epoch++;
       } else {
-        await this.repos.symbols.markSplitsChecked(symbol, now);
+        await this.repos.symbols.markSplitsChecked(symbol, now, since);
       }
       this.setNextCheck(symbol, now + SPLIT_CHECK_MS);
     } catch (err) {
