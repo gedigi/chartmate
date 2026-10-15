@@ -1,6 +1,6 @@
 import type { Bar, BasketVersion, Marker, SymbolId } from './types.js';
 import { parseSymbolId } from './types.js';
-import { parseDateString, utcDateString } from './nytime.js';
+import { nyToUtc, parseDateString, utcDateString } from './nytime.js';
 
 const DAY_MS = 86_400_000;
 
@@ -156,6 +156,27 @@ export function computeVersionUnits(versions: BasketVersion[], daily: DailySerie
   }
 
   return { versions: out, startTs: S, notices };
+}
+
+/** 04:00 NY (the start of the pre-market session, DST-aware) on the date whose UTC midnight is `dayTs`. */
+function nySessionStartOn(dayTs: number): number {
+  const d = new Date(dayTs);
+  return nyToUtc(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), 4, 0);
+}
+
+/**
+ * `units` with the start and every version switch moved from 00:00 UTC of their date to the start of that date's
+ * NY session (04:00 NY), for stock-only baskets on intraday timeframes. Units are sized at the prior regular close;
+ * at 00:00 UTC the previous NY day's post-market can still be trading (19:00 EST), and applying new units to it
+ * would value that session with holdings sized for the next one (and split a 2h ETH bucket between versions).
+ * Daily bars and baskets holding crypto (UTC grid) keep 00:00 UTC.
+ */
+export function alignUnitsToNySessions(units: UnitsResult): UnitsResult {
+  return {
+    ...units,
+    startTs: nySessionStartOn(units.startTs),
+    versions: units.versions.map((v) => ({ ...v, effectiveTs: nySessionStartOn(v.effectiveTs) })),
+  };
 }
 
 export interface ConstituentSeries { id: SymbolId; bars: Bar[] }

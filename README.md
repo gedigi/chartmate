@@ -627,7 +627,11 @@ form an untitled top group.
 A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
 
 - A basket has one or more **versions**; each has weights and an `effective from` calendar date.
-  A version applies from 00:00 UTC of that date, on every timeframe.
+  A version applies from 00:00 UTC of that date on daily and longer timeframes, and on intraday charts of
+  baskets holding crypto. On intraday charts and live quotes of a **stock-only** basket it applies from the
+  start of that date's New York session (04:00 New York time, pre-market), so the previous evening's
+  post-market (which runs past midnight UTC in winter) stays on the old holdings; the `Start` and version
+  markers sit at that time too.
 - When a version starts, each constituent is sized in units at the **prior trading close**, so the
   basket value is continuous across a rebalance (no jump).
 - Versions are **chained**: the series continues from the previous version's last value, giving one

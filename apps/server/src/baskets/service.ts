@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
-  BasketValidationError, baseTimeframe, basketQuoteExt, bucketStart, buildBasketBars, computeVersionUnits, filterSession,
-  isIntraday, nyDateUtcMidnight, parseDateString, parseSymbolId, resample, tfMs, utcDateString, validateVersions, versionMarkers,
+  BasketValidationError, alignUnitsToNySessions, baseTimeframe, basketQuoteExt, bucketStart, buildBasketBars,
+  computeVersionUnits, filterSession, isIntraday, nyDateUtcMidnight, parseDateString, parseSymbolId, resample, tfMs, utcDateString, validateVersions, versionMarkers,
   type Bar, type Basket, type BasketVersion, type Calendar, type ConstituentSeries, type Marker, type Quote,
   type SessionMode, type SymbolId, type Timeframe, type UnitsResult,
 } from '@chartmate/shared';
@@ -144,7 +144,11 @@ export class BasketService {
    */
   private async buildBars(a: BasketBarsArgs): Promise<BarsResponseCore & { unseeded: SymbolId[]; realInWindow: boolean }> {
     const basket = await this.get(a.id);
-    const { units, stale: unitsStale } = await this.unitsFor(basket);
+    const { units: dailyUnits, stale: unitsStale } = await this.unitsFor(basket);
+    const all = constituents(basket.versions);
+    const anyCrypto = all.some((id) => parseSymbolId(id).assetClass === 'crypto');
+    // Stock-only intraday: the start and each version switch at the start of the NY session, not 00:00 UTC.
+    const units = isIntraday(a.tf) && !anyCrypto ? alignUnitsToNySessions(dailyUnits) : dailyUnits;
     const S = units.startTs;
     const markers: Marker[] = [
       ...(S >= a.from && S < a.to ? [{ ts: S, label: START_MARKER }] : []),
@@ -153,8 +157,6 @@ export class BasketService {
     const notices = [...units.notices];
     if (isIntraday(a.tf)) notices.push(INTRADAY_HL_NOTICE);
 
-    const all = constituents(basket.versions);
-    const anyCrypto = all.some((id) => parseSymbolId(id).assetClass === 'crypto');
     const calendar: Calendar = anyCrypto ? 'utc' : a.session === 'eth' ? 'nyse-eth' : 'nyse-rth';
     const base = baseTimeframe(a.tf);
     const derived = a.tf !== base;
@@ -248,7 +250,11 @@ export class BasketService {
     const plans = await Promise.all(basketIds.map(async (id) => {
       try {
         const basket = await this.get(id);
-        const { units } = await this.unitsFor(basket);
+        const { units: dailyUnits } = await this.unitsFor(basket);
+        // Stock-only: a version takes over at the next NY session's start, as on intraday charts (the eve's winter
+        // post-market runs past 00:00 UTC on the old units).
+        const stockOnly = constituents(basket.versions).every((c) => parseSymbolId(c).assetClass === 'stock');
+        const units = stockOnly ? alignUnitsToNySessions(dailyUnits) : dailyUnits;
         const now = this.now();
         let active = units.versions[0]!;
         for (const ver of units.versions) if (ver.effectiveTs <= now) active = ver;

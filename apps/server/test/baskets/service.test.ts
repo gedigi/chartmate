@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { nyDateUtcMidnight, tfMs, type BasketVersion, type NativeTimeframe } from '@chartmate/shared';
+import { nyDateUtcMidnight, tagSessionFixedHours, tfMs, type BasketVersion, type NativeTimeframe } from '@chartmate/shared';
 import { createDb } from '../../src/db/connect.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';
@@ -186,7 +186,8 @@ describe('BasketService', () => {
       const b = await svc.create({ name: 'two', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'stock:BBB': 0.5 })] });
       await svc.appendVersion(b.id, v('2026-09-21', { 'stock:AAA': 0.2, 'stock:BBB': 0.8 }));
       const r = await svc.getBars({ id: b.id, tf: '1h', session: 'rth', from: D(9, 18), to: D(9, 22) });
-      expect(r.markers).toEqual([{ ts: D(9, 21), label: 'v2' }]);
+      // Stock-only intraday: the switch (and its marker) is at the start of the NY session, 04:00 EDT = 08:00Z.
+      expect(r.markers).toEqual([{ ts: D(9, 21, 8), label: 'v2' }]);
       expect(r.notices).toEqual([INTRADAY_NOTICE]);
       expect(r.bars).toHaveLength(14); // 7 RTH bars on Fri + 7 on Mon
       // Level at the switch = v1 units × Fri 09-18 closes (AAA 117, BBB 67); v1 sized at Fri 09-11 (110, 60).
@@ -297,6 +298,42 @@ describe('BasketService', () => {
       expect(rth.bars).toHaveLength(7);
       const eth4 = await svc.getBars({ id: b.id, tf: '4h', session: 'eth', from: D(9, 18), to: D(9, 19) });
       expect(eth4.bars.map((x) => x.ts)).toEqual([8, 12, 16, 20].map((hh) => D(9, 18, hh))); // anchored 04:00 EDT
+    });
+
+    it('stock-only intraday: a version switches at 04:00 NY, not inside the eve\'s winter post-market', async () => {
+      now = D(12, 4, 15); // Fri 10:00 EST
+      // Post-market prices differ from the regular close (AAA +10), so the units applied to them show.
+      stock.price = (code, tf, ts) => {
+        const p = price('stock')(code, tf, ts);
+        return tf !== '1D' && code === 'AAA' && tagSessionFixedHours(ts) === 'post' ? { ...p, close: p.close + 10 } : p;
+      };
+      const b = await svc.create({
+        name: 'two',
+        versions: [v('2026-11-16', { 'stock:AAA': 0.5, 'stock:BBB': 0.5 }), v('2026-12-02', { 'stock:AAA': 0.9, 'stock:BBB': 0.1 })],
+      });
+      const r = await svc.getBars({ id: b.id, tf: '1h', session: 'eth', from: D(12, 1, 20), to: D(12, 2, 12) });
+      expect(r.markers).toEqual([{ ts: D(12, 2, 9), label: 'v2' }]); // 04:00 EST
+      const at = (ts: number) => r.bars.find((x) => x.ts === ts)!.close;
+      // Tue 12-01 post-market (16:00–20:00 EST = 21:00Z–01:00Z): every bar, before and after 00:00Z, on v1 units.
+      const v1 = { AAA: 50 / 173, BBB: 50 / 123 }; // sized at Fri 11-13 (d=73)
+      const post = (100 + 91 + 10) * v1.AAA + (50 + 91) * v1.BBB; // d=91
+      expect(at(D(12, 1, 23, 30))).toBeCloseTo(post, 9);
+      expect(at(D(12, 2, 0, 30))).toBeCloseTo(post, 9);
+      // Wed pre-market (d=92) on v2 units sized at Tue's regular close (d=91), level L from v1.
+      const L = 191 * v1.AAA + 141 * v1.BBB;
+      expect(at(D(12, 2, 9, 30))).toBeCloseTo(L * (0.9 * (192 / 191) + 0.1 * (142 / 141)), 9);
+      // Daily bars keep switching at the date (00:00 UTC).
+      const d = await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: D(11, 30), to: D(12, 3) });
+      expect(d.markers).toEqual([{ ts: D(12, 2), label: 'v2' }]);
+    });
+
+    it('mixed baskets keep switching at 00:00 UTC intraday (their UTC grid)', async () => {
+      const b = await svc.create({
+        name: 'mix',
+        versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 }), v('2026-09-21', { 'stock:AAA': 0.2, 'crypto:BTC': 0.8 })],
+      });
+      const r = await svc.getBars({ id: b.id, tf: '1h', session: 'eth', from: D(9, 20), to: D(9, 22) });
+      expect(r.markers).toEqual([{ ts: D(9, 21), label: 'v2' }]);
     });
 
     it('1M output is stamped on the 1st of the month', async () => {
@@ -522,6 +559,21 @@ describe('BasketService', () => {
       expect(q.ext!.price).toBeCloseTo((q.price * 210) / 200, 9);
       expect(q.ext!.changePct).toBeCloseTo(5, 9);
       expect(q.ext!.ts).toBe(D(10, 10, 0, 15));
+    });
+
+    it('stock-only, winter post-market on the eve of a new version (past 00:00 UTC): still the old units', async () => {
+      now = D(12, 2, 0, 30); // Tue 12-01 19:30 EST
+      const b = await svc.create({
+        name: 's',
+        versions: [v('2026-11-16', { 'stock:AAA': 0.5, 'stock:BBB': 0.5 }), v('2026-12-02', { 'stock:AAA': 0.9, 'stock:BBB': 0.1 })],
+      });
+      stock.quotePrice = (c) => (c === 'AAA' ? 191 : 141); // Tue 12-01 regular closes (d=91)
+      stock.quoteTs = () => D(12, 1, 21);
+      stock.quoteExt = (c) => (c === 'AAA' ? { session: 'post', price: 201, changePct: 0, ts: now } : undefined);
+      const q = (await svc.liveQuotes([b.id], [])).baskets[0]!;
+      const v1 = { AAA: 50 / 173, BBB: 50 / 123 }; // sized at Fri 11-13 (d=73)
+      expect(q.price).toBeCloseTo(191 * v1.AAA + 141 * v1.BBB, 9);
+      expect(q.ext!.price).toBeCloseTo(201 * v1.AAA + 141 * v1.BBB, 9);
     });
 
     it('a constituent quote stamped in the future (e.g. a day-end closeTime) is clamped to now for ts and the day', async () => {

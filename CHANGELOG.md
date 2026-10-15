@@ -24,6 +24,10 @@ app, the Docker image and the release tag share one version number.
 
 - A daily chart of a stock or a stock-only basket keeps updating its last bar over the weekend instead of
   getting no latest bar until the next session.
+- On intraday charts and live quotes of a stock-only basket, a new version now takes effect at the start of
+  its date's New York session (04:00, pre-market) instead of at midnight UTC, which in winter fell inside the
+  previous evening's post-market and valued it with the new holdings. 2h and 4h extended-hours bars no longer
+  mix two versions, and the version markers move to that time. Daily charts are unchanged.
 
 ## [1.0.0] - 2026-10-14
 
