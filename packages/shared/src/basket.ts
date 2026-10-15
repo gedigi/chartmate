@@ -89,24 +89,30 @@ function lowerBound(bars: Bar[], t: number): number {
   return lo;
 }
 
-/** Close of the last bar with bar.ts < ts, or undefined. */
-function priorClose(bars: Bar[] | undefined, ts: number): number | undefined {
-  if (!bars) return undefined;
-  const i = lowerBound(bars, ts);
-  return i === 0 ? undefined : bars[i - 1]!.close;
-}
+/** Most consecutive invalid daily closes skipped to find a valid one to size at. */
+const MAX_INVALID_CLOSES = 5;
+
+const validClose = (c: number) => Number.isFinite(c) && c > 0;
 
 /**
- * `id`'s close before `ts` for sizing: throws when there is none (`missing` message) or when it is not a positive
- * finite number (bad provider data would otherwise size infinite, negative or NaN units).
+ * `id`'s close before `ts` for sizing: the last bar's, or, when that close is not a positive finite number (bad
+ * provider data would size infinite, negative or NaN units), the last valid one up to MAX_INVALID_CLOSES bars
+ * further back, with a notice. Throws when there is no bar (`missing` message) or no valid close in reach.
  */
-function sizingClose(daily: DailySeries, id: SymbolId, ts: number, missing: string): number {
-  const pc = priorClose(daily[id], ts);
-  if (pc === undefined) throw new BasketValidationError(missing, id, ts);
-  if (!Number.isFinite(pc) || !(pc > 0)) {
-    throw new BasketValidationError(`${id} has no valid close before ${utcDateString(ts)}`, id, ts);
+function sizingClose(daily: DailySeries, id: SymbolId, ts: number, missing: string, notices: Set<string>): number {
+  const bars = daily[id];
+  const i = bars ? lowerBound(bars, ts) : 0;
+  if (i === 0) throw new BasketValidationError(missing, id, ts);
+  for (let j = i - 1; j >= Math.max(0, i - 1 - MAX_INVALID_CLOSES); j--) {
+    const b = bars![j]!;
+    if (!validClose(b.close)) continue;
+    if (j < i - 1) {
+      const skipped = bars!.slice(j + 1, i).map((x) => utcDateString(x.ts)).join(', ');
+      notices.add(`${id}: invalid close on ${skipped}; sized at the close of ${utcDateString(b.ts)}.`);
+    }
+    return b.close;
   }
-  return pc;
+  throw new BasketValidationError(`${id} has no valid close before ${utcDateString(ts)}`, id, ts);
 }
 
 export function computeVersionUnits(versions: BasketVersion[], daily: DailySeries, baseValue: number): UnitsResult {
@@ -114,6 +120,7 @@ export function computeVersionUnits(versions: BasketVersion[], daily: DailySerie
   const v0 = versions[0];
   if (!v0) throw new BasketValidationError('Basket needs at least one version');
   const notices: string[] = [];
+  const skips = new Set<string>(); // notices about invalid closes, once each
   const T = parseDateString(v0.effectiveFrom);
 
   let S = T;
@@ -134,7 +141,7 @@ export function computeVersionUnits(versions: BasketVersion[], daily: DailySerie
   // Weights are normalized (validation allows a 1e-6 slack in their sum) so each version starts exactly at its level.
   const units0: Record<SymbolId, number> = {};
   for (const [id, w] of Object.entries(normalizeWeights(v0.weights))) {
-    units0[id] = (w * baseValue) / sizingClose(daily, id, S, 'No data for ' + id);
+    units0[id] = (w * baseValue) / sizingClose(daily, id, S, 'No data for ' + id, skips);
   }
   const out: VersionUnits[] = [{ effectiveTs: S, units: units0, levelAtStart: baseValue }];
 
@@ -145,17 +152,17 @@ export function computeVersionUnits(versions: BasketVersion[], daily: DailySerie
     const prev = out[k - 1]!;
     let L = 0;
     for (const [id, u] of Object.entries(prev.units)) {
-      L += u * sizingClose(daily, id, Tk, 'No data for ' + id + ' before ' + v.effectiveFrom);
+      L += u * sizingClose(daily, id, Tk, 'No data for ' + id + ' before ' + v.effectiveFrom, skips);
     }
     if (!Number.isFinite(L) || !(L > 0)) throw new BasketValidationError('Version ' + (k + 1) + ' has non-positive index level before ' + v.effectiveFrom);
     const units: Record<SymbolId, number> = {};
     for (const [id, w] of Object.entries(normalizeWeights(v.weights))) {
-      units[id] = (w * L) / sizingClose(daily, id, Tk, 'No data for ' + id + ' before ' + v.effectiveFrom);
+      units[id] = (w * L) / sizingClose(daily, id, Tk, 'No data for ' + id + ' before ' + v.effectiveFrom, skips);
     }
     out.push({ effectiveTs: Tk, units, levelAtStart: L });
   }
 
-  return { versions: out, startTs: S, notices };
+  return { versions: out, startTs: S, notices: [...notices, ...skips] };
 }
 
 /** 04:00 NY (the start of the pre-market session, DST-aware) on the date whose UTC midnight is `dayTs`. */

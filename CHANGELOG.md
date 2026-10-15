@@ -30,6 +30,8 @@ app, the Docker image and the release tag share one version number.
   mix two versions, and the version markers move to that time. Daily charts are unchanged.
 - A basket version dated tomorrow is no longer sized for hours at a price from the middle of today's
   session: its holdings are re-sized every few minutes until today closes, then fixed at the final close.
+- A basket no longer fails to load when a constituent's daily close is zero, negative or missing where a version
+  is sized: the last valid close up to 5 bars earlier is used, and a notice names the dates skipped.
 
 ## [1.0.0] - 2026-10-14
 

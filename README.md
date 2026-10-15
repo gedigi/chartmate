@@ -633,7 +633,8 @@ A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
   post-market (which runs past midnight UTC in winter) stays on the old holdings; the `Start` and version
   markers sit at that time too.
 - When a version starts, each constituent is sized in units at the **prior trading close**, so the
-  basket value is continuous across a rebalance (no jump).
+  basket value is continuous across a rebalance (no jump). If that daily close is invalid (zero, negative
+  or missing in the provider's data), the last valid close up to 5 bars earlier is used and a notice says so.
 - Versions are **chained**: the series continues from the previous version's last value, giving one
   continuous index.
 - On intraday timeframes, the basket bar's high/low is an **approximation** (derived from
@@ -654,9 +655,9 @@ A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
   as soon as any version holds crypto. Appending a crypto version to a stock-only basket therefore
   re-grids its **whole** intraday history to UTC buckets (daily and above are unaffected).
 - A version holds at most 50 constituents, and its effective date must lie between 1970-01-01 and
-  tomorrow (UTC). A version dated tomorrow is sized at today's close, which is not final until the day
-  ends: until then its holdings are provisional (re-sized from the latest price every few minutes), and
-  they are fixed at the final close once the day is over.
+  tomorrow (UTC). A version dated tomorrow is sized at the latest daily close before that date, which may
+  not be final yet: until that date begins (00:00 UTC) its holdings are provisional, re-sized every few
+  minutes, and they are then fixed at that final close.
 
 ## Data sources and caveats
 

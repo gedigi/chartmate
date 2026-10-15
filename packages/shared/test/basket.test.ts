@@ -219,12 +219,31 @@ describe('computeVersionUnits + buildBasketBars', () => {
     }
     // A later version: its new constituent and the previous version's constituents alike.
     for (const bad of [-5, NaN]) {
-      const d = { ...daily, 'stock:C': dailies('2024-01-01', [5, 5, bad, 5]) };
+      const d = { ...daily, 'stock:C': dailies('2024-01-01', [bad, bad, bad, 5]) };
       const v1 = { effectiveFrom: '2024-01-04', weights: { 'stock:C': 1 } };
       expect(() => computeVersionUnits([v0, v1], d, 100)).toThrow('stock:C has no valid close before 2024-01-04');
+      const v2 = { effectiveFrom: '2024-01-08', weights: { 'stock:A': 1 } };
+      const d2 = { 'stock:A': daily['stock:A'], 'crypto:B': dailies('2023-12-27', [100, 100, 100, 100, 100, 100, bad, bad, bad, bad, bad, bad]) };
+      // Six invalid closes 01-02 … 01-07: the valid one before them is more than 5 bars back.
+      expect(() => computeVersionUnits([v0, v2], d2, 100)).toThrow('crypto:B has no valid close before 2024-01-08');
+    }
+  });
+
+  it('sizes at the last valid close when the latest prior closes are invalid (up to 5 bars back), with a notice', () => {
+    for (const bad of [-5, NaN, 0]) {
+      const d = { ...daily, 'stock:C': dailies('2024-01-01', [5, 4, bad, 6]) };
+      const v1 = { effectiveFrom: '2024-01-04', weights: { 'stock:C': 0.5, 'crypto:B': 0.5 } };
+      const u = computeVersionUnits([v0, v1], d, 100);
+      // v0 units: A 5, B 0.5; level before 01-04 = 5×20 + 0.5×50 = 125; C sized at 01-02's close (4).
+      expect(u.versions[1]!.levelAtStart).toBe(125);
+      expect(u.versions[1]!.units).toEqual({ 'stock:C': 62.5 / 4, 'crypto:B': 62.5 / 50 });
+      expect(u.notices).toEqual(['stock:C: invalid close on 2024-01-03; sized at the close of 2024-01-02.']);
+      // The previous version's constituents too, once each.
+      const d2 = { 'stock:A': dailies('2024-01-01', [10, 20, bad, 40]), 'crypto:B': daily['crypto:B'] };
       const v2 = { effectiveFrom: '2024-01-04', weights: { 'stock:A': 1 } };
-      const d2 = { 'stock:A': daily['stock:A'], 'crypto:B': dailies('2024-01-01', [100, 100, bad, 50]) };
-      expect(() => computeVersionUnits([v0, v2], d2, 100)).toThrow('crypto:B has no valid close before 2024-01-04');
+      const u2 = computeVersionUnits([v0, v2], d2, 100);
+      expect(u2.versions[1]!.levelAtStart).toBe(5 * 20 + 0.5 * 50);
+      expect(u2.notices).toEqual(['stock:A: invalid close on 2024-01-03; sized at the close of 2024-01-02.']);
     }
   });
 
@@ -240,8 +259,8 @@ describe('computeVersionUnits + buildBasketBars', () => {
 
   it('rejects invalid baseValue and non-positive level', () => {
     for (const bv of [0, -1, NaN, Infinity]) expect(() => computeVersionUnits([v0], daily, bv)).toThrow(BasketValidationError);
-    const z = { 'stock:A': dailies('2024-01-01', [10, 0, 0, 0]), 'crypto:B': dailies('2024-01-01', [100, 0, 0, 0]) };
-    expect(() => computeVersionUnits([{ ...v0, effectiveFrom: '2024-01-02' }, { effectiveFrom: '2024-01-04', weights: { 'stock:A': 1 } }], z, 100)).toThrow(BasketValidationError);
+    const z = { 'stock:A': dailies('2024-01-01', [10, 0, 0, 0, 0, 0, 0, 0]), 'crypto:B': dailies('2024-01-01', [100, 0, 0, 0, 0, 0, 0, 0]) };
+    expect(() => computeVersionUnits([{ ...v0, effectiveFrom: '2024-01-02' }, { effectiveFrom: '2024-01-09', weights: { 'stock:A': 1 } }], z, 100)).toThrow(BasketValidationError);
   });
 });
 
