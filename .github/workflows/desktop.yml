@@ -12,7 +12,9 @@ name: Desktop
 #                      apps inside-out, notarizes and staples them (.github/scripts/macos-sign.sh).
 #   dist-mac         — no secrets: dmg + zip + blockmaps + latest-mac.yml from the (signed) apps with
 #                      `electron-builder --prepackaged`, then smoke tests.
-#   notarize-mac-dmg — `macos-signing` again, no dependency code: signs, notarizes and staples each dmg.
+#   notarize-mac-dmg — `macos-signing` again, no dependency code: checks that each dmg holds the signed app, then
+#                      signs, notarizes and staples it.
+#   check-mac-zips   — no secrets, no dependency code: each release zip must hold exactly the app sign-mac signed.
 #   package-win      — Windows build. On tags it runs in the `windows-signing` environment: the Certum (SimplySign)
 #                      login comes first, before any dependency code runs on the runner, and the TOTP seed is in no
 #                      later step's environment; the logged-in session itself lasts for the build (see
@@ -406,6 +408,42 @@ jobs:
         if: always()
         run: .github/scripts/macos-sign.sh cleanup
 
+  # dist-mac ran dependency code: before the release attaches the zips (what the updater downloads), each must hold
+  # exactly the app sign-mac signed. No secrets and no dependency code: only macos-sign.sh and the system tools.
+  check-mac-zips:
+    needs: [sign-mac, dist-mac]
+    if: startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != ''
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /.github/scripts/macos-sign.sh
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-macos
+          path: ${{ runner.temp }}/zip
+      - name: The zips hold the signed apps
+        env:
+          CDHASH_X64: ${{ needs.sign-mac.outputs.cdhash_x64 }}
+          CDHASH_ARM64: ${{ needs.sign-mac.outputs.cdhash_arm64 }}
+        run: |
+          set -euo pipefail
+          n=0
+          for zip in "$RUNNER_TEMP"/zip/*.zip; do
+            case "$zip" in
+              *-mac-x64.zip) expected="$CDHASH_X64" ;;
+              *-mac-arm64.zip) expected="$CDHASH_ARM64" ;;
+              *) echo "::error::unexpected zip: $zip"; exit 1 ;;
+            esac
+            .github/scripts/macos-sign.sh check-zip "$zip" "$expected"
+            n=$((n + 1))
+          done
+          [ "$n" = 2 ] || { echo "::error::expected 2 mac zips, found $n"; exit 1; }
+
   package-win:
     needs: test
     runs-on: windows-latest
@@ -567,12 +605,13 @@ jobs:
           retention-days: 14
 
   release:
-    needs: [package-mac, sign-mac, dist-mac, notarize-mac-dmg, package-win]
-    # Every platform built; a signed macOS build also needs its notarized dmgs.
+    needs: [package-mac, sign-mac, dist-mac, notarize-mac-dmg, check-mac-zips, package-win]
+    # Every platform built; a signed macOS build also needs its notarized dmgs and its checked zips.
     if: >-
       ${{ startsWith(github.ref, 'refs/tags/v') && !cancelled() && needs.dist-mac.result == 'success' &&
       needs.package-win.result == 'success' && (!(startsWith(github.ref, 'refs/tags/v') &&
-      vars.CHARTMATE_MAC_SIGN_IDENTITY != '') || needs.notarize-mac-dmg.result == 'success') }}
+      vars.CHARTMATE_MAC_SIGN_IDENTITY != '') || (needs.notarize-mac-dmg.result == 'success' &&
+      needs.check-mac-zips.result == 'success')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

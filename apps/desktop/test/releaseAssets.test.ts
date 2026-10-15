@@ -13,6 +13,7 @@ const { checkReleaseAssets, expectedAssets, parseUpdateInfo } = assets as {
 };
 
 const V = '1.2.0';
+const WIN = [`Chartmate-${V}-win.exe`, `Chartmate-${V}-win-x64.exe`, `Chartmate-${V}-win-arm64.exe`];
 let dir: string;
 const sha = (s: string) => createHash('sha512').update(s).digest('base64');
 const yml = (files: string[]) => [
@@ -26,7 +27,7 @@ beforeEach(() => {
   // Each file's content is its own name, so the listed sha512 and size match.
   for (const f of expectedAssets(V).required) writeFileSync(join(dir, f), f);
   writeFileSync(join(dir, 'latest-mac.yml'), yml([`Chartmate-${V}-mac-x64.zip`, `Chartmate-${V}-mac-arm64.zip`]));
-  writeFileSync(join(dir, 'latest.yml'), yml([`Chartmate-${V}-win.exe`]));
+  writeFileSync(join(dir, 'latest.yml'), yml(WIN));
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -54,6 +55,7 @@ describe('release asset check', () => {
     expect(checkReleaseAssets(dir, V)).toEqual([
       `latest.yml: version 9.9.9, expected ${V}`,
       'latest.yml: lists Chartmate-9.9.9-win.exe, which is not in the release',
+      ...WIN.map((f) => `latest.yml: does not list ${f}`),
     ]);
   });
 
@@ -70,7 +72,28 @@ describe('release asset check', () => {
   it('parses the layout electron-builder writes', () => {
     expect(parseUpdateInfo(yml(['a.zip', 'b.zip']))).toEqual({
       version: V,
+      path: 'a.zip',
+      sha512: sha('a.zip'),
       files: [{ url: 'a.zip', sha512: sha('a.zip'), size: 5 }, { url: 'b.zip', sha512: sha('b.zip'), size: 5 }],
     });
+  });
+
+  it('requires latest-mac.yml to list both mac zips and latest.yml every Windows installer, each with a size', () => {
+    writeFileSync(join(dir, 'latest-mac.yml'), yml([`Chartmate-${V}-mac-x64.zip`]));
+    writeFileSync(join(dir, 'latest.yml'), yml([`Chartmate-${V}-win-x64.exe`, `Chartmate-${V}-win.exe`]).replace(/^ {4}size: .*\n/m, ''));
+    expect(checkReleaseAssets(dir, V)).toEqual([
+      `latest-mac.yml: does not list Chartmate-${V}-mac-arm64.zip`,
+      `latest.yml: no size for Chartmate-${V}-win-x64.exe`,
+      `latest.yml: does not list Chartmate-${V}-win-arm64.exe`,
+    ]);
+  });
+
+  it('checks the legacy top-level path and sha512 too', () => {
+    writeFileSync(join(dir, 'latest-mac.yml'), yml([`Chartmate-${V}-mac-x64.zip`, `Chartmate-${V}-mac-arm64.zip`])
+      .replace(/^sha512: .*$/m, `sha512: ${sha('other')}`));
+    expect(checkReleaseAssets(dir, V)).toEqual([`latest-mac.yml: top-level sha512 does not match Chartmate-${V}-mac-x64.zip`]);
+    writeFileSync(join(dir, 'latest-mac.yml'), yml([`Chartmate-${V}-mac-x64.zip`, `Chartmate-${V}-mac-arm64.zip`])
+      .replace(/^path: .*$/m, 'path: elsewhere.zip'));
+    expect(checkReleaseAssets(dir, V)).toEqual(['latest-mac.yml: top-level path elsewhere.zip is not one of its files']);
   });
 });

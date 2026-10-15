@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Checks the files the release job is about to attach to a GitHub Release: exactly the expected set for the version
 // (nothing missing, nothing extra), and every file latest-mac.yml / latest.yml lists present with the SHA-512 and
-// size it states, so electron-updater never sees metadata that does not match its download.
+// size it states, so electron-updater never sees metadata that does not match its download. latest-mac.yml must
+// list both mac zips and latest.yml the Windows installers (as verify-win-signatures.mjs requires), each with a size, and the legacy top-level path / sha512
+// must name one of those files and match it.
 //
 //   node scripts/check-release-assets.mjs <dir> <version>
 //
@@ -28,20 +30,32 @@ export function expectedAssets(version) {
   };
 }
 
-/** The `files:` entries (url, sha512, size) and the version of an electron-builder update file. */
+/** The `files:` entries (url, sha512, size), the version and the top-level path / sha512 of an update file. */
 export function parseUpdateInfo(text) {
   const files = [];
   let version = null;
+  let path = null;
+  let sha512 = null;
   let current = null;
   for (const line of text.split(/\r?\n/)) {
     let m;
     if ((m = /^version:\s*'?([^'\s]+)'?\s*$/.exec(line))) version = m[1];
+    else if ((m = /^path:\s*(\S+)\s*$/.exec(line))) path = m[1];
+    else if ((m = /^sha512:\s*(\S+)\s*$/.exec(line))) sha512 = m[1];
     else if ((m = /^ {2}- url:\s*(\S+)\s*$/.exec(line))) files.push((current = { url: m[1] }));
     else if (current && (m = /^ {4}sha512:\s*(\S+)\s*$/.exec(line))) current.sha512 = m[1];
     else if (current && (m = /^ {4}size:\s*(\d+)\s*$/.exec(line))) current.size = Number(m[1]);
     else if (!/^ {4}/.test(line)) current = null;
   }
-  return { version, files };
+  return { version, path, sha512, files };
+}
+
+/** What each update file must list: the downloads electron-updater fetches. */
+export function requiredUpdateFiles(version) {
+  return {
+    'latest-mac.yml': [`Chartmate-${version}-mac-x64.zip`, `Chartmate-${version}-mac-arm64.zip`],
+    'latest.yml': [`Chartmate-${version}-win.exe`, `Chartmate-${version}-win-x64.exe`, `Chartmate-${version}-win-arm64.exe`],
+  };
 }
 
 /** Problems with the release directory (empty = fine). */
@@ -64,9 +78,15 @@ export function checkReleaseAssets(dir, version) {
       const data = readFileSync(join(dir, f.url));
       const sha512 = createHash('sha512').update(data).digest('base64');
       if (f.sha512 !== sha512) problems.push(`${yml}: sha512 of ${f.url} does not match the file`);
-      if (f.size !== undefined && f.size !== statSync(join(dir, f.url)).size) {
-        problems.push(`${yml}: size of ${f.url} does not match the file`);
-      }
+      if (f.size === undefined) problems.push(`${yml}: no size for ${f.url}`);
+      else if (f.size !== statSync(join(dir, f.url)).size) problems.push(`${yml}: size of ${f.url} does not match the file`);
+    }
+    const listed = info.files.map((f) => f.url);
+    for (const f of requiredUpdateFiles(version)[yml]) if (!listed.includes(f)) problems.push(`${yml}: does not list ${f}`);
+    if (info.path !== null || info.sha512 !== null) {
+      const top = info.files.find((f) => f.url === info.path);
+      if (!top) problems.push(`${yml}: top-level path ${info.path} is not one of its files`);
+      else if (info.sha512 !== top.sha512) problems.push(`${yml}: top-level sha512 does not match ${info.path}`);
     }
   }
   return problems;

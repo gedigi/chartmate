@@ -453,13 +453,19 @@ run no dependency code, can read them:
    code directory hash.
 3. `dist-mac` (no secrets) builds the dmgs, zips, blockmaps and `latest-mac.yml` from the signed apps with
    `electron-builder --prepackaged` (which packages without signing), and smoke-tests the signed arm64 app.
-4. `notarize-mac-dmg` (`macos-signing`, no dependency code) first mounts each dmg read-only and checks that the
-   app inside verifies and has exactly the code directory hash `sign-mac` recorded (before the key is even
-   imported), then signs the dmg, notarizes and staples it, and checks it with `spctl`.
+4. `notarize-mac-dmg` (`macos-signing`, no dependency code) first mounts each dmg read-only and checks that its
+   top level holds only `Chartmate.app`, the `Applications` link (to `/Applications`), the window background,
+   `.DS_Store` and `.VolumeIcon.icns`, and that the app verifies and has exactly the code directory hash `sign-mac`
+   recorded (before the key is even imported), then signs the dmg, notarizes and staples it, and checks it with
+   `spctl`.
+5. `check-mac-zips` (no secrets, no dependency code, only `macos-sign.sh` checked out) extracts each release zip
+   (what the updater downloads) with `ditto` and checks that it holds exactly `Chartmate.app`, that the app
+   verifies and that its code directory hash is the one `sign-mac` recorded. The release waits for it.
 
 The release job downloads exactly the three release artifacts by name and runs `scripts/check-release-assets.mjs`
-(repository root): the release must hold exactly the expected files for the version, and `latest-mac.yml` and
-`latest.yml` must match their files' SHA-512 and size.
+(repository root): the release must hold exactly the expected files for the version, `latest-mac.yml` must list
+both mac zips and `latest.yml` every Windows installer, each with the SHA-512 and size of the file, and their
+top-level `path` and `sha512` must name and match one of those files.
 
 Set up the repository once, in this order. The environment must exist with its tag rule, and hold the secrets,
 before the variable turns signing on: a job that names an environment which does not exist yet creates it, with
@@ -471,7 +477,8 @@ no protection rules, and the repository secrets would then reach it unguarded.
 2. Add these as `macos-signing` environment secrets, and delete any repository secrets of the same names (any
    workflow can read repository secrets, and they bypass the environment's rules): `CSC_LINK` (the base64 `.p12`,
    exported with its certificate chain), `CSC_KEY_PASSWORD`, and for notarization `APPLE_ID`,
-   `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` (without these three the build is signed, not notarized).
+   `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` (without these three a tag fails, unless the repository variable
+   `CHARTMATE_ALLOW_UNNOTARIZED_MAC` is `true`: then it is signed, not notarized).
 3. Set the repository variable `CHARTMATE_MAC_SIGN_IDENTITY` to the identity name exactly as
    `security find-identity -v -p codesigning` prints it. With the variable set but the secrets missing, the
    signing job fails: the build would otherwise ship an updater without a signature.

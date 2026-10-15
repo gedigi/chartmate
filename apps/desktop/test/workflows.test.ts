@@ -335,13 +335,32 @@ describe('desktop.yml secret scoping and release', () => {
       else expect(j.permissions, name).toBeUndefined();
     }
     expect(job('release').if).toMatch(/startsWith\(github\.ref, 'refs\/tags\/v'\)/);
-    expect(job('release').if).toContain("(!(startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != '') || needs.notarize-mac-dmg.result == 'success')");
+    expect(job('release').if).toContain("(!(startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != '') || (needs.notarize-mac-dmg.result == 'success' && needs.check-mac-zips.result == 'success'))");
+    expect(job('release').needs).toContain('check-mac-zips');
     expect(secretsOf('release')).toEqual([]);
     const run = runs(steps('release'));
     expect(run).toMatch(/--repo "\$GITHUB_REPOSITORY"/);
     expect(run).toMatch(/--prerelease/);
     expect(run).toContain('*-*) prerelease=(--prerelease)'); // only suffixed tags (v1.2.3-beta.1) are pre-releases
     expect(run).toMatch(/unsigned/i);
+  });
+
+  it('check-mac-zips: before release, each zip holds exactly the app sign-mac signed, with no secrets and no dependency code', () => {
+    const j = job('check-mac-zips');
+    expect(j.if).toBe(job('sign-mac').if);
+    expect(j.needs).toEqual(['sign-mac', 'dist-mac']);
+    expect(j.environment).toBeUndefined();
+    expect(secretsOf('check-mac-zips')).toEqual([]);
+    const s = steps('check-mac-zips');
+    for (const step of s) {
+      if (step.uses) expect(step.uses).toMatch(/^actions\/(checkout|download-artifact)@/);
+      expect(step.run ?? '').not.toMatch(/\b(pnpm|npm|npx|node|yarn|corepack|electron-builder)\b/);
+    }
+    expect(String(s[0]!.with?.['sparse-checkout']).trim()).toBe('/.github/scripts/macos-sign.sh');
+    const check = s.find((x) => x.name === 'The zips hold the signed apps')!;
+    expect(check.env).toEqual({ CDHASH_X64: '${{ needs.sign-mac.outputs.cdhash_x64 }}', CDHASH_ARM64: '${{ needs.sign-mac.outputs.cdhash_arm64 }}' });
+    expect(check.run).toContain('.github/scripts/macos-sign.sh check-zip "$zip" "$expected"');
+    expect(check.run).toContain('[ "$n" = 2 ]');
   });
 
   it('the release is Latest only when no higher full release exists, ranked without the token', () => {
