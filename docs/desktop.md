@@ -518,12 +518,13 @@ pnpm --filter @chartmate/desktop sign:win
 2. It reinstalls `node_modules` from the lockfile, then rebuilds the Windows app for the tag. CI's installers
    cannot be re-signed in place, because the app and the uninstaller are inside them.
 3. Right before packaging, it asks for the card PIN, if your setup has one (or takes `CHARTMATE_WIN_PKCS11_PIN`
-   from its own environment). The PIN is never put in electron-builder's environment, which every tool it starts
+   from its own environment, removing it there first thing so `git`, `gh` and `pnpm` never inherit it). The PIN
+   is never put in electron-builder's environment, which every tool it starts
    would inherit: it is written to an owner-only file (0600) in a fresh private temporary directory (0700), and
    electron-builder gets only that file's path as `CHARTMATE_WIN_PKCS11_PIN_FILE`. The sign hook
    (`build/win-sign.cjs`) reads and deletes the file on its first call, keeps the PIN in memory for the other
    files, and gives it to `osslsigncode` only (as `PKCS11_PIN`). The directory is removed when packaging ends,
-   whatever the outcome. The first rejected PIN stops all further signing attempts.
+   whatever the outcome, and on Ctrl-C or SIGTERM (the signal is then re-raised). The first rejected PIN stops all further signing attempts.
 4. It signs, then verifies everything.
 5. It shows the files and asks before replacing them on the GitHub Release with `gh release upload --clobber`.
    The repository comes from `gh` or `GITHUB_REPOSITORY`.
