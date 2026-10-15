@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../src/api/client';
 import { notifyBasketChanged, notifyBasketDeleted } from '../src/state/useBaskets';
 import { App } from '../src/App';
+import { drawingsStore } from '../src/state/drawingsStore';
 
 beforeEach(() => {
+  drawingsStore.reset();
   window.location.hash = '';
   vi.spyOn(api.layouts, 'get').mockResolvedValue(null);
   vi.spyOn(api.layouts, 'put').mockResolvedValue(undefined);
