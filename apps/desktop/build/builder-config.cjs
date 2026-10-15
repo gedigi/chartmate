@@ -60,6 +60,8 @@ function buildConfig(env = process.env) {
     removePackageScripts: true,
     removePackageKeywords: true,
     beforePack: writeThirdPartyNotices,
+    // macOS: keeps Electron's LICENSE and the Chromium credits in the app (electron-builder drops them).
+    afterExtract: './build/after-extract.cjs',
     afterPack: './build/after-pack.cjs',
     // The AGPL-3.0 text and the third-party notices, as plain files next to app.asar (Contents/Resources on
     // macOS, resources on Windows).
