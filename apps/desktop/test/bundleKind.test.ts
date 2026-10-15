@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import asar from '@electron/asar';
+import * as asar from '@electron/asar';
 import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);

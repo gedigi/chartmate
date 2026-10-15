@@ -64,6 +64,8 @@ app, the Docker image and the release tag share one version number.
   `runAsNonRoot` can verify it, and carries `LICENSE` and `THIRD_PARTY_NOTICES.txt` in `/app`.
 - `latest`, `X` and `X.Y` move only to the highest release in their range: a fix for an older line no longer
   moves them backward. The GitHub Release marked Latest follows the same rule.
+- Running from source now needs Node 26 and pnpm 12 (`corepack enable`; Node 26 no longer bundles corepack, so
+  install it first with `npm install --global corepack@0.36.0`).
 
 ### Data and security
 

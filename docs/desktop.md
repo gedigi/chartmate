@@ -36,6 +36,11 @@ otherwise.
   mode with `synchronous = NORMAL`: a committed change survives an app crash and the file never corrupts, but an
   OS crash or power loss can lose the last few commits. `FULL` would close that window with an fsync on every
   write, which layout and drawing autosaves make frequent; NORMAL is the chosen tradeoff.
+- **Electron's Node.js.** The main process and the embedded server run on the Node.js inside Electron (Node 24.21
+  in Electron 44), not on the Node 26 the workspace develops on. So `apps/desktop` typechecks against
+  `@types/node` 24 (which covers the server code it imports), esbuild targets `node24`, and runtime libraries it
+  bundles must support Node 24. A test keeps the target and the types on the
+  Node major Electron declares; move them together when Electron moves to a new Node major.
 - **One file.** esbuild bundles the desktop main process and the whole server into a single minified
   `dist/main.cjs` (~2.5 MB). The package holds only `package.json`, that file and its third-party license
   comments (`dist/main.cjs.LEGAL.txt`), the web build, the icon and, in signed builds only, the updater bundle
@@ -146,9 +151,11 @@ An invalid `CHARTMATE_PROVIDERS`, `CRYPTO_PROVIDER` (or, in the dev bundle, `BIN
 `CHARTMATE_USER_DATA_DIR`) stops the app at startup with a short error box naming the variable, with no stack or
 path, and exit code 1. The reason is also logged.
 
-A released (hardened) build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY` or `SSLKEYLOGFILE` is
-set. Node applies the first during pre-execution, before any app code runs, so the app cannot undo it, and the second
-would let TLS session keys be logged. `NODE_USE_SYSTEM_CA` is allowed: provider requests ignore it (see below).
+A released (hardened) build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE`,
+`UNDICI_USE_MILO` or `UNDICI_NO_WASM_SIMD` is set. Node applies the first during pre-execution, before any app code
+runs, so the app cannot undo it; the second would let TLS session keys be logged; the undici ones would swap the
+HTTP/1.1 parser of the provider fetch for another implementation. `NODE_USE_SYSTEM_CA` is allowed: provider requests
+ignore it (see below).
 
 `NODE_EXTRA_CA_CERTS` is dropped by Electron itself: the `EnableNodeOptionsEnvironmentVariable` fuse covers it
 along with `NODE_OPTIONS`. The guard still refuses it if it ever got through.
@@ -157,7 +164,8 @@ Independently of that, provider requests never use Node's global dispatcher. The
 `Agent` (`src/lib/directFetch.ts`) that connects directly, ignoring `HTTP(S)_PROXY`, and trusts only Node's
 bundled root store (`tls.rootCertificates`). This restricts trust to that root store; it is not certificate
 pinning, so any certificate chaining to a bundled root is accepted. Real Node and Electron child processes prove
-this (`test/directFetch.test.ts`).
+this (`test/directFetch.test.ts`). The Agent speaks HTTP/1.1 only (`allowH2: false`; undici 8 would otherwise
+negotiate HTTP/2), and undici 8 needs Node 22.19 or later, which Electron 44's Node 24 satisfies.
 
 Provider traffic is therefore **direct-only**. Corporate HTTP proxies are not supported, and neither are
 TLS-inspecting middleboxes, which need their own root certificate. On such networks the desktop app cannot reach
@@ -188,7 +196,8 @@ The renderer is treated as untrusted web content, and the main process exposes n
   crashed renderer is reloaded at most 3 times per minute. After that, a static error page is shown once, and if
   that page crashes too, the window is closed with an error dialog. There is never a reload loop.
 - **Command-line switches and environment** (`src/boot.ts`, the first module evaluated): a hardened build exits
-  with code 1 if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE` or `NODE_EXTRA_CA_CERTS` is set (see
+  with code 1 if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE`, `NODE_EXTRA_CA_CERTS`, `UNDICI_USE_MILO` or
+  `UNDICI_NO_WASM_SIMD` is set (see
   [Network and environment](#network-and-environment)), or any of these switches is present (`--x`, `-x`, and `/x`
   on Windows):
 

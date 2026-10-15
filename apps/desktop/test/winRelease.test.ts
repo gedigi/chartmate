@@ -9,7 +9,7 @@ import * as verifyScript from '../scripts/verify-win-signatures.mjs';
 import { buildAffectingIgnored, builderEnv, rewriteReleaseNotes, sourceRefEnv, stopChild, takePin, taskkillPath, windowsAssets, withSignalCleanup, writePinFile } from '../scripts/sign-win-release.mjs';
 
 const {
-  appUpdateProblems, commonName, latestYmlProblems, parseOsslVerify, parseSigntoolVerify, signatureProblems, signLogProblems, zipExtractCommand,
+  appUpdateProblems, commonName, latestYmlProblems, latestYmlTextProblems, parseOsslVerify, parseSigntoolVerify, signatureProblems, signLogProblems, zipExtractCommand,
 } = verifyScript;
 
 describe('verify-win-signatures', () => {
@@ -38,6 +38,14 @@ describe('verify-win-signatures', () => {
     expect(signatureProblems('x.exe', sig, 'A')).toEqual([]);
     expect(signatureProblems('x.exe', { ...sig, sha256: undefined }, 'A')).toEqual([]); // Windows: not reported
     expect(signatureProblems('x.exe', { ok: false, cn: 'B', timestamped: false, sha256: false }, 'A')).toHaveLength(4);
+  });
+
+  it('a latest.yml that does not parse is reported as such', () => {
+    const files = { 'C-win.exe': { size: 1, sha512: 'a' } };
+    for (const text of ['', '# nothing\n', 'files: [unclosed']) {
+      expect(latestYmlTextProblems(text, files, Object.keys(files)), JSON.stringify(text)).toEqual([expect.stringMatching(/^latest\.yml is not valid YAML \(.+\)$/)]);
+    }
+    expect(latestYmlTextProblems('path: C-win.exe\nsha512: a\nfiles:\n  - url: C-win.exe\n    size: 1\n    sha512: a\n', files, Object.keys(files))).toEqual([]);
   });
 
   it('latest.yml must describe exactly the signed installers on disk', () => {
@@ -85,6 +93,9 @@ describe('verify-win-signatures: tools and updater config', () => {
     expect(appUpdateProblems('win-unpacked', 'provider: github\npublisherName: Jane Doe\n', 'Jane Doe')).toEqual([]);
     expect(appUpdateProblems('win-unpacked', 'provider: github\n', 'Jane Doe')).toHaveLength(1);
     expect(appUpdateProblems('win-unpacked', 'publisherName:\n  - Someone\n', 'Jane Doe')).toHaveLength(1);
+    // An empty or comment-only file is a reported problem, not a crash.
+    expect(appUpdateProblems('win-unpacked', '', 'Jane Doe')).toHaveLength(1);
+    expect(appUpdateProblems('win-unpacked', '# nothing\n', 'Jane Doe')).toHaveLength(1);
     expect(appUpdateProblems('win-unpacked', null, 'Jane Doe')).toHaveLength(1);
   });
 });
