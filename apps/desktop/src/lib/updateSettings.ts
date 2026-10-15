@@ -1,11 +1,11 @@
-import { closeSync, fsyncSync, lstatSync, openSync, readFileSync, renameSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, constants, fstatSync, fsyncSync, lstatSync, openSync, readSync, renameSync, rmSync, writeSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 
 /**
  * The persisted "Check for updates automatically" choice: `<userData>/update-settings.json`. The file name is fixed
  * (callers pass only the directory), the schema is strict (exactly one boolean), reads refuse anything that is not a
- * small regular file (no symlinks), and writes are atomic and owner-only. Anything invalid falls back to the
+ * small regular file (no symlinks, no FIFOs), and writes are atomic and owner-only. Anything invalid falls back to the
  * defaults; nothing here ever throws.
  */
 export const UPDATE_SETTINGS_FILE = 'update-settings.json';
@@ -27,23 +27,59 @@ export function parseUpdateSettings(raw: unknown): UpdateSettings | null {
   return typeof v === 'boolean' ? { checkAutomatically: v } : null;
 }
 
-export function loadUpdateSettings(dir: string, onInvalid?: (problem: string) => void): UpdateSettings {
-  const file = join(dir, UPDATE_SETTINGS_FILE);
-  let text: string;
+/**
+ * Reads through one descriptor: opened with O_NOFOLLOW (a symlink fails to open) and O_NONBLOCK (a FIFO cannot
+ * block the startup), then fstat on that same descriptor, so what is checked is what is read. Windows has neither
+ * flag; there an lstat first refuses links (junctions/symlinks need privileges to plant in the user's own profile).
+ */
+function readSettingsFile(file: string, onInvalid?: (problem: string) => void): string | null {
+  const { O_RDONLY, O_NOFOLLOW, O_NONBLOCK } = constants as Record<string, number | undefined>;
+  if (O_NOFOLLOW === undefined) {
+    try {
+      if (!lstatSync(file).isFile()) {
+        onInvalid?.('update settings: not a regular file, using defaults');
+        return null;
+      }
+    } catch {
+      return null;
+    }
+  }
+  let fd: number;
   try {
-    const st = lstatSync(file);
+    fd = openSync(file, (O_RDONLY ?? 0) | (O_NOFOLLOW ?? 0) | (O_NONBLOCK ?? 0));
+  } catch (err) {
+    // Missing (first run) is normal; a symlink fails with ELOOP (or EMLINK on some systems).
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ELOOP' || code === 'EMLINK') onInvalid?.('update settings: not a regular file, using defaults');
+    return null;
+  }
+  try {
+    const st = fstatSync(fd);
     if (!st.isFile()) {
       onInvalid?.('update settings: not a regular file, using defaults');
-      return { ...DEFAULT_UPDATE_SETTINGS };
+      return null;
     }
     if (st.size > MAX_SETTINGS_BYTES) {
       onInvalid?.('update settings: file too large, using defaults');
-      return { ...DEFAULT_UPDATE_SETTINGS };
+      return null;
     }
-    text = readFileSync(file, 'utf8');
+    const buf = Buffer.alloc(MAX_SETTINGS_BYTES + 1);
+    const n = readSync(fd, buf, 0, buf.length, 0);
+    if (n > MAX_SETTINGS_BYTES) {
+      onInvalid?.('update settings: file too large, using defaults');
+      return null;
+    }
+    return buf.subarray(0, n).toString('utf8');
   } catch {
-    return { ...DEFAULT_UPDATE_SETTINGS }; // missing (first run) or unreadable
+    return null;
+  } finally {
+    closeSync(fd);
   }
+}
+
+export function loadUpdateSettings(dir: string, onInvalid?: (problem: string) => void): UpdateSettings {
+  const text = readSettingsFile(join(dir, UPDATE_SETTINGS_FILE), onInvalid);
+  if (text === null) return { ...DEFAULT_UPDATE_SETTINGS };
   let parsed: UpdateSettings | null = null;
   try {
     parsed = parseUpdateSettings(JSON.parse(text));

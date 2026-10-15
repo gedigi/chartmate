@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { lstatSync, mkdtempSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -44,6 +45,20 @@ describe('loadUpdateSettings', () => {
     const d = dir();
     writeFileSync(join(d, UPDATE_SETTINGS_FILE), `{"checkAutomatically":false${' '.repeat(MAX_SETTINGS_BYTES)}}`);
     expect(loadUpdateSettings(d)).toEqual(DEFAULT_UPDATE_SETTINGS);
+  });
+  it.runIf(process.platform !== 'win32')('refuses a FIFO without blocking on it', () => {
+    const d = dir();
+    execFileSync('mkfifo', [join(d, UPDATE_SETTINGS_FILE)]);
+    const problems: string[] = [];
+    expect(loadUpdateSettings(d, (p) => problems.push(p))).toEqual(DEFAULT_UPDATE_SETTINGS);
+    expect(problems.join()).toMatch(/not a regular file/);
+  });
+  it('reads through a single descriptor (open with O_NOFOLLOW, then fstat), not lstat-then-read', () => {
+    const src = readFileSync(new URL('../src/lib/updateSettings.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/O_NOFOLLOW/);
+    expect(src).toMatch(/O_NONBLOCK/);
+    expect(src).toMatch(/fstatSync\(fd\)/);
+    expect(src).not.toMatch(/readFileSync\(file/);
   });
   it.runIf(process.platform !== 'win32')('refuses a symlink (never reads a file elsewhere)', () => {
     const d = dir();
