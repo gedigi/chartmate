@@ -16,7 +16,10 @@
   .chart-save-notes > .save-note { gap: 5px; padding-left: 8px; }
   .chart-save-notes .save-note-retry { padding: 0 7px; }
   .chart-save-notes .save-note-discard { padding: 0 2px; }
-  .chart-save-notes .save-note-long { display: none; }
+  /* Visually hidden, not display: none, so screen readers still read the full sentence (the short copy is aria-hidden). */
+  .chart-save-notes .save-note-long {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
   .chart-save-notes .save-note-short { display: inline; }
 }
 .chart-toprow > .indicator-chips { flex: 1 1 auto; min-width: 0; }
