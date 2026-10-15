@@ -1,5 +1,8 @@
 // Policy checks for the GitHub Actions workflows (least privilege, pinned actions, scoped secrets).
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 
@@ -405,6 +408,29 @@ describe('desktop.yml secret scoping and release', () => {
     // "Unsigned" is claimed only from the method actually used (a fallback may still be signed another way).
     const failedBlock = /if \[ "\$WIN_SIGN_FAILED" = true \]; then\n[\s\S]*?fi/.exec(notes.run!)![0];
     expect(failedBlock).not.toMatch(/unsigned/i);
+  });
+
+  it('a signing setting that signing.cjs rejects stops the job instead of building unsigned', () => {
+    // A command substitution inside `[ ... ]` hides node's exit status from set -e; each one is assigned first.
+    for (const name of Object.keys(wf.jobs)) {
+      for (const step of steps(name)) expect(step.run ?? '', `${name}: ${step.name}`).not.toMatch(/\[ "\$\(node /);
+    }
+    const login = steps('package-win').find((x) => x.name === 'Certum SimplySign login')!;
+    // Run the login step's script with a node that throws like signing.cjs on a half-configured Certum setup.
+    const dir = mkdtempSync(join(tmpdir(), 'certum-step-'));
+    try {
+      for (const [tool, body] of [['node', 'echo "Error: Certum signing: set both" >&2; exit 1'], ['pwsh', 'exit 0']]) {
+        writeFileSync(join(dir, tool!), `#!/bin/sh\n${body}\n`);
+        chmodSync(join(dir, tool!), 0o755);
+      }
+      const out = join(dir, 'output');
+      writeFileSync(out, '');
+      const r = spawnSync('/bin/bash', ['-e', '-c', login.run!], { env: { PATH: `${dir}:/usr/bin:/bin`, GITHUB_OUTPUT: out, RUNNER_TEMP: dir }, encoding: 'utf8' });
+      expect(r.status).not.toBe(0);
+      expect(readFileSync(out, 'utf8')).toBe('');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('Certum: tag builds run in the windows-signing environment, other runs in none', () => {

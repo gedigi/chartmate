@@ -392,7 +392,9 @@ jobs:
           CHARTMATE_CERTUM_TOTP_ALGORITHM: ${{ vars.CHARTMATE_CERTUM_TOTP_ALGORITHM }}
         run: |
           set -euo pipefail
-          if [ "$(node -p "require('./apps/desktop/build/signing.cjs').signingFor(process.env, 'win32').certum")" != ci-login ]; then
+          # Assigned first, so a setting signing.cjs rejects (half-configured Certum) fails this step under set -e.
+          backend="$(node -p "require('./apps/desktop/build/signing.cjs').signingFor(process.env, 'win32').certum")"
+          if [ "$backend" != ci-login ]; then
             echo "login_failed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -460,7 +462,8 @@ jobs:
               grep -qE 'Certum signing failed|refusing further attempts' "$RUNNER_TEMP/electron-builder.log" && return 3
               return 1
             fi
-            if [ "$(node -p "require('./build/signing.cjs').signingFor(process.env, 'win32').certum")" != null ]; then
+            backend="$(node -p "require('./build/signing.cjs').signingFor(process.env, 'win32').certum")" || return 1
+            if [ "$backend" != null ]; then
               # Every installer, uninstaller and chartmate.exe signed by the publisher and timestamped; latest.yml matches.
               node scripts/verify-win-signatures.mjs release ${CHARTMATE_WIN_SIGN_LOG:+--sign-log="$CHARTMATE_WIN_SIGN_LOG"} || return 2
             fi
@@ -483,7 +486,8 @@ jobs:
             unset CHARTMATE_WIN_CERT_SHA1 CHARTMATE_WIN_SIGN_LOG
             build
           fi
-          echo "signing=$(node -p "require('./build/signing.cjs').signingFor(process.env, 'win32').method")" >> "$GITHUB_OUTPUT"
+          method="$(node -p "require('./build/signing.cjs').signingFor(process.env, 'win32').method")"
+          echo "signing=$method" >> "$GITHUB_OUTPUT"
           echo "sign_failed=$sign_failed" >> "$GITHUB_OUTPUT"
       # Ends the certificate session as soon as packaging is done (before the smoke tests run any more code).
       - name: Close SimplySign Desktop
