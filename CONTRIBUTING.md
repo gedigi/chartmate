@@ -49,7 +49,8 @@ Write the failing test first, then the code; a bug fix comes with a regression t
 - **Language**: American English in code, comments, UI strings and docs; sentence case for UI labels.
   Describe Chartmate on its own terms: do not name or compare it to other charting products.
 - **Docs**: a change to behavior, a command, an env var or a default updates the README (or `docs/desktop.md`) in
-  the same pull request. A change users will notice also gets a line in the next version's `CHANGELOG.md` section.
+  the same pull request. A change users will notice also gets a line in the `## Unreleased` section at the top of
+  `CHANGELOG.md` (renamed to the version at release time).
 - **UI changes**: attach screenshots of the running app in **both** the dark and the light theme.
 - **Dependencies**: only licenses compatible with AGPL-3.0 (MIT, BSD, ISC, Apache-2.0, MPL-2.0 and similar).
 
@@ -278,21 +279,28 @@ request.
 
 Give the indicator a `catalog.description` (the picker tooltip) when its label alone does not say what it shows.
 If users need to know more (session anchoring, timeframes it does not support, unusual params), add it to the
-README's "Indicators" section (under "Using Chartmate") in the same pull request, and a line to the next version's
-section of `CHANGELOG.md`.
+README's "Indicators" section (under "Using Chartmate") in the same pull request, and a line to the
+`## Unreleased` section of `CHANGELOG.md`.
 
 ## Releases
 
 A release is a pushed `vX.Y.Z` tag. The tag builds and publishes everything; nothing is uploaded by hand.
 
-1. On `main`, add a section to [CHANGELOG.md](CHANGELOG.md) (`## [X.Y.Z] - YYYY-MM-DD`, plain language, what users
-   will notice) and set `"version": "X.Y.Z"` in `apps/desktop/package.json`, the product version the desktop app
-   reports. A test fails while the desktop version has no changelog section.
+1. On `main`, rename the `## Unreleased` section at the top of [CHANGELOG.md](CHANGELOG.md) to
+   `## [X.Y.Z] - YYYY-MM-DD` (pull requests record user-visible changes there in plain language as they land; add
+   anything missing), and set `"version": "X.Y.Z"` in `apps/desktop/package.json`, the product version the
+   desktop app reports. A test fails while the desktop version has no changelog section. Start a new empty
+   `## Unreleased` section after the release.
 2. Run the full checks (`pnpm audit`, `pnpm typecheck`, `pnpm test`, `pnpm e2e`) and merge.
 3. Tag the merge commit and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. A suffixed tag
    (`vX.Y.Z-beta.1`) makes a pre-release. Who can create `v*` tags, and whether they can be moved or deleted,
    depends on the repository's tag rulesets (docs/desktop.md recommends restricting creation to the owner and
    blocking updates and deletions).
+4. **TODO (after the next release, the first one with the `compose.yaml` asset):** switch the README's
+   [Recommended install](README.md#recommended-install-docker-compose) from the `raw.githubusercontent.com/…/main`
+   URLs to the release assets (`https://github.com/<repository>/releases/latest/download/compose.yaml` and
+   `…/env.example`), and
+   update `apps/server/test/selfhost-docs.test.ts`, which pins those URLs. Then delete this step.
 
 What the tag runs:
 
@@ -300,7 +308,9 @@ What the tag runs:
   dmg + zip) and Windows (x64, arm64: NSIS installer + zip), and creates the GitHub Release. Its notes are the
   tag's `CHANGELOG.md` section followed by a table saying how each platform was signed. Signing setup (Apple
   Developer ID and notarization, the Certum certificate for Windows, the manual `sign:win` fallback):
-  [docs/desktop.md](docs/desktop.md#signing-notarization-updates).
+  [docs/desktop.md](docs/desktop.md#signing-notarization-updates). The release also gets the tag's `compose.yaml`
+  and `.env.example` (as `env.example`: GitHub renames assets that start with a dot), so
+  `releases/latest/download/compose.yaml` always matches the latest image.
 - `.github/workflows/docker.yml`: tests, smoke-tests the amd64 and arm64 images (`scripts/docker-smoke.sh`), then
   pushes the multi-arch image to `ghcr.io/gedigi/chartmate` with provenance and SBOM attestations.
 

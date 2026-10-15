@@ -117,6 +117,21 @@ describe('desktop.yml secret scoping and release', () => {
     expect(table).toBeGreaterThan(body);
   });
 
+  it('the release attaches the self-hosting compose.yaml and env.example from the tagged commit', () => {
+    const steps = wf.jobs.release.steps as Step[];
+    const checkout = steps.find((s) => s.uses?.startsWith('actions/checkout@'))!;
+    const sparse = String(checkout.with?.['sparse-checkout'] ?? '');
+    expect(sparse).toContain('compose.yaml');
+    expect(sparse).toContain('.env.example');
+    // GitHub renames assets with a leading dot, so the template ships as env.example.
+    const stage = steps.find((s) => s.name === 'Self-hosting files')!;
+    expect(stage.run).toContain('cp compose.yaml dist/compose.yaml');
+    expect(stage.run).toContain('cp .env.example dist/env.example');
+    expect(JSON.stringify(stage)).not.toMatch(/GH_TOKEN|github\.token|secrets\./);
+    const create = steps.find((s) => /Create the GitHub Release/.test(s.name ?? ''))!;
+    expect(create.run).toMatch(/dist\/compose\.yaml dist\/env\.example/);
+  });
+
   it('a tag build fails early unless the tag equals the desktop app version', () => {
     const steps = wf.jobs.test.steps as Step[];
     const check = steps.find((s) => s.name === 'Tag matches the desktop version')!;
