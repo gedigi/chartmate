@@ -49,7 +49,7 @@ const PositionDefaultsSchema = z.object({ targetPct: Pct, stopPct: Pct });
 
 /**
  * Normalized drawing styles; unknown keys (e.g. raw KLineChart styles, or the `position` sizing settings of positions
- * saved when they were sized) are stripped. Tolerant per part: an invalid `line`, `text`, `label` or `extend` part is
+ * saved when they were sized) are stripped. Tolerant per part: an invalid `line`, `text`, `label`, `extend` or `fill` part is
  * dropped on its own so valid parts survive; if no valid part remains, styles are dropped.
  */
 const DrawingStylesSchema = z.object({
@@ -59,17 +59,21 @@ const DrawingStylesSchema = z.object({
   text: z.object({ color: DrawingColor, size: z.number().int().min(MIN_TEXT_SIZE).max(MAX_TEXT_SIZE) }).optional().catch(undefined),
   label: z.object({ onLine: z.boolean().optional(), onAxis: z.boolean().optional() }).optional().catch(undefined),
   extend: z.object({ left: z.boolean().optional(), right: z.boolean().optional() }).optional().catch(undefined),
+  // Rectangles: the tint inside (missing → filled).
+  fill: z.boolean().optional().catch(undefined),
 }).transform((s) => {
   const out: {
     line?: z.infer<typeof DrawingLineStyleSchema>; color?: string; text?: { color: string; size: number }; label?: { onLine?: boolean; onAxis?: boolean };
     extend?: { left?: boolean; right?: boolean };
+    fill?: boolean;
   } = {};
   if (s.line) out.line = s.line;
   if (s.color) out.color = s.color;
   if (s.text) out.text = s.text;
   if (s.label && (s.label.onLine !== undefined || s.label.onAxis !== undefined)) out.label = s.label;
   if (s.extend && (s.extend.left !== undefined || s.extend.right !== undefined)) out.extend = s.extend;
-  return out.line || out.color || out.text || out.label || out.extend ? out : undefined;
+  if (s.fill !== undefined) out.fill = s.fill;
+  return out.line || out.color || out.text || out.label || out.extend || out.fill !== undefined ? out : undefined;
 });
 
 const IndicatorSchema = z.object({
@@ -108,6 +112,17 @@ const DrawingSchema = z.object({
   text: z.string().max(500).optional(), anchorTf: z.enum(['1D', '1W', '1M']).optional(),
   // Tolerant: invalid / legacy styles are dropped (the drawing itself is still saved).
   styles: DrawingStylesSchema.optional().catch(undefined),
+}).superRefine((d, ctx) => {
+  // A rectangle is its two opposite corners (the web app derives its other handles from them).
+  if (d.name === 'rectangle' && (d.points.length !== 2 || !d.points.every((p) => Number.isFinite(p.timestamp) && Number.isFinite(p.value)))) {
+    ctx.addIssue({ code: 'custom', path: ['points'], message: 'a rectangle has exactly two finite corners' });
+  }
+}).transform((d) => {
+  // The fill option belongs to rectangles: dropped from any other drawing (with its styles if nothing else is left).
+  if (d.name === 'rectangle' || d.styles?.fill === undefined) return d;
+  const { fill: _fill, ...styles } = d.styles;
+  const { styles: _styles, ...rest } = d;
+  return Object.keys(styles).length > 0 ? { ...rest, styles } : rest;
 }) satisfies z.ZodType<DrawingState>;
 
 const WatchlistEntrySchema = z.discriminatedUnion('type', [

@@ -504,7 +504,7 @@ Where to read next:
 ### Drawings
 
 - **Drawing tools** (toolbar on the left of the chart): trend line, ray, extended line, horizontal line,
-  vertical line, price line, parallel channel, Fibonacci retracement, text, long position and short
+  vertical line, price line, parallel channel, rectangle, Fibonacci retracement, text, long position and short
   position; plus magnet, lock all, delete selected (**Delete** / **Backspace**) and clear all. **Escape**
   cancels the active tool and deselects the drawing.
 - **Drawings** are saved per symbol on the server (debounced ~1 s after each change; a failed save is retried
@@ -564,7 +564,7 @@ Where to read next:
   free. Combined with ⌘/Ctrl, the snap picks the anchor price and Shift keeps the line flat.
 - **Copy and paste**: **⌘C** / **⌘V** (macOS) or **Ctrl+C** / **Ctrl+V** (other systems) copy the selected
   drawing and paste a copy, which is selected and saved like a newly drawn drawing. Every drawing type works,
-  with its style and options (channel extend, price labels, text, position prices). The clipboard lives in
+  with its style and options (channel extend, rectangle fill, price labels, text, position prices). The clipboard lives in
   Chartmate only (the system clipboard is never read or written): it is kept across symbols, timeframes and a
   visit to Baskets, and emptied by a page reload (or restarting the desktop app). A locked drawing can be
   copied; the copy is unlocked unless **Lock all drawings** is on. Where the copy lands:
@@ -598,6 +598,31 @@ Where to read next:
   - **Legacy channels** (`parallelStraightLine`, drawn by older versions as infinite channels) still look exactly
     as before (infinite, no fill): a missing `extend` means both sides extended. They get the same toggles (turning a
     side off is saved as `extend: { left: false }`).
+- **Rectangles** (**⌥R** / **Alt+R**) mark a zone in time and price: click one corner, then the opposite one
+  (the magnet and ⌘/Ctrl snap the corners like other drawings). Both corners are anchored to their bar time and
+  price, so the box stays put across timeframes, zoom levels and regular / extended hours. Two clicks in the same bar
+  or at the same price make no box, so nothing is drawn. A saved rectangle that collapses on another timeframe
+  (both corners in one bar) is kept, and its border can still be grabbed.
+  - **Editing**: a selected rectangle has eight handles. Drag a corner to move the two edges it touches, an edge's
+    midpoint to move that edge only, or the inside (or the border) to move the whole box. Dragging a corner past the
+    opposite one simply flips the box. On a box narrower or shorter than about three handles, the midpoints along
+    that side are hidden, so the corners are easy to grab. A box too narrow for two handles side by side shows
+    a single centered column instead (top and bottom resize it vertically, the middle one widens it again), and a
+    very short box a single centered row. The time axis shows the start and end times, the left
+    one ending at its time and the right one starting at its time, kept inside the axis.
+    On a narrow box, or when they would run into each other, they merge into one "start – end" label (naming the
+    day once for a range within one day).
+  - **Look**: a crisp, pixel-aligned border in the drawing's color, width and line style (solid, dashed, dotted),
+    and a fill: a light tint of the same hue on the chart background (as for channels and position zones, never
+    pink or brown), tuned per theme to read clearly but calmly, a touch firmer than a channel, always lighter than
+    position zones and at most 14% opacity, so the candles inside keep their colors. **Fill** in the style bar
+    turns it off; an unfilled rectangle is then selected by its border only.
+  - A right click inside the fill is ignored (a right click on the border removes an unlocked rectangle, as for
+    other drawings). Locking, copy and paste (5 bars to the right of an identical box), Delete and theme
+    recoloring work as for other drawings.
+  - **Stored** as `rectangle` drawings with exactly two points (the two clicked corners; the server refuses any
+    other count or a non-finite value) and optional `styles.fill: false` (only saved when the fill is off).
+    The server drops `fill` from any other drawing.
 
 ### Long and short positions
 
@@ -625,6 +650,8 @@ R:R and the outcome in %, with no account, risk, quantity or money amounts.
   When a target / stop handle sits exactly on the entry handle (e.g. typed prices one tick apart when zoomed
   out) the target / stop handle is on top, so the two can always be separated; the entry line and the zones
   still move the whole position.
+- **Time axis**: a selected position shows its start and end times on the time axis like a rectangle: apart,
+  pointing away from each other, kept inside the axis and merged into one "start – end" label when close.
 - **Settings bar** (select the position): precise Entry / Target / Stop fields (Enter or leave the field to
   apply, Escape reverts; long needs stop < entry < target, short target < entry < stop, otherwise an inline
   error), target / stop distance as % of the entry and in ticks (1 tick = 10^-precision), kept in sync,
@@ -678,7 +705,7 @@ it.
 | Keys | Action |
 | --- | --- |
 | ⌘K | Focus the symbol search |
-| ⌥T / ⌥H | Start a trend line / a horizontal line (again: cancel) |
+| ⌥T / ⌥H / ⌥R | Start a trend line / a horizontal line / a rectangle (again: cancel) |
 | Delete, Backspace | Delete the selected drawing (unless locked) |
 | Escape | Cancel the drawing tool, deselect the drawing, end the measure |
 | ⌘C / ⌘V | Copy the selected drawing / paste it |
