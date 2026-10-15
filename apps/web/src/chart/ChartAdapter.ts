@@ -582,10 +582,11 @@ export class ChartAdapter {
     const lineCount = catalogEntry(name)?.lines.length ?? 0;
     if (hasLines || (reset && (reset.lineColors || reset.lineWidths || reset.lineStyles)) || (force && lineCount > 0)) {
       const defaults = this.defaultLines(name);
-      // Forced writes (create / theme re-apply) cover every catalog line, so lines past a partial override array
-      // still get the theme palette instead of KLineChart's defaults; plain updates write the overridden lines only.
+      // Every catalog line is written, always: KLineChart merges style arrays by index, so a line past a shorter
+      // override array would otherwise keep its previous override (and lines past a partial array would keep
+      // KLineChart's defaults instead of the theme palette). Uncatalogued indicators: the longer of both lists.
       const overridden = Math.max(o.lineColors?.length ?? 0, o.lineWidths?.length ?? 0, o.lineStyles?.length ?? 0);
-      const n = force && lineCount > 0 ? lineCount : hasLines && force !== 'all-lines' ? overridden : lineCount > 0 ? lineCount : defaults.length;
+      const n = lineCount > 0 ? lineCount : Math.max(overridden, defaults.length);
       styles.lines = Array.from({ length: n }, (_, i) => {
         const d = defaults[i % defaults.length]!;
         const style = o.lineStyles?.[i] ?? 'solid';

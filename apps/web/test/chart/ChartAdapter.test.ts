@@ -211,7 +211,8 @@ describe('ChartAdapter', () => {
     const id = a.addIndicator({ name: 'MA', pane: 'main', calcParams: [20] });
     a.updateIndicator(id, { calcParams: [50], visible: false, lineColors: ['#fff'] });
     expect(chart().overrideIndicator).toHaveBeenCalledWith(expect.objectContaining({
-      id, calcParams: [50], visible: false, styles: { lines: [expect.objectContaining({ color: '#fff', size: 1, style: 'solid' })] },
+      id, calcParams: [50], visible: false,
+      styles: { lines: [expect.objectContaining({ color: '#fff', size: 1, style: 'solid' }), ...MA_DARK.slice(1).map((color) => expect.objectContaining({ color }))] },
     }));
     expect(a.listIndicators()).toEqual([expect.objectContaining({ id, calcParams: [50], visible: false, lineColors: ['#fff'] })]);
     a.removeIndicator(id);
@@ -982,6 +983,13 @@ describe('ChartAdapter', () => {
       expect(lineColors(calls.find((c) => c.id === dense && c.styles?.lines))).toEqual([MA_LIGHT[0], '#654321', MA_LIGHT[2]]);
     });
 
+    it('an update to a shorter sparse color list writes every line: a dropped override returns to the theme default', () => {
+      const a = make();
+      const id = a.addIndicator({ name: 'RSI', pane: 'sub', lineColors: ['', '', '#abcabc'] });
+      a.updateIndicator(id, { lineColors: ['#defdef'] });
+      expect(lineColors(chart().overrideIndicator.mock.calls.at(-1)![0])).toEqual(['#defdef', MA_DARK[1], MA_DARK[2]]);
+    });
+
     it('a theme toggle re-applies the default side of partial bar colors', () => {
       const a = make();
       const id = a.addIndicator({ name: 'VOL', pane: 'sub', barColors: { up: '#00ff00', down: THEME_TOKENS.dark.down } });
@@ -1075,6 +1083,7 @@ describe('ChartAdapter', () => {
       expect(o.styles.lines).toEqual([
         expect.objectContaining({ style: 'solid', lineCap: 'butt' }),
         expect.objectContaining({ style: 'dashed', dashedValue: [4, 4], lineCap: 'butt' }),
+        expect.objectContaining({ style: 'solid', lineCap: 'butt' }), // every line is written (index-merged arrays)
       ]);
     });
 
