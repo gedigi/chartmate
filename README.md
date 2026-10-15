@@ -441,8 +441,10 @@ Where to read next:
   position; plus magnet, lock all, delete selected (**Delete** / **Backspace**) and clear all. **Escape**
   cancels the active tool and deselects the drawing.
 - **Drawings** are saved per symbol on the server (debounced ~1 s after each change; a failed save is retried
-  with backoff, 2 s, 5 s, 10 s, then every 30 s, and a toast says so; after about 4 minutes it stops and a
-  "Drawings not saved" banner offers **Retry**). Points are stored in
+  with backoff, 2 s, 5 s, 10 s, then every 30 s, while a small amber note reads "AAPL drawings not saved.
+  Retrying…"; after about 4 minutes it stops at "AAPL drawings not saved." with **Retry**). Unsaved drawings stay
+  with their symbol: switching symbols keeps retrying them (the note names the symbol), and coming back restores
+  them from memory. Points are stored in
   time/price coordinates (bar timestamp + price), not pixels, so they stay anchored to the same price and
   time across timeframes, zoom levels and window sizes.
 - **Drawing styles**: selecting a drawing shows a small style bar at the top of the chart (color, width,
@@ -633,9 +635,10 @@ field, adding, removing and reordering are off, so nothing you do is replaced by
 cannot be reached, a muted "Can't reach the server. Retrying…" line shows (the error itself in its tooltip) and
 the load is retried with backoff (2 s, 5 s, 10 s, then every 30 s); a load the server refuses for good (a 4xx
 error) is not retried and the list stays read-only. Changes are saved about half a second after each edit; a
-failed save is retried the same way ("Not saved yet. Retrying…"), and after about 4 minutes (10 retries) it
-stops and shows "Changes not saved." with a **Retry** button, so a tab left open offline never keeps writing an
-old list over changes made elsewhere. A save the server rejects (a 4xx error) shows in the error color.
+failed save is retried the same way ("Watchlist not saved. Retrying…"), and after about 4 minutes (10 retries)
+it stops at "Watchlist not saved." with a **Retry** button, so a tab left open offline never keeps writing an old
+list over changes made elsewhere. The layout and drawings use the same small amber note; only a save the server
+rejects for good (a 4xx error) shows in the error color, until the next change.
 
 Below the list, a **detail panel** shows the open symbol: market status (stocks: open / pre-market / after hours /
 closed from the New York clock and the quote's freshness; crypto trades around the clock), the day range as a

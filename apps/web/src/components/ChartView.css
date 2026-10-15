@@ -64,8 +64,7 @@
   color: var(--error);
   border: 1px solid var(--error);
 }
-.chart-banner:has(.chart-banner-action) { display: flex; align-items: center; gap: 10px; padding-right: 5px; }
-.chart-banner-action { min-height: 22px; padding: 0 8px; font-size: 12px; border-radius: 6px; color: var(--text); }
+/* Unsaved drawings use the calm save note (styles.css .save-note), the warn counterpart of .chart-banner. */
 
 /* Opaque: nothing of the previous symbol may show through. */
 .chart-error-panel { position: absolute; inset: 0; z-index: 7; background: var(--bg); color: var(--error); text-align: center; padding: 16px; }

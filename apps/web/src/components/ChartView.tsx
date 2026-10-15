@@ -1,12 +1,12 @@
 import { isIntraday, parseSymbolId, type DrawingState, type IndicatorState, type Layout, type SymbolId, type SymbolInfo } from '@chartmate/shared';
-import { memo, useEffect, useRef, useState, type JSX } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import { api, errorMessage } from '../api/client';
 import { ChartAdapter, type IndicatorSpec } from '../chart/ChartAdapter';
 import { migrateCalcParams } from '../chart/indicators/catalog';
 import type { LoaderMeta } from '../chart/dataLoader';
 import { pollIntervalMs } from '../chart/periods';
 import { onBasketChanged } from '../state/useBaskets';
-import { useDebouncedSave } from '../state/useDebouncedSave';
+import { DrawingsSave } from './DrawingsSave';
 import { retryDelayMs } from '../state/retry';
 import { DrawingStyleBar } from './DrawingStyleBar';
 import { DrawingToolbar } from './DrawingToolbar';
@@ -233,7 +233,20 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
 
   // Drawings: restore per symbol; save debounced after user edits (only once the symbol's drawings loaded).
   const [drawingsFor, setDrawingsFor] = useState<SymbolId | null>(null);
-  const [drawingsValue, setDrawingsValue] = useState<{ symbol: SymbolId; drawings: DrawingState[] } | null>(null);
+  /** Latest serialized drawings per symbol with a saver mounted (see DrawingsSave); dropped once that symbol saved. */
+  const [drawingsValues, setDrawingsValues] = useState<Partial<Record<SymbolId, DrawingState[]>>>({});
+  const drawingsValuesRef = useRef(drawingsValues);
+  drawingsValuesRef.current = drawingsValues;
+  /** Symbols with a saver: the charted one, plus any earlier one whose drawings have not reached the server yet. */
+  const [savers, setSavers] = useState<SymbolId[]>([symbol]);
+  useEffect(() => { setSavers((list) => (list.includes(symbol) ? list : [...list, symbol])); }, [symbol]);
+  const tickers = useRef(new Map<SymbolId, string>());
+  if (info) tickers.current.set(info.id, info.ticker);
+  const settleSaver = useCallback((s: SymbolId) => {
+    if (s === symbolRef.current) return;
+    setSavers((list) => list.filter((x) => x !== s));
+    setDrawingsValues(({ [s]: _saved, ...rest }) => rest as Partial<Record<SymbolId, DrawingState[]>>);
+  }, []);
   const symbolRef = useRef(symbol);
   symbolRef.current = symbol;
   const drawingsForRef = useRef(drawingsFor);
@@ -245,6 +258,14 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
     let timer: ReturnType<typeof setTimeout> | undefined;
     setDrawingsFor(null);
     adapter.restoreDrawings([]);
+    // Drawings of this symbol that have not reached the server yet (a save still retrying or stalled) are newer than
+    // the server's copy: restored from memory.
+    const local = drawingsValuesRef.current[symbol];
+    if (local) {
+      adapter.restoreDrawings(local, symbol);
+      setDrawingsFor(symbol);
+      return;
+    }
     // Retried with backoff: saving stays disabled until this symbol's drawings are loaded.
     const fetchDrawings = (attempt: number) => {
       api.drawings.get(symbol).then(
@@ -277,19 +298,10 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
   useEffect(() => adapter?.onDrawingsChange(() => {
     const s = symbolRef.current;
     if (drawingsForRef.current !== s) return; // never overwrite drawings we have not loaded
-    setDrawingsValue({ symbol: s, drawings: adapter.serializeDrawings() });
+    const drawings = adapter.serializeDrawings();
+    setDrawingsValues((v) => ({ ...v, [s]: drawings }));
   }), [adapter]);
 
-  // Enabled only while the current symbol's drawings are loaded: a symbol switch disables it in the same
-  // render, which flushes the previous symbol's pending save immediately instead of losing it.
-  const { error: saveError, stalled: saveStalled, retryNow: retrySave } = useDebouncedSave(
-    drawingsValue,
-    (v) => (v ? api.drawings.put(v.symbol, v.drawings) : Promise.resolve()),
-    DRAWINGS_SAVE_MS,
-    drawingsFor === symbol,
-    { retry: true },
-  );
-  useEffect(() => { if (saveError) setToast(`Could not save drawings: ${saveError}`); }, [saveError]);
 
   useEffect(() => {
     if (!toast) return;
@@ -342,12 +354,13 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
             <div className="chart-loading" data-testid="chart-loading" aria-live="polite">Loading…</div>
           )}
           <div className="chart-overlay-bottom-left">
-            {saveError !== null && saveStalled && (
-              <div className="chart-banner" role="status" title={saveError}>
-                Drawings not saved
-                <button type="button" className="chart-banner-action" aria-label="Retry saving the drawings" onClick={retrySave}>Retry</button>
-              </div>
-            )}
+            {/* One saver per symbol, enabled only while that symbol is charted and its drawings are loaded: a symbol
+                switch disables the old one in the same render, which flushes its pending save at once (and keeps
+                retrying it) instead of losing it. Each shows its own note while its save has not reached the server. */}
+            {savers.map((s) => (
+              <DrawingsSave key={s} symbol={s} ticker={tickers.current.get(s) ?? s.slice(s.indexOf(':') + 1)}
+                value={drawingsValues[s]} enabled={s === symbol && drawingsFor === symbol} delayMs={DRAWINGS_SAVE_MS} onSettled={settleSaver} />
+            ))}
             {connectionLost !== null && (
               <div className="chart-banner" role="status" title={connectionLost}>Connection lost — retrying…</div>
             )}

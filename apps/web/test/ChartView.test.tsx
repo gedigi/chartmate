@@ -229,18 +229,52 @@ describe('ChartView', () => {
     expect(vi.mocked(api.drawings.put).mock.calls[1]![0]).toBe('stock:AAPL');
   });
 
-  it('drawings saves that keep failing stop after the retry limit: a "Drawings not saved" banner with Retry', async () => {
+  it('drawings saves that keep failing stop after the retry limit: an "AAPL drawings not saved." note with Retry', async () => {
     renderView();
     await flush();
     await flush();
     vi.useFakeTimers();
     vi.mocked(api.drawings.put).mockRejectedValue(new Error('offline'));
     act(() => adapter().changeCb!());
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(screen.getByText('AAPL drawings not saved. Retrying…').closest('.save-note')).toHaveClass('is-warn');
     await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60_000); });
-    expect(screen.getByText('Drawings not saved')).toBeInTheDocument();
+    expect(screen.getByText('AAPL drawings not saved.').closest('.save-note')).toHaveClass('is-warn');
     vi.mocked(api.drawings.put).mockResolvedValue(undefined);
-    await act(async () => { screen.getByRole('button', { name: 'Retry saving the drawings' }).click(); await vi.advanceTimersByTimeAsync(0); });
-    expect(screen.queryByText('Drawings not saved')).not.toBeInTheDocument();
+    await act(async () => { screen.getByRole('button', { name: 'Retry saving the AAPL drawings' }).click(); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.queryByText('AAPL drawings not saved.')).not.toBeInTheDocument();
+  });
+
+  it('a stalled drawings save belongs to its symbol: kept (named) across a switch, not dropped by edits on the new symbol, restored on return', async () => {
+    const { rerenderWith } = renderView();
+    await flush();
+    await flush();
+    vi.useFakeTimers();
+    const aaplDrawings = [{ name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false }];
+    vi.mocked(api.drawings.put).mockRejectedValue(new Error('offline'));
+    act(() => adapter().changeCb!());
+    await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60_000); });
+    expect(screen.getByText('AAPL drawings not saved.')).toBeInTheDocument();
+    // Switch to BTC and edit there: BTC is saved; AAPL's unsaved drawings stay pending (and named).
+    vi.mocked(api.drawings.put).mockImplementation(async (sym) => { if (sym === 'stock:AAPL') throw new Error('offline'); });
+    rerenderWith({ ...LAYOUT, symbol: 'crypto:BTC' }, BTC);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    act(() => adapter().changeCb!());
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(api.drawings.put).toHaveBeenLastCalledWith('crypto:BTC', aaplDrawings);
+    expect(screen.getByText('AAPL drawings not saved.')).toBeInTheDocument();
+    expect(screen.queryByText('BTC drawings not saved.')).not.toBeInTheDocument();
+    // Back on AAPL: its unsaved drawings are restored from memory (not the server's older copy).
+    vi.mocked(api.drawings.get).mockClear();
+    rerenderWith(LAYOUT, AAPL);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(api.drawings.get).not.toHaveBeenCalled();
+    expect(adapter().restoreDrawings).toHaveBeenLastCalledWith(aaplDrawings, 'stock:AAPL');
+    // Retry now succeeds: the note goes away.
+    vi.mocked(api.drawings.put).mockResolvedValue(undefined);
+    await act(async () => { screen.getByRole('button', { name: 'Retry saving the AAPL drawings' }).click(); await vi.advanceTimersByTimeAsync(0); });
+    expect(api.drawings.put).toHaveBeenLastCalledWith('stock:AAPL', aaplDrawings);
+    expect(screen.queryByText('AAPL drawings not saved.')).not.toBeInTheDocument();
   });
 
   it('flushes the pending drawings save for the previous symbol immediately on a symbol switch', async () => {
