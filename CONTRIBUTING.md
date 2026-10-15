@@ -13,7 +13,9 @@ Maintainers: see [Releases](#releases) at the end.
 
 Requires Node 26 (`.nvmrc` pins the exact version CI uses) and pnpm 12: `corepack enable` installs the exact version
 pinned (with its sha512) in the root `package.json`. Node 25 and later no longer bundle corepack, so install it once
-with `npm install --global corepack` (CI installs the release pinned in `.github/scripts/install-corepack.sh`).
+with `npm install --global corepack@0.36.0`. pnpm 12 then downloads its native binary on first use, checked against
+npm's registry signature; to hash-check it against `pnpm-lock.yaml` as CI does, run
+`bash .github/scripts/install-pnpm.sh` instead (it installs corepack, enables pnpm and places the checked binary).
 
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
@@ -333,9 +335,9 @@ After the first image is published, make the GHCR package public once (the packa
 On every pull request and push to `main`, `.github/workflows/ci.yml` runs `pnpm audit` (any known vulnerability in a
 runtime or build-time dependency fails it), typecheck, tests, an indicator scaffold check (`pnpm new:indicator`,
 then typecheck and the indicator tests), the web build, e2e and a Docker build. Every workflow defaults to a
-read-only token, pins each action to a commit SHA, installs corepack at the version and sha512 pinned in
-`.github/scripts/install-corepack.sh`, gets pnpm through it (hash-checked) and installs with `--ignore-scripts`;
-only `ci.yml` caches dependencies. The macOS signing secrets reach only jobs that run no dependency code; the Certum
+read-only token, pins each action to a commit SHA, gets corepack and pnpm from `.github/scripts/install-pnpm.sh`
+(corepack, the pnpm wrapper and pnpm's native binary all hash-checked) and installs with `--ignore-scripts`; only
+`ci.yml` caches dependencies. The macOS signing secrets reach only jobs that run no dependency code; the Certum
 login runs first in the Windows job, before any dependency code. Dependabot opens weekly update pull requests for
 npm packages, the pinned actions, the Docker base image and the Compose Postgres image, but never for a new Node or
 Postgres major: move to the next Node LTS (`.nvmrc`, the Docker image, `@types/node`) or Postgres major by hand.
