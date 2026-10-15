@@ -70,7 +70,9 @@ docker exec "$name" grep -q '^klinecharts ' /app/THIRD_PARTY_NOTICES.txt \
   || fail "/app/THIRD_PARTY_NOTICES.txt missing or incomplete"
 if [ -n "$expect_repository" ]; then
   # The About dialog's source code link is baked into the web bundle at build time (apps/web/vite.config.ts).
-  docker exec "$name" grep -rqF "\"https://github.com/${expect_repository}\"" /app/web/assets \
+  # The whole URL as a string literal (any quote the minifier picks), not a longer name that starts the same.
+  repo_re="$(printf '%s' "$expect_repository" | sed 's/[.]/\\./g')"
+  docker exec "$name" grep -rqE "[\"'\`]https://github\.com/${repo_re}[\"'\`]" /app/web/assets \
     || fail "web UI does not link to https://github.com/${expect_repository} (build-arg GITHUB_REPOSITORY missing?)"
 fi
 echo "platform: $(docker exec "$name" node -p 'process.platform + "/" + process.arch')"
