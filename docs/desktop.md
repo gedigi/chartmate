@@ -399,7 +399,10 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
     (`Contents/Resources` on macOS, `resources` on Windows). A `beforePack` hook in `build/builder-config.cjs`
     generates the notices from the installed dependency graph (the repository root's
     `scripts/third-party-notices.mjs`, profile `desktop`) and fails the build if a shipped dependency's license is
-    not on the AGPL-3.0-compatible allowlist.
+    not on the AGPL-3.0-compatible allowlist. A few MIT and ISC packages distribute no license file: for them the
+    notices state the license their `package.json` declares, its declared author and repository, and that no
+    license file was distributed, followed by the standard license text labeled as such (no copyright line is made
+    up).
   - **1.0.0 shipped with `autoUpdate: false`**, so 1.0.0 installs never check for updates: their users install
     the next version once by hand, and update automatically from then on.
   - **Untestable without a real signed release**: the GitHub feed lookup, the Squirrel.Mac hand-over and

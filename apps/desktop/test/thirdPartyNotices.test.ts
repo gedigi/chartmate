@@ -79,10 +79,17 @@ describe('packages without a license file', () => {
   writeFileSync(join(dir, 'package.json'), '{}');
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('get the standard MIT or ISC text with the author as copyright holder', () => {
-    const [t] = licenseTexts({ name: 'x', version: '1.0.0', license: 'MIT', dir, pkg: { name: 'x', author: 'Jane Doe <jane@example.com>' } });
-    expect(t!.title).toMatch(/standard text/);
-    expect(t!.text).toContain('Copyright (c) Jane Doe\n');
+  it('get what the package declares and the standard MIT or ISC text labeled as such, with no invented copyright', () => {
+    const pkg = { name: 'x', author: 'Jane Doe <jane@example.com>', repository: { url: 'git+https://example.com/x.git' } };
+    const [t] = licenseTexts({ name: 'x', version: '1.0.0', license: 'MIT', dir, pkg });
+    expect(t!.title).toBe('MIT (declared in package.json; no license file was distributed with the package)');
+    expect(t!.text).toContain('Declared author: Jane Doe <jane@example.com>\n');
+    expect(t!.text).toContain('Declared repository: git+https://example.com/x.git\n');
+    expect(t!.text).toContain('Standard text of the MIT License:\n\nPermission is hereby granted');
+    expect(t!.text).not.toMatch(/Copyright \(c\)/);
+    const [isc] = licenseTexts({ name: 'y', version: '1.0.0', license: 'ISC', dir, pkg: { name: 'y' } });
+    expect(isc!.text).toContain('Declared author: none\nDeclared repository: none\n');
+    expect(isc!.text).toContain('Standard text of the ISC License:\n\nPermission to use, copy, modify');
     expect(problems([{ name: 'x', version: '1.0.0', license: 'ISC', dir, pkg: { name: 'x' } }])).toEqual([]);
   });
 

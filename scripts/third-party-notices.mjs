@@ -39,29 +39,70 @@ export const PROFILES = {
   },
 };
 
-/** Standard texts for the two short permissive licenses, for packages that declare one but ship no license file. */
-const TEMPLATES = {
-  MIT: (holder) => `MIT License\n\nCopyright (c) ${holder}\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.`,
-  ISC: (holder) => `ISC License\n\nCopyright (c) ${holder}\n\nPermission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.\n\nTHE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.`,
+/**
+ * Standard texts of the two short permissive licenses, without a copyright line (the package states none), for
+ * packages that declare one but distribute no license file.
+ */
+const STANDARD_TEXTS = {
+  MIT: [
+    'Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated',
+    'documentation files (the "Software"), to deal in the Software without restriction, including without limitation',
+    'the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and',
+    'to permit persons to whom the Software is furnished to do so, subject to the following conditions:',
+    '',
+    'The above copyright notice and this permission notice shall be included in all copies or substantial portions',
+    'of the Software.',
+    '',
+    'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO',
+    'THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE',
+    'AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF',
+    'CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS',
+    'IN THE SOFTWARE.',
+  ].join('\n'),
+  ISC: [
+    'Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby',
+    'granted, provided that the above copyright notice and this permission notice appear in all copies.',
+    '',
+    'THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING',
+    'ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL,',
+    'DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,',
+    'WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE',
+    'USE OR PERFORMANCE OF THIS SOFTWARE.',
+  ].join('\n'),
 };
 
-/** The package's author as a copyright holder ('the package authors' when it names none). */
-const holderOf = (pkg) => {
-  const a = typeof pkg.author === 'string' ? pkg.author : pkg.author?.name;
-  return typeof a === 'string' && a.trim() ? a.replace(/\s*[<(].*$/, '').trim() : `the ${pkg.name} authors`;
+/** A package.json field (author, repository) as declared, or 'none'. */
+const declared = (value, key) => {
+  const v = typeof value === 'string' ? value : value?.[key];
+  return typeof v === 'string' && v.trim() ? v.trim() : 'none';
 };
 
 /**
- * The license texts to reproduce for a package: its LICENSE / NOTICE files, or, for an MIT or ISC package that ships
- * none, the standard text naming the author from its package.json. Empty when there is nothing to reproduce.
+ * The license texts to reproduce for a package: its LICENSE / NOTICE files. For an MIT or ISC package that
+ * distributes none: what its package.json declares (license, author, repository) and the standard license text,
+ * labeled as such; no copyright line is made up. Empty when there is nothing to reproduce.
  * @param {{ dir: string, license: string, pkg: any }} p
  * @returns {{ title: string, text: string }[]}
  */
 export function licenseTexts(p) {
-  const files = licenseFiles(p.dir).map((f) => ({ title: f, text: readFileSync(join(p.dir, f), 'utf8').replace(/\r\n/g, '\n').trimEnd() }));
+  const files = licenseFiles(p.dir).map((f) => ({
+    title: f,
+    text: readFileSync(join(p.dir, f), 'utf8').replace(/\r\n/g, '\n').trimEnd(),
+  }));
   if (files.length > 0) return files;
-  const template = TEMPLATES[p.license];
-  return template ? [{ title: `${p.license} (standard text; the package ships no license file)`, text: template(holderOf(p.pkg)) }] : [];
+  const standard = STANDARD_TEXTS[p.license];
+  if (!standard) return [];
+  return [{
+    title: `${p.license} (declared in package.json; no license file was distributed with the package)`,
+    text: [
+      `Declared author: ${declared(p.pkg.author, 'name')}`,
+      `Declared repository: ${declared(p.pkg.repository, 'url')}`,
+      '',
+      `Standard text of the ${p.license} License:`,
+      '',
+      standard,
+    ].join('\n'),
+  }];
 }
 
 /**
