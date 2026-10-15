@@ -69,8 +69,8 @@ Everywhere:
 - `CHARTMATE_DISABLE_UPDATES=1` in the environment turns updates off completely (on macOS the menu item is
   grayed out and says why).
 - A pre-release build (`1.1.0-beta.1`) also updates to newer pre-releases; a regular release only to regular
-  releases. Only a newer version than the one running is offered, and on macOS the downloaded app's own version
-  is checked before it is installed.
+  releases. Only a newer version than the one running is offered, and the downloaded app's (macOS) or
+  installer's (Windows) own version is checked against it before it is installed.
 - **Chartmate 1.0.0 shipped with updates turned off**: if you have 1.0.0, download and install the next version
   once by hand; from then on the app updates itself (on macOS; on Windows once its builds are signed).
 

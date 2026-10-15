@@ -168,8 +168,9 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   the Windows window has no visible menu bar, so Windows updates run in the background), with GitHub release
   data treated as untrusted plain text (`src/lib/releaseNotes.ts`). `shell.openExternal` has a single,
   test-pinned call for the validated build-time releases page (`src/lib/releasesPage.ts`); do not add others.
-- Update verification fails closed: the Windows installer verifier (`winSignature.ts`, pinned publisher DN from
-  `CHARTMATE_WIN_PUBLISHER_DN`) and the macOS bundle version check (`updateBundle.ts`) refuse on any error.
+- Update verification fails closed: the Windows installer verifier (`winSignature.ts`: signature, pinned
+  publisher DN from `CHARTMATE_WIN_PUBLISHER_DN`, installer version) and the macOS bundle version check
+  (`updateBundle.ts`: `/usr/bin/ditto` + `/usr/bin/plutil`) refuse on any error.
   Changes to the updater (`src/updater.ts`, `updatePolicy.ts`, `updateArming.ts`, `updateBundle.ts`,
   `winSignature.ts`) are security changes.
 - Keep the CSP header (no `unsafe-inline` / `unsafe-eval`) and Trusted Types (`trusted-types 'none'`): never

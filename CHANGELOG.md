@@ -16,9 +16,10 @@ app, the Docker image and the release tag share one version number.
 - Windows has no update menu (the window has no menu bar): signed builds update in the background. Windows builds
   are unsigned for now and keep updating by hand from the releases page.
 - `CHARTMATE_DISABLE_UPDATES=1` turns updates off entirely.
-- Updates are verified before they install: on macOS the downloaded app must be the advertised, newer version and
-  be signed by the same developer; on Windows the installer must be validly signed by the pinned publisher, and any
-  failure to check refuses it.
+- Updates are verified before they install: the downloaded app (macOS) or installer (Windows) must carry the
+  advertised, newer version; on macOS it must be signed by the same developer, and on Windows validly signed by
+  the pinned publisher, with any failure to check refusing it. On macOS the restart prompt appears only once the
+  update is ready to install.
 - Chartmate 1.0.0 shipped with updates turned off: install this version by hand once, and later versions arrive
   automatically.
 

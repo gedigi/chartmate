@@ -215,8 +215,8 @@ The renderer is treated as untrusted web content, and the main process exposes n
   which arrive as HTML, become plain text with tags removed, entities decoded, and every Unicode control (Cc,
   except newline), format (Cf: zero-width, bidirectional overrides and isolates, soft hyphen, tags), line
   separator (Zl) and paragraph separator (Zp) character dropped, at most 12 lines and 600 characters
-  (`src/lib/releaseNotes.ts`). Error dialogs never show the error text. Updater log lines have CR and LF escaped
-  and are capped at 500 characters, so release data cannot forge log lines.
+  (`src/lib/releaseNotes.ts`). Error dialogs never show the error text. Updater log lines have CR, LF, U+2028 and
+  U+2029 escaped and are capped at 500 characters, so release data cannot forge log lines.
 - **Unused features**: the app never uses `remote` or `file://`.
 
 ## Signing, notarization, updates
@@ -270,15 +270,22 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
     - In the background, with automatic checks on, the first check runs 15 s after start, then every 6 hours; it
       is silent until an update has been downloaded. The schedule stops when the app quits or the user chooses
       to restart.
-    - Downloads are automatic. When one finishes, a native dialog offers **Restart Now** (Windows: **Restart
-      now**; `quitAndInstall`) or **Later** (`autoInstallOnAppQuit`: installed when the app quits), with a
-      plain-text summary of the release notes. On macOS with no window open, the app asks for focus
-      (`app.focus({ steal: false })`) before showing it.
+    - Downloads are automatic. When an update is ready to install, a native dialog offers **Restart Now**
+      (Windows: **Restart now**; `quitAndInstall`) or **Later** (`autoInstallOnAppQuit`: installed when the app
+      quits), with a plain-text summary of the release notes. "Ready" means downloaded on Windows; on macOS it
+      means Squirrel.Mac has also fetched and verified the update (its own `update-downloaded`, which in
+      electron-updater 6.8.9 comes after electron-updater's), so a hand-over that fails (read-only or translocated
+      app, unwritable `/Applications`, a signature that does not satisfy the designated requirement) never shows a
+      **Restart Now** that does nothing. On macOS with no window open, the app asks for focus
+      (`app.focus({ steal: false })`) before showing the dialog.
     - Failures are reported only when someone is waiting for the outcome, and worded by what failed: "Couldn't
       check for updates" or "Couldn't download the update" after a manual check, "Couldn't install the update"
-      after **Restart Now** (for example a failed Squirrel.Mac hand-over, or an installer that cannot start). The
-      state then goes back to idle, so the next check retries. Background failures are only logged.
-    - Once an update is downloaded, no further check runs: another check would start a second Squirrel.Mac
+      after a manual check whose hand-over failed, or after **Restart Now** (an installer that cannot start, or a
+      failure that arrived while the dialog was open). Background failures are only logged. The state then goes
+      back to idle and the schedule continues, so the next check retries. A version whose install failed is not
+      offered again until the app restarts, and if the app has not quit 60 s after **Restart Now**, the state is
+      reset the same way.
+    - Once an update is ready, no further check runs: another check would start a second Squirrel.Mac
       hand-over. **Check for Updates…** offers the restart again instead.
   - **The setting**: **Check for Updates Automatically** is saved in `<userData>/update-settings.json`
     (`src/lib/updateSettings.ts`). The file name is fixed. It is read through a single descriptor opened with
@@ -293,23 +300,31 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
       truncated downloads; it does not prove who published the update. The code signature does.
     - Windows: our own verifier (`src/lib/winSignature.ts`) replaces electron-updater's, which skips the check
       when PowerShell cannot run. It runs `Get-AuthenticodeSignature` (the system PowerShell by absolute path, no
-      shell, the file path passed in an environment variable) and fails **closed**: any error, timeout, stderr
-      output, unreadable result, status other than `Valid`, a different file, or a subject that does not match the
-      pinned DN refuses the installer. Every attribute in the pin (at least CN, O and C) must match; extra subject
-      fields are allowed. The pin is `CHARTMATE_WIN_PUBLISHER_DN`, baked in at bundle time; the `publisherName` in
-      `app-update.yml` only has to be present.
-    - macOS: before the zip is handed to Squirrel.Mac, the app reads `Contents/Info.plist` from the zip
-      (`src/lib/updateBundle.ts`): there must be exactly one app, and its `CFBundleShortVersionString` must equal
-      the version the release advertised and be newer than the running app. Anything unexpected refuses the
-      update, and the loopback listener is then never armed. Squirrel.Mac then checks that the new app's code
+      shell, the file path passed in an environment variable, progress silenced, errors stopping the script,
+      ASCII-only JSON out) and fails **closed**: any error, timeout, stderr output other than CLIXML progress
+      records, unreadable result, status other than `Valid`, a different file, a subject that does not match the
+      pinned DN, or an installer whose `ProductVersion` (electron-builder's NSIS installer carries the app version
+      there) is not the version the release advertised and newer than the running app refuses the installer.
+      Every attribute in the pin (at least CN, O and C) must match; extra subject fields are allowed. The pin is
+      `CHARTMATE_WIN_PUBLISHER_DN`, baked in at bundle time; the `publisherName` in `app-update.yml` only has to
+      be present. Where PowerShell runs in Constrained Language Mode, the script cannot run, so updates are
+      refused. The issuer is not pinned: Certum may change its intermediate at renewal.
+    - macOS: before the zip is handed to Squirrel.Mac, the app extracts it with `/usr/bin/ditto -x -k` (the tool
+      Squirrel.Mac unpacks with) into a private temporary directory (`src/lib/updateBundle.ts`). The zip must be
+      a regular file of at most 1 GiB, extraction is limited to 2 minutes, and the archive must hold exactly one
+      top-level entry, an `.app` directory. Its `CFBundleShortVersionString`, read with `/usr/bin/plutil` (XML or
+      binary plist), must equal the version the release advertised and be newer than the running app. The
+      temporary directory is always removed. Anything unexpected refuses the update, and the loopback listener is
+      then never armed. This compares versions; it does not by itself prove what Squirrel.Mac will install, which
+      is why Squirrel.Mac's own signature check (next) still matters. Squirrel.Mac then checks that the new app's code
       signature satisfies the running app's designated requirement. The hand-over is the only case that opens a
       listener (the loopback exception described under [How it works](#how-it-works)), one per hand-over.
   - **Downgrades**: `allowDowngrade` and `forceDevUpdateConfig` are `false`, `channel` is never set (setting it
     would allow downgrades), and `isUpdateSupported` accepts only a valid semver strictly newer than the running
-    version. These judge the version **the release metadata advertises**. On macOS the downloaded bundle's own
-    version is checked as well (above). On Windows the installer's internal version is not inspected: a validly
-    signed older installer listed under a newer version in a tampered `latest.yml` would be installed. That takes
-    write access to the repository's releases.
+    version. These judge the version **the release metadata advertises**. The downloaded update's own version is
+    checked as well: the app's `CFBundleShortVersionString` on macOS, the installer's `ProductVersion` on Windows
+    (above). Both are read from the downloaded file before it is installed; neither stops someone who can publish
+    a validly signed newer release.
   - **Pre-releases**: a full release only ever updates to full releases; a pre-release build (`1.1.0-beta.1`,
     detected by parsing the version) also to newer pre-releases (`src/lib/updatePolicy.ts`).
   - **Network**: electron-updater downloads through its own session partition (`electron-updater`; a test pins
@@ -317,9 +332,10 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
     or PAC proxy, like provider traffic), and its request filter allows HTTPS only, on the default port, without
     URL credentials, to `github.com`, `objects.githubusercontent.com` and `release-assets.githubusercontent.com`,
     checking every redirect hop. `api.github.com` is not allowed: the public GitHub provider only uses it for a
-    custom host (pinned by a test). TLS is verified by Chromium's network stack against the operating system's
-    trust store, not by the bundled-CA transport that market data uses. The proxy setting and the filter are in
-    place before the first check can run.
+    custom host (pinned by a test). TLS is verified by Chromium's certificate verifier, which also honors
+    locally trusted roots (unlike the bundled-CA transport that market data uses); the code signature checks above
+    are what protect against an intercepted connection. The proxy setting is applied (awaited) and the filter
+    installed before the first check can run.
   - **Release assets**: both packaging steps run with `CHARTMATE_PUBLISH=github`, so electron-builder writes
     `app-update.yml` (`provider: github`, owner and repository from `GITHUB_REPOSITORY`) into the app and
     `latest-mac.yml` / `latest.yml` next to the artifacts (`--dir` builds get no `app-update.yml`). The release job
@@ -329,9 +345,9 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
     the next version once by hand, and update automatically from then on.
   - **Untestable without a real signed release**: the GitHub feed lookup, the Squirrel.Mac hand-over and
     install, the Windows signature check against a real certificate, and the restart. Unit tests cover the
-    policy, the controller (with a fake updater), the menu, the settings file, the zip version check, the DN
-    pin, the verifier (with a fake process runner) and the sanitizers; the smoke test checks the macOS menu and
-    that unsigned builds contain no updater.
+    policy, the controller (with a fake updater), the menu, the settings file, the bundle version check (real
+    `ditto`/`plutil` on macOS, a fake runner elsewhere), the DN pin, the verifier (with a fake process runner) and
+    the sanitizers; the smoke test checks the macOS menu and that unsigned builds contain no updater.
 
 ### Windows signing with Certum
 
