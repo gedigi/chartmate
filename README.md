@@ -143,7 +143,12 @@ curl -fsSL -o .env.example https://raw.githubusercontent.com/gedigi/chartmate/ma
   pulling a private package needs `docker login ghcr.io` with a token that has the `read:packages` scope.
 - `docker compose up` checks the registry for a newer image every time (`pull_policy: always`, for the bundled
   Postgres too), so restarting with `up` is also how you pick up the weekly rebuild. It needs the registry to be
-  reachable; set `CHARTMATE_PULL_POLICY=missing` to pull Chartmate's image only when it is not there yet.
+  reachable; set `CHARTMATE_PULL_POLICY=missing` to pull Chartmate's image only when it is not there yet, and
+  `CHARTMATE_POSTGRES_PULL_POLICY=missing` (or `never`) for the bundled Postgres. The trade-off: `always` gets
+  every fix without you doing anything, but it also trusts whatever the registry serves for the tag at that moment
+  (Chartmate's own image is scanned and attested, see [Security](#security); `postgres:18-trixie` is Docker's
+  official image, which Chartmate's CI does not check). `missing` keeps the image you have until you pull on
+  purpose, for example after checking a digest.
 
 ### Upgrading
 

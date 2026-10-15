@@ -52,7 +52,8 @@ services:
     # fixes; a minor release reads the same data). A new major is a deliberate upgrade: it cannot open an older
     # major's data (see "Upgrading from Postgres 17" in the README).
     image: postgres:18-trixie
-    pull_policy: always
+    # CHARTMATE_POSTGRES_PULL_POLICY=missing (or never) keeps the copy you have, e.g. one you pinned or checked.
+    pull_policy: ${CHARTMATE_POSTGRES_PULL_POLICY:-always}
     restart: unless-stopped
     environment:
       POSTGRES_USER: chartmate

@@ -124,7 +124,7 @@ describe('ci.yml Postgres job', () => {
     expect(image).toMatch(/^postgres:\d+-trixie$/);
     const compose = yaml.load(readFileSync(new URL('../../../compose.yaml', import.meta.url), 'utf8'));
     expect(image).toBe(compose.services.postgres.image);
-    expect(compose.services.postgres.pull_policy).toBe('always');
+    expect(compose.services.postgres.pull_policy).toBe('${CHARTMATE_POSTGRES_PULL_POLICY:-always}');
     // Postgres 18+ layout: one mount at /var/lib/postgresql (data in <major>/docker), so an older major's volume is
     // refused at start rather than opened.
     expect(compose.services.postgres.volumes).toEqual(['postgres-data:/var/lib/postgresql']);
