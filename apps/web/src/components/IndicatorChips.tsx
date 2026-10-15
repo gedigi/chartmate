@@ -58,7 +58,7 @@ export function IndicatorChips({ layout, setLayout, theme = 'dark' }: IndicatorC
           {indicators.map((s, i) => {
             const label = indicatorLabel(s);
             return (
-              // Index keys match ChartView's index-based indicator diff.
+              // Index keys: chips have no identity of their own (the list only changes by append or remove).
               <li key={i} className={`indicator-chip${s.visible ? '' : ' is-hidden'}`} title={chipTitle(s.name)}>
                 {(() => {
                   // The chip's key: the indicator's first line color, or the candle up color for histogram-only ones.

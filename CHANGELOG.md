@@ -32,6 +32,8 @@ app, the Docker image and the release tag share one version number.
   lookups that fail for good (such as an unknown symbol) are no longer retried every 30 seconds.
 - Parallel channel fills are a tint of the channel's own hue on the chart background (like position zones)
   instead of a plain translucent color, and the extended-hours shade uses a color tuned for each theme.
+- Removing an indicator no longer re-creates the indicators after it, so their panes keep their heights and
+  the chart does not flicker.
 
 ## [1.0.0] - 2026-10-14
 

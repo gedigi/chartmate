@@ -166,6 +166,26 @@ describe('ChartView', () => {
     expect(adapter().addIndicator).toHaveBeenCalledTimes(1);
   });
 
+  it('removing an indicator keeps every later one (no re-creation: pane heights survive)', async () => {
+    const vol = { name: 'VOL', pane: 'sub' as const, calcParams: [5, 10, 20], visible: true };
+    const rsi = { name: 'RSI', pane: 'sub' as const, calcParams: [6, 12, 24], visible: true };
+    const macd = { name: 'MACD', pane: 'sub' as const, calcParams: [12, 26, 9], visible: true };
+    const { rerenderWith } = renderView({ ...LAYOUT, indicators: [vol, rsi, macd] });
+    await flush();
+    expect(adapter().addIndicator).toHaveBeenCalledTimes(3); // ind_1 VOL, ind_2 RSI, ind_3 MACD
+    rerenderWith({ ...LAYOUT, indicators: [rsi, macd] });
+    expect(adapter().removeIndicator.mock.calls).toEqual([['ind_1']]);
+    expect(adapter().addIndicator).toHaveBeenCalledTimes(3);
+    expect(adapter().updateIndicator).not.toHaveBeenCalled();
+    // Two of a kind: removing the first RSI keeps the second one's chart indicator (it becomes the first RSI).
+    const rsi2 = { ...rsi, calcParams: [14, 12, 24] };
+    rerenderWith({ ...LAYOUT, indicators: [rsi, macd, rsi2] }); // ind_4
+    rerenderWith({ ...LAYOUT, indicators: [macd, rsi2] });
+    expect(adapter().removeIndicator.mock.calls.at(-1)).toEqual(['ind_4']);
+    expect(adapter().updateIndicator).toHaveBeenLastCalledWith('ind_2', expect.objectContaining({ calcParams: [14, 12, 24] }));
+    expect(adapter().addIndicator).toHaveBeenCalledTimes(4);
+  });
+
   it('shows the stale badge, dismissible notices and error toasts; passes markers to the adapter', async () => {
     renderView();
     await flush();

@@ -193,11 +193,19 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
   useEffect(() => { adapter?.setSessionShading(shade); }, [adapter, shade]);
   useEffect(() => { adapter?.setMarkers(meta.markers); }, [adapter, meta.markers]);
 
-  // Indicators: diff by name + pane + index.
+  // Indicators: diff by name + pane + occurrence (the n-th RSI on a sub pane), so removing one leaves the others'
+  // chart indicators (and their pane heights) alone; only later indicators of the same kind shift onto the earlier
+  // one's chart indicator (updated in place).
   useEffect(() => {
     if (!adapter) return;
     const current = indicatorsRef.current;
-    const desired = new Map<string, IndicatorState>(indicators.map((s, i) => [`${s.name}|${s.pane}|${i}`, s]));
+    const seen = new Map<string, number>();
+    const desired = new Map<string, IndicatorState>(indicators.map((s) => {
+      const kind = `${s.name}|${s.pane}`;
+      const n = seen.get(kind) ?? 0;
+      seen.set(kind, n + 1);
+      return [`${kind}|${n}`, s];
+    }));
     for (const [key, { id }] of current) {
       if (!desired.has(key)) {
         adapter.removeIndicator(id);
