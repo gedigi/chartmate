@@ -34,8 +34,9 @@ export interface BasketBarsArgs {
   padMs?: number;
 }
 
-/** `until`: provisional units (sized at a daily bar still trading) expire then; others follow UNITS_TTL_MS. */
-interface CachedUnits { key: string; units: UnitsResult; at: number; until?: number }
+/** `until`: provisional units (sized at a daily bar still trading) or units kept through a failed refresh (`stale`)
+ * expire then; others follow UNITS_TTL_MS. */
+interface CachedUnits { key: string; units: UnitsResult; at: number; until?: number; stale?: boolean }
 /** The basket's two latest daily closes, computed once per UTC day per basket (key = units key). */
 interface CachedDaily { key: string; day: number; last: Bar | null; prev: Bar | null }
 
@@ -410,6 +411,13 @@ export class BasketService {
     this.unitsCache.set(id, { key: this.unitsKey(versions), units: r.units, at: now, ...(until !== undefined ? { until } : {}) });
   }
 
+  /** Keeps expired units through a failed refresh for a few minutes, so an outage is not retried per request. */
+  private keepStale(id: string, hit: CachedUnits): { units: UnitsResult; stale: true } {
+    const now = this.now();
+    this.unitsCache.set(id, { ...hit, until: now + PROVISIONAL_UNITS_TTL_MS, stale: true });
+    return { units: hit.units, stale: true };
+  }
+
   private async unitsFor(basket: Basket): Promise<{ units: UnitsResult; stale: boolean }> {
     // Run the (at most daily) split checks first so a split detected now invalidates the cached units right away.
     await Promise.all(constituents(basket.versions).map((id) => this.market.ensureSplitsChecked(id)));
@@ -417,7 +425,7 @@ export class BasketService {
     const hit = this.unitsCache.get(basket.id);
     const now = this.now();
     if (hit && hit.key === key && hit.until !== undefined) {
-      if (now < hit.until) return { units: hit.units, stale: false };
+      if (now < hit.until) return { units: hit.units, stale: hit.stale === true };
     } else if (hit && hit.key === key) {
       const yesterday = Math.floor(now / DAY) * DAY - DAY;
       const recent = basket.versions.some((v) => parseDateString(v.effectiveFrom) >= yesterday);
@@ -428,10 +436,10 @@ export class BasketService {
       r = await this.computeUnits(basket.versions, basket.baseValue, 'read');
     } catch (err) {
       // A refresh that fails (e.g. provider outage) falls back to the expired units for the same versions.
-      if (hit && hit.key === key) return { units: hit.units, stale: true };
+      if (hit && hit.key === key) return this.keepStale(basket.id, hit);
       throw err;
     }
-    if (r.stale && hit && hit.key === key) return { units: hit.units, stale: true };
+    if (r.stale && hit && hit.key === key) return this.keepStale(basket.id, hit);
     this.seed(basket.id, basket.versions, r);
     return r;
   }

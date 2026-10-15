@@ -394,6 +394,25 @@ describe('BasketService', () => {
       expect(daily()).toBe(2); // recent version + older than 6 h → recompute
     });
 
+    it('an outage while refreshing keeps the old units for 5 minutes instead of retrying on every request', async () => {
+      const b = await svc.create({ name: 'mix', versions: [v('2026-10-09', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
+      const args = { id: b.id, tf: '1h' as const, session: 'eth' as const, from: NOW - DAY, to: NOW };
+      const before = await svc.getBars(args);
+      now += 7 * HOUR; // recent version, units older than 6 h: due for a refresh
+      crypto.fail = new ProviderError('fixture', '429', true, 429);
+      const spy = vi.spyOn(market, 'getNativeBars');
+      const daily = () => spy.mock.calls.filter((c) => c[1] === '1D').length;
+      const r = await svc.getBars(args);
+      expect(r.stale).toBe(true);
+      expect(r.bars).toEqual(before.bars);
+      expect(daily()).toBe(2);
+      await svc.getBars(args);
+      expect(daily()).toBe(2); // served from the kept units
+      now += 6 * 60_000;
+      await svc.getBars(args);
+      expect(daily()).toBe(4); // retried after 5 minutes
+    });
+
     it('a version dated tomorrow, sized from today\'s unfinished bar, is resized once that day has closed', async () => {
       // BTC's daily bar for the current UTC day is still moving: its close drifts by +1 per hour until midnight.
       crypto.price = (code, tf, ts) => {
