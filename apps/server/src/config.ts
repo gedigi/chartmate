@@ -28,6 +28,11 @@ export interface Config {
    * configurable from the environment; the desktop app sets its renderer origin.
    */
   allowedOrigins: string[];
+  /**
+   * Address the port is published on outside a container (`CHARTMATE_PUBLISHED_BIND`, set by compose.yaml from
+   * CHARTMATE_BIND); only used for the startup warning about running without a password. Unset = `host`.
+   */
+  publishedBind?: string | null;
 }
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -62,6 +67,7 @@ const EnvSchema = z.object({
   CHARTMATE_WEB_DIST: z.preprocess(blankToUndefined, z.string().optional()),
   CHARTMATE_TRUST_PROXY: z.preprocess(blankToUndefined, z.string().optional()),
   CHARTMATE_ALLOWED_HOSTS: z.preprocess(blankToUndefined, z.string().optional()),
+  CHARTMATE_PUBLISHED_BIND: z.preprocess(blankToUndefined, z.string().trim().optional()),
 });
 
 function parseTrustProxy(v: string | undefined): boolean | number | string {
@@ -74,7 +80,8 @@ function parseTrustProxy(v: string | undefined): boolean | number | string {
 
 /** Shortest password that does not trigger a startup warning. */
 export const MIN_PASSWORD_LENGTH = 12;
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', '[::1]', 'localhost']);
+const isLoopbackAddress = (a: string) => LOOPBACK_HOSTS.has(a.trim().toLowerCase()) || /^127\.\d+\.\d+\.\d+$/.test(a.trim());
 
 /** Startup warnings for a configuration that works but is weaker than it should be (logged by main). */
 export function configWarnings(c: Config): string[] {
@@ -82,9 +89,12 @@ export function configWarnings(c: Config): string[] {
   if (c.password !== null && c.password.length < MIN_PASSWORD_LENGTH) {
     out.push(`CHARTMATE_PASSWORD is shorter than ${MIN_PASSWORD_LENGTH} characters; use a long random password.`);
   }
-  if (c.password === null && !LOOPBACK_HOSTS.has(c.host.toLowerCase())) {
+  // In a container the listen address is always non-loopback; what matters is where the port is published
+  // (compose.yaml passes it as CHARTMATE_PUBLISHED_BIND, loopback by default).
+  const exposed = c.publishedBind ?? c.host;
+  if (c.password === null && !isLoopbackAddress(c.host) && !isLoopbackAddress(exposed)) {
     out.push(
-      `Listening on ${c.host} without CHARTMATE_PASSWORD: anyone who can reach this port and use an allowed host ` +
+      `Reachable on ${exposed} without CHARTMATE_PASSWORD: anyone who can reach this port and use an allowed host ` +
       'name can read and change your data. Set CHARTMATE_PASSWORD unless only you can reach it.',
     );
   }
@@ -112,6 +122,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     trustProxy: parseTrustProxy(e.CHARTMATE_TRUST_PROXY),
     allowedHosts: parseAllowedHosts(e.CHARTMATE_ALLOWED_HOSTS),
     allowedOrigins: [],
+    publishedBind: e.CHARTMATE_PUBLISHED_BIND ?? null,
     webDist: existsSync(join(webDistCandidate, 'index.html')) ? webDistCandidate : null,
   };
 }

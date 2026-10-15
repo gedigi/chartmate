@@ -32,6 +32,11 @@ describe('loadConfig', () => {
     expect(w({ HOST: '::' })).toHaveLength(1);
     expect(w({ HOST: 'localhost' })).toEqual([]);
     expect(w({ HOST: '0.0.0.0', CHARTMATE_PASSWORD: 'correct-horse-battery' })).toEqual([]);
+    // The default compose setup: the container listens on 0.0.0.0 but publishes on loopback only.
+    expect(w({ HOST: '0.0.0.0', CHARTMATE_PUBLISHED_BIND: '127.0.0.1' })).toEqual([]);
+    expect(w({ HOST: '0.0.0.0', CHARTMATE_PUBLISHED_BIND: '' })).toHaveLength(1); // unset: judged on HOST
+    expect(w({ HOST: '0.0.0.0', CHARTMATE_PUBLISHED_BIND: '0.0.0.0' })).toEqual([expect.stringMatching(/Reachable on 0\.0\.0\.0/)]);
+    expect(w({ HOST: '0.0.0.0', CHARTMATE_PUBLISHED_BIND: '192.168.1.10' })).toHaveLength(1);
   });
 
   it('treats an empty password as no password and rejects bad values', () => {

@@ -37,7 +37,8 @@ app, the Docker image and the release tag share one version number.
   out, and over HTTPS the cookie is named `__Host-chartmate_session`. **After upgrading you have to log in
   again** (sessions from earlier versions are no longer accepted).
 - The server refuses to start when `CHARTMATE_PASSWORD` is only whitespace (it used to turn the login off), and
-  warns about a password shorter than 12 characters or a non-loopback `HOST` without a password.
+  warns about a password shorter than 12 characters, or about being reachable beyond loopback without a password
+  (the default Compose setup, published on 127.0.0.1, does not warn).
 - API requests another site's page triggers (the browser marks them cross-site) are refused, so a web page can
   no longer make an open instance spend its data-provider quota. A symbol the provider just reported unknown is
   not asked for bars again for 10 minutes.

@@ -191,7 +191,9 @@ location / {
 - Set `CHARTMATE_PASSWORD` whenever the instance is reachable from anything but your own machine; it turns on
   a login page. Use a strong password (the server warns at startup below 12 characters), and serve the
   instance over HTTPS only. A password of only whitespace is refused at startup rather than read as "no
-  password"; the server also warns when it listens on a non-loopback `HOST` without a password.
+  password"; the server also warns when it is reachable beyond loopback without a password (judged on
+  `CHARTMATE_PUBLISHED_BIND`, which `compose.yaml` sets from `CHARTMATE_BIND`, or else on `HOST`; the default
+  Compose setup publishes on 127.0.0.1 and does not warn).
 - Session cookies are signed with `CHARTMATE_SESSION_SECRET` when set (min 16 characters; `openssl rand -hex
   32`). When unset, a random secret is generated on first start and kept in the database (`settings` table),
   so it survives restarts; it is never derived from the password, so a leaked cookie gives nothing to guess the
@@ -297,6 +299,7 @@ created if missing).
 | `CHARTMATE_SESSION_SECRET` | generated once, stored in the database | Cookie signing secret, min 16 chars. Set it to keep sessions across a restore into a fresh database. |
 | `CHARTMATE_TRUST_PROXY` | unset (`false`) | `true`, a hop count (e.g. `1`), or an IP/CIDR list of trusted proxies. |
 | `CHARTMATE_ALLOWED_HOSTS` | unset | Comma-separated hostnames or IP addresses (no scheme or port; IPv6 in brackets) served besides `localhost`, `127.0.0.1` and `[::1]`. Enforced without a password, and with one when set; see [Security](#security). |
+| `CHARTMATE_PUBLISHED_BIND` | unset (Compose: `CHARTMATE_BIND`) | Address the port is published on outside the container. Only used to decide whether to warn about running without a password; `compose.yaml` sets it, you never need to. |
 | `CRYPTO_PROVIDER` | `binance` | `binance` or `coinbase`. |
 | `BINANCE_BASE_URL` | `https://data-api.binance.vision` | Alternate Binance-compatible endpoint (`https://` only, no credentials, query or fragment). |
 | `CHARTMATE_PROVIDERS` | `live` | `fixture` serves deterministic synthetic data (tests/demos, no network). |
