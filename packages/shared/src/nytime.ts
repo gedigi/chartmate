@@ -58,18 +58,37 @@ export function nyToUtc(y: number, m: number, d: number, hh: number, mm: number)
 /** A NY calendar day: its date, weekday and [start, end) span in UTC epoch ms (23, 24 or 25 hours long). */
 export interface NyDay { y: number; m: number /*1-12*/; d: number; dow: number /*0=Sun*/; start: number; end: number }
 
+const MIN_MS = 60_000;
+const HOUR_MS = 3_600_000;
+
+function isNyMidnight(t: number, y: number, m: number, d: number): boolean {
+  const q = nyParts(t);
+  return q.y === y && q.m === m && q.d === d && q.hh === 0 && q.mm === 0;
+}
+
 /** The NY calendar day containing `ts`. */
 export function nyDay(ts: number): NyDay {
   const p = nyParts(ts);
   const next = new Date(Date.UTC(p.y, p.m - 1, p.d + 1));
+  const [ny, nm, nd] = [next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate()];
+  // Fast path (3 lookups instead of ~9): assume the offset at `ts` held since midnight and for 24 hours, and
+  // check both midnights. Only a day with an offset change (DST) falls back to resolving each midnight.
+  const tsMin = Math.floor(ts / MIN_MS) * MIN_MS;
+  const start = Date.UTC(p.y, p.m - 1, p.d) - (Date.UTC(p.y, p.m - 1, p.d, p.hh, p.mm) - tsMin);
+  const fast = isNyMidnight(start, p.y, p.m, p.d) && isNyMidnight(start + 24 * HOUR_MS, ny, nm, nd);
   return {
     y: p.y, m: p.m, d: p.d, dow: p.dow,
-    start: nyToUtc(p.y, p.m, p.d, 0, 0),
-    end: nyToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, 0),
+    start: fast ? start : nyToUtc(p.y, p.m, p.d, 0, 0),
+    end: fast ? start + 24 * HOUR_MS : nyToUtc(ny, nm, nd, 0, 0),
   };
 }
 
-const HOUR_MS = 3_600_000;
+/** `nyToUtc` for a time of `day`: a 24-hour day has one UTC offset throughout, so no lookup is needed. */
+export function nyDayTime(day: NyDay, hh: number, mm: number): number {
+  return day.end - day.start === 24 * HOUR_MS
+    ? day.start + hh * HOUR_MS + mm * MIN_MS
+    : nyToUtc(day.y, day.m, day.d, hh, mm);
+}
 
 /**
  * Memoizes `build(day)` per NY day, for scans over many timestamps: time-zone lookups (Intl) are slow, and a scan

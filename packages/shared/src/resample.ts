@@ -1,6 +1,6 @@
 import type { Bar, Timeframe } from './types.js';
 import { isIntraday, tfMs } from './timeframes.js';
-import { memoByNyDay, nyParts, nyToUtc } from './nytime.js';
+import { memoByNyDay, nyDayTime, nyParts, nyToUtc } from './nytime.js';
 
 export type Calendar = 'utc' | 'nyse-rth' | 'nyse-eth';
 
@@ -36,9 +36,7 @@ function anchored(ts: number, ms: number, anchor: number): number {
 function bucketStarter(tf: Timeframe, calendar: Calendar): (ts: number) => number {
   if (calendar === 'utc' || !isIntraday(tf)) return (ts) => bucketStart(ts, tf, calendar);
   const ms = tfMs(tf);
-  const anchorOf = memoByNyDay((day) =>
-    // A 24-hour day has one UTC offset throughout, so the anchor is a fixed time after its midnight.
-    day.end - day.start === DAY ? day.start + (calendar === 'nyse-rth' ? 9.5 : 4) * 3_600_000 : sessionAnchor(day, calendar));
+  const anchorOf = memoByNyDay((day) => (calendar === 'nyse-rth' ? nyDayTime(day, 9, 30) : nyDayTime(day, 4, 0)));
   return (ts) => anchored(ts, ms, anchorOf(ts));
 }
 

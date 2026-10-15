@@ -1,5 +1,5 @@
 import type { Bar, Session, SessionMode } from './types.js';
-import { memoByNyDay, nyParts, nyToUtc } from './nytime.js';
+import { memoByNyDay, nyDayTime, nyParts } from './nytime.js';
 
 /** Explicit session window, [start, end) in UTC epoch ms. */
 export interface SessionWindow { start: number; end: number; session: Session }
@@ -19,8 +19,6 @@ export function tagSessionFixedHours(ts: number): Session | null {
   return null;
 }
 
-const HOUR_MS = 3_600_000;
-
 /**
  * `tagSessionFixedHours`, memoized per NY day: the day's session bounds in UTC are computed once (Intl lookups are
  * slow), then each timestamp is a few comparisons.
@@ -28,11 +26,7 @@ const HOUR_MS = 3_600_000;
 function fixedHoursTagger(): (ts: number) => Session | null {
   const boundsOf = memoByNyDay((day) => {
     if (day.dow === 0 || day.dow === 6) return null;
-    // A 24-hour day has one UTC offset throughout; otherwise (a DST change) resolve each bound on its own.
-    const at = (hh: number, mm: number) => day.end - day.start === 24 * HOUR_MS
-      ? day.start + hh * HOUR_MS + mm * 60_000
-      : nyToUtc(day.y, day.m, day.d, hh, mm);
-    return [at(4, 0), at(9, 30), at(16, 0), at(20, 0)] as const;
+    return [nyDayTime(day, 4, 0), nyDayTime(day, 9, 30), nyDayTime(day, 16, 0), nyDayTime(day, 20, 0)] as const;
   });
   return (ts) => {
     const b = boundsOf(ts);
