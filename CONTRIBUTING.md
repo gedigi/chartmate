@@ -136,8 +136,9 @@ Run just your test while you work:
 pnpm --filter @chartmate/web exec vitest run test/indicators/ppo.test.ts
 ```
 
-Shared helpers (moving averages, ATR, session keys) live in `apps/web/src/chart/indicators/calc.ts`. Keep the
-module's top-level code free of side effects: indicators are bundled eagerly, so a module that throws while being
+Shared helpers (`vwap`, `atr`, and the `nyDayKey` / `utcDayKey` session day keys) live in
+`apps/web/src/chart/indicators/calc.ts`; the `ema` above is exported from `custom/ppo.ts`. Keep the module's
+top-level code free of side effects: indicators are bundled eagerly, so a module that throws while being
 imported stops the app from starting (a module with the wrong shape is only skipped, with a console warning).
 
 ### 3. The chart template
