@@ -1,6 +1,7 @@
 import { MAX_WATCHLIST_SYMBOLS, watchlistSymbols, type SymbolId, type WatchlistEntry } from '@chartmate/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage, isPermanentError } from '../api/client';
+import type { SaveNoteState } from '../components/SaveNote';
 import { retryDelayMs } from './retry';
 import { readStored, writeStored } from './storage';
 import { onBasketDeleted } from './useBaskets';
@@ -21,15 +22,19 @@ function setFlag(): void {
 }
 
 /**
- * What the watchlist shows about loading / saving, if anything. `retrying`: a transient failure being retried (a quiet
- * muted line); `stalled`: saving gave up after its retries (muted, with a Retry action); `failed`: a permanent failure
- * (a load: muted, the list stays read-only; a save: `tone: 'error'`). `detail` is the raw error (a tooltip).
+ * What the watchlist shows about LOADING, if anything (a quiet muted line): `retrying` a transient failure being
+ * retried; `failed` a permanent one (the list stays read-only). `detail` is the raw error (a tooltip).
  */
 export interface WatchlistStatus {
-  kind: 'retrying' | 'stalled' | 'failed';
+  kind: 'retrying' | 'failed';
   text: string;
   detail: string;
-  tone: 'muted' | 'error';
+}
+
+/** A save that has not reached the server (shown with SaveNote, like the layout and drawings). */
+export interface WatchlistSaveNote {
+  state: SaveNoteState;
+  detail: string;
 }
 
 export interface UseWatchlist {
@@ -40,6 +45,7 @@ export interface UseWatchlist {
   /** False until the server list is loaded; edits are ignored meanwhile (the load would replace them). */
   loaded: boolean;
   status: WatchlistStatus | null;
+  saveNote: WatchlistSaveNote | null;
   /** Saves again at once after saving stalled. */
   retrySave: () => void;
   /** Adds a symbol at the end of `sectionId` (or of the list); duplicates are ignored. */
@@ -89,10 +95,10 @@ export function useWatchlist(): UseWatchlist {
           const detail = errorMessage(err);
           // A permanent failure (e.g. 403) cannot succeed by retrying: the list stays read-only.
           if (isPermanentError(err)) {
-            setLoadStatus({ kind: 'failed', text: "Couldn't load the watchlist.", detail, tone: 'muted' });
+            setLoadStatus({ kind: 'failed', text: "Couldn't load the watchlist.", detail });
             return;
           }
-          setLoadStatus({ kind: 'retrying', text: "Can't reach the server. Retrying…", detail, tone: 'muted' });
+          setLoadStatus({ kind: 'retrying', text: "Can't reach the server. Retrying…", detail });
           timer = setTimeout(() => load(attempt + 1), retryDelayMs(attempt));
         },
       );
@@ -106,14 +112,9 @@ export function useWatchlist(): UseWatchlist {
 
   // Saving stays disabled until the server list is loaded (so a failed load never overwrites it).
   const save = useDebouncedSave(entries, saveList, SAVE_DELAY_MS, loaded, { retry: true });
-  let saveStatus: WatchlistStatus | null = null;
-  if (save.error !== null) {
-    if (save.permanent) saveStatus = { kind: 'failed', text: `Couldn't save the watchlist: ${save.error}`, detail: save.error, tone: 'error' };
-    else if (save.stalled) saveStatus = { kind: 'stalled', text: 'Changes not saved.', detail: save.error, tone: 'muted' };
-    else saveStatus = { kind: 'retrying', text: 'Not saved yet. Retrying…', detail: save.error, tone: 'muted' };
-  }
-  const seedStatus: WatchlistStatus | null = seedError === null ? null
-    : { kind: 'failed', text: `Couldn't save the watchlist: ${seedError}`, detail: seedError, tone: 'error' };
+  const saveNote: WatchlistSaveNote | null = save.error !== null
+    ? { state: save.permanent ? 'failed' : save.stalled ? 'stalled' : 'retrying', detail: save.error }
+    : seedError !== null ? { state: 'failed', detail: seedError } : null;
 
   // Edits before the load would be replaced by the loaded list (and never saved): ignored.
   const edit = useCallback((fn: (cur: WatchlistEntry[]) => WatchlistEntry[]) => setEntries((cur) => (loadedRef.current ? fn(cur) : cur)), []);
@@ -126,5 +127,5 @@ export function useWatchlist(): UseWatchlist {
   useEffect(() => onBasketDeleted((id) => edit((cur) => removeSymbol(cur, `basket:${id}`))), [edit]);
   const ids = useMemo(() => watchlistSymbols(entries), [entries]);
 
-  return { entries, ids, loaded, status: loadStatus ?? saveStatus ?? seedStatus, retrySave: save.retryNow, add, remove, update };
+  return { entries, ids, loaded, status: loadStatus, saveNote, retrySave: save.retryNow, add, remove, update };
 }

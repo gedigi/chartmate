@@ -4,6 +4,7 @@ import { api, ApiError, errorMessage, isPermanentError, setUnauthorizedHandler }
 import { BasketsPage } from './components/BasketsPage';
 import { ChartView } from './components/ChartView';
 import { Login } from './components/Login';
+import { SaveNote } from './components/SaveNote';
 import { TopBar, type Theme, type View } from './components/TopBar';
 import { SidebarResizer } from './components/SidebarResizer';
 import { SymbolDetails } from './components/SymbolDetails';
@@ -123,7 +124,7 @@ function useShowSession(symbol: SymbolId): boolean {
 }
 
 function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme: () => void; onLogout?: () => void }): JSX.Element {
-  const { layout, setLayout, selectSymbol: selectLayoutSymbol, loaded, loadError, retry: retryLayout, saveError: layoutSaveError, saveStalled: layoutSaveStalled, retrySave: retryLayoutSave } = useLayout();
+  const { layout, setLayout, selectSymbol: selectLayoutSymbol, loaded, loadError, retry: retryLayout, saveError: layoutSaveError, saveStalled: layoutSaveStalled, savePermanent: layoutSavePermanent, retrySave: retryLayoutSave } = useLayout();
   const [view, setView] = useHashView();
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= SIDEBAR_BREAKPOINT);
   const sidebar = useSidebarWidth();
@@ -174,14 +175,12 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
         onLogout={onLogout}
         controlsDisabled={!loaded}
       />
-      {layoutSaveError !== null && !layoutSaveStalled && (
-        <div className="save-status" role="status" title={`Last error: ${layoutSaveError}`}>Layout not saved — retrying</div>
-      )}
-      {/* Retries gave up (a tab left open must not keep writing an old layout over newer changes): manual retry. */}
-      {layoutSaveError !== null && layoutSaveStalled && (
-        <div className="save-status is-stalled" role="status" title={`Last error: ${layoutSaveError}`}>
-          <span>Layout not saved</span>
-          <button type="button" aria-label="Retry saving the layout" onClick={retryLayoutSave}>Retry</button>
+      {/* Retried with backoff; once the retries give up (a tab left open must not keep writing an old layout over
+          newer changes) a manual Retry. */}
+      {layoutSaveError !== null && (
+        <div className="save-status">
+          <SaveNote thing="Layout" state={layoutSavePermanent ? 'failed' : layoutSaveStalled ? 'stalled' : 'retrying'}
+            detail={layoutSaveError} retryLabel="Retry saving the layout" onRetry={retryLayoutSave} />
         </div>
       )}
       {view === 'chart' ? (

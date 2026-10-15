@@ -462,16 +462,32 @@ kbd {
 /* Visually hidden, still announced by screen readers. */
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* Small, non-blocking indicator while layout saves fail (they are retried with backoff). */
-.save-status {
-  position: fixed; left: 8px; bottom: 8px; z-index: 50; padding: 4px 10px; border-radius: 999px;
-  background: var(--warn-bg); color: var(--warn-text); font-size: 11px; font-weight: 500; pointer-events: auto;
+/* Where the layout's save note sits: bottom left of the window, out of the way (see .save-note). */
+.save-status { position: fixed; left: 8px; bottom: 8px; z-index: 50; pointer-events: auto; }
+
+/*
+ * Save note (SaveNote.tsx): the one treatment for a save that has not reached the server — the layout, the watchlist,
+ * drawings. A calm warn pill (the warn tokens, opaque) while retried or after the retries gave up; the error color only
+ * for a permanent failure. This is the warn counterpart of .chart-banner (which stays for real errors).
+ */
+.save-note {
+  display: inline-flex; align-items: center; gap: 7px; max-width: 100%; min-height: 24px; padding: 3px 10px;
+  border-radius: 999px; font-size: 11.5px; font-weight: 500; line-height: 16px;
+  background: var(--warn-bg); color: var(--warn-text);
 }
-.save-status.is-stalled { display: flex; align-items: center; gap: 8px; padding-right: 4px; }
-.save-status.is-stalled button {
-  min-height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; color: var(--warn-text); border-color: currentColor;
-  background: transparent;
+.save-note.is-error { background: var(--bg-elevated); color: var(--error); box-shadow: inset 0 0 0 1px var(--error); }
+.save-note:has(.save-note-retry) { padding-right: 3px; }
+.save-note-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.save-note-dot {
+  flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+  animation: save-note-pulse 1.6s ease-in-out infinite alternate;
 }
+@keyframes save-note-pulse { from { opacity: 1; } to { opacity: 0.4; } }
+.save-note-retry {
+  flex: none; min-height: 18px; padding: 0 9px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  color: inherit; background: transparent; border: 1px solid currentColor;
+}
+.save-note-retry:hover:not(:disabled) { color: var(--warn-bg); background: var(--warn-text); border-color: var(--warn-text); }
 
 /* Sparklines (watchlist, baskets): a dotted baseline at the first value, the series, a dot on the last value. */
 .sparkline { display: block; overflow: visible; }

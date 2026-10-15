@@ -281,7 +281,7 @@ describe('App', () => {
     await screen.findByTestId('chart-view');
     expect(screen.queryByText(/Couldn't load symbol/)).not.toBeInTheDocument();
   });
-  it('shows a small "Layout not saved — retrying" status while layout saves fail, gone once a retry succeeds', async () => {
+  it('shows a small "Layout not saved. Retrying…" note while layout saves fail, gone once a retry succeeds', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
@@ -290,11 +290,12 @@ describe('App', () => {
       await screen.findByTestId('chart-view');
       await userEvent.click(screen.getByRole('button', { name: '1h' }));
       await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
-      const status = await screen.findByText('Layout not saved — retrying');
+      const status = (await screen.findByText('Layout not saved. Retrying…')).closest('.save-note')!;
       expect(status).toHaveAttribute('role', 'status');
       expect(status).toHaveAttribute('title', expect.stringContaining('down'));
+      expect(status).toHaveClass('is-warn');
       await act(async () => { await vi.advanceTimersByTimeAsync(2100); });
-      await waitFor(() => expect(screen.queryByText('Layout not saved — retrying')).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByText('Layout not saved. Retrying…')).not.toBeInTheDocument());
     } finally {
       vi.useRealTimers();
     }
@@ -308,10 +309,10 @@ describe('App', () => {
       vi.mocked(api.layouts.put).mockRejectedValue(new ApiError(503, 'unavailable', 'down'));
       await userEvent.click(screen.getByRole('button', { name: '1h' }));
       await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60_000); });
-      expect(await screen.findByText('Layout not saved')).toBeInTheDocument();
+      expect(await screen.findByText('Layout not saved.')).toBeInTheDocument();
       vi.mocked(api.layouts.put).mockResolvedValue(undefined);
       await userEvent.click(screen.getByRole('button', { name: 'Retry saving the layout' }));
-      await waitFor(() => expect(screen.queryByText('Layout not saved')).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByText('Layout not saved.')).not.toBeInTheDocument());
     } finally {
       vi.useRealTimers();
     }

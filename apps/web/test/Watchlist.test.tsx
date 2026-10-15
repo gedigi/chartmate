@@ -223,11 +223,11 @@ describe('Watchlist', () => {
     const err = screen.getByRole('alert');
     expect(err).toHaveTextContent("Couldn't load the watchlist.");
     expect(err).toHaveAttribute('title', 'Origin not allowed');
-    expect(err).not.toHaveClass('is-error');
+    expect(err).toHaveClass('watchlist-status'); // muted, not the error color
     expect(screen.getByRole('combobox', { name: 'Search symbol' })).toBeDisabled();
   });
 
-  it('retries a failed watchlist save (quiet status); after giving up shows "Changes not saved" with Retry', async () => {
+  it('retries a failed watchlist save ("Watchlist not saved. Retrying…"); after giving up "Watchlist not saved." with Retry', async () => {
     const { MAX_SAVE_RETRIES } = await import('../src/state/useDebouncedSave');
     setup(['stock:AAPL', 'crypto:BTC']);
     vi.useFakeTimers();
@@ -237,22 +237,22 @@ describe('Watchlist', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove BTC' }));
     await act(async () => { await vi.advanceTimersByTimeAsync(500); });
     expect(put).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('Not saved yet. Retrying…').closest('[role="status"]')).toHaveAttribute('title', 'offline');
+    expect(screen.getByText('Watchlist not saved. Retrying…').closest('[role="status"]')).toHaveAttribute('title', 'offline');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(put).toHaveBeenCalledTimes(2);
     expect(put).toHaveBeenLastCalledWith(syms(['stock:AAPL']));
-    expect(screen.queryByText('Not saved yet. Retrying…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Watchlist not saved. Retrying…')).not.toBeInTheDocument();
     // Give up after MAX_SAVE_RETRIES: a persistent muted note with a Retry action.
     put.mockRejectedValue(new Error('offline'));
     fireEvent.click(screen.getByRole('button', { name: 'Remove AAPL' }));
     await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60_000); });
     expect(put).toHaveBeenCalledTimes(3 + MAX_SAVE_RETRIES);
-    expect(screen.getByText('Changes not saved.')).toBeInTheDocument();
+    expect(screen.getByText('Watchlist not saved.').closest('.save-note')).toHaveClass('is-warn');
     put.mockResolvedValue(undefined);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Retry saving the watchlist' })); await vi.advanceTimersByTimeAsync(0); });
     expect(put).toHaveBeenLastCalledWith([]);
-    expect(screen.queryByText('Changes not saved.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Watchlist not saved.')).not.toBeInTheDocument();
   });
 
   it('a permanent save failure (4xx) is shown in the error color', async () => {
@@ -266,8 +266,11 @@ describe('Watchlist', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
     expect(put).toHaveBeenCalledTimes(1);
     const err = screen.getByRole('alert');
-    expect(err).toHaveTextContent("Couldn't save the watchlist: Too many symbols");
+    expect(err).toHaveTextContent('Watchlist not saved: Too many symbols');
     expect(err).toHaveClass('is-error');
+    // A newer change clears it as soon as it starts saving.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove AAPL' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('a basket that no longer exists shows as "Deleted basket" and its info is not retried', async () => {

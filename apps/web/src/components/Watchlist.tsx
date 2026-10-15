@@ -10,6 +10,7 @@ import {
   deleteSection, dropEntry, insertSection, moveByKey, newSectionId, renameSection, setCollapsed, visibleRows, type WatchlistRow,
 } from '../state/watchlistModel';
 import { RangeGauge } from './RangeGauge';
+import { SaveNote } from './SaveNote';
 import { Sparkline } from './Sparkline';
 import { SymbolSearch } from './SymbolSearch';
 import './Watchlist.css';
@@ -80,7 +81,7 @@ export function watchlistSparkWidth(railWidth: number): number {
  * rows in the same ordered list: the symbols below a header belong to it until the next header.
  */
 function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Element {
-  const { entries, ids, loaded, status, retrySave, add, remove, update } = useWatchlist();
+  const { entries, ids, loaded, status, saveNote, retrySave, add, remove, update } = useWatchlist();
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
   const [sparks, setSparks] = useState<Record<string, number[]>>({});
   const [infos, setInfos] = useState<Record<string, SymbolInfo>>({});
@@ -532,15 +533,16 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
       </div>
       <SymbolSearch onSelect={(id) => add(id, activeSection)} placeholder="Add symbol…" disabled={!loaded} />
       {status && (
-        // One quiet line: a transient failure is muted with a pulsing dot (in step with the placeholder rows); only a
-        // permanent save failure takes the error color. The raw error is in the tooltip.
-        <div className={`watchlist-status${status.tone === 'error' ? ' is-error' : ''}`} role={status.kind === 'failed' ? 'alert' : 'status'}
-          title={status.detail}>
+        // Loading: one quiet muted line, a pulsing dot (in step with the placeholder rows) while retried. The raw error
+        // is in the tooltip.
+        <div className="watchlist-status" role={status.kind === 'failed' ? 'alert' : 'status'} title={status.detail}>
           {status.kind === 'retrying' && <span className="wl-status-dot" aria-hidden="true" />}
           <span className="wl-status-text">{status.text}</span>
-          {status.kind === 'stalled' && (
-            <button type="button" className="wl-status-retry" aria-label="Retry saving the watchlist" onClick={retrySave}>Retry</button>
-          )}
+        </div>
+      )}
+      {saveNote && (
+        <div className="watchlist-save-note">
+          <SaveNote thing="Watchlist" state={saveNote.state} detail={saveNote.detail} retryLabel="Retry saving the watchlist" onRetry={retrySave} />
         </div>
       )}
       {/* A plain list: each symbol row has a focusable "select" control (aria-current marks the open chart) and a
