@@ -62,7 +62,7 @@ export function findForbiddenSwitches(argv: readonly string[], platform: NodeJS.
 }
 
 /**
- * Environment variables a packaged build refuses to start with. Node acts on NODE_USE_ENV_PROXY during
+ * Environment variables a released (hardened) build refuses to start with. Node acts on NODE_USE_ENV_PROXY during
  * pre-execution, before any app code runs (global proxy dispatcher), so it cannot be neutralized by deleting it
  * later; SSLKEYLOGFILE would make TLS session keys loggable. NODE_USE_SYSTEM_CA is allowed: it is common in
  * developer and corporate environments (refusing it made the app silently fail to open), and it has no effect on
