@@ -32,6 +32,8 @@ COPY . .
 # owner/name of the repository the image is built from: the web UI's About dialog links to its source code (AGPL-3.0
 # section 13). Pass it with --build-arg GITHUB_REPOSITORY=...; unset, the dialog points to the LICENSE in the image.
 ARG GITHUB_REPOSITORY=""
+# The tag or commit it is built from, so the dialog links that exact source (apps/web/build/sourceRef.cjs).
+ARG GITHUB_REF_TYPE="" GITHUB_REF_NAME="" GITHUB_SHA=""
 RUN pnpm build
 # THIRD_PARTY_NOTICES.txt for what the image ships (server runtime + web UI); fails on a license outside the
 # AGPL-3.0-compatible allowlist.

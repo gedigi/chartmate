@@ -110,7 +110,11 @@ jobs:
           load: true
           push: false
           tags: chartmate:smoke
-          build-args: GITHUB_REPOSITORY=${{ github.repository }}
+          build-args: |
+            GITHUB_REPOSITORY=${{ github.repository }}
+            GITHUB_REF_TYPE=${{ github.ref_type }}
+            GITHUB_REF_NAME=${{ github.ref_name }}
+            GITHUB_SHA=${{ github.sha }}
           build-contexts: ${{ steps.base.outputs.context }}
           pull: true
       - name: Smoke test (linux/amd64)
@@ -131,7 +135,11 @@ jobs:
           load: true
           push: false
           tags: chartmate:smoke-arm64
-          build-args: GITHUB_REPOSITORY=${{ github.repository }}
+          build-args: |
+            GITHUB_REPOSITORY=${{ github.repository }}
+            GITHUB_REF_TYPE=${{ github.ref_type }}
+            GITHUB_REF_NAME=${{ github.ref_name }}
+            GITHUB_SHA=${{ github.sha }}
           build-contexts: ${{ steps.base.outputs.context }}
           pull: true
       # Runs under QEMU: proves the arm64 better-sqlite3 binary loads and the server works on that platform.
@@ -200,7 +208,11 @@ jobs:
           load: true
           push: false
           tags: chartmate:scan-amd64
-          build-args: GITHUB_REPOSITORY=${{ github.repository }}
+          build-args: |
+            GITHUB_REPOSITORY=${{ github.repository }}
+            GITHUB_REF_TYPE=${{ github.ref_type }}
+            GITHUB_REF_NAME=${{ github.ref_name }}
+            GITHUB_SHA=${{ github.sha }}
           build-contexts: ${{ needs.image.outputs.base-context }}
           pull: true
       - name: Vulnerability scan (linux/amd64)
@@ -213,7 +225,11 @@ jobs:
           load: true
           push: false
           tags: chartmate:scan-arm64
-          build-args: GITHUB_REPOSITORY=${{ github.repository }}
+          build-args: |
+            GITHUB_REPOSITORY=${{ github.repository }}
+            GITHUB_REF_TYPE=${{ github.ref_type }}
+            GITHUB_REF_NAME=${{ github.ref_name }}
+            GITHUB_SHA=${{ github.sha }}
           build-contexts: ${{ needs.image.outputs.base-context }}
           pull: true
       - name: Vulnerability scan (linux/arm64)
@@ -255,7 +271,11 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          build-args: GITHUB_REPOSITORY=${{ github.repository }}
+          build-args: |
+            GITHUB_REPOSITORY=${{ github.repository }}
+            GITHUB_REF_TYPE=${{ github.ref_type }}
+            GITHUB_REF_NAME=${{ github.ref_name }}
+            GITHUB_SHA=${{ github.sha }}
           build-contexts: ${{ needs.image.outputs.base-context }}
           pull: true
           labels: ${{ steps.meta.outputs.labels }}

@@ -588,13 +588,39 @@ describe('docker.yml publish', () => {
   });
 });
 
-describe('Docker image builds pass the repository (the About dialog links to its source code)', () => {
-  it('every docker/build-push-action step in docker.yml passes GITHUB_REPOSITORY', () => {
+// The build args docker.yml passes to every image build: the About dialog links the repository and the exact tag or
+// commit (apps/web/build/sourceRef.cjs).
+const SOURCE_BUILD_ARGS = [
+  'GITHUB_REPOSITORY=${{ github.repository }}',
+  'GITHUB_REF_TYPE=${{ github.ref_type }}',
+  'GITHUB_REF_NAME=${{ github.ref_name }}',
+  'GITHUB_SHA=${{ github.sha }}',
+];
+const buildArgs = (s: Step) => String(s.with?.['build-args']).trim().split('\n').map((l) => l.trim());
+
+describe('Docker image builds pass the repository and the source ref (the About dialog links to its source code)', () => {
+  it('every docker/build-push-action step in docker.yml passes the repository, ref type, ref name and commit', () => {
     const wf = yaml.load(read('docker.yml'));
     const builds = Object.values(wf.jobs as Record<string, Job>).flatMap((j) => j.steps)
       .filter((s) => s.uses?.startsWith('docker/build-push-action@'));
     expect(builds.length).toBeGreaterThanOrEqual(3);
-    for (const s of builds) expect(String(s.with?.['build-args']).trim(), s.name).toBe('GITHUB_REPOSITORY=${{ github.repository }}');
+    for (const s of builds) expect(buildArgs(s), s.name).toEqual(SOURCE_BUILD_ARGS);
+  });
+
+  it('docker-refresh.yml builds the release tag, so it passes that tag and its commit (not the default branch)', () => {
+    const wf = yaml.load(read('docker-refresh.yml'));
+    for (const [job, tag, sha] of [
+      ['image', 'steps.release.outputs.tag', 'steps.release.outputs.sha'],
+      ['publish', 'needs.image.outputs.tag', 'steps.rank.outputs.sha'],
+    ] as const) {
+      const builds = (wf.jobs[job] as Job).steps.filter((s) => s.uses?.startsWith('docker/build-push-action@'));
+      expect(builds.length, job).toBeGreaterThanOrEqual(2);
+      for (const s of builds) {
+        expect(buildArgs(s), `${job}: ${s.name}`).toEqual([
+          'GITHUB_REPOSITORY=${{ github.repository }}', 'GITHUB_REF_TYPE=tag', `GITHUB_REF_NAME=\${{ ${tag} }}`, `GITHUB_SHA=\${{ ${sha} }}`,
+        ]);
+      }
+    }
   });
 
   it('ci.yml\'s docker build passes it too, and the smoke tests check it', () => {
@@ -602,8 +628,13 @@ describe('Docker image builds pass the repository (the About dialog links to its
     const runs = Object.values(ci.jobs as Record<string, Job>).flatMap((j) => j.steps).map((s) => s.run ?? '');
     const builds = runs.filter((r) => /\bdocker build\b/.test(r));
     expect(builds.length).toBeGreaterThan(0);
-    for (const r of builds) expect(r).toContain('--build-arg GITHUB_REPOSITORY="$GITHUB_REPOSITORY"');
-    expect(root('Dockerfile')).toMatch(/^ARG GITHUB_REPOSITORY=""$/m);
+    for (const r of builds) {
+      for (const v of ['GITHUB_REPOSITORY', 'GITHUB_REF_TYPE', 'GITHUB_REF_NAME', 'GITHUB_SHA']) expect(r).toContain(`--build-arg ${v}="$${v}"`);
+    }
+    const dockerfile = root('Dockerfile');
+    expect(dockerfile).toMatch(/^ARG GITHUB_REPOSITORY=""$/m);
+    expect(dockerfile).toMatch(/^ARG GITHUB_REF_TYPE="" GITHUB_REF_NAME="" GITHUB_SHA=""$/m);
+    expect(dockerfile.search(/^ARG GITHUB_REF_TYPE=/m)).toBeLessThan(dockerfile.indexOf('RUN pnpm build'));
     const smoke = (yaml.load(read('docker.yml')).jobs.image.steps as Step[]).map((s) => s.run ?? '').filter((r) => r.includes('docker-smoke.sh'));
     expect(smoke.length).toBe(2);
     for (const r of smoke) expect(r).toContain('--expect-repository "$GITHUB_REPOSITORY"');
@@ -616,14 +647,14 @@ describe('Docker image freshness: every build pulls, on a base digest resolved o
   const isBuild = (s: Step) => !!s.uses?.startsWith('docker/build-push-action@');
   const BASE_REFS = ['${{ steps.base.outputs.context }}', '${{ needs.image.outputs.base-context }}'];
 
-  it('every docker/build-push-action step pulls, pins the resolved base and passes GITHUB_REPOSITORY', () => {
+  it('every docker/build-push-action step pulls, pins the resolved base and passes the repository', () => {
     for (const f of IMAGE_WORKFLOWS) {
       const builds = jobsOf(f).flatMap(([, j]) => j.steps).filter(isBuild);
       expect(builds.length, f).toBeGreaterThanOrEqual(5);
       for (const s of builds) {
         expect(s.with?.pull, `${f}: ${s.name}`).toBe(true);
         expect(BASE_REFS, `${f}: ${s.name}`).toContain(s.with?.['build-contexts']);
-        expect(String(s.with?.['build-args']).trim(), `${f}: ${s.name}`).toBe('GITHUB_REPOSITORY=${{ github.repository }}');
+        expect(buildArgs(s)[0], `${f}: ${s.name}`).toBe('GITHUB_REPOSITORY=${{ github.repository }}');
       }
     }
   });

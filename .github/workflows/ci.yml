@@ -142,7 +142,10 @@ jobs:
       - name: Build
         env:
           BASE_CONTEXT: ${{ steps.base.outputs.context }}
-        run: docker build --pull --build-context "$BASE_CONTEXT" --build-arg GITHUB_REPOSITORY="$GITHUB_REPOSITORY" -t chartmate:ci .
+        run: >-
+          docker build --pull --build-context "$BASE_CONTEXT" --build-arg GITHUB_REPOSITORY="$GITHUB_REPOSITORY"
+          --build-arg GITHUB_REF_TYPE="$GITHUB_REF_TYPE" --build-arg GITHUB_REF_NAME="$GITHUB_REF_NAME"
+          --build-arg GITHUB_SHA="$GITHUB_SHA" -t chartmate:ci .
       - name: Trivy (version and sha256 pinned)
         run: .github/scripts/install-trivy.sh
       # Fails on a HIGH or CRITICAL vulnerability with a fix available, in the OS packages or node_modules.
