@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 # The BuildKit frontend (the line above) is pinned by digest. To move it: `docker buildx imagetools inspect
-# docker/dockerfile:1`, then update the digest (Dependabot's docker updates propose it too).
+# docker/dockerfile:1`, then update the digest. Dependabot never does (it reads only FROM lines); the weekly
+# docker-refresh.yml run warns in its summary when docker/dockerfile:1 has moved on.
 # Chartmate server + web UI. Multi-arch (linux/amd64, linux/arm64): the build stage runs on the build host's
 # platform (its output is plain JavaScript plus better-sqlite3's bundled prebuilds), only the runtime stage is
 # per-target.

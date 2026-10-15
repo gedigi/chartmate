@@ -104,11 +104,13 @@ jobs:
             echo "Nothing refreshed: $tag has no published GitHub Release (draft, pre-release or missing: $state)" | tee -a "$GITHUB_STEP_SUMMARY"
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.release.outputs.published == 'true'
         with:
           persist-credentials: false
           ref: refs/tags/${{ steps.release.outputs.tag }}
           path: release
       - name: Check the version
+        if: steps.release.outputs.published == 'true'
         env:
           TAG: ${{ steps.release.outputs.tag }}
         run: |
@@ -118,6 +120,7 @@ jobs:
             exit 1
           fi
       - name: Base image
+        if: steps.release.outputs.published == 'true'
         id: base
         env:
           GH_TOKEN: ${{ github.token }} # reads docker-library/repo-info (public) through the GitHub API
@@ -127,6 +130,20 @@ jobs:
           # An empty context: the release's Dockerfile pins its base by digest, so a rebuild changes nothing.
           if ! grep -qE '^context=.+' "$GITHUB_OUTPUT"; then
             echo "Nothing refreshed: the release's Dockerfile pins its base image by digest (a rebuild would be the same image)" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Dependabot reads only FROM lines, so the Dockerfile's `# syntax=` frontend digest is bumped by hand: say when
+      # docker/dockerfile:1 has moved past the pin. Information only.
+      - name: Dockerfile frontend pin
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          pinned="$(sed -n '1s/^# syntax=docker\/dockerfile:1@\(sha256:[0-9a-f]\{64\}\)$/\1/p' Dockerfile)"
+          current="$(docker buildx imagetools inspect docker/dockerfile:1 --format '{{json .Manifest}}' | jq -r '.digest // empty')"
+          if [ -n "$pinned" ] && [ -n "$current" ] && [ "$pinned" != "$current" ]; then
+            msg="docker/dockerfile:1 is now $current; the Dockerfile pins $pinned (bump it by hand, CONTRIBUTING.md)"
+            echo "::warning title=Dockerfile frontend::$msg"
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"
           fi
 
   audit:

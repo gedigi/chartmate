@@ -856,6 +856,31 @@ describe('docker-refresh.yml (weekly rebuild of the latest release)', () => {
     expect(plan.steps.find((s) => s.name === 'Check the version')!.run).toContain(`require('./release/apps/desktop/package.json').version`);
   });
 
+  it('an unpublished release stands down before anything else runs (no failure, so no issue)', () => {
+    const i = plan.steps.findIndex((s) => s.id === 'release');
+    for (const s of plan.steps.slice(i + 1).filter((x) => x.name !== 'Dockerfile frontend pin')) {
+      expect(s.if, s.name ?? s.uses).toBe("steps.release.outputs.published == 'true'");
+    }
+    expect(plan.steps.slice(i + 1).map((s) => s.name ?? s.uses?.split('@')[0])).toEqual([
+      'actions/checkout', 'Check the version', 'Base image', 'Dockerfile frontend pin',
+    ]);
+  });
+
+  it('warns, without failing, when docker/dockerfile:1 has moved past the Dockerfile\'s pinned frontend', () => {
+    const pin = plan.steps.find((s) => s.name === 'Dockerfile frontend pin')! as Step & { 'continue-on-error'?: boolean };
+    expect(pin['continue-on-error']).toBe(true);
+    expect(pin.if).toBeUndefined();
+    expect(pin.run).toContain(`sed -n '1s/^# syntax=docker\\/dockerfile:1@\\(sha256:[0-9a-f]\\{64\\}\\)$/\\1/p' Dockerfile`);
+    expect(pin.run).toContain(`docker buildx imagetools inspect docker/dockerfile:1 --format '{{json .Manifest}}'`);
+    expect(pin.run).toContain('::warning title=Dockerfile frontend::');
+    expect(pin.run).toContain('>> "$GITHUB_STEP_SUMMARY"');
+    expect(pin.run).not.toMatch(/exit 1/);
+    // The sed expression really extracts the pin from the Dockerfile's first line.
+    const first = root('Dockerfile').split('\n')[0]!;
+    expect(/^# syntax=docker\/dockerfile:1@(sha256:[0-9a-f]{64})$/.exec(first)?.[1]).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(root('CONTRIBUTING.md')).toContain('`# syntax=` frontend digest');
+  });
+
   it('stands down for a release whose Dockerfile pins its base by digest (an older release: nothing to refresh)', () => {
     const base = plan.steps.find((s) => s.id === 'base')!;
     expect(base.run).toContain('.github/scripts/resolve-base-image.sh release/Dockerfile');

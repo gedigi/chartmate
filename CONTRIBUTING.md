@@ -368,4 +368,6 @@ login runs first in the Windows job, before any dependency code. Dependabot open
 npm packages and the pinned actions (the Docker base image and the Compose Postgres image are tags pulled fresh, so
 there is nothing to bump within a major), but never for a new Node or Postgres major: move to the next Node LTS
 (`.nvmrc`, the Dockerfile, `@types/node`) or Postgres major by hand.
-Dependabot does not see the corepack pin either: bump it by hand (the script says how).
+Dependabot does not see the corepack pin or the `# syntax=` frontend digest on the Dockerfile's first line either:
+bump both by hand (the script and the Dockerfile say how; the weekly `docker-refresh.yml` summary warns when
+`docker/dockerfile:1` has moved past the pin).
