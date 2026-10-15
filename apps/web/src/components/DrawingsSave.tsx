@@ -55,26 +55,34 @@ export function DrawingsSavers(): JSX.Element {
 
 /**
  * One note for every symbol whose drawings have not reached the server: "Drawings not saved for AAPL, MSFT and 3 more."
- * Retry (any stalled) retries all of them; Discard (any permanent failure) drops those explicitly. Warn tone unless
- * every one failed permanently. The raw errors are in the title.
+ * ("Drawings not saved (5)." when the row is narrow; the names and raw errors are in the title). Red as soon as any save
+ * failed for good, warn otherwise. Retry (any stalled) retries all of them; Discard (any permanent failure) drops those
+ * explicitly, after a confirmation when it covers more than one symbol.
  */
 export function DrawingsNote(): JSX.Element | null {
   const s = useDrawingsStore();
   const entries = [...s.statuses.entries()];
   if (entries.length === 0) return null;
   const has = (state: string) => entries.some(([, st]) => st.state === state);
-  const state = has('stalled') ? 'stalled' : has('retrying') ? 'retrying' : 'failed';
+  const state = has('failed') ? 'failed' : has('stalled') ? 'stalled' : 'retrying';
   const failed = entries.filter(([, st]) => st.state === 'failed').map(([sym]) => sym);
+  const discard = () => {
+    if (failed.length > 1
+      && !window.confirm(`Discard the unsaved drawings of ${namesList(failed.map((sym) => drawingsTicker(s, sym)))}? They cannot be saved.`)) return;
+    for (const sym of failed) drawingsStore.discard(sym);
+  };
   return (
     <SaveNote
       thing="Drawings"
       message={`Drawings not saved for ${namesList(entries.map(([sym]) => drawingsTicker(s, sym)))}`}
+      shortMessage={`Drawings not saved (${entries.length})`}
       state={state}
       detail={entries.map(([sym, st]) => `${drawingsTicker(s, sym)}: ${st.detail}`).join('\n')}
       retryLabel="Retry saving the drawings"
       onRetry={() => { for (const [, st] of entries) if (st.state === 'stalled') st.retry(); }}
+      showRetry={state === 'failed' && has('stalled')}
       discardLabel="Discard the drawings that could not be saved"
-      onDiscard={failed.length > 0 ? () => { for (const sym of failed) drawingsStore.discard(sym); } : undefined}
+      onDiscard={failed.length > 0 ? discard : undefined}
     />
   );
 }

@@ -36,7 +36,18 @@ describe('SaveNote (one treatment for every save that has not reached the server
     render(<SaveNote thing="Drawings" message="Drawings not saved for AAPL and MSFT" state="failed" detail="AAPL: too large"
       retryLabel="Retry" onRetry={() => {}} discardLabel="Discard unsaved drawings" onDiscard={onDiscard} />);
     expect(screen.getByRole('alert')).toHaveTextContent('Drawings not saved for AAPL and MSFT.');
-    fireEvent.click(screen.getByRole('button', { name: 'Discard unsaved drawings' }));
+    const discard = screen.getByRole('button', { name: 'Discard unsaved drawings' });
+    expect(discard).toHaveClass('save-note-discard'); // a quieter text button, not styled like Retry
+    expect(discard).not.toHaveClass('save-note-retry');
+    fireEvent.click(discard);
     expect(onDiscard).toHaveBeenCalled();
+  });
+
+  it('a short form for narrow rows: both texts render, CSS shows one (container query)', () => {
+    render(<SaveNote thing="Drawings" message="Drawings not saved for AAPL, MSFT and 3 more" shortMessage="Drawings not saved (5)"
+      state="retrying" detail="x" retryLabel="Retry" onRetry={() => {}} />);
+    expect(document.querySelector('.save-note-long')).toHaveTextContent('Drawings not saved for AAPL, MSFT and 3 more. Retrying…');
+    expect(document.querySelector('.save-note-short')).toHaveTextContent('Drawings not saved (5). Retrying…');
+    expect(document.querySelector('.save-note-short')).toHaveAttribute('aria-hidden', 'true');
   });
 });

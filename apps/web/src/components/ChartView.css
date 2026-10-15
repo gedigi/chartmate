@@ -4,9 +4,17 @@
 /*
  * Top row, above the canvas (in flow, so nothing here ever covers plot data, the price axis or the drawing style bar):
  * indicator chips on the left, chart-level save notes (layout, unsaved drawings) side by side on the right, 6px apart.
- * Takes no space while both are empty.
+ * Always one strip tall (8px + 24px + 2px, a chip or a pill), even without chips, so a note appearing never moves the
+ * canvas. A container: a narrow strip switches the save notes to their short form.
  */
-.chart-toprow { display: flex; align-items: flex-start; flex-shrink: 0; min-width: 0; background: var(--bg); }
+.chart-toprow {
+  display: flex; align-items: flex-start; flex-shrink: 0; min-width: 0; min-height: 34px; background: var(--bg);
+  container: chart-toprow / inline-size;
+}
+@container chart-toprow (max-width: 900px) {
+  .chart-save-notes .save-note-long { display: none; }
+  .chart-save-notes .save-note-short { display: inline; }
+}
 .chart-toprow > .indicator-chips { flex: 1 1 auto; min-width: 0; }
 /* One row, never taller than one pill (the chip strip's height: 8px + 24px + 2px), so a note never resizes the canvas
    while the chips are shown; each pill ellipsizes its text when space runs short. */

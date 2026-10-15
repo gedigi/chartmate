@@ -489,6 +489,15 @@ kbd {
   color: inherit; background: transparent; border: 1px solid currentColor;
 }
 .save-note-retry:hover:not(:disabled) { color: var(--warn-bg); background: var(--warn-text); border-color: var(--warn-text); }
+.save-note.is-error .save-note-retry:hover:not(:disabled) { color: var(--bg-elevated); background: var(--error); border-color: var(--error); }
+/* Discard drops data: a quieter text button next to Retry, so it is never the obvious target. */
+.save-note-discard {
+  flex: none; min-height: 18px; padding: 0 4px; border: 0; border-radius: 4px; background: transparent; color: inherit;
+  font-size: 11px; font-weight: 500; opacity: 0.8; text-decoration: underline; text-underline-offset: 2px;
+}
+.save-note-discard:hover:not(:disabled) { opacity: 1; background: transparent; border-color: transparent; color: inherit; }
+/* Short form ("Drawings not saved (3).") where the row is narrow: see .chart-toprow's container query. */
+.save-note-short { display: none; }
 
 /* Sparklines (watchlist, baskets): a dotted baseline at the first value, the series, a dot on the last value. */
 .sparkline { display: block; overflow: visible; }

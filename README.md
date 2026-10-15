@@ -473,7 +473,9 @@ Where to read next:
   one note names every symbol still waiting ("Drawings not saved for AAPL, MSFT and 3 more."; its Retry retries
   them all), and charting the symbol again shows them from memory instead of the server's older copy (the last
   save wins over changes another tab made meanwhile). A save the server refuses for good (a 4xx error) turns the
-  note red and keeps the drawings until you choose **Discard**. Reloading or closing the tab drops drawings that
+  note red and keeps the drawings until you choose **Discard** (it asks first when that covers more than one
+  symbol; a charted symbol then shows its saved drawings again). On a narrow chart the note shortens to "Drawings
+  not saved (3)." with the names in its tooltip. Deleting a basket drops its unsaved drawings for good. Reloading or closing the tab drops drawings that
   were never saved. Points are stored in
   time/price coordinates (bar timestamp + price), not pixels, so they stay anchored to the same price and
   time across timeframes, zoom levels and window sizes.

@@ -49,12 +49,12 @@ describe('ChartView indicator chips', () => {
     expect(fn(LAYOUT).indicators).toEqual([]);
   });
 
-  it('takes no space when there are no indicators', async () => {
+  it('without indicators the top row stays (one strip tall in CSS) so a save note never moves the canvas', async () => {
     render(<ChartView layout={{ ...LAYOUT, indicators: [] }} setLayout={vi.fn()} symbolInfo={AAPL} theme="dark" />);
     await act(async () => { await Promise.resolve(); });
     const area = screen.getByTestId('chart-view').querySelector('.chart-area') as HTMLElement;
     expect(screen.queryByRole('list', { name: /active indicators/i })).not.toBeInTheDocument();
-    // The top row holds only the empty save-note stack (`:empty` → display: none; the row has no padding of its own).
+    // The top row holds only the empty save-note stack (`:empty` → display: none); its height is reserved in CSS.
     const row = area.firstElementChild as HTMLElement;
     expect(row).toHaveClass('chart-toprow');
     expect(row.children).toHaveLength(1);
