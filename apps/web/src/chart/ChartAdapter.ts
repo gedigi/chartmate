@@ -31,6 +31,7 @@ import { levelsDraw, levelsRange } from './indicators/levels';
 import { registerCustomIndicators } from './indicators/register';
 import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
+import { fitBarSpace, rangeLookbackMs, rangeStart, visibleBarCount, type RangeCalendar, type RangePreset } from './ranges';
 import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
 import {
   MEASURE_OVERLAY, measureColors, measureLines, measureStats, registerMeasureOverlay, snapValue,
@@ -113,6 +114,8 @@ export interface LoadParams {
 }
 
 const CANDLE_PANE = 'candle_pane';
+/** Gap (px) after the latest bar when a date range is shown: KLineChart's default right offset. */
+const RANGE_RIGHT_MARGIN_PX = 80;
 /** KLineChart's double-click window and distance (Delay.ResetClick, ManhattanDistance.DoubleClick). */
 const DOUBLE_CLICK_MS = 500;
 const DOUBLE_CLICK_PX = 5;
@@ -251,6 +254,8 @@ export class ChartAdapter {
     this.chart = chart;
     // Capture phase on the host: runs before KLineChart's own mousedown handler on its inner container.
     el.addEventListener('mousedown', this.onPressCapture, true);
+    chart.subscribeAction?.('onZoom', this.onUserView);
+    chart.subscribeAction?.('onScroll', this.onUserView);
   }
 
   private styles(): DeepPartial<Styles> {
@@ -344,6 +349,7 @@ export class ChartAdapter {
     this.clearMeasure();
     this.dataSymbol = null;
     this.loadSymbol = p.symbol.id;
+    this.range = null; // a range shown with showRange belongs to the data it was fitted to
     this.historyPages = 0;
     this.historyBlocked = false;
     // Blank the chart at once: KLineChart keeps the previous series until the new init page arrives, which
@@ -420,6 +426,7 @@ export class ChartAdapter {
    * the previous symbol's data is neither shown nor polled any more. The next load() starts afresh.
    */
   clear(): void {
+    this.range = null;
     this.clearMeasure();
     this.loader?.dispose();
     this.loader = null;
@@ -556,6 +563,7 @@ export class ChartAdapter {
   private onBarsAdded(): void {
     if (this.destroyed) return;
     this.ensurePositionHistory();
+    this.continueRange();
     this.refreshMeasure(); // older bars shift the indexes: bars / volume are recounted from the bar times
     // The selected position's outcome follows new bars (polling / backfill).
     if (this.selectedId && this.userOverlays().some((o) => o.id === this.selectedId && isPositionTool(o.name))) this.emitSelection();
@@ -1652,6 +1660,7 @@ export class ChartAdapter {
 
   private onDataReady(): void {
     this.dataSymbol = this.loadSymbol;
+    this.continueRange();
     const pending = this.pendingRestore;
     if (!pending || (pending.symbol !== undefined && pending.symbol !== this.dataSymbol)) return;
     this.pendingRestore = null;
@@ -1950,16 +1959,99 @@ export class ChartAdapter {
     window.removeEventListener('blur', this.onMeasureBlur);
   }
 
+  // ── date ranges ───────────────────────────────────────────────────────────
+
+  /**
+   * The date range shown with showRange: fitted once the current load's bars cover it (older pages are requested
+   * as needed), then re-fitted on resize until the user zooms or scrolls, or the data reloads.
+   */
+  private range: { preset: RangePreset; calendar: RangeCalendar; pages: number; fitted: boolean } | null = null;
+  private readonly rangeListeners = new Set<() => void>();
+  /** > 0 while the adapter itself moves the view (its zoom / scroll is not the user's). */
+  private fitting = 0;
+
+  /**
+   * Shows date range `preset` (in `calendar`'s days and sessions) on the current data, ending at the latest bar:
+   * the chart's interval must already be the preset's (see rangeTimeframe). Before the data is in, it is fitted as
+   * soon as it is; a load() or clear() drops it.
+   */
+  showRange(preset: RangePreset, calendar: RangeCalendar): void {
+    this.range = { preset, calendar, pages: 0, fitted: false };
+    if (this.dataSymbol !== null && this.dataSymbol === this.loadSymbol) this.continueRange();
+  }
+
+  /** Called when the user zooms or scrolls away from a range shown with showRange (it is then dropped). */
+  onRangeCanceled(cb: () => void): () => void {
+    this.rangeListeners.add(cb);
+    return () => this.rangeListeners.delete(cb);
+  }
+
+  /** Width (px) of the price pane's plot area, where bars are laid out (0 before the first layout). */
+  plotWidth(): number {
+    return this.chart.getSize?.(CANDLE_PANE, 'main')?.width ?? 0;
+  }
+
+  private readonly onUserView = (): void => {
+    if (this.fitting > 0 || this.range === null) return;
+    this.range = null;
+    for (const cb of [...this.rangeListeners]) cb();
+  };
+
+  /** Requests the next older page while the pending range needs one, else fits it (page arrivals call this again). */
+  private continueRange(): void {
+    const r = this.range;
+    if (!r || r.fitted || this.destroyed || this.tf === null) return;
+    const data = this.chart.getDataList();
+    const first = data[0];
+    const latest = data.at(-1);
+    if (!first || !latest) return;
+    const start = rangeStart(r.preset, data.map((d) => d.timestamp), this.tf, r.calendar);
+    const deeper = start < first.timestamp && first.timestamp > latest.timestamp - rangeLookbackMs(r.preset);
+    if (deeper && !this.historyBlocked && r.pages < MAX_HISTORY_PAGES && this.hasOlderData()) {
+      const store = this.dataStore();
+      const load = store?._processDataLoad;
+      if (typeof load === 'function') {
+        if (store?._loading === true) return; // a page is on its way: its arrival calls this again
+        r.pages++;
+        try {
+          load.call(store, 'forward');
+          return;
+        } catch { /* internal API changed: fit what is loaded */ }
+      }
+    }
+    this.fitRange(r);
+  }
+
+  /** Bar width and scroll that show `r` from its first bar to the latest one (plus the usual right margin). */
+  private fitRange(r: NonNullable<ChartAdapter['range']>): void {
+    if (this.tf === null) return;
+    const times = this.chart.getDataList().map((d) => d.timestamp);
+    const count = visibleBarCount(times, rangeStart(r.preset, times, this.tf, r.calendar));
+    r.fitted = true;
+    this.fitting++;
+    try {
+      this.chart.setBarSpace(fitBarSpace(count, this.plotWidth(), RANGE_RIGHT_MARGIN_PX));
+      this.chart.setOffsetRightDistance(RANGE_RIGHT_MARGIN_PX); // back to the latest bar, at the chart's default gap
+    } finally {
+      this.fitting--;
+    }
+  }
+
   // ── lifecycle ─────────────────────────────────────────────────────────────
 
   resize(): void {
     this.chart.resize();
+    if (this.range?.fitted) this.fitRange(this.range);
   }
 
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
     this.el.removeEventListener('mousedown', this.onPressCapture, true);
+    this.chart.unsubscribeAction?.('onZoom', this.onUserView);
+    this.chart.unsubscribeAction?.('onScroll', this.onUserView);
+    this.range = null;
+    this.rangeListeners.clear();
     this.stopMeasureTracking();
     this.measure = null;
     this.measureListeners.clear();
