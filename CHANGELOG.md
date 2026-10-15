@@ -10,7 +10,8 @@ app, the Docker image and the release tag share one version number.
 - **About Chartmate**: click the Chartmate mark in the top bar to see the version (self-hosted: also the
   server's, when it differs) and get the source code of that version and the license, as the AGPL-3.0 asks of
   software used over a network. The desktop app shows the source address as text to copy, since it opens no
-  links. The Docker image is built with its repository, so its dialog links the source too.
+  links. The Docker image is built with its repository, so its dialog links the source too. A release build links
+  its release tag, and any other build the exact commit it was built from.
 
 ### Desktop app
 

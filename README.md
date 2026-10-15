@@ -1067,11 +1067,14 @@ and third-party dependencies keep their own licenses.
 
 **Source code offer.** Click the Chartmate mark at the left of the top bar to open **About Chartmate**: it shows
 the version (self-hosted, also the server's version when it differs from the page's) and links to the source code
-of that version (its release tag; a development build links the repository) and to the license. The repository
-comes from `GITHUB_REPOSITORY` (`owner/name`) at build time: the release workflows build the desktop app with it
-in the environment and pass it to the Docker image build as `--build-arg GITHUB_REPOSITORY=...`. A build made
-without it tells the people using it to ask whoever runs the server for the source, and links the license text
-at gnu.org. In the desktop app, which opens no links, the address is shown as text to copy into a browser. If you
+of that build and to the license. The repository comes from `GITHUB_REPOSITORY` (`owner/name`) at build time: the
+release workflows build the desktop app with it in the environment and pass it to the Docker image build as
+`--build-arg GITHUB_REPOSITORY=...`. A build made without it tells the people using it to ask whoever runs the
+server for the source, and links the license text at gnu.org. Where in the repository comes from the variables
+GitHub Actions sets: a build of exactly the release tag `v<version>` (`GITHUB_REF_TYPE=tag`,
+`GITHUB_REF_NAME=v<version>`) links that tag; any other build links the commit it was built from (`GITHUB_SHA`),
+so a build made after a release but before the next version bump never claims to be that release; a build
+without them, and a development build, links the repository itself. In the desktop app, which opens no links, the address is shown as text to copy into a browser. If you
 run a modified version for other people, build it with `GITHUB_REPOSITORY` naming your own repository (for the
 Docker image: `docker build --build-arg GITHUB_REPOSITORY=your-account/your-fork .`), so the dialog offers your
 source.
