@@ -3,6 +3,21 @@
 What changed in each release of Chartmate. Versions follow [semantic versioning](https://semver.org); the desktop
 app, the Docker image and the release tag share one version number.
 
+## Unreleased
+
+### Desktop app
+
+- Automatic updates for signed builds (macOS): the app checks 15 seconds after it starts and every 6 hours,
+  downloads new versions in the background and asks to restart now or later (later installs on quit), with a
+  short summary of the release notes.
+- **Check for Updates…** in the Chartmate menu (Windows: Help menu) checks right away, and a **Check for updates
+  automatically** menu checkbox turns the background checks off. `CHARTMATE_DISABLE_UPDATES=1` still turns
+  updates off entirely.
+- Builds that cannot update themselves (unsigned, which includes Windows for now) say so and offer to open the
+  releases page.
+- Chartmate 1.0.0 shipped with updates turned off: install this version by hand once, and later versions arrive
+  automatically.
+
 ## [1.0.0] - 2026-10-14
 
 The first stable release: a charting app for US stocks and ETFs, crypto and your own baskets, as a desktop app

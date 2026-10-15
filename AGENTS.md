@@ -156,6 +156,10 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
 
 - No new IPC channels, preload scripts or exposed APIs. If one is ever unavoidable it needs strict input
   validation and a security review.
+- Update UX stays in the main process: native menus and dialogs only (`src/lib/updateController.ts`), with
+  GitHub release data treated as untrusted plain text (`src/lib/releaseNotes.ts`). `shell.openExternal` has a
+  single, test-pinned call for the validated build-time releases page (`src/lib/releasesPage.ts`); do not add
+  others. Changes to the updater (`src/updater.ts`, `updatePolicy.ts`, `updateArming.ts`) are security changes.
 - Keep the CSP header (no `unsafe-inline` / `unsafe-eval`) and Trusted Types (`trusted-types 'none'`): never
   write HTML strings into the DOM.
 - Main-process network goes through the outbound allowlist (`netAllowlist.ts`) on the direct, CA-pinned

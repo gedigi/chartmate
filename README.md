@@ -41,10 +41,30 @@ notarized" for macOS, or "unsigned"). An unsigned build needs one extra step the
 - **macOS**: macOS refuses to open the app. Open **System Settings**, **Privacy & Security**, and click **Open
   Anyway** next to the message about Chartmate (on macOS 14 and earlier: right-click the app, then **Open**).
 
-The app does not update itself: to update, install the new version over the old one. Your data is kept.
-
 The desktop app needs no account and no server: your charts, drawings, watchlist and baskets are stored on
 your computer (see [Data location](#data-location)).
+
+### Updates
+
+Signed builds update themselves. The app checks for a new version 15 seconds after it starts and then every 6
+hours, downloads it in the background and then asks whether to restart now or later; with **Later** the update
+is installed the next time you quit. Your data is kept. The dialog shows a short, plain-text summary of the
+release notes.
+
+- **Check for Updates…** checks right away and tells you the result. It is in the **Chartmate** menu on macOS
+  and in the **Help** menu on Windows.
+- **Check for Updates Automatically** (Windows: **Check for updates automatically**), next to it, turns the
+  background checks off or on. A manual check always works. The choice is saved in `update-settings.json` in the
+  [data directory](#data-location).
+- `CHARTMATE_DISABLE_UPDATES=1` in the environment turns updates off completely: the menu item is grayed out and
+  says why.
+- Unsigned builds cannot update themselves. **Check for updates** says so and offers to open the releases page;
+  install the new version over the old one. The signing table in each release's notes says which builds are
+  signed; Windows builds are unsigned for now, so on Windows you update by hand.
+- A pre-release build (`1.1.0-beta.1`) also updates to newer pre-releases; a regular release only to regular
+  releases. The app never installs an older version.
+- **Chartmate 1.0.0 shipped with updates turned off**: if you have 1.0.0, download and install the next version
+  once by hand; from then on the app updates itself.
 
 ## Self-host
 
@@ -677,6 +697,7 @@ The directory holds:
 - `chartmate.db` (SQLite with WAL), created with mode 0600 inside a
   0700 directory;
 - `window-state.json`;
+- `update-settings.json` (whether to check for updates automatically), once you change that setting;
 - `logs/main.log`, which rotates at 1 MB and keeps 2 old files.
 
 What gets logged:
@@ -697,7 +718,7 @@ Environment overrides the desktop app honors:
 - `CHARTMATE_PROVIDERS` (`live` (the default) or `fixture`);
 - `CRYPTO_PROVIDER`;
 - `BINANCE_BASE_URL` (https only);
-- `CHARTMATE_DISABLE_UPDATES=1`.
+- `CHARTMATE_DISABLE_UPDATES=1` (no update checks or downloads at all, see [Updates](#updates)).
 
 A packaged build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE` or
 `NODE_EXTRA_CA_CERTS` is set. Node applies the first during pre-execution, before any app code runs, so the app
