@@ -39,7 +39,8 @@ describe('ChartView indicator chips', () => {
     const chips = within(area).getByRole('list', { name: /active indicators/i });
     // A strip above the canvas: first child of the chart area, outside the stage that holds the canvas host.
     const stage = area.querySelector('.chart-stage') as HTMLElement;
-    expect(area.firstElementChild).toBe(chips);
+    expect(area.firstElementChild).toHaveClass('chart-toprow');
+    expect(area.firstElementChild!.firstElementChild).toBe(chips);
     expect(stage.contains(chips)).toBe(false);
     expect(stage.contains(screen.getByTestId('chart-host'))).toBe(true);
     expect(chips).toHaveTextContent('RSI(14)');
@@ -53,7 +54,12 @@ describe('ChartView indicator chips', () => {
     await act(async () => { await Promise.resolve(); });
     const area = screen.getByTestId('chart-view').querySelector('.chart-area') as HTMLElement;
     expect(screen.queryByRole('list', { name: /active indicators/i })).not.toBeInTheDocument();
-    expect(area.children).toHaveLength(1);
-    expect(area.firstElementChild).toHaveClass('chart-stage');
+    // The top row holds only the empty save-note stack (`:empty` → display: none; the row has no padding of its own).
+    const row = area.firstElementChild as HTMLElement;
+    expect(row).toHaveClass('chart-toprow');
+    expect(row.children).toHaveLength(1);
+    expect(row.firstElementChild).toHaveClass('chart-save-notes');
+    expect(row.firstElementChild!.childNodes).toHaveLength(0);
+    expect(area.children[1]).toHaveClass('chart-stage');
   });
 });

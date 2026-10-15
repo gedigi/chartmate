@@ -1,6 +1,18 @@
 /* ChartView: .chart-area = indicator chip strip (in flow) + .chart-stage (canvas host + overlays) */
 .chart-area { display: flex; flex-direction: column; }
 .chart-stage { position: relative; flex: 1; min-height: 0; }
+/*
+ * Top row, above the canvas (in flow, so nothing here ever covers plot data, the price axis or the drawing style bar):
+ * indicator chips on the left, chart-level save notes (layout, unsaved drawings) stacked on the right, 6px apart.
+ * Takes no space while both are empty.
+ */
+.chart-toprow { display: flex; align-items: flex-start; flex-shrink: 0; min-width: 0; background: var(--bg); }
+.chart-toprow > .indicator-chips { flex: 1 1 auto; min-width: 0; }
+.chart-save-notes {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: 0 1 auto; min-width: 0; max-width: 55%;
+  margin-left: auto; padding: 8px 10px 2px;
+}
+.chart-save-notes:empty { display: none; }
 .chart-host { position: absolute; inset: 0; }
 .chart-init-error { position: absolute; inset: 0; color: var(--error); }
 

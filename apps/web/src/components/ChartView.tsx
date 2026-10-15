@@ -7,6 +7,7 @@ import type { LoaderMeta } from '../chart/dataLoader';
 import { pollIntervalMs } from '../chart/periods';
 import { onBasketChanged } from '../state/useBaskets';
 import { DrawingsSave } from './DrawingsSave';
+import { SaveNote, type SaveNoteState } from './SaveNote';
 import { retryDelayMs } from '../state/retry';
 import { DrawingStyleBar } from './DrawingStyleBar';
 import { DrawingToolbar } from './DrawingToolbar';
@@ -23,6 +24,8 @@ export interface ChartViewProps {
   symbolError?: string | null;
   /** The symbol is a basket that no longer exists (its info load failed with 404). */
   symbolDeleted?: boolean;
+  /** The layout's unsaved state, shown in the chart's note stack (with unsaved drawings); null when saved. */
+  layoutSaveNote?: { state: SaveNoteState; detail: string; onRetry: () => void } | null;
   /** Retry button of the symbol error panel. */
   onRetrySymbol?: () => void;
   theme: 'dark' | 'light';
@@ -86,7 +89,7 @@ const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringif
  * stale badge, etc.). The root fills its grid cell; `.chart-view` is itself a 2-column grid.
  * One ChartAdapter lives for the component's lifetime and is driven from `layout`.
  */
-function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, symbolDeleted = false, onRetrySymbol, theme }: ChartViewProps): JSX.Element {
+function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, symbolDeleted = false, layoutSaveNote = null, onRetrySymbol, theme }: ChartViewProps): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
   const [adapter, setAdapter] = useState<ChartAdapter | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
@@ -321,8 +324,24 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
         <DrawingToolbar controls={adapter} disabled={!drawingReady} ticker={info?.ticker ?? symbol} />
       </div>
       <div className="chart-area">
-        {/* The chips belong to a chart: hidden while the symbol failed (error or deleted-basket panel). */}
-        {!symbolFailed && <IndicatorChips layout={layout} setLayout={setLayout} theme={theme} />}
+        {/* Top row, outside the plot: the indicator chips (hidden while the symbol failed: they belong to a chart) and,
+            on the right, the stack of chart-level save notes (layout, then each symbol's unsaved drawings). */}
+        <div className="chart-toprow">
+          {!symbolFailed && <IndicatorChips layout={layout} setLayout={setLayout} theme={theme} />}
+          <div className="chart-save-notes">
+            {layoutSaveNote && (
+              <SaveNote thing="Layout" state={layoutSaveNote.state} detail={layoutSaveNote.detail} retryLabel="Retry saving the layout"
+                onRetry={layoutSaveNote.onRetry} />
+            )}
+            {/* One saver per symbol, enabled only while that symbol is charted and its drawings are loaded: a symbol
+                switch disables the old one in the same render, which flushes its pending save at once (and keeps
+                retrying it) instead of losing it. Each shows its own note while its save has not reached the server. */}
+            {savers.map((s) => (
+              <DrawingsSave key={s} symbol={s} ticker={tickers.current.get(s) ?? s.slice(s.indexOf(':') + 1)}
+                value={drawingsValues[s]} enabled={s === symbol && drawingsFor === symbol} delayMs={DRAWINGS_SAVE_MS} onSettled={settleSaver} />
+            ))}
+          </div>
+        </div>
         <div className="chart-stage">
           <div className="chart-host" ref={hostRef} data-testid="chart-host" />
           <div className="sr-only" role="status" data-testid="measure-readout">{measureText}</div>
@@ -354,13 +373,6 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
             <div className="chart-loading" data-testid="chart-loading" aria-live="polite">Loading…</div>
           )}
           <div className="chart-overlay-bottom-left">
-            {/* One saver per symbol, enabled only while that symbol is charted and its drawings are loaded: a symbol
-                switch disables the old one in the same render, which flushes its pending save at once (and keeps
-                retrying it) instead of losing it. Each shows its own note while its save has not reached the server. */}
-            {savers.map((s) => (
-              <DrawingsSave key={s} symbol={s} ticker={tickers.current.get(s) ?? s.slice(s.indexOf(':') + 1)}
-                value={drawingsValues[s]} enabled={s === symbol && drawingsFor === symbol} delayMs={DRAWINGS_SAVE_MS} onSettled={settleSaver} />
-            ))}
             {connectionLost !== null && (
               <div className="chart-banner" role="status" title={connectionLost}>Connection lost — retrying…</div>
             )}

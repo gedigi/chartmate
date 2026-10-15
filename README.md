@@ -637,7 +637,8 @@ the load is retried with backoff (2 s, 5 s, 10 s, then every 30 s); a load the s
 error) is not retried and the list stays read-only. Changes are saved about half a second after each edit; a
 failed save is retried the same way ("Watchlist not saved. Retrying…"), and after about 4 minutes (10 retries)
 it stops at "Watchlist not saved." with a **Retry** button, so a tab left open offline never keeps writing an old
-list over changes made elsewhere. The layout and drawings use the same small amber note; only a save the server
+list over changes made elsewhere. The layout and drawings use the same small amber note, stacked at the top
+right of the chart panel next to the indicator chips (outside the plot); only a save the server
 rejects for good (a 4xx error) shows in the error color, until the next change.
 
 Below the list, a **detail panel** shows the open symbol: market status (stocks: open / pre-market / after hours /

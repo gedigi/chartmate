@@ -1,10 +1,10 @@
 import { parseSymbolId, type SymbolId, type SymbolInfo } from '@chartmate/shared';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type JSX, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type RefObject } from 'react';
 import { api, ApiError, errorMessage, isPermanentError, setUnauthorizedHandler } from './api/client';
 import { BasketsPage } from './components/BasketsPage';
 import { ChartView } from './components/ChartView';
 import { Login } from './components/Login';
-import { SaveNote } from './components/SaveNote';
+import { SaveNote, type SaveNoteState } from './components/SaveNote';
 import { TopBar, type Theme, type View } from './components/TopBar';
 import { SidebarResizer } from './components/SidebarResizer';
 import { SymbolDetails } from './components/SymbolDetails';
@@ -155,6 +155,11 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
   const openChart = useCallback((id: SymbolId) => { selectSymbol(id); setView('chart'); }, [selectSymbol, setView]);
 
   const layoutBlocked = !loaded && loadError !== null;
+  // Memoized: ChartView is memoized and must not re-render on every shell render.
+  const layoutSaveNote = useMemo(() => (layoutSaveError === null ? null : {
+    state: (layoutSavePermanent ? 'failed' : layoutSaveStalled ? 'stalled' : 'retrying') as SaveNoteState,
+    detail: layoutSaveError, onRetry: retryLayoutSave,
+  }), [layoutSaveError, layoutSavePermanent, layoutSaveStalled, retryLayoutSave]);
 
   return (
     <div className={`app-shell view-${view}${sidebarOpen && view === 'chart' ? '' : ' sidebar-collapsed'}`}
@@ -176,8 +181,8 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
         controlsDisabled={!loaded}
       />
       {/* Retried with backoff; once the retries give up (a tab left open must not keep writing an old layout over
-          newer changes) a manual Retry. */}
-      {layoutSaveError !== null && (
+          newer changes) a manual Retry. In the chart view the note sits in the chart's note stack; elsewhere here. */}
+      {layoutSaveError !== null && view !== 'chart' && (
         <div className="save-status">
           <SaveNote thing="Layout" state={layoutSavePermanent ? 'failed' : layoutSaveStalled ? 'stalled' : 'retrying'}
             detail={layoutSaveError} retryLabel="Retry saving the layout" onRetry={retryLayoutSave} />
@@ -188,7 +193,8 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
           <main className="chart-main">
             {loaded && (
               <ChartView layout={layout} setLayout={setLayout} symbolInfo={symbolInfo} symbolError={symbolError}
-                symbolDeleted={symbolDeleted} onRetrySymbol={retrySymbolInfo} theme={theme} />
+                symbolDeleted={symbolDeleted} onRetrySymbol={retrySymbolInfo} theme={theme}
+                layoutSaveNote={layoutSaveNote} />
             )}
             {layoutBlocked && (
               <div className="center-message">

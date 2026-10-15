@@ -240,6 +240,10 @@ describe('ChartView', () => {
     expect(screen.getByText('AAPL drawings not saved. Retrying…').closest('.save-note')).toHaveClass('is-warn');
     await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60_000); });
     expect(screen.getByText('AAPL drawings not saved.').closest('.save-note')).toHaveClass('is-warn');
+    // Placed in the chart's top row (beside the indicator chips, outside the plot), never over the canvas.
+    const note = screen.getByText('AAPL drawings not saved.').closest('.save-note')!;
+    expect(note.closest('.chart-save-notes')).not.toBeNull();
+    expect(note.closest('.chart-stage')).toBeNull();
     vi.mocked(api.drawings.put).mockResolvedValue(undefined);
     await act(async () => { screen.getByRole('button', { name: 'Retry saving the AAPL drawings' }).click(); await vi.advanceTimersByTimeAsync(0); });
     expect(screen.queryByText('AAPL drawings not saved.')).not.toBeInTheDocument();

@@ -294,6 +294,8 @@ describe('App', () => {
       expect(status).toHaveAttribute('role', 'status');
       expect(status).toHaveAttribute('title', expect.stringContaining('down'));
       expect(status).toHaveClass('is-warn');
+      // In the chart view it sits in the chart's note stack (with the drawings note), inside the chart panel.
+      expect(status.closest('.chart-save-notes')).not.toBeNull();
       await act(async () => { await vi.advanceTimersByTimeAsync(2100); });
       await waitFor(() => expect(screen.queryByText('Layout not saved. Retrying…')).not.toBeInTheDocument());
     } finally {
