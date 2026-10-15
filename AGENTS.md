@@ -9,9 +9,10 @@ a default updates the docs in the same commit, and a user-visible change gets a 
 ## What Chartmate is
 
 A single-user charting app (desktop app for macOS and Windows, or self-hosted): candlestick charts for US
-stocks/ETFs (with pre/post market) and crypto, indicators, drawing tools, a watchlist with sections, and baskets (weighted synthetic
-instruments charted like any symbol). Free data only (Yahoo Finance; Binance or Coinbase), cached in SQLite or
-Postgres. It ships as a web server (also as a Docker image) and as an Electron desktop app for macOS and Windows.
+stocks/ETFs (with pre/post market) and crypto, indicators, drawing tools, a watchlist with sections, and baskets
+(weighted synthetic instruments charted like any symbol). Free data only (Yahoo Finance; Binance or Coinbase), cached in
+SQLite or Postgres. It ships as a web server (also as a Docker image) and as an Electron desktop app for macOS and
+Windows.
 
 Visual beauty is the core value proposition. A change that works but looks worse is not done.
 
@@ -95,10 +96,10 @@ Desktop (`apps/desktop`; `pnpm --filter @chartmate/desktop <script>`):
 | `smoke` | Playwright + Electron smoke tests. |
 
 Smoke env vars: `SMOKE_APP` (the TEST-ONLY copy from `smoke/prepare-inspectable.mjs`; unset = unpackaged
-app, which needs the dev bundle: `node apps/desktop/scripts/bundle.mjs --dev`), `SMOKE_HARDENED_APP` (the unmodified packaged app), `SMOKE_EXPECT_UNSIGNED` (`1` unsigned, `0` signed),
-`SMOKE_ALLOW_REAL_USERDATA=1` (needed outside CI for the hardened spec; it moves the real per-user data aside
-and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by default). See "Smoke tests" in
-`docs/desktop.md` for the full sequence.
+app, which needs the dev bundle: `node apps/desktop/scripts/bundle.mjs --dev`), `SMOKE_HARDENED_APP` (the unmodified
+packaged app), `SMOKE_EXPECT_UNSIGNED` (`1` unsigned, `0` signed), `SMOKE_ALLOW_REAL_USERDATA=1` (needed outside CI for
+the hardened spec; it moves the real per-user data aside and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS`
+(`fixture` by default). See "Smoke tests" in `docs/desktop.md` for the full sequence.
 
 ## Testing
 
