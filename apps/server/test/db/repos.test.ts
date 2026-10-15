@@ -214,6 +214,52 @@ describe.each(urls)('repos on %s', (url) => {
     await migrate(h.db);
     expect(await r.watchlist.list()).toEqual([sym('crypto:ETH')]);
   });
+  it('a failure halfway through migration 004 changes nothing; a rerun then succeeds', async () => {
+    for (const t of TABLES) await sql`drop table if exists ${sql.table(t)}`.execute(h.db);
+    await migrate(h.db, '003_watchlist_sections');
+    await h.db.insertInto('watchlist_entries').values([
+      { position: 0, kind: 'symbol', symbol: 'stock:aapl', section_id: null, title: null, collapsed: null },
+      { position: 1, kind: 'symbol', symbol: 'crypto:btc', section_id: null, title: null, collapsed: null },
+    ]).execute();
+    await h.db.insertInto('layouts').values({ key: 'sym:stock:msft', json: '{"symbol":"stock:msft"}', updated_at: 1 }).execute();
+    await h.db.insertInto('drawings').values({ symbol: 'stock:spy', json: '[{"name":"a"}]', updated_at: 1 }).execute();
+    const snapshot = async () => ({
+      w: await h.db.selectFrom('watchlist_entries').selectAll().orderBy('position').execute(),
+      l: await h.db.selectFrom('layouts').selectAll().execute(),
+      d: await h.db.selectFrom('drawings').selectAll().execute(),
+    });
+    const before = await snapshot();
+    // The drawings rewrite fails after the watchlist and layouts were already rewritten (deleted, then inserted).
+    const pg = url.startsWith('postgres');
+    if (pg) {
+      await sql`create function fail_ins() returns trigger language plpgsql as $$ begin raise exception 'boom'; end $$`.execute(h.db);
+      await sql`create trigger fail_drawings before insert on drawings for each row execute function fail_ins()`.execute(h.db);
+    } else {
+      await sql`create trigger fail_drawings before insert on drawings begin select raise(abort, 'boom'); end`.execute(h.db);
+    }
+    await expect(migrate(h.db)).rejects.toThrow(/boom/);
+    expect(await snapshot()).toEqual(before);
+    const ran = await h.db.selectFrom('kysely_migration' as any).select('name' as any).execute();
+    expect(ran.map((x: any) => x.name)).not.toContain('004_symbol_ids');
+    await sql`drop trigger fail_drawings${pg ? sql` on drawings` : sql``}`.execute(h.db);
+    if (pg) await sql`drop function fail_ins()`.execute(h.db);
+    await migrate(h.db);
+    expect(await r.watchlist.list()).toEqual([sym('stock:AAPL'), sym('crypto:BTC')]);
+    expect((await r.drawings.get('stock:SPY')).map((x) => x.name)).toEqual(['a']);
+    expect(await r.layouts.get('sym:stock:MSFT')).toMatchObject({ symbol: 'stock:MSFT' });
+  });
+  it('migrations 003 and 004 handle a watchlist far larger than one statement can bind', async () => {
+    for (const t of TABLES) await sql`drop table if exists ${sql.table(t)}`.execute(h.db);
+    await migrate(h.db, '002_symbol_splits');
+    const n = 6000;
+    const legacy = Array.from({ length: n }, (_, i) => ({ symbol: `stock:s${i}`, position: i }));
+    for (let i = 0; i < n; i += 500) await h.db.insertInto('watchlist').values(legacy.slice(i, i + 500)).execute();
+    await migrate(h.db);
+    const list = await r.watchlist.list();
+    expect(list).toHaveLength(n);
+    expect(list[0]).toEqual(sym('stock:S0'));
+    expect(list.at(-1)).toEqual(sym(`stock:S${n - 1}`));
+  });
   it('migration 004 rewrites ids stored by older versions to their canonical spelling', async () => {
     for (const t of TABLES) await sql`drop table if exists ${sql.table(t)}`.execute(h.db);
     await migrate(h.db, '003_watchlist_sections');

@@ -21,6 +21,23 @@ async function columnsOf(db: Kysely<any>, table: string): Promise<Set<string>> {
   return new Set(t?.columns.map(c => c.name) ?? []);
 }
 
+/**
+ * Runs a migration body in one transaction. Kysely runs migrations without one on SQLite (its adapter does not
+ * claim transactional DDL), so a failure halfway would otherwise leave rewritten data half deleted; Postgres
+ * migrations already arrive inside a transaction.
+ */
+async function atomically(db: Kysely<any>, fn: (db: Kysely<any>) => Promise<void>): Promise<void> {
+  if (db.isTransaction) return fn(db);
+  await db.transaction().execute(fn);
+}
+
+/** Rows per multi-row insert: far below SQLite's bound-variable limit, whatever the column count. */
+const INSERT_CHUNK = 100;
+
+async function insertChunked(db: Kysely<any>, table: string, rows: Record<string, unknown>[]): Promise<void> {
+  for (let i = 0; i < rows.length; i += INSERT_CHUNK) await db.insertInto(table).values(rows.slice(i, i + INSERT_CHUNK)).execute();
+}
+
 const m001: Migration = {
   async up(db: Kysely<any>) {
     await db.schema.createTable('bars')
@@ -112,8 +129,8 @@ const m003: Migration = {
     if (existing.length > 0) return;
     const legacy = await db.selectFrom('watchlist').select('symbol').orderBy('position', 'asc').execute();
     if (legacy.length === 0) return;
-    await db.insertInto('watchlist_entries').values(legacy.map((r: { symbol: string }, position: number) =>
-      ({ position, kind: 'symbol', symbol: r.symbol, section_id: null, title: null, collapsed: null }))).execute();
+    await insertChunked(db, 'watchlist_entries', legacy.map((r: { symbol: string }, position: number) =>
+      ({ position, kind: 'symbol', symbol: r.symbol, section_id: null, title: null, collapsed: null })));
   },
 };
 
@@ -134,145 +151,147 @@ const MAX_DRAWINGS = 500;
  * Idempotent: canonical rows are left untouched.
  */
 const m004: Migration = {
-  async up(db: Kysely<any>) {
-    const canon = (id: unknown) => tryNormalizeSymbolId(id);
+  async up(outer: Kysely<any>) {
+    await atomically(outer, async (db) => {
+      const canon = (id: unknown) => tryNormalizeSymbolId(id);
 
-    // Watchlist entries (ordered) and the legacy mirror.
-    const entries = await db.selectFrom('watchlist_entries').selectAll().orderBy('position', 'asc').execute();
-    const seen = new Set<string>();
-    const kept: any[] = [];
-    let changed = false;
-    for (const e of entries) {
-      if (e.kind !== 'symbol') { kept.push(e); continue; }
-      const id = canon(e.symbol);
-      if (id === null || seen.has(id)) { changed = true; continue; }
-      seen.add(id);
-      if (id !== e.symbol) changed = true;
-      kept.push({ ...e, symbol: id });
-    }
-    if (changed) {
-      await db.deleteFrom('watchlist_entries').execute();
-      if (kept.length > 0) await db.insertInto('watchlist_entries').values(kept.map((e, position) => ({ ...e, position }))).execute();
-    }
-    const legacy = await db.selectFrom('watchlist').selectAll().orderBy('position', 'asc').execute();
-    const legacySeen = new Set<string>();
-    const legacyKept: { symbol: string; position: number }[] = [];
-    for (const r of legacy) {
-      const id = canon(r.symbol);
-      if (id === null || legacySeen.has(id)) continue;
-      legacySeen.add(id);
-      legacyKept.push({ symbol: id, position: legacyKept.length });
-    }
-    if (legacyKept.length !== legacy.length || legacyKept.some((r, i) => r.symbol !== legacy[i]!.symbol)) {
-      await db.deleteFrom('watchlist').execute();
-      if (legacyKept.length > 0) await db.insertInto('watchlist').values(legacyKept).execute();
-    }
-
-    // Layouts: keys, then the symbol inside each one.
-    const layouts = await db.selectFrom('layouts').selectAll().orderBy('updated_at', 'asc').execute();
-    const byKey = new Map<string, { key: string; json: string; updated_at: number }>();
-    for (const l of layouts) {
-      let key: string | null = l.key;
-      if (l.key.startsWith('sym:')) {
-        const id = canon(l.key.slice(4));
-        key = id === null ? null : `sym:${id}`;
+      // Watchlist entries (ordered) and the legacy mirror.
+      const entries = await db.selectFrom('watchlist_entries').selectAll().orderBy('position', 'asc').execute();
+      const seen = new Set<string>();
+      const kept: any[] = [];
+      let changed = false;
+      for (const e of entries) {
+        if (e.kind !== 'symbol') { kept.push(e); continue; }
+        const id = canon(e.symbol);
+        if (id === null || seen.has(id)) { changed = true; continue; }
+        seen.add(id);
+        if (id !== e.symbol) changed = true;
+        kept.push({ ...e, symbol: id });
       }
-      if (key === null) continue;
-      let json: string = l.json;
-      try {
-        const parsed = JSON.parse(l.json) as { symbol?: unknown };
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          const symbol = canon(parsed.symbol) ?? FALLBACK_LAYOUT_SYMBOL;
-          if (symbol !== parsed.symbol) json = JSON.stringify({ ...parsed, symbol });
+      if (changed) {
+        await db.deleteFrom('watchlist_entries').execute();
+        await insertChunked(db, 'watchlist_entries', kept.map((e, position) => ({ ...e, position })));
+      }
+      const legacy = await db.selectFrom('watchlist').selectAll().orderBy('position', 'asc').execute();
+      const legacySeen = new Set<string>();
+      const legacyKept: { symbol: string; position: number }[] = [];
+      for (const r of legacy) {
+        const id = canon(r.symbol);
+        if (id === null || legacySeen.has(id)) continue;
+        legacySeen.add(id);
+        legacyKept.push({ symbol: id, position: legacyKept.length });
+      }
+      if (legacyKept.length !== legacy.length || legacyKept.some((r, i) => r.symbol !== legacy[i]!.symbol)) {
+        await db.deleteFrom('watchlist').execute();
+        await insertChunked(db, 'watchlist', legacyKept);
+      }
+
+      // Layouts: keys, then the symbol inside each one.
+      const layouts = await db.selectFrom('layouts').selectAll().orderBy('updated_at', 'asc').execute();
+      const byKey = new Map<string, { key: string; json: string; updated_at: number }>();
+      for (const l of layouts) {
+        let key: string | null = l.key;
+        if (l.key.startsWith('sym:')) {
+          const id = canon(l.key.slice(4));
+          key = id === null ? null : `sym:${id}`;
         }
-      } catch {
-        // Corrupt JSON stays as it is (the repo reports it when read).
+        if (key === null) continue;
+        let json: string = l.json;
+        try {
+          const parsed = JSON.parse(l.json) as { symbol?: unknown };
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            const symbol = canon(parsed.symbol) ?? FALLBACK_LAYOUT_SYMBOL;
+            if (symbol !== parsed.symbol) json = JSON.stringify({ ...parsed, symbol });
+          }
+        } catch {
+          // Corrupt JSON stays as it is (the repo reports it when read).
+        }
+        byKey.set(key, { key, json, updated_at: Number(l.updated_at) }); // ascending: the newest variant wins
       }
-      byKey.set(key, { key, json, updated_at: Number(l.updated_at) }); // ascending: the newest variant wins
-    }
-    for (const l of layouts) {
-      const next = byKey.get(l.key);
-      if (next && next.json === l.json) continue;
-      await db.deleteFrom('layouts').where('key', '=', l.key).execute();
-    }
-    for (const [key, v] of byKey) {
-      const orig = layouts.find((l) => l.key === key);
-      if (orig && orig.json === v.json) continue;
-      await db.insertInto('layouts').values(v).execute();
-    }
+      for (const l of layouts) {
+        const next = byKey.get(l.key);
+        if (next && next.json === l.json) continue;
+        await db.deleteFrom('layouts').where('key', '=', l.key).execute();
+      }
+      for (const [key, v] of byKey) {
+        const orig = layouts.find((l) => l.key === key);
+        if (orig && orig.json === v.json) continue;
+        await db.insertInto('layouts').values(v).execute();
+      }
 
-    // Drawings: keys normalized, case variants merged.
-    const drawings = await db.selectFrom('drawings').selectAll().orderBy('updated_at', 'asc').execute();
-    const merged = new Map<string, { items: unknown[]; updated_at: number; sources: string[] }>();
-    for (const d of drawings) {
-      const id = canon(d.symbol);
-      if (id === null) continue;
-      let items: unknown[];
-      try {
-        const parsed = JSON.parse(d.json) as unknown;
-        items = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        items = [];
+      // Drawings: keys normalized, case variants merged.
+      const drawings = await db.selectFrom('drawings').selectAll().orderBy('updated_at', 'asc').execute();
+      const merged = new Map<string, { items: unknown[]; updated_at: number; sources: string[] }>();
+      for (const d of drawings) {
+        const id = canon(d.symbol);
+        if (id === null) continue;
+        let items: unknown[];
+        try {
+          const parsed = JSON.parse(d.json) as unknown;
+          items = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          items = [];
+        }
+        const m = merged.get(id) ?? { items: [], updated_at: 0, sources: [] };
+        m.items.push(...items);
+        m.updated_at = Math.max(m.updated_at, Number(d.updated_at));
+        m.sources.push(d.symbol);
+        merged.set(id, m);
       }
-      const m = merged.get(id) ?? { items: [], updated_at: 0, sources: [] };
-      m.items.push(...items);
-      m.updated_at = Math.max(m.updated_at, Number(d.updated_at));
-      m.sources.push(d.symbol);
-      merged.set(id, m);
-    }
-    for (const d of drawings) {
-      const id = canon(d.symbol);
-      if (id !== null && id === d.symbol && merged.get(id)!.sources.length === 1) continue; // canonical, alone
-      await db.deleteFrom('drawings').where('symbol', '=', d.symbol).execute();
-    }
-    for (const [symbol, m] of merged) {
-      if (m.sources.length === 1 && m.sources[0] === symbol) continue;
-      await db.insertInto('drawings')
-        .values({ symbol, json: JSON.stringify(m.items.slice(-MAX_DRAWINGS)), updated_at: m.updated_at }).execute();
-    }
+      for (const d of drawings) {
+        const id = canon(d.symbol);
+        if (id !== null && id === d.symbol && merged.get(id)!.sources.length === 1) continue; // canonical, alone
+        await db.deleteFrom('drawings').where('symbol', '=', d.symbol).execute();
+      }
+      for (const [symbol, m] of merged) {
+        if (m.sources.length === 1 && m.sources[0] === symbol) continue;
+        await db.insertInto('drawings')
+          .values({ symbol, json: JSON.stringify(m.items.slice(-MAX_DRAWINGS)), updated_at: m.updated_at }).execute();
+      }
 
-    // Basket weights.
-    const versions = await db.selectFrom('basket_versions').selectAll().execute();
-    for (const v of versions) {
-      let weights: Record<string, unknown>;
-      try {
-        weights = JSON.parse(v.weights_json) as Record<string, unknown>;
-      } catch {
-        continue;
+      // Basket weights.
+      const versions = await db.selectFrom('basket_versions').selectAll().execute();
+      for (const v of versions) {
+        let weights: Record<string, unknown>;
+        try {
+          weights = JSON.parse(v.weights_json) as Record<string, unknown>;
+        } catch {
+          continue;
+        }
+        if (!weights || typeof weights !== 'object' || Array.isArray(weights)) continue;
+        const out: Record<string, number> = {};
+        let dropped = false;
+        for (const [k, w] of Object.entries(weights)) {
+          const id = canon(k);
+          if (id === null || typeof w !== 'number') { dropped = true; continue; }
+          out[id] = (out[id] ?? 0) + w;
+        }
+        const keys = Object.keys(out);
+        if (keys.length === 0) continue;
+        if (dropped) {
+          const sum = keys.reduce((a, k) => a + out[k]!, 0);
+          if (!(sum > 0)) continue;
+          for (const k of keys) out[k] = out[k]! / sum;
+        }
+        const json = JSON.stringify(out);
+        if (json !== v.weights_json) {
+          await db.updateTable('basket_versions').set({ weights_json: json })
+            .where('basket_id', '=', v.basket_id).where('idx', '=', v.idx).execute();
+        }
       }
-      if (!weights || typeof weights !== 'object' || Array.isArray(weights)) continue;
-      const out: Record<string, number> = {};
-      let dropped = false;
-      for (const [k, w] of Object.entries(weights)) {
-        const id = canon(k);
-        if (id === null || typeof w !== 'number') { dropped = true; continue; }
-        out[id] = (out[id] ?? 0) + w;
-      }
-      const keys = Object.keys(out);
-      if (keys.length === 0) continue;
-      if (dropped) {
-        const sum = keys.reduce((a, k) => a + out[k]!, 0);
-        if (!(sum > 0)) continue;
-        for (const k of keys) out[k] = out[k]! / sum;
-      }
-      const json = JSON.stringify(out);
-      if (json !== v.weights_json) {
-        await db.updateTable('basket_versions').set({ weights_json: json })
-          .where('basket_id', '=', v.basket_id).where('idx', '=', v.idx).execute();
-      }
-    }
 
-    // Market cache: rows under a non-canonical id are dropped.
-    for (const table of ['bars', 'coverage'] as const) {
-      const ids = await db.selectFrom(table).select('symbol').distinct().execute();
-      for (const { symbol } of ids) {
-        if (canon(symbol) !== symbol) await db.deleteFrom(table).where('symbol', '=', symbol).execute();
+      // Market cache: rows under a non-canonical id are dropped.
+      for (const table of ['bars', 'coverage'] as const) {
+        const ids = await db.selectFrom(table).select('symbol').distinct().execute();
+        for (const { symbol } of ids) {
+          if (canon(symbol) !== symbol) await db.deleteFrom(table).where('symbol', '=', symbol).execute();
+        }
       }
-    }
-    const symbols = await db.selectFrom('symbols').select('id').execute();
-    for (const { id } of symbols) {
-      if (canon(id) !== id) await db.deleteFrom('symbols').where('id', '=', id).execute();
-    }
+      const symbols = await db.selectFrom('symbols').select('id').execute();
+      for (const { id } of symbols) {
+        if (canon(id) !== id) await db.deleteFrom('symbols').where('id', '=', id).execute();
+      }
+    });
   },
 };
 
@@ -283,16 +302,18 @@ const m004: Migration = {
  * late-report look-back never reaches past it. Existing rows start tracking at their last check. Idempotent.
  */
 const m005: Migration = {
-  async up(db: Kysely<any>) {
-    await db.schema.createTable('applied_splits').ifNotExists()
-      .addColumn('symbol', 'text', c => c.notNull())
-      .addColumn('ts', 'bigint', c => c.notNull())
-      .addPrimaryKeyConstraint('applied_splits_pk', ['symbol', 'ts'])
-      .execute();
-    if (!(await columnsOf(db, 'symbols')).has('splits_tracked_from')) {
-      await db.schema.alterTable('symbols').addColumn('splits_tracked_from', 'bigint').execute();
-      await db.updateTable('symbols').set({ splits_tracked_from: sql`splits_checked_at` }).execute();
-    }
+  async up(outer: Kysely<any>) {
+    await atomically(outer, async (db) => {
+      await db.schema.createTable('applied_splits').ifNotExists()
+        .addColumn('symbol', 'text', c => c.notNull())
+        .addColumn('ts', 'bigint', c => c.notNull())
+        .addPrimaryKeyConstraint('applied_splits_pk', ['symbol', 'ts'])
+        .execute();
+      if (!(await columnsOf(db, 'symbols')).has('splits_tracked_from')) {
+        await db.schema.alterTable('symbols').addColumn('splits_tracked_from', 'bigint').execute();
+        await db.updateTable('symbols').set({ splits_tracked_from: sql`splits_checked_at` }).execute();
+      }
+    });
   },
 };
 
