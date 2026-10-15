@@ -12,17 +12,36 @@ export interface AboutDialogProps {
   sourceUrl?: string | null;
   /** The desktop app: it opens no links, so addresses are selectable text; its server is the app itself. */
   desktop?: boolean;
+  /** A production build, whose version has a release tag (default); a development build links the repository root. */
+  release?: boolean;
+}
+
+/** The license text, for a build that does not know its repository. */
+export const GNU_AGPL_URL = 'https://www.gnu.org/licenses/agpl-3.0.html';
+/** A version a release is tagged with (`v1.2.3`, `v1.3.0-beta.1`). */
+const RELEASE_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+/**
+ * Where the source code and the license of this build are: at its release tag (`<repo>/tree/v<version>`) for a
+ * release build, else the repository root; without a repository, no source link and the license text at gnu.org.
+ */
+export function sourceLinks(sourceUrl: string | null, version: string, release: boolean): { source: string | null; license: string } {
+  if (sourceUrl === null) return { source: null, license: GNU_AGPL_URL };
+  if (release && RELEASE_VERSION.test(version)) {
+    return { source: `${sourceUrl}/tree/v${version}`, license: `${sourceUrl}/blob/v${version}/LICENSE` };
+  }
+  return { source: sourceUrl, license: `${sourceUrl}/blob/HEAD/LICENSE` };
 }
 
 /** `https://github.com/o/r` → `github.com/o/r`. */
 const shortUrl = (url: string) => url.replace(/^https:\/\//, '');
 
 /**
- * About Chartmate: the version (and, self-hosted, the server's) and where to get the source code and the license,
- * the offer AGPL-3.0 section 13 asks of software used over a network.
+ * About Chartmate: the version (and, self-hosted, the server's when it differs) and where to get the source code
+ * and the license, the offer AGPL-3.0 section 13 asks of software used over a network.
  */
 export function AboutDialog({
-  onClose, version = APP_VERSION, sourceUrl = SOURCE_URL, desktop = isDesktopApp(),
+  onClose, version = APP_VERSION, sourceUrl = SOURCE_URL, desktop = isDesktopApp(), release = !import.meta.env.DEV,
 }: AboutDialogProps): JSX.Element {
   const [serverVersion, setServerVersion] = useState<string | null>(null);
 
@@ -36,20 +55,29 @@ export function AboutDialog({
     return () => { live = false; };
   }, [desktop]);
 
+  const links = sourceLinks(sourceUrl, version, release);
   const external = { target: '_blank', rel: 'noopener noreferrer' } as const;
   let source: JSX.Element;
-  if (sourceUrl === null) source = <span>See LICENSE</span>;
-  else if (desktop) {
+  if (links.source === null) {
+    source = desktop
+      ? <span>See LICENSE, next to the app</span>
+      : (
+        <span className="about-source">
+          <span>Ask whoever runs this server for it.</span>
+          <span className="about-hint">Operators: see LICENSE and the project page.</span>
+        </span>
+      );
+  } else if (desktop) {
     source = (
       <span className="about-source">
-        <span className="about-url">{sourceUrl}</span>
+        <span className="about-url">{links.source}</span>
         <span className="about-hint">Copy it into your browser.</span>
       </span>
     );
-  } else source = <a href={sourceUrl} {...external}>{shortUrl(sourceUrl)}</a>;
-  const license = sourceUrl !== null && !desktop
-    ? <a href={`${sourceUrl}/blob/HEAD/LICENSE`} {...external}>AGPL-3.0</a>
-    : <span>AGPL-3.0 (LICENSE)</span>;
+  } else source = <a href={links.source} {...external}>{shortUrl(sourceUrl!)}</a>;
+  const license = desktop
+    ? <span>AGPL-3.0 (LICENSE, next to the app)</span>
+    : <a href={links.license} {...external}>AGPL-3.0</a>;
 
   return (
     <Modal title="About Chartmate" onClose={onClose} className="about-dialog">
@@ -73,7 +101,7 @@ export function AboutDialog({
           <dt>License</dt>
           <dd>{license}</dd>
         </div>
-        {serverVersion !== null && (
+        {serverVersion !== null && serverVersion !== version && (
           <div>
             <dt>Server version</dt>
             <dd className="num">{serverVersion}</dd>

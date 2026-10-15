@@ -1061,10 +1061,13 @@ Exceptions: the Wyckoff indicator files keep their own MPL-2.0 license (see [Cus
 and third-party dependencies keep their own licenses.
 
 **Source code offer.** Click the Chartmate mark at the left of the top bar to open **About Chartmate**: it shows
-the version (and, self-hosted, the server's version) and links to the source code and the license. The link
-comes from the `GITHUB_REPOSITORY` (`owner/name`) the web UI was built with, which GitHub Actions sets; a build
-made without it says "See LICENSE" instead. In the desktop app, which opens no links, the address is shown as
-text to copy into a browser. If you run a modified version for other people, build it with
-`GITHUB_REPOSITORY` naming your own repository (for the Docker image:
-`docker build --build-arg GITHUB_REPOSITORY=your-account/your-fork .`), so the dialog offers your source.
+the version (self-hosted, also the server's version when it differs from the page's) and links to the source code
+of that version (its release tag; a development build links the repository) and to the license. The repository
+comes from `GITHUB_REPOSITORY` (`owner/name`) at build time: the release workflows build the desktop app with it
+in the environment and pass it to the Docker image build as `--build-arg GITHUB_REPOSITORY=...`. A build made
+without it tells the people using it to ask whoever runs the server for the source, and links the license text
+at gnu.org. In the desktop app, which opens no links, the address is shown as text to copy into a browser. If you
+run a modified version for other people, build it with `GITHUB_REPOSITORY` naming your own repository (for the
+Docker image: `docker build --build-arg GITHUB_REPOSITORY=your-account/your-fork .`), so the dialog offers your
+source.
 

@@ -7,7 +7,8 @@ test('About Chartmate opens from the brand mark and shows the version, the sourc
   await expect(dialog).toContainText(/Version \d+\.\d+\.\d+/);
   await expect(dialog).toContainText('GNU Affero General Public License');
   await expect(dialog.getByText('Source code', { exact: true })).toBeVisible();
-  await expect(dialog.getByText('Server version', { exact: true })).toBeVisible();
+  // The server is the same build as the page: no separate server version.
+  await expect(dialog.getByText('Server version', { exact: true })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
 });

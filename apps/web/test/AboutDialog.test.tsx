@@ -3,34 +3,59 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api/client';
-import { AboutDialog } from '../src/components/AboutDialog';
+import { AboutDialog, sourceLinks } from '../src/components/AboutDialog';
 import { TopBar } from '../src/components/TopBar';
 
 afterEach(() => vi.restoreAllMocks());
 
 const REPO = 'https://github.com/octo-org/chartmate';
+const GNU_AGPL = 'https://www.gnu.org/licenses/agpl-3.0.html';
+
+describe('sourceLinks', () => {
+  it('a release build links the source and the license at its version tag', () => {
+    expect(sourceLinks(REPO, '1.2.3', true)).toEqual({
+      source: `${REPO}/tree/v1.2.3`, license: `${REPO}/blob/v1.2.3/LICENSE`,
+    });
+    expect(sourceLinks(REPO, '1.3.0-beta.1', true).source).toBe(`${REPO}/tree/v1.3.0-beta.1`);
+  });
+
+  it('a development build (or an unusual version) links the repository root', () => {
+    expect(sourceLinks(REPO, '1.2.3', false)).toEqual({ source: REPO, license: `${REPO}/blob/HEAD/LICENSE` });
+    expect(sourceLinks(REPO, 'local build', true)).toEqual({ source: REPO, license: `${REPO}/blob/HEAD/LICENSE` });
+  });
+
+  it('without a repository: no source link, the license at gnu.org', () => {
+    expect(sourceLinks(null, '1.2.3', true)).toEqual({ source: null, license: GNU_AGPL });
+  });
+});
 
 describe('AboutDialog (AGPL-3.0 section 13 source offer)', () => {
-  it('shows the version and links to the source code and the license (new tab, no referrer)', async () => {
+  it('shows the version and links to the source of this version and the license (new tab, no referrer)', async () => {
     vi.spyOn(api, 'about').mockResolvedValue({ version: '1.0.0' });
-    render(<AboutDialog version="1.0.0" sourceUrl={REPO} desktop={false} onClose={() => {}} />);
+    render(<AboutDialog version="1.0.0" sourceUrl={REPO} desktop={false} release onClose={() => {}} />);
     const dialog = screen.getByRole('dialog', { name: 'About Chartmate' });
     expect(dialog).toHaveTextContent('Version 1.0.0');
     expect(dialog).toHaveTextContent('GNU Affero General Public License');
     const source = screen.getByRole('link', { name: 'github.com/octo-org/chartmate' });
-    expect(source).toHaveAttribute('href', REPO);
+    expect(source).toHaveAttribute('href', `${REPO}/tree/v1.0.0`);
     expect(source).toHaveAttribute('target', '_blank');
     expect(source).toHaveAttribute('rel', 'noopener noreferrer');
     const license = screen.getByRole('link', { name: 'AGPL-3.0' });
-    expect(license).toHaveAttribute('href', `${REPO}/blob/HEAD/LICENSE`);
+    expect(license).toHaveAttribute('href', `${REPO}/blob/v1.0.0/LICENSE`);
     expect(license).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
-  it('self-hosted: also shows the server version', async () => {
-    vi.spyOn(api, 'about').mockResolvedValue({ version: '1.0.1' });
-    render(<AboutDialog version="1.0.0" sourceUrl={REPO} desktop={false} onClose={() => {}} />);
+  it('self-hosted: shows the server version only when it differs from the web app\'s', async () => {
+    const about = vi.spyOn(api, 'about').mockResolvedValue({ version: '1.0.1' });
+    const { unmount } = render(<AboutDialog version="1.0.0" sourceUrl={REPO} desktop={false} onClose={() => {}} />);
     await waitFor(() => expect(screen.getByText('Server version')).toBeInTheDocument());
     expect(screen.getByText('Server version').nextElementSibling).toHaveTextContent('1.0.1');
+    unmount();
+    about.mockResolvedValue({ version: '1.0.0' });
+    render(<AboutDialog version="1.0.0" sourceUrl={REPO} desktop={false} onClose={() => {}} />);
+    await waitFor(() => expect(about).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    expect(screen.queryByText('Server version')).not.toBeInTheDocument();
   });
 
   it('a server that does not say (or fails) shows no server version row', async () => {
@@ -40,22 +65,31 @@ describe('AboutDialog (AGPL-3.0 section 13 source offer)', () => {
     expect(screen.queryByText('Server version')).not.toBeInTheDocument();
   });
 
-  it('built without a repository: no links, "See LICENSE"', () => {
+  it('built without a repository: asks the server\'s operator for the source; the license links to gnu.org', () => {
     vi.spyOn(api, 'about').mockResolvedValue({ version: null });
     render(<AboutDialog version="1.0.0" sourceUrl={null} desktop={false} onClose={() => {}} />);
-    expect(screen.queryByRole('link')).not.toBeInTheDocument();
-    expect(screen.getByText('Source code').nextElementSibling).toHaveTextContent('See LICENSE');
+    expect(screen.getByText('Ask whoever runs this server for it.')).toBeInTheDocument();
+    expect(screen.getByText('Operators: see LICENSE and the project page.')).toHaveClass('about-hint');
+    expect(screen.getAllByRole('link')).toHaveLength(1);
+    expect(screen.getByRole('link', { name: 'AGPL-3.0' })).toHaveAttribute('href', GNU_AGPL);
   });
 
-  it('desktop: the source address is selectable text (the app opens no links), and there is no separate server', () => {
+  it('desktop: the address of this version\'s source is selectable text (the app opens no links), no server row', () => {
     const about = vi.spyOn(api, 'about');
-    render(<AboutDialog version="1.0.0" sourceUrl={REPO} desktop onClose={() => {}} />);
+    render(<AboutDialog version="1.0.0" sourceUrl={REPO} desktop release onClose={() => {}} />);
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
-    const url = screen.getByText(REPO);
+    const url = screen.getByText(`${REPO}/tree/v1.0.0`);
     expect(url).toHaveClass('about-url');
     expect(screen.getByText('Copy it into your browser.')).toBeInTheDocument();
+    expect(screen.getByText('License').nextElementSibling).toHaveTextContent('AGPL-3.0 (LICENSE, next to the app)');
     expect(screen.queryByText('Server version')).not.toBeInTheDocument();
     expect(about).not.toHaveBeenCalled();
+  });
+
+  it('desktop built without a repository: points to the LICENSE that ships with the app', () => {
+    render(<AboutDialog version="1.0.0" sourceUrl={null} desktop onClose={() => {}} />);
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.getByText('Source code').nextElementSibling).toHaveTextContent('See LICENSE, next to the app');
   });
 
   it('closes with the close button and Escape', async () => {
