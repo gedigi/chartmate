@@ -31,6 +31,12 @@ app, the Docker image and the release tag share one version number.
 - A recent range the data provider briefly answered with no bars is asked again later instead of staying empty
   for good; cached bars and their coverage are written together, so a split check can no longer slip between
   them.
+- Sessions are no longer signed with a secret derived from the password: without `CHARTMATE_SESSION_SECRET`
+  a random secret is generated once and kept in the database. Changing the password now signs every session
+  out, and over HTTPS the cookie is named `__Host-chartmate_session`. **After upgrading you have to log in
+  again** (sessions from earlier versions are no longer accepted).
+- The server refuses to start when `CHARTMATE_PASSWORD` is only whitespace (it used to turn the login off), and
+  warns about a password shorter than 12 characters or a non-loopback `HOST` without a password.
 - A stock split the data provider reports a few days late is now still applied to cached history (and never
   twice).
 

@@ -213,7 +213,7 @@ describe('MarketDataService stock split check', () => {
 
   it('migration 005 starts tracking existing rows at their last check', async () => {
     await h.db.updateTable('symbols').set({ splits_checked_at: 123, splits_tracked_from: null }).execute();
-    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '=', '005_applied_splits').execute();
+    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '>=', '005_applied_splits').execute();
     await h.db.schema.alterTable('symbols').dropColumn('splits_tracked_from').execute();
     await migrate(h.db);
     expect((await repos.symbols.get('stock:AAPL'))?.splitsTrackedFrom).toBe(123);

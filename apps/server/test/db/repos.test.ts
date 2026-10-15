@@ -10,7 +10,7 @@ const SEC_A = '0b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f60';
 const SEC_B = '1b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f61';
 const SEC_C = '2b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f62';
 
-const TABLES = ['applied_splits','basket_versions','baskets','bars','coverage','symbols','watchlist','watchlist_entries','layouts','drawings','kysely_migration','kysely_migration_lock'];
+const TABLES = ['applied_splits','settings','basket_versions','baskets','bars','coverage','symbols','watchlist','watchlist_entries','layouts','drawings','kysely_migration','kysely_migration_lock'];
 const urls = ['sqlite::memory:', ...(process.env.TEST_PG_URL ? [process.env.TEST_PG_URL] : [])];
 describe.each(urls)('repos on %s', (url) => {
   const h = createDb(url);
@@ -85,6 +85,15 @@ describe.each(urls)('repos on %s', (url) => {
     expect(await r.bars.range('stock:ST', '1D', 0, 40)).toHaveLength(2);
     await Promise.all([[40, 50], [45, 60], [100, 110]].map(([a, b]) => r.bars.store('stock:ST', '1D', [{ ...bar, ts: a! }], [a!, b!])));
     expect(await r.coverage.list('stock:ST', '1D')).toEqual([[0, 20], [40, 60], [100, 110]]);
+  });
+  it('settings: the first generated value wins, also under concurrency', async () => {
+    expect(await r.settings.get('k')).toBeNull();
+    const values = await Promise.all([1, 2, 3].map((i) => r.settings.getOrCreate('k', () => `v${i}`)));
+    expect(new Set(values).size).toBe(1);
+    expect(await r.settings.getOrCreate('k', () => 'other')).toBe(values[0]);
+    const secret = await r.settings.sessionSecret();
+    expect(secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(await r.settings.sessionSecret()).toBe(secret);
   });
   it('coverage add is safe under concurrency', async () => {
     await Promise.all([[0, 10], [5, 15], [12, 20], [20, 30], [28, 40], [100, 110]].map(([a, b]) => r.coverage.add('c', '1D', a!, b!)));

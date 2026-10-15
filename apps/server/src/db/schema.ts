@@ -9,6 +9,8 @@ export interface SymbolsTable {
   /** Splits after this are recorded in applied_splits (migration 005; null = rows from before it, never checked). */
   splits_tracked_from: number | null;
 }
+/** Server settings (migration 006): `session_secret` = the generated cookie signing secret. */
+export interface SettingsTable { key: string; value: string }
 /** Splits applied to a symbol's cached bars (migration 005). */
 export interface AppliedSplitsTable { symbol: string; ts: number }
 export interface BasketsTable { id: string; name: string; base_value: number; created_at: number; updated_at: number }
@@ -36,4 +38,5 @@ export interface Database {
   layouts: LayoutsTable;
   drawings: DrawingsTable;
   applied_splits: AppliedSplitsTable;
+  settings: SettingsTable;
 }

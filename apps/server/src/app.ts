@@ -139,7 +139,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     trustProxy: config.trustProxy !== false,
   });
 
-  const authOpts = { password: config.password, sessionSecret: config.sessionSecret, now: deps.now ?? Date.now };
+  // Without CHARTMATE_SESSION_SECRET the secret is random, generated once and kept in the database (never derived
+  // from the password, so a leaked cookie gives nothing to guess the password from).
+  const sessionSecret = config.password === null ? '' : config.sessionSecret ?? await repos.settings.sessionSecret();
+  const authOpts = { password: config.password, sessionSecret, now: deps.now ?? Date.now };
   await registerAuth(app, authOpts);
 
   app.get('/api/health', { config: { public: true } }, async () => ({ ok: true }));

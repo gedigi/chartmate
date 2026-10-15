@@ -26,7 +26,7 @@ export async function authRoutes(app: FastifyInstance, opts: AuthOptions): Promi
       return reply.code(401).send({ code: 'unauthorized', message: 'Wrong password' });
     }
     limiter.reset(request.ip);
-    setSessionCookie(request, reply, opts.now());
+    setSessionCookie(request, reply, opts);
     return reply.code(204).send();
   });
 

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +10,8 @@ export interface Config {
   host: string;
   databaseUrl: string;
   password: string | null;
-  sessionSecret: string;
+  /** Cookie signing secret (`CHARTMATE_SESSION_SECRET`); null = generated once and kept in the database. */
+  sessionSecret: string | null;
   cryptoProvider: 'binance' | 'coinbase';
   binanceBaseUrl: string;
   providers: 'live' | 'fixture';
@@ -45,7 +45,10 @@ const EnvSchema = z.object({
     (u) => !u.startsWith('sqlite:') || u.slice('sqlite:'.length).trim() !== '',
     { message: 'sqlite: URL has an empty path (use e.g. sqlite:./data/chartmate.db)' },
   )),
-  CHARTMATE_PASSWORD: z.preprocess(blankToUndefined, z.string().optional()),
+  // Empty = no password; a value of only whitespace is a mistake (it would silently turn auth off), not "unset".
+  CHARTMATE_PASSWORD: z.preprocess((v) => (v === '' ? undefined : v), z.string().refine((s) => s.trim() !== '', {
+    message: 'is only whitespace (leave it empty for no password, or set a real one)',
+  }).optional()),
   CHARTMATE_SESSION_SECRET: z.preprocess(blankToUndefined, z.string().min(16).optional()),
   CRYPTO_PROVIDER: z.preprocess(blankToUndefined, z.enum(['binance', 'coinbase']).default('binance')),
   BINANCE_BASE_URL: z.preprocess(blankToUndefined, z.url().default('https://data-api.binance.vision')),
@@ -55,16 +58,31 @@ const EnvSchema = z.object({
   CHARTMATE_ALLOWED_HOSTS: z.preprocess(blankToUndefined, z.string().optional()),
 });
 
-function sha256Hex(s: string): string {
-  return createHash('sha256').update(s).digest('hex');
-}
-
 function parseTrustProxy(v: string | undefined): boolean | number | string {
   const s = v?.trim();
   if (s === undefined || s === '' || s.toLowerCase() === 'false') return false;
   if (s.toLowerCase() === 'true') return true;
   if (/^\d+$/.test(s)) return Number(s);
   return s;
+}
+
+/** Shortest password that does not trigger a startup warning. */
+export const MIN_PASSWORD_LENGTH = 12;
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
+
+/** Startup warnings for a configuration that works but is weaker than it should be (logged by main). */
+export function configWarnings(c: Config): string[] {
+  const out: string[] = [];
+  if (c.password !== null && c.password.length < MIN_PASSWORD_LENGTH) {
+    out.push(`CHARTMATE_PASSWORD is shorter than ${MIN_PASSWORD_LENGTH} characters; use a long random password.`);
+  }
+  if (c.password === null && !LOOPBACK_HOSTS.has(c.host.toLowerCase())) {
+    out.push(
+      `Listening on ${c.host} without CHARTMATE_PASSWORD: anyone who can reach this port and use an allowed host ` +
+      'name can read and change your data. Set CHARTMATE_PASSWORD unless only you can reach it.',
+    );
+  }
+  return out;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -81,7 +99,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     host: e.HOST,
     databaseUrl: e.DATABASE_URL,
     password,
-    sessionSecret: e.CHARTMATE_SESSION_SECRET ?? sha256Hex('chartmate:' + (password ?? '')),
+    sessionSecret: e.CHARTMATE_SESSION_SECRET ?? null,
     cryptoProvider: e.CRYPTO_PROVIDER,
     binanceBaseUrl: e.BINANCE_BASE_URL.replace(/\/+$/, ''),
     providers: e.CHARTMATE_PROVIDERS,

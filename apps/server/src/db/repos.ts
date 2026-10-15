@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { PostgresAdapter, sql, type Kysely } from 'kysely';
 import { tryNormalizeSymbolId, watchlistSymbols, type Bar, type Basket, type BasketVersion, type DrawingState, type Layout, type NativeTimeframe, type SymbolId, type WatchlistEntry } from '@chartmate/shared';
 import type { Database } from './schema.js';
@@ -387,6 +388,28 @@ export class DrawingRepo {
   }
 }
 
+export class SettingsRepo {
+  constructor(private db: Kysely<Database>) {}
+
+  async get(key: string): Promise<string | null> {
+    const r = await this.db.selectFrom('settings').select('value').where('key', '=', key).executeTakeFirst();
+    return r?.value ?? null;
+  }
+
+  /** The stored value of `key`, storing `make()` first when there is none (the first writer wins). */
+  async getOrCreate(key: string, make: () => string): Promise<string> {
+    await this.db.insertInto('settings').values({ key, value: make() }).onConflict(oc => oc.column('key').doNothing()).execute();
+    const v = await this.get(key);
+    if (v === null) throw new Error(`setting ${key} could not be stored`);
+    return v;
+  }
+
+  /** The cookie signing secret used when CHARTMATE_SESSION_SECRET is unset: 32 random bytes, generated once. */
+  sessionSecret(): Promise<string> {
+    return this.getOrCreate('session_secret', () => randomBytes(32).toString('hex'));
+  }
+}
+
 export interface Repos {
   bars: BarRepo;
   coverage: CoverageRepo;
@@ -395,6 +418,7 @@ export interface Repos {
   watchlist: WatchlistRepo;
   layouts: LayoutRepo;
   drawings: DrawingRepo;
+  settings: SettingsRepo;
 }
 
 export function createRepos(db: Kysely<Database>, dialect?: Dialect): Repos {
@@ -407,5 +431,6 @@ export function createRepos(db: Kysely<Database>, dialect?: Dialect): Repos {
     watchlist: new WatchlistRepo(db),
     layouts: new LayoutRepo(db),
     drawings: new DrawingRepo(db),
+    settings: new SettingsRepo(db),
   };
 }

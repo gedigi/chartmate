@@ -188,9 +188,14 @@ location / {
 ### Security
 
 - Set `CHARTMATE_PASSWORD` whenever the instance is reachable from anything but your own machine; it turns on
-  a login page. Use a strong password, and serve the instance over HTTPS only.
-- Set `CHARTMATE_SESSION_SECRET` to a random value (`openssl rand -hex 32`). If unset, the secret is derived
-  from the password, so a leaked session cookie would let someone guess the password offline.
+  a login page. Use a strong password (the server warns at startup below 12 characters), and serve the
+  instance over HTTPS only. A password of only whitespace is refused at startup rather than read as "no
+  password"; the server also warns when it listens on a non-loopback `HOST` without a password.
+- Session cookies are signed with `CHARTMATE_SESSION_SECRET` when set (min 16 characters; `openssl rand -hex
+  32`). When unset, a random secret is generated on first start and kept in the database (`settings` table),
+  so it survives restarts; it is never derived from the password, so a leaked cookie gives nothing to guess the
+  password from. Anyone who can read the database can forge sessions, which is no more than they can already
+  read. Set the variable to keep sessions valid across a restore into a fresh database.
 - Login attempts are rate limited: 10 failures per IP per 15 minutes, plus a global limit of 100
   failures per 15 minutes. The global limit means a determined attacker can lock *you* out for a while.
 - **Allowed hosts.** Without a password the server answers only to `localhost`, `127.0.0.1` and `[::1]` (on
@@ -218,8 +223,10 @@ location / {
   than the app page. If you add your own CSP at a reverse proxy, keep it at least this strict.
 - Behind a reverse proxy set `CHARTMATE_TRUST_PROXY`, otherwise every client appears to come from the
   proxy's IP and they all share one rate-limit budget, and the session cookie is not marked `Secure`.
-- The session cookie lasts 30 days. Changing `CHARTMATE_SESSION_SECRET` (or the password, if the secret
-  is derived from it) revokes all existing sessions.
+- The session cookie lasts 30 days. Each cookie carries a keyed fingerprint of the password, so changing
+  `CHARTMATE_PASSWORD` (or `CHARTMATE_SESSION_SECRET`, or deleting the generated `session_secret` row) signs
+  every session out. Over HTTPS the cookie is named `__Host-chartmate_session` (Secure, `Path=/`, no `Domain`,
+  so no other site or subdomain can set it); over plain HTTP it is `chartmate_session`. Logout clears both.
 - **Pin the image.** `latest` follows every release. To run exactly the image you checked, look up the
   digest of a version, verify that digest itself, then pin both in `.env`:
 
@@ -281,8 +288,8 @@ created if missing).
 | `PORT` | `8787` | HTTP port. |
 | `HOST` | `127.0.0.1` (Docker: `0.0.0.0`) | Listen address. Use `0.0.0.0` (or `::`) to accept connections from other hosts. |
 | `DATABASE_URL` | `sqlite:./data/chartmate.db` (Docker: `sqlite:/data/chartmate.db`) | `sqlite:<path>` or `postgres://…`. An empty SQLite path (`sqlite:`) is rejected. |
-| `CHARTMATE_PASSWORD` | unset (no auth) | Enables password login. |
-| `CHARTMATE_SESSION_SECRET` | derived from the password | Cookie signing secret, min 16 chars. Set explicitly in production. |
+| `CHARTMATE_PASSWORD` | unset (no auth) | Enables password login. Only whitespace is an error; under 12 characters logs a warning. Changing it signs every session out. |
+| `CHARTMATE_SESSION_SECRET` | generated once, stored in the database | Cookie signing secret, min 16 chars. Set it to keep sessions across a restore into a fresh database. |
 | `CHARTMATE_TRUST_PROXY` | unset (`false`) | `true`, a hop count (e.g. `1`), or an IP/CIDR list of trusted proxies. |
 | `CHARTMATE_ALLOWED_HOSTS` | unset | Comma-separated hostnames or IP addresses (no scheme or port; IPv6 in brackets) served besides `localhost`, `127.0.0.1` and `[::1]`. Enforced without a password, and with one when set; see [Security](#security). |
 | `CRYPTO_PROVIDER` | `binance` | `binance` or `coinbase`. |

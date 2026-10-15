@@ -293,9 +293,19 @@ const m005: Migration = {
   },
 };
 
+/** Server settings (key/value), e.g. the generated session secret. Idempotent. */
+const m006: Migration = {
+  async up(db: Kysely<any>) {
+    await db.schema.createTable('settings').ifNotExists()
+      .addColumn('key', 'text', c => c.primaryKey())
+      .addColumn('value', 'text', c => c.notNull())
+      .execute();
+  },
+};
+
 const migrations: Record<string, Migration> = {
   '001_init': m001, '002_symbol_splits': m002, '003_watchlist_sections': m003, '004_symbol_ids': m004,
-  '005_applied_splits': m005,
+  '005_applied_splits': m005, '006_settings': m006,
 };
 const provider: MigrationProvider = {
   async getMigrations() { return migrations; },

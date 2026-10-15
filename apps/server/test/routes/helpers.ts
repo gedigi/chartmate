@@ -15,6 +15,24 @@ export function isoDate(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);
 }
 
+/** The configuration test apps start from (fixture providers, no password, a fixed session secret). */
+export function testConfig(): Config {
+  return {
+    port: 0,
+    host: '127.0.0.1',
+    databaseUrl: 'sqlite::memory:',
+    password: null,
+    sessionSecret: 'test-secret-test-secret-test-secret',
+    cryptoProvider: 'binance',
+    binanceBaseUrl: 'http://unused',
+    providers: 'fixture',
+    webDist: null,
+    trustProxy: false,
+    allowedHosts: [],
+    allowedOrigins: [],
+  };
+}
+
 export interface TestApp { app: FastifyInstance; market: MarketDataService; baskets: BasketService; repos: Repos; close(): Promise<void> }
 
 export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () => number } = {}): Promise<TestApp> {
@@ -28,21 +46,7 @@ export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () 
   };
   const market = new MarketDataService({ repos, registry, queues, ...(opts.now ? { now: opts.now } : {}) });
   const baskets = new BasketService({ repos, market, ...(opts.now ? { now: opts.now } : {}) });
-  const config: Config = {
-    port: 0,
-    host: '127.0.0.1',
-    databaseUrl: 'sqlite::memory:',
-    password: null,
-    sessionSecret: 'test-secret-test-secret-test-secret',
-    cryptoProvider: 'binance',
-    binanceBaseUrl: 'http://unused',
-    providers: 'fixture',
-    webDist: null,
-    trustProxy: false,
-    allowedHosts: [],
-    allowedOrigins: [],
-    ...overrides,
-  };
+  const config: Config = { ...testConfig(), ...overrides };
   const app = await buildApp({ config, repos, market, baskets, logger: false, now: opts.now });
   return {
     app,
