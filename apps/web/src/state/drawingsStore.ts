@@ -29,10 +29,19 @@ export interface DrawingsSnapshot {
  */
 let snapshot: DrawingsSnapshot = { values: new Map(), statuses: new Map(), active: null, tickers: new Map() };
 const listeners = new Set<() => void>();
+const discardListeners = new Set<(symbol: SymbolId) => void>();
 
 function update(next: Partial<DrawingsSnapshot>): void {
   snapshot = { ...snapshot, ...next };
   for (const l of [...listeners]) l();
+}
+
+function drop(symbol: SymbolId, deactivate = false): void {
+  const values = new Map(snapshot.values);
+  values.delete(symbol);
+  const statuses = new Map(snapshot.statuses);
+  statuses.delete(symbol);
+  update(deactivate && snapshot.active === symbol ? { values, statuses, active: null } : { values, statuses });
 }
 
 export const drawingsStore = {
@@ -68,13 +77,30 @@ export const drawingsStore = {
     statuses.delete(symbol);
     update({ values, statuses });
   },
-  /** Explicitly drops `symbol`'s unsaved drawings (the user discarded them after a permanent failure). */
+  /**
+   * Explicitly drops `symbol`'s unsaved drawings (the user discarded them after a permanent failure). Its saver sends
+   * nothing more (saves skip symbols without a value). Discard listeners hear about it (a charted symbol reloads the
+   * server's drawings).
+   */
   discard(symbol: SymbolId): void {
-    const values = new Map(snapshot.values);
-    values.delete(symbol);
-    const statuses = new Map(snapshot.statuses);
-    statuses.delete(symbol);
-    update({ values, statuses });
+    drop(symbol);
+    for (const l of [...discardListeners]) l(symbol);
+  },
+  /**
+   * Cancels `symbol`'s pending drawings without saving them (its basket was deleted): no retry, no flush, no note.
+   * It also stops being the active symbol.
+   */
+  cancel(symbol: SymbolId): void {
+    drop(symbol, true);
+  },
+  /** Whether `symbol` still has drawings to save (a saver whose symbol was discarded or canceled sends nothing). */
+  hasValue(symbol: SymbolId): boolean {
+    return snapshot.values.has(symbol);
+  },
+  /** Subscribes to "the user discarded `symbol`'s unsaved drawings". */
+  onDiscard(listener: (symbol: SymbolId) => void): () => void {
+    discardListeners.add(listener);
+    return () => { discardListeners.delete(listener); };
   },
   /** Tests only. */
   reset(): void {

@@ -1,6 +1,7 @@
 import type { Basket, Quote, SymbolId } from '@chartmate/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
+import { drawingsStore } from './drawingsStore';
 
 export type BasketsStatus = 'loading' | 'ready' | 'error';
 
@@ -140,6 +141,8 @@ export function useBaskets(): UseBaskets {
       return next;
     });
     notifyBasketChanged(id);
+    // Its unsaved drawings (a save still retrying or stalled) must never be re-sent after the cleanup below.
+    drawingsStore.cancel(basketSymbol(id));
     notifyBasketDeleted(id);
     dropBasketReferences(basketSymbol(id));
   }, []);

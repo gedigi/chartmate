@@ -22,7 +22,9 @@ interface DrawingsSaveProps {
  * It is dropped only once its save succeeded (or the user discards it): a permanent failure keeps the value.
  */
 function DrawingsSave({ symbol, value, enabled }: DrawingsSaveProps): null {
-  const save = useCallback((d: DrawingState[] | undefined) => (d ? api.drawings.put(symbol, d) : Promise.resolve()), [symbol]);
+  // A symbol whose drawings were discarded or canceled (deleted basket) has no value in the store: nothing is sent, not
+  // even by a pending retry, a manual Retry or the flush when this saver unmounts.
+  const save = useCallback((d: DrawingState[] | undefined) => (d && drawingsStore.hasValue(symbol) ? api.drawings.put(symbol, d) : Promise.resolve()), [symbol]);
   const { saving, error, permanent, stalled, retryNow } = useDebouncedSave(value, save, DRAWINGS_SAVE_MS, enabled, { retry: true });
   useEffect(() => {
     const status: DrawingsSaveStatus | null = error === null ? null
