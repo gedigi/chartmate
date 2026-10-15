@@ -96,8 +96,13 @@ describe('ci.yml macOS signing dry run (the release allowlist, on every relevant
     expect(job.permissions).toBeUndefined();
     expect(job.environment).toBeUndefined();
     expect(JSON.stringify(job)).not.toMatch(/secrets\./);
-    const pack = job.steps.find((s) => s.name === 'Package the arm64 app (unsigned)')!;
-    expect(pack.run).toContain('pnpm exec electron-builder --config electron-builder.config.cjs --mac dir --arm64 --publish never');
+    const pack = job.steps.find((s) => s.name === 'Package the arm64 app as a signed release would be (unsigned)')!;
+    // Like package-mac for a signed release: updater bundled, app-update.yml written, electron-builder signs nothing.
+    expect(pack.run).toContain('CSC_NAME="$DRY_RUN_IDENTITY" node scripts/bundle.mjs --platform=darwin');
+    expect(pack.run).toContain('pnpm exec electron-builder --config electron-builder.config.cjs --mac zip --arm64 --publish never');
+    expect(pack.run).toContain('test -f release/mac-arm64/Chartmate.app/Contents/Resources/app-update.yml');
+    expect(pack.env?.CHARTMATE_PUBLISH).toBe('github');
+    expect(pack.env?.CSC_NAME).toBeUndefined();
     const sign = job.steps.find((s) => s.name === 'Sign a copy ad hoc through the release allowlist, then verify it')!;
     expect(sign.env).toEqual({ IDENTITY: '-' });
     expect(sign.run).toContain('.github/scripts/macos-sign.sh sign-app "$RUNNER_TEMP/Chartmate.app"');

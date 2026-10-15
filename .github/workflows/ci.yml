@@ -203,14 +203,20 @@ jobs:
           fi
       - if: steps.changes.outputs.run == 'true'
         run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Package the arm64 app (unsigned)
+      # As package-mac builds a signed release: the updater compiled in (only bundle.mjs sees the identity name;
+      # electron-builder gets none and signs nothing), and the zip target writes app-update.yml into the app.
+      - name: Package the arm64 app as a signed release would be (unsigned)
         if: steps.changes.outputs.run == 'true'
         working-directory: apps/desktop
+        env:
+          DRY_RUN_IDENTITY: 'Developer ID Application: Dry Run (DRYRUN0000)'
+          CHARTMATE_PUBLISH: github
         run: |
           set -euo pipefail
           pnpm --filter @chartmate/web build
-          node scripts/bundle.mjs --platform=darwin
-          pnpm exec electron-builder --config electron-builder.config.cjs --mac dir --arm64 --publish never
+          CSC_NAME="$DRY_RUN_IDENTITY" node scripts/bundle.mjs --platform=darwin
+          pnpm exec electron-builder --config electron-builder.config.cjs --mac zip --arm64 --publish never
+          test -f release/mac-arm64/Chartmate.app/Contents/Resources/app-update.yml
       - name: Sign a copy ad hoc through the release allowlist, then verify it
         if: steps.changes.outputs.run == 'true'
         env:
