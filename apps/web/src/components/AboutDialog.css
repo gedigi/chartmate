@@ -5,7 +5,7 @@
 .about-identity p { margin: 0; }
 .about-name { font: 650 20px/1.15 var(--font-display); letter-spacing: -0.025em; }
 .about-identity .about-version { margin-top: 3px; font-size: 13px; color: var(--text-muted); }
-.about-text { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+.about-text { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-muted); text-wrap: pretty; }
 
 .about-facts { margin: 0; border-top: 1px solid var(--border); }
 .about-facts > div {
@@ -34,7 +34,7 @@
   border-radius: var(--radius-sm);
   font-variant-numeric: tabular-nums;
 }
-.about-hint { color: var(--text-muted); font-size: 12px; }
+.about-hint { color: var(--text-muted); font-size: 12px; text-wrap: pretty; }
 
 @media (max-width: 420px) {
   .about-facts > div { grid-template-columns: 1fr; gap: 2px; }
