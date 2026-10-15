@@ -21,6 +21,8 @@ export interface WatchlistProps {
 const QUOTE_POLL_MS = 15_000;
 const SPARK_POLL_MS = 10 * 60_000;
 const NEW_SECTION_TITLE = 'New section';
+/** Symbol widths (px) of the placeholder rows shown while the list loads. */
+const PLACEHOLDER_ROWS = [38, 46, 30, 42];
 
 function fmtPrice(price: number, precision: number): string {
   return price.toLocaleString('en-US', { minimumFractionDigits: precision, maximumFractionDigits: precision });
@@ -521,14 +523,23 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
           Section
         </button>
       </div>
-      <SymbolSearch onSelect={(id) => add(id, activeSection)} placeholder="Add symbol…" />
+      <SymbolSearch onSelect={(id) => add(id, activeSection)} placeholder="Add symbol…" disabled={!loaded} />
       {error && <div className="watchlist-error" role="alert">{error}</div>}
       {/* A plain list: each symbol row has a focusable "select" control (aria-current marks the open chart) and a
           sibling remove button; each section row a heading with a collapse toggle and a sibling actions button.
           No interactive element is nested inside another. */}
-      <ul className="watchlist-list" ref={listRef} aria-label="Watchlist symbols">
+      <ul className="watchlist-list" ref={listRef} aria-label="Watchlist symbols" aria-busy={loaded ? undefined : true}>
         {rows.map((row, pos) => (row.entry.type === 'section' ? renderSection(row, row.entry) : renderSymbol(row, row.entry.id, pos)))}
+        {/* Until the list loads (retried with backoff on failure): quiet placeholder rows in the rows' own rhythm. */}
+        {!loaded && PLACEHOLDER_ROWS.map((w) => (
+          <li key={w} className="watchlist-row wl-placeholder" aria-hidden="true">
+            <span className="wl-ph-symbol" style={{ width: w }} />
+            <span className="wl-ph-price" />
+            <span className="wl-ph-name" style={{ width: w + 22 }} />
+          </li>
+        ))}
       </ul>
+      {!loaded && <p className="sr-only" role="status">Loading watchlist…</p>}
       <p id={hintId} className="sr-only">Enter opens the chart, Delete removes, Alt+Arrow keys reorder.</p>
       <p id={sectionHintId} className="sr-only">Enter collapses or expands, F2 or double-click renames, Alt+Arrow keys move the section header.</p>
       {loaded && entries.length === 0 && <div className="watchlist-empty">No symbols. Search above to add one.</div>}

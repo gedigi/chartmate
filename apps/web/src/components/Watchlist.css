@@ -164,3 +164,16 @@
   .sd-stats { grid-template-columns: 1fr; }
   .sd-head { flex-wrap: wrap; row-gap: 2px; }
 }
+
+/* Placeholder rows while the list loads: the rows' own grid and rhythm, opaque surface tones, no hover. */
+.watchlist-row.wl-placeholder {
+  display: grid; grid-template-columns: minmax(0, 1fr) 56px; grid-template-rows: 20px 16px; row-gap: 2px; align-items: center;
+  padding: 8px 14px 8px 16px; cursor: default; animation: wl-placeholder 1.6s ease-in-out infinite alternate;
+}
+.watchlist-row.wl-placeholder:hover { background: transparent; }
+.wl-placeholder span { display: block; border-radius: 4px; }
+.wl-ph-symbol { grid-column: 1; grid-row: 1; height: 10px; background: var(--bg-active); }
+.wl-ph-price { grid-column: 2; grid-row: 1; justify-self: end; width: 48px; height: 10px; background: var(--bg-active); }
+.wl-ph-name { grid-column: 1; grid-row: 2; height: 8px; background: var(--bg-hover); }
+@keyframes wl-placeholder { from { opacity: 1; } to { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .watchlist-row.wl-placeholder { animation: none; } }

@@ -195,6 +195,20 @@ describe('ChartView', () => {
     expect(api.drawings.put).toHaveBeenCalledWith('stock:AAPL', [{ name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false }]);
   });
 
+  it('retries a failed drawings save with backoff until it succeeds', async () => {
+    renderView();
+    await flush();
+    await flush();
+    vi.useFakeTimers();
+    vi.mocked(api.drawings.put).mockRejectedValueOnce(new Error('offline'));
+    act(() => adapter().changeCb!());
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(api.drawings.put).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(api.drawings.put).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.drawings.put).mock.calls[1]![0]).toBe('stock:AAPL');
+  });
+
   it('flushes the pending drawings save for the previous symbol immediately on a symbol switch', async () => {
     const { rerenderWith } = renderView();
     await flush();

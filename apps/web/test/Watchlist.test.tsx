@@ -182,6 +182,42 @@ describe('Watchlist', () => {
     expect(put).not.toHaveBeenCalled();
   });
 
+  it('retries a failed watchlist.get with backoff; editing is off (loading state) until it loads', async () => {
+    setup(['stock:AAPL']);
+    vi.mocked(api.watchlist.get).mockRejectedValueOnce(new Error('boom'));
+    vi.useFakeTimers();
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole('alert')).toHaveTextContent(/boom/);
+    expect(screen.getByRole('combobox', { name: 'Search symbol' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Add section' })).toBeDisabled();
+    expect(screen.getByRole('list', { name: 'Watchlist symbols' })).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByText('Loading watchlist…')).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(api.watchlist.get).toHaveBeenCalledTimes(2);
+    expect(order()).toEqual(['stock:AAPL']);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Search symbol' })).toBeEnabled();
+    expect(screen.queryByText('Loading watchlist…')).not.toBeInTheDocument();
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('retries a failed watchlist save', async () => {
+    setup(['stock:AAPL', 'crypto:BTC']);
+    vi.useFakeTimers();
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    put.mockRejectedValueOnce(new Error('offline'));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove BTC' }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('alert')).toHaveTextContent(/offline/);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(put).toHaveBeenCalledTimes(2);
+    expect(put).toHaveBeenLastCalledWith(syms(['stock:AAPL']));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('polling stops on unmount, restarts on set change, not on reorder', async () => {
     setup(['stock:AAPL', 'crypto:BTC']);
     vi.useFakeTimers();

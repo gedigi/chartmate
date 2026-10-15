@@ -407,7 +407,8 @@ Where to read next:
   vertical line, price line, parallel channel, Fibonacci retracement, text, long position and short
   position; plus magnet, lock all, delete selected (**Delete** / **Backspace**) and clear all. **Escape**
   cancels the active tool and deselects the drawing.
-- **Drawings** are saved per symbol on the server (debounced ~1 s after each change). Points are stored in
+- **Drawings** are saved per symbol on the server (debounced ~1 s after each change; a failed save is retried
+  with backoff, 2 s, 5 s, 10 s, then every 30 s, and a toast says so). Points are stored in
   time/price coordinates (bar timestamp + price), not pixels, so they stay anchored to the same price and
   time across timeframes, zoom levels and window sizes.
 - **Drawing styles**: selecting a drawing shows a small style bar at the top of the chart (color, width,
@@ -589,6 +590,11 @@ The row always shows the regular-session price and day change (a tinted pill); d
 line ("Pre 231.40 +0.82%") shows the extended price and its change vs the last regular close (`Quote.ext`),
 otherwise the name. A small gauge under the price places the price in its 30-day closing range (the sparkline's daily
 closes and the live price).
+
+The list is loaded from the server when the app opens. Until it arrives, quiet placeholder rows show and adding,
+removing or reordering is off, so nothing you do is replaced by the loaded list; a failed load shows the error
+and is retried with backoff (2 s, 5 s, 10 s, then every 30 s). Changes are saved about half a second after
+each edit, and a failed save is retried the same way.
 
 Below the list, a **detail panel** shows the open symbol: market status (stocks: open / pre-market / after hours /
 closed from the New York clock and the quote's freshness; crypto trades around the clock), the day range as a

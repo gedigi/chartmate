@@ -277,6 +277,7 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, onR
     (v) => (v ? api.drawings.put(v.symbol, v.drawings) : Promise.resolve()),
     DRAWINGS_SAVE_MS,
     drawingsFor === symbol,
+    { retry: true },
   );
   useEffect(() => { if (saveError) setToast(`Could not save drawings: ${saveError}`); }, [saveError]);
 
