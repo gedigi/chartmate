@@ -14,6 +14,9 @@ COPY apps/web/package.json apps/web/
 # No dependency install script runs (as in CI): better-sqlite3 ships prebuilt binaries for every platform.
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY . .
+# owner/name of the repository the image is built from: the web UI's About dialog links to its source code (AGPL-3.0
+# section 13). Pass it with --build-arg GITHUB_REPOSITORY=...; unset, the dialog points to the LICENSE in the image.
+ARG GITHUB_REPOSITORY=""
 RUN pnpm build
 # THIRD_PARTY_NOTICES.txt for what the image ships (server runtime + web UI); fails on a license outside the
 # AGPL-3.0-compatible allowlist.

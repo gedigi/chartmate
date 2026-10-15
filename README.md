@@ -390,6 +390,8 @@ Where to read next:
 
 ### Charts
 
+- **About Chartmate**: click the Chartmate mark at the left of the top bar for the version and the source code
+  and license links (see [License](#license)).
 - **Theme**: the sun / moon button in the top bar switches between the dark theme (the default) and the light
   one. The choice is stored per browser (localStorage `chartmate.theme`) and applied before the page paints;
   each theme keeps its own chart appearance (see below).
@@ -925,6 +927,7 @@ JSON over `/api` (the web client uses nothing else). With `CHARTMATE_PASSWORD` s
 | Route | Purpose |
 | --- | --- |
 | `GET /api/health` | Liveness (`{ ok: true }`), used by the Docker healthcheck. |
+| `GET /api/about` | The server's version (`{ version }`, `null` when unknown), shown in About Chartmate. |
 | `GET /api/session`, `POST /api/login`, `POST /api/logout` | Auth state, login (`{ password }`), logout. |
 | `GET /api/symbols/search?q=` | Symbol search (stocks, crypto and your baskets). |
 | `GET /api/symbols/:id` | Symbol info (name, exchange, price precision). |
@@ -1056,3 +1059,12 @@ them under the same license.
 
 Exceptions: the Wyckoff indicator files keep their own MPL-2.0 license (see [Custom indicators](#custom-indicators)),
 and third-party dependencies keep their own licenses.
+
+**Source code offer.** Click the Chartmate mark at the left of the top bar to open **About Chartmate**: it shows
+the version (and, self-hosted, the server's version) and links to the source code and the license. The link
+comes from the `GITHUB_REPOSITORY` (`owner/name`) the web UI was built with, which GitHub Actions sets; a build
+made without it says "See LICENSE" instead. In the desktop app, which opens no links, the address is shown as
+text to copy into a browser. If you run a modified version for other people, build it with
+`GITHUB_REPOSITORY` naming your own repository (for the Docker image:
+`docker build --build-arg GITHUB_REPOSITORY=your-account/your-fork .`), so the dialog offers your source.
+

@@ -293,8 +293,9 @@ A release is a pushed `vX.Y.Z` tag. The tag builds and publishes everything; not
 1. On `main`, rename the `## Unreleased` section at the top of [CHANGELOG.md](CHANGELOG.md) to
    `## [X.Y.Z] - YYYY-MM-DD` (pull requests record user-visible changes there in plain language as they land; add
    anything missing), and set `"version": "X.Y.Z"` in `apps/desktop/package.json`, the product version the
-   desktop app reports. A test fails while the desktop version has no changelog section. Start a new empty
-   `## Unreleased` section after the release.
+   desktop app reports, and the same version in `apps/web/package.json` and `apps/server/package.json` (About
+   Chartmate shows them). Tests fail while the desktop version has no changelog section or the three differ.
+   Start a new empty `## Unreleased` section after the release.
 2. Run the full checks (`pnpm audit`, `pnpm typecheck`, `pnpm test`, `pnpm e2e`) and merge.
 3. Tag the merge commit on `main` and push `main` together with the tag:
    `git tag vX.Y.Z && git push origin main vX.Y.Z`. Both release workflows stop if the tagged commit is not on

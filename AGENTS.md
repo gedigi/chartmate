@@ -195,7 +195,8 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
 ## Releases
 
 - Before tagging: add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md` and set `"version"` in
-  `apps/desktop/package.json` (the product version; a test requires a changelog entry for it). The step-by-step
+  `apps/desktop/package.json` (the product version; a test requires a changelog entry for it), and the same
+  version in `apps/web/package.json` and `apps/server/package.json` (a test keeps the three equal). The step-by-step
   list is in `CONTRIBUTING.md`, "Releases".
 - Push a tag `vX.Y.Z` (the tagged commit must be on `main`, or both release workflows stop):
   `.github/workflows/desktop.yml` tests, then builds macOS arm64/x64 (dmg + zip) and Windows x64/arm64 (NSIS +
