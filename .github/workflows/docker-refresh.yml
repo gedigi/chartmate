@@ -2,19 +2,27 @@ name: Docker refresh
 
 # Weekly rebuild of the latest release's self-hosting image, so Debian and Node.js security fixes reach :latest
 # (and that release's :X.Y.Z, :X.Y and :X) between releases. Same code (the release tag), fresh base image (the
-# Dockerfile's tag, pulled and resolved again) and OS updates (the Dockerfile's apt-get upgrade).
+# Dockerfile's tag, resolved again to a digest docker-library recorded) and OS updates (the Dockerfile's apt-get
+# upgrade).
 #
-#   image    — read-only token: checks this is the upstream repository's default branch, finds the latest full
-#              release (scripts/release-tags.mjs --latest, from the default branch), checks the tag is on it and
-#              matches its desktop app version, then builds the tag for amd64 and arm64 (under QEMU), always
-#              pulling, smoke-tests (the tag's own scripts/docker-smoke.sh) and scans each (fixable HIGH/CRITICAL
-#              fails, with the default branch's reviewed .trivyignore). Never pushes.
-#   publish  — the only job with `packages: write`: one push at a time with docker.yml's publish job (concurrency
-#              ghcr-publish). Pushes only if that tag is still the latest release (a release published meanwhile
-#              wins), rebuilt and scanned again on the same base digest, with the release path's tags, provenance,
-#              SBOM and GitHub build provenance attestation.
-# A release whose Dockerfile still pins its base by digest is rebuilt on that same base: only releases built from
-# a tagged base image get fresher. A failed scan means a fix needs a release (or a reviewed .trivyignore entry).
+#   plan     — read-only token: checks this is the upstream repository's default branch; finds the latest full
+#              release (scripts/release-tags.mjs --latest, from the default branch), checks the tag is on it, has a
+#              published (not draft, not pre-release) GitHub Release and matches its desktop app version; resolves
+#              the tag's base image. Stands down (nothing built, nothing pushed, a line in the summary) when the
+#              release is not published or its Dockerfile pins its base by digest (an older release: a rebuild
+#              would be the same image).
+#   audit    — the tag's `pnpm audit` (its dependencies, prod and dev, against today's advisories).
+#   image    — builds the tag for amd64 and arm64 (under QEMU), always pulling, smoke-tests (the tag's own
+#              scripts/docker-smoke.sh) and scans each (fixable HIGH/CRITICAL fails, with the default branch's
+#              reviewed .trivyignore). Never pushes.
+#   publish  — `ghcr` environment, the only job with `packages: write`. Pushes the image by digest only
+#              (untagged), scans and smoke-tests that digest, then, if the tag is still the latest release and no
+#              docker.yml run is queued or in progress (a release being published wins), points the release's tags
+#              at exactly that digest, with the release path's provenance, SBOM and GitHub build provenance
+#              attestation.
+#   notify   — on any failure: opens (or comments on) the "Weekly Docker image refresh failed" issue
+#              (`issues: write`, nothing else). A failed scan means a fix needs a release, or a reviewed
+#              .trivyignore entry.
 on:
   schedule:
     - cron: '23 4 * * 1' # Mondays, 04:23 UTC
@@ -28,15 +36,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  image:
+  plan:
     # Forks skip it (their copy of the schedule is off by default anyway); the guard step below checks again.
     if: github.event.repository.fork != true
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
     outputs:
+      refresh: ${{ steps.base.outputs.context != '' && steps.release.outputs.published == 'true' }}
       tag: ${{ steps.release.outputs.tag }}
+      sha: ${{ steps.release.outputs.sha }}
       private: ${{ steps.guard.outputs.private }}
       base-context: ${{ steps.base.outputs.context }}
+      base-image: ${{ steps.base.outputs.image }}
+      base-digest: ${{ steps.base.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -60,6 +72,8 @@ jobs:
           echo "private=$private" >> "$GITHUB_OUTPUT"
       - name: Latest release
         id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           tag="$(git tag --list 'v*' | node scripts/release-tags.mjs --latest)"
@@ -71,7 +85,15 @@ jobs:
           sha="$(git rev-parse "refs/tags/$tag^{commit}")"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "Refreshing the image of $tag ($sha)" | tee -a "$GITHUB_STEP_SUMMARY"
+          # Only a published release is republished: never a draft (e.g. waiting for sign:win) or a pre-release.
+          state="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease --jq '"\(.isDraft) \(.isPrerelease)"' || echo missing)"
+          if [ "$state" = "false false" ]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "Refreshing the image of $tag ($sha)" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing refreshed: $tag has no published GitHub Release (draft, pre-release or missing: $state)" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -88,7 +110,60 @@ jobs:
           fi
       - name: Base image
         id: base
-        run: .github/scripts/resolve-base-image.sh release/Dockerfile
+        env:
+          GH_TOKEN: ${{ github.token }} # reads docker-library/repo-info (public) through the GitHub API
+        run: |
+          set -euo pipefail
+          .github/scripts/resolve-base-image.sh release/Dockerfile
+          # An empty context: the release's Dockerfile pins its base by digest, so a rebuild changes nothing.
+          if ! grep -qE '^context=.+' "$GITHUB_OUTPUT"; then
+            echo "Nothing refreshed: the release's Dockerfile pins its base image by digest (a rebuild would be the same image)" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+  audit:
+    needs: plan
+    if: needs.plan.outputs.refresh == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # The release tag itself: its lockfile, and its own install-pnpm.sh.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: refs/tags/${{ needs.plan.outputs.tag }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: pnpm (corepack)
+        shell: bash
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          bash .github/scripts/install-pnpm.sh
+          want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
+          got="$(pnpm --version)"
+          if [ "$got" != "$want" ]; then
+            echo "::error title=pnpm version::pnpm $got, but package.json pins $want"
+            exit 1
+          fi
+      # The release's dependencies against today's advisories (prod and dev, as the release itself was checked).
+      - run: pnpm audit
+
+  image:
+    needs: [plan, audit]
+    if: needs.plan.outputs.refresh == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: refs/tags/${{ needs.plan.outputs.tag }}
+          path: release
       - name: Trivy (version and sha256 pinned)
         run: .github/scripts/install-trivy.sh
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -104,12 +179,17 @@ jobs:
           build-args: |
             GITHUB_REPOSITORY=${{ github.repository }}
             GITHUB_REF_TYPE=tag
-            GITHUB_REF_NAME=${{ steps.release.outputs.tag }}
-            GITHUB_SHA=${{ steps.release.outputs.sha }}
-          build-contexts: ${{ steps.base.outputs.context }}
+            GITHUB_REF_NAME=${{ needs.plan.outputs.tag }}
+            GITHUB_SHA=${{ needs.plan.outputs.sha }}
+          build-contexts: ${{ needs.plan.outputs.base-context }}
           pull: true
+      # The tag's own smoke test, with --expect-repository only when that version of the script knows it.
       - name: Smoke test (linux/amd64)
-        run: release/scripts/docker-smoke.sh chartmate:smoke --expect-repository "$GITHUB_REPOSITORY"
+        run: |
+          set -euo pipefail
+          args=()
+          if grep -q -- '--expect-repository' release/scripts/docker-smoke.sh; then args=(--expect-repository "$GITHUB_REPOSITORY"); fi
+          release/scripts/docker-smoke.sh chartmate:smoke ${args[@]+"${args[@]}"}
       - name: Vulnerability scan (linux/amd64)
         run: .github/scripts/scan-image.sh chartmate:smoke
       - name: Build (linux/arm64, loaded for the smoke test)
@@ -123,115 +203,63 @@ jobs:
           build-args: |
             GITHUB_REPOSITORY=${{ github.repository }}
             GITHUB_REF_TYPE=tag
-            GITHUB_REF_NAME=${{ steps.release.outputs.tag }}
-            GITHUB_SHA=${{ steps.release.outputs.sha }}
-          build-contexts: ${{ steps.base.outputs.context }}
+            GITHUB_REF_NAME=${{ needs.plan.outputs.tag }}
+            GITHUB_SHA=${{ needs.plan.outputs.sha }}
+          build-contexts: ${{ needs.plan.outputs.base-context }}
           pull: true
       - name: Smoke test (linux/arm64)
-        run: release/scripts/docker-smoke.sh chartmate:smoke-arm64 --platform linux/arm64 --expect-repository "$GITHUB_REPOSITORY"
+        run: |
+          set -euo pipefail
+          args=()
+          if grep -q -- '--expect-repository' release/scripts/docker-smoke.sh; then args=(--expect-repository "$GITHUB_REPOSITORY"); fi
+          release/scripts/docker-smoke.sh chartmate:smoke-arm64 --platform linux/arm64 ${args[@]+"${args[@]}"}
       - name: Vulnerability scan (linux/arm64)
         run: .github/scripts/scan-image.sh chartmate:smoke-arm64
 
   publish:
-    needs: image
+    needs: [plan, image]
+    if: needs.plan.outputs.refresh == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Deployment environment: the repository settings limit `ghcr` to the main branch and v* tags (owner setting).
+    environment: ghcr
     permissions:
       contents: read
       packages: write
       id-token: write
       attestations: write
-    # One push to the registry at a time, across this workflow and docker.yml.
-    concurrency:
-      group: ghcr-publish
-      cancel-in-progress: false
+      actions: read # to see whether a docker.yml run (a release being published) is queued or in progress
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0 # the tags as they are now
-      # A release tagged while this run waited publishes its own image; this one then stands down.
-      - name: Still the latest release
-        id: rank
-        env:
-          TAG: ${{ needs.image.outputs.tag }}
-        run: |
-          set -euo pipefail
-          latest="$(git tag --list 'v*' | node scripts/release-tags.mjs --latest)"
-          if [ "$latest" != "$TAG" ]; then
-            echo "$TAG is no longer the latest release ($latest is): nothing pushed" | tee -a "$GITHUB_STEP_SUMMARY"
-            echo "push=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "push=true" >> "$GITHUB_OUTPUT"
-          git tag --list 'v*' | node scripts/release-tags.mjs "$TAG" | tee -a "$GITHUB_OUTPUT"
-          echo "sha=$(git rev-parse "refs/tags/$TAG^{commit}")" >> "$GITHUB_OUTPUT"
+          fetch-depth: 0 # the tags
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.rank.outputs.push == 'true'
         with:
           persist-credentials: false
-          ref: refs/tags/${{ needs.image.outputs.tag }}
+          ref: refs/tags/${{ needs.plan.outputs.tag }}
           path: release
+      - name: Floating tags
+        id: rank
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git tag --list 'v*' | node scripts/release-tags.mjs "$TAG" | tee -a "$GITHUB_OUTPUT"
       - name: Image name
-        if: steps.rank.outputs.push == 'true'
         # Registry paths must be lowercase; the repository is never hardcoded.
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
-        if: steps.rank.outputs.push == 'true'
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-        if: steps.rank.outputs.push == 'true'
       - name: Trivy (version and sha256 pinned)
-        if: steps.rank.outputs.push == 'true'
         run: .github/scripts/install-trivy.sh
-      # Nothing is pushed unless both platforms pass the scan. The push below reuses these builds from the builder's
-      # cache (same tag, same base digest), so what is pushed is what was scanned.
-      - name: Build (linux/amd64, loaded for the scan)
-        if: steps.rank.outputs.push == 'true'
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: release
-          platforms: linux/amd64
-          load: true
-          push: false
-          tags: chartmate:scan-amd64
-          build-args: |
-            GITHUB_REPOSITORY=${{ github.repository }}
-            GITHUB_REF_TYPE=tag
-            GITHUB_REF_NAME=${{ needs.image.outputs.tag }}
-            GITHUB_SHA=${{ steps.rank.outputs.sha }}
-          build-contexts: ${{ needs.image.outputs.base-context }}
-          pull: true
-      - name: Vulnerability scan (linux/amd64)
-        if: steps.rank.outputs.push == 'true'
-        run: .github/scripts/scan-image.sh chartmate:scan-amd64
-      - name: Build (linux/arm64, loaded for the scan)
-        if: steps.rank.outputs.push == 'true'
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: release
-          platforms: linux/arm64
-          load: true
-          push: false
-          tags: chartmate:scan-arm64
-          build-args: |
-            GITHUB_REPOSITORY=${{ github.repository }}
-            GITHUB_REF_TYPE=tag
-            GITHUB_REF_NAME=${{ needs.image.outputs.tag }}
-            GITHUB_SHA=${{ steps.rank.outputs.sha }}
-          build-contexts: ${{ needs.image.outputs.base-context }}
-          pull: true
-      - name: Vulnerability scan (linux/arm64)
-        if: steps.rank.outputs.push == 'true'
-        run: .github/scripts/scan-image.sh chartmate:scan-arm64
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        if: steps.rank.outputs.push == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }} # the job token (packages: write), same as secrets.GITHUB_TOKEN
       - name: Tags, labels and annotations
         id: meta
-        if: steps.rank.outputs.push == 'true'
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         env:
           DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
@@ -241,56 +269,129 @@ jobs:
           # The release's own tags, exactly as docker.yml publishes them (this run is not on the tag's ref, so the
           # version comes from the tag name).
           tags: |
-            type=semver,pattern={{version}},value=${{ needs.image.outputs.tag }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ needs.image.outputs.tag }},enable=${{ steps.rank.outputs.minor == 'true' }}
-            type=semver,pattern={{major}},value=${{ needs.image.outputs.tag }},enable=${{ steps.rank.outputs.major == 'true' }}
+            type=semver,pattern={{version}},value=${{ needs.plan.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.plan.outputs.tag }},enable=${{ steps.rank.outputs.minor == 'true' }}
+            type=semver,pattern={{major}},value=${{ needs.plan.outputs.tag }},enable=${{ steps.rank.outputs.major == 'true' }}
             type=raw,value=latest,enable=${{ steps.rank.outputs.latest == 'true' }}
           # The revision is the release tag's commit, not the default branch this workflow runs from.
           labels: |
             org.opencontainers.image.title=Chartmate
             org.opencontainers.image.description=Self-hosted charting app for stocks, crypto and custom baskets (server + web UI)
             org.opencontainers.image.licenses=AGPL-3.0-only
-            org.opencontainers.image.revision=${{ steps.rank.outputs.sha }}
+            org.opencontainers.image.revision=${{ needs.plan.outputs.sha }}
+            org.opencontainers.image.base.name=docker.io/library/${{ needs.plan.outputs.base-image }}
+            org.opencontainers.image.base.digest=${{ needs.plan.outputs.base-digest }}
           annotations: |
             org.opencontainers.image.title=Chartmate
             org.opencontainers.image.description=Self-hosted charting app for stocks, crypto and custom baskets (server + web UI)
             org.opencontainers.image.licenses=AGPL-3.0-only
-            org.opencontainers.image.revision=${{ steps.rank.outputs.sha }}
-      - name: Build and push (linux/amd64 + linux/arm64)
+            org.opencontainers.image.revision=${{ needs.plan.outputs.sha }}
+            org.opencontainers.image.base.name=docker.io/library/${{ needs.plan.outputs.base-image }}
+            org.opencontainers.image.base.digest=${{ needs.plan.outputs.base-digest }}
+      # Pushed by digest only: no tag points at it until it has passed the scan and the smoke tests below.
+      - name: Build and push by digest (linux/amd64 + linux/arm64, untagged)
         id: build
-        if: steps.rank.outputs.push == 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: release
           platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             GITHUB_REPOSITORY=${{ github.repository }}
             GITHUB_REF_TYPE=tag
-            GITHUB_REF_NAME=${{ needs.image.outputs.tag }}
-            GITHUB_SHA=${{ steps.rank.outputs.sha }}
-          build-contexts: ${{ needs.image.outputs.base-context }}
+            GITHUB_REF_NAME=${{ needs.plan.outputs.tag }}
+            GITHUB_SHA=${{ needs.plan.outputs.sha }}
+          build-contexts: ${{ needs.plan.outputs.base-context }}
           pull: true
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
           provenance: mode=max
           sbom: true
+      - name: Pushed digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no image digest from the build"; exit 1; }
+          echo "REF=$IMAGE@$DIGEST" >> "$GITHUB_ENV"
+      - name: Vulnerability scan (linux/amd64, the pushed digest)
+        run: .github/scripts/scan-image.sh "$REF" --platform linux/amd64 --remote
+      - name: Vulnerability scan (linux/arm64, the pushed digest)
+        run: .github/scripts/scan-image.sh "$REF" --platform linux/arm64 --remote
+      - name: Smoke test (both platforms, the pushed digest)
+        run: |
+          set -euo pipefail
+          args=()
+          if grep -q -- '--expect-repository' release/scripts/docker-smoke.sh; then args=(--expect-repository "$GITHUB_REPOSITORY"); fi
+          release/scripts/docker-smoke.sh "$REF" --platform linux/amd64 ${args[@]+"${args[@]}"}
+          release/scripts/docker-smoke.sh "$REF" --platform linux/arm64 ${args[@]+"${args[@]}"}
+      # Right before the tags move: still the latest published release, and no release publish queued or running
+      # (docker.yml's own image wins). Otherwise this run stands down; the untagged digest stays unreferenced.
+      - name: Still the latest release, and no release being published
+        id: still
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          latest="$(gh api --paginate "repos/$GITHUB_REPOSITORY/tags?per_page=100" --jq '.[].name' | node scripts/release-tags.mjs --latest)"
+          busy="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow docker.yml --event push --limit 50 --json status --jq '[.[] | select(.status != "completed")] | length')"
+          state="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease --jq '"\(.isDraft) \(.isPrerelease)"' || echo missing)"
+          if [ "$latest" != "$TAG" ]; then
+            reason="$TAG is no longer the latest release ($latest is)"
+          elif [ "$busy" != 0 ]; then
+            reason="a docker.yml release run (tag push) is queued or in progress ($busy)"
+          elif [ "$state" != "false false" ]; then
+            reason="$TAG has no published GitHub Release any more ($state)"
+          else
+            echo "tag=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "tag=false" >> "$GITHUB_OUTPUT"
+          echo "Nothing tagged: $reason" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Tag the checked digest
+        if: steps.still.outputs.tag == 'true'
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          mapfile -t tags < <(printf '%s\n' "$TAGS" | sed '/^$/d')
+          .github/scripts/tag-image.sh "$REF" "${tags[@]}"
+          {
+            echo "Pushed \`$REF\` as:"
+            printf '%s\n' "${tags[@]}" | sed 's/.*/- `&`/'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Build provenance attestation (GitHub, Sigstore-signed)
-        if: steps.rank.outputs.push == 'true' && needs.image.outputs.private == 'false'
+        if: steps.still.outputs.tag == 'true' && needs.plan.outputs.private == 'false'
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
           create-storage-record: false
-      - name: Summary
-        if: steps.rank.outputs.push == 'true'
+
+  notify:
+    needs: [plan, audit, image, publish]
+    if: failure() && github.event.repository.fork != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the tracking issue
         env:
-          TAGS: ${{ steps.meta.outputs.tags }}
-          DIGEST: ${{ steps.build.outputs.digest }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          {
-            echo "Pushed \`$IMAGE@$DIGEST\` as:"
-            printf '%s\n' "$TAGS" | sed 's/.*/- `&`/'
-          } >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          title="Weekly Docker image refresh failed"
+          body="The weekly rebuild of the latest release's image failed: $RUN_URL
+
+          Usually a fixable vulnerability (update the dependency or the base image and release, or add a reviewed
+          .trivyignore entry), a failed pnpm audit or a failed smoke test. Close this issue once a refresh passes."
+          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "Failed again: $RUN_URL"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi

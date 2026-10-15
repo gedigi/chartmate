@@ -666,22 +666,6 @@ describe('Docker image builds pass the repository and the source ref (the About 
     for (const s of builds) expect(buildArgs(s), s.name).toEqual(SOURCE_BUILD_ARGS);
   });
 
-  it('docker-refresh.yml builds the release tag, so it passes that tag and its commit (not the default branch)', () => {
-    const wf = yaml.load(read('docker-refresh.yml'));
-    for (const [job, tag, sha] of [
-      ['image', 'steps.release.outputs.tag', 'steps.release.outputs.sha'],
-      ['publish', 'needs.image.outputs.tag', 'steps.rank.outputs.sha'],
-    ] as const) {
-      const builds = (wf.jobs[job] as Job).steps.filter((s) => s.uses?.startsWith('docker/build-push-action@'));
-      expect(builds.length, job).toBeGreaterThanOrEqual(2);
-      for (const s of builds) {
-        expect(buildArgs(s), `${job}: ${s.name}`).toEqual([
-          'GITHUB_REPOSITORY=${{ github.repository }}', 'GITHUB_REF_TYPE=tag', `GITHUB_REF_NAME=\${{ ${tag} }}`, `GITHUB_SHA=\${{ ${sha} }}`,
-        ]);
-      }
-    }
-  });
-
   it('ci.yml\'s docker build passes it too, and the smoke tests check it', () => {
     const ci = yaml.load(read('ci.yml'));
     const runs = Object.values(ci.jobs as Record<string, Job>).flatMap((j) => j.steps).map((s) => s.run ?? '');
@@ -702,14 +686,16 @@ describe('Docker image builds pass the repository and the source ref (the About 
 
 describe('Docker image freshness: every build pulls, on a base digest resolved once per run, and is scanned', () => {
   const IMAGE_WORKFLOWS = ['docker.yml', 'docker-refresh.yml'];
-  const jobsOf = (f: string) => Object.entries(yaml.load(read(f)).jobs as Record<string, Job & { outputs?: Record<string, string> }>);
+  type JobX = Job & { outputs?: Record<string, string>; concurrency?: unknown };
+  const jobsOf = (f: string) => Object.entries(yaml.load(read(f)).jobs as Record<string, JobX>);
+  const jobOf = (f: string, name: string) => jobsOf(f).find(([n]) => n === name)![1];
   const isBuild = (s: Step) => !!s.uses?.startsWith('docker/build-push-action@');
-  const BASE_REFS = ['${{ steps.base.outputs.context }}', '${{ needs.image.outputs.base-context }}'];
+  const BASE_REFS = ['${{ steps.base.outputs.context }}', '${{ needs.image.outputs.base-context }}', '${{ needs.plan.outputs.base-context }}'];
 
   it('every docker/build-push-action step pulls, pins the resolved base and passes the repository', () => {
     for (const f of IMAGE_WORKFLOWS) {
       const builds = jobsOf(f).flatMap(([, j]) => j.steps).filter(isBuild);
-      expect(builds.length, f).toBeGreaterThanOrEqual(5);
+      expect(builds.length, f).toBeGreaterThanOrEqual(3);
       for (const s of builds) {
         expect(s.with?.pull, `${f}: ${s.name}`).toBe(true);
         expect(BASE_REFS, `${f}: ${s.name}`).toContain(s.with?.['build-contexts']);
@@ -718,14 +704,18 @@ describe('Docker image freshness: every build pulls, on a base digest resolved o
     }
   });
 
-  it('the image job resolves the base with resolve-base-image.sh before building, and hands it to publish', () => {
-    for (const f of IMAGE_WORKFLOWS) {
-      const [, image] = jobsOf(f).find(([n]) => n === 'image')!;
-      const base = image.steps.findIndex((s) => s.id === 'base');
-      expect(image.steps[base]!.run, f).toMatch(/^\.github\/scripts\/resolve-base-image\.sh( release\/Dockerfile)?$/);
-      expect(base, f).toBeLessThan(image.steps.findIndex(isBuild));
-      expect(image.outputs?.['base-context'], f).toBe('${{ steps.base.outputs.context }}');
+  it('the base is resolved (and checked against docker-library) once, before any build, and handed on', () => {
+    for (const [f, job] of [['docker.yml', 'image'], ['docker-refresh.yml', 'plan']] as const) {
+      const j = jobOf(f, job);
+      const base = j.steps.find((s) => s.id === 'base')!;
+      expect(base.run, f).toMatch(/\.github\/scripts\/resolve-base-image\.sh( release\/Dockerfile)?$/m);
+      expect(base.env?.GH_TOKEN, f).toBe('${{ github.token }}');
+      expect(j.outputs?.['base-context'], f).toBe('${{ steps.base.outputs.context }}');
+      expect(j.outputs?.['base-image'], f).toBe('${{ steps.base.outputs.image }}');
+      expect(j.outputs?.['base-digest'], f).toBe('${{ steps.base.outputs.digest }}');
     }
+    const image = jobOf('docker.yml', 'image');
+    expect(image.steps.findIndex((s) => s.id === 'base')).toBeLessThan(image.steps.findIndex(isBuild));
   });
 
   it('ci.yml builds with --pull on the resolved base, then scans the image', () => {
@@ -733,6 +723,7 @@ describe('Docker image freshness: every build pulls, on a base digest resolved o
     const base = steps.findIndex((s) => s.run === '.github/scripts/resolve-base-image.sh');
     const build = steps.findIndex((s) => /\bdocker build\b/.test(s.run ?? ''));
     expect(base).toBeGreaterThanOrEqual(0);
+    expect(steps[base]!.env?.GH_TOKEN).toBe('${{ github.token }}');
     expect(base).toBeLessThan(build);
     expect(steps[build]!.run).toContain('docker build --pull --build-context "$BASE_CONTEXT" ');
     expect(steps[build]!.env?.BASE_CONTEXT).toBe('${{ steps.base.outputs.context }}');
@@ -742,14 +733,17 @@ describe('Docker image freshness: every build pulls, on a base digest resolved o
     expect(install).toBeLessThan(scan);
   });
 
-  it('every image a job builds and loads is scanned in that job, with Trivy installed first', () => {
+  it('every image a job builds and loads is smoke-tested and scanned in that job, with Trivy installed first', () => {
     for (const f of IMAGE_WORKFLOWS) {
       for (const [name, job] of jobsOf(f)) {
         const install = job.steps.findIndex((s) => s.run === '.github/scripts/install-trivy.sh');
         job.steps.forEach((s, i) => {
           if (!isBuild(s) || !s.with?.load) return;
-          const scan = job.steps.findIndex((x) => x.run === `.github/scripts/scan-image.sh ${String(s.with!.tags)}`);
-          expect(scan, `${f} ${name}: ${String(s.with!.tags)}`).toBeGreaterThan(i);
+          const tag = String(s.with!.tags);
+          const scan = job.steps.findIndex((x) => x.run === `.github/scripts/scan-image.sh ${tag}`);
+          const smoke = job.steps.findIndex((x) => new RegExp(`docker-smoke\\.sh ${tag}( |$)`, 'm').test(x.run ?? ''));
+          expect(scan, `${f} ${name}: ${tag}`).toBeGreaterThan(i);
+          expect(smoke, `${f} ${name}: ${tag}`).toBeGreaterThan(i);
           expect(install, `${f} ${name}`).toBeGreaterThanOrEqual(0);
           expect(install, `${f} ${name}`).toBeLessThan(scan);
         });
@@ -757,26 +751,66 @@ describe('Docker image freshness: every build pulls, on a base digest resolved o
     }
   });
 
-  it('publishing jobs push only after both platforms passed the scan, one push at a time across workflows', () => {
+  it('publish pushes by digest only, scans and smoke-tests that digest on both platforms, then tags exactly it', () => {
     for (const f of IMAGE_WORKFLOWS) {
-      const [, publish] = jobsOf(f).find(([n]) => n === 'publish')!;
-      const push = publish.steps.findIndex((s) => isBuild(s) && s.with?.push === true);
-      const scans = publish.steps.map((s, i) => [s, i] as const).filter(([s]) => s.run?.startsWith('.github/scripts/scan-image.sh '));
-      expect(scans.map(([s]) => s.run), f).toEqual(['.github/scripts/scan-image.sh chartmate:scan-amd64', '.github/scripts/scan-image.sh chartmate:scan-arm64']);
-      for (const [, i] of scans) expect(i, f).toBeLessThan(push);
-      expect(publish.steps[push]!.with).toMatchObject({ platforms: 'linux/amd64,linux/arm64', provenance: 'mode=max', sbom: true });
-      expect((publish as { concurrency?: unknown }).concurrency, f).toEqual({ group: 'ghcr-publish', 'cancel-in-progress': false });
+      const publish = jobOf(f, 'publish');
+      const s = publish.steps;
+      const builds = s.filter(isBuild);
+      expect(builds, f).toHaveLength(1); // one build: the pushed digest is the one checked
+      const push = s.indexOf(builds[0]!);
+      expect(builds[0]!.with).toMatchObject({
+        platforms: 'linux/amd64,linux/arm64',
+        outputs: 'type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true',
+        provenance: 'mode=max',
+        sbom: true,
+      });
+      expect(builds[0]!.with?.tags, f).toBeUndefined();
+      expect(builds[0]!.with?.push, f).toBeUndefined();
+      const digest = s.findIndex((x) => x.name === 'Pushed digest');
+      expect(s[digest]!.run).toContain('echo "REF=$IMAGE@$DIGEST" >> "$GITHUB_ENV"');
+      const scans = s.map((x, i) => [x.run ?? '', i] as const).filter(([r]) => r.startsWith('.github/scripts/scan-image.sh '));
+      expect(scans.map(([r]) => r), f).toEqual([
+        '.github/scripts/scan-image.sh "$REF" --platform linux/amd64 --remote',
+        '.github/scripts/scan-image.sh "$REF" --platform linux/arm64 --remote',
+      ]);
+      const smoke = s.map((x, i) => [x.run ?? '', i] as const).filter(([r]) => r.includes('docker-smoke.sh "$REF"'));
+      const smokeText = smoke.map(([r]) => r).join('\n');
+      expect(smokeText, f).toContain('"$REF" --platform linux/amd64');
+      expect(smokeText, f).toContain('"$REF" --platform linux/arm64');
+      const tag = s.findIndex((x) => x.name === 'Tag the checked digest');
+      expect(s[tag]!.run, f).toContain('.github/scripts/tag-image.sh "$REF" "${tags[@]}"');
+      expect(s[tag]!.env?.TAGS, f).toBe('${{ steps.meta.outputs.tags }}');
+      for (const [, i] of [...scans, ...smoke]) {
+        expect(i, f).toBeGreaterThan(digest);
+        expect(i, f).toBeLessThan(tag);
+      }
+      expect(push, f).toBeLessThan(digest);
+      const attest = s.findIndex((x) => x.uses?.startsWith('actions/attest@'));
+      expect(attest, f).toBeGreaterThan(tag);
+      // The base image (name and the checked digest) is recorded on the published image.
+      const meta = s.find((x) => x.id === 'meta')!;
+      for (const k of ['labels', 'annotations']) {
+        expect(String(meta.with?.[k]), `${f} ${k}`).toMatch(/^org\.opencontainers\.image\.base\.name=docker\.io\/library\/\$\{\{ needs\.(image|plan)\.outputs\.base-image \}\}$/m);
+        expect(String(meta.with?.[k]), `${f} ${k}`).toMatch(/^org\.opencontainers\.image\.base\.digest=\$\{\{ needs\.(image|plan)\.outputs\.base-digest \}\}$/m);
+      }
+      // No shared concurrency group: it could cancel a pending release publish (the refresh checks for one instead).
+      expect(publish.concurrency, f).toBeUndefined();
+      expect(publish.environment, f).toBe('ghcr');
       expect([publish.needs ?? []].flat(), f).toContain('image');
-      expect(publish.permissions, f).toEqual({ contents: 'read', packages: 'write', 'id-token': 'write', attestations: 'write' });
-      expect(publish.steps.some((s) => s.uses?.startsWith('actions/attest@')), f).toBe(true);
     }
+    expect(jobOf('docker.yml', 'publish').permissions).toEqual({ contents: 'read', packages: 'write', 'id-token': 'write', attestations: 'write' });
+    expect(jobOf('docker-refresh.yml', 'publish').permissions).toEqual({ contents: 'read', packages: 'write', 'id-token': 'write', attestations: 'write', actions: 'read' });
   });
 });
 
 describe('docker-refresh.yml (weekly rebuild of the latest release)', () => {
   const wf = yaml.load(read('docker-refresh.yml'));
-  const image = wf.jobs.image as Job & { outputs: Record<string, string> };
+  type JobX = Job & { outputs: Record<string, string> };
+  const plan = wf.jobs.plan as JobX;
+  const audit = wf.jobs.audit as Job;
+  const image = wf.jobs.image as Job;
   const publish = wf.jobs.publish as Job;
+  const notify = wf.jobs.notify as Job;
 
   it('runs weekly on Mondays and on manual dispatch only (never on a push, a pull request or a tag)', () => {
     expect(Object.keys(wf.on).sort()).toEqual(['schedule', 'workflow_dispatch']);
@@ -785,51 +819,93 @@ describe('docker-refresh.yml (weekly rebuild of the latest release)', () => {
   });
 
   it('only the upstream repository\'s default branch runs it (checked against the API, not just the event)', () => {
-    expect(image.if).toBe('github.event.repository.fork != true');
-    const guard = image.steps[1]!;
+    expect(plan.if).toBe('github.event.repository.fork != true');
+    const guard = plan.steps[1]!;
     expect(guard.id).toBe('guard');
     expect(guard.run).toContain('gh api "repos/$GITHUB_REPOSITORY"');
     expect(guard.run).toContain('if [ "$fork" != false ]; then');
     expect(guard.run).toContain('if [ "$GITHUB_REF" != "refs/heads/$default" ]; then');
     expect(guard.env).toEqual({ GH_TOKEN: '${{ github.token }}' });
-    // Nothing is built before the guard, and the build job keeps the read-only default token.
-    expect(image.steps.findIndex((s) => s.uses?.startsWith('docker/'))).toBeGreaterThan(1);
-    expect(image.permissions).toBeUndefined();
+    for (const j of [plan, audit, image]) expect(j.permissions).toBeUndefined();
+    for (const j of [audit, image, publish]) expect(j.if).toBe("needs.plan.outputs.refresh == 'true'");
   });
 
-  it('rebuilds the latest full release, on the default branch and matching its desktop app version', () => {
-    const release = image.steps.find((s) => s.id === 'release')!;
+  it('refreshes only the latest full release with a published GitHub Release, on the default branch, matching its version', () => {
+    const release = plan.steps.find((s) => s.id === 'release')!;
     expect(release.run).toContain(`git tag --list 'v*' | node scripts/release-tags.mjs --latest`);
     expect(release.run).toContain('git merge-base --is-ancestor "refs/tags/$tag" HEAD');
-    const tagCheckouts = [...image.steps, ...publish.steps].filter((s) => s.uses?.startsWith('actions/checkout@') && s.with?.ref);
-    expect(tagCheckouts.map((s) => [s.with!.ref, s.with!.path])).toEqual([
-      ['refs/tags/${{ steps.release.outputs.tag }}', 'release'],
-      ['refs/tags/${{ needs.image.outputs.tag }}', 'release'],
-    ]);
-    expect(image.steps.find((s) => s.name === 'Check the version')!.run).toContain(`require('./release/apps/desktop/package.json').version`);
-    for (const s of [...image.steps, ...publish.steps].filter((x) => x.uses?.startsWith('docker/build-push-action@'))) expect(s.with?.context).toBe('release');
-    const smoke = image.steps.filter((s) => s.run?.includes('docker-smoke.sh'));
-    expect(smoke.map((s) => s.run)).toEqual([
-      'release/scripts/docker-smoke.sh chartmate:smoke --expect-repository "$GITHUB_REPOSITORY"',
-      'release/scripts/docker-smoke.sh chartmate:smoke-arm64 --platform linux/arm64 --expect-repository "$GITHUB_REPOSITORY"',
-    ]);
+    expect(release.run).toContain('gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease');
+    expect(release.run).toContain('if [ "$state" = "false false" ]; then');
+    expect(plan.outputs.refresh).toBe("${{ steps.base.outputs.context != '' && steps.release.outputs.published == 'true' }}");
+    expect(plan.steps.find((s) => s.name === 'Check the version')!.run).toContain(`require('./release/apps/desktop/package.json').version`);
   });
 
-  it('pushes only while that tag is still the latest release, with the release path\'s tags', () => {
+  it('stands down for a release whose Dockerfile pins its base by digest (an older release: nothing to refresh)', () => {
+    const base = plan.steps.find((s) => s.id === 'base')!;
+    expect(base.run).toContain('.github/scripts/resolve-base-image.sh release/Dockerfile');
+    expect(base.run).toContain("if ! grep -qE '^context=.+' \"$GITHUB_OUTPUT\"; then");
+    expect(base.run).toContain('Nothing refreshed');
+  });
+
+  it('audits the release\'s own dependencies first', () => {
+    expect(audit.needs).toBe('plan');
+    expect(audit.steps[0]!.with?.ref).toBe('refs/tags/${{ needs.plan.outputs.tag }}');
+    expect(audit.steps[0]!.with?.path).toBeUndefined();
+    expect(runs(audit.steps)).toMatch(/^pnpm audit$/m);
+    expect(image.needs).toEqual(['plan', 'audit']);
+  });
+
+  it('builds the tag (its commit and ref in the build args) and smoke-tests it with the tag\'s own script', () => {
+    for (const [name, j] of [['image', image], ['publish', publish]] as const) {
+      const checkout = j.steps.filter((s) => s.uses?.startsWith('actions/checkout@') && s.with?.ref);
+      expect(checkout.map((s) => [s.with!.ref, s.with!.path]), name).toEqual([['refs/tags/${{ needs.plan.outputs.tag }}', 'release']]);
+      for (const s of j.steps.filter((x) => x.uses?.startsWith('docker/build-push-action@'))) {
+        expect(s.with?.context, name).toBe('release');
+        expect(buildArgs(s), `${name}: ${s.name}`).toEqual([
+          'GITHUB_REPOSITORY=${{ github.repository }}', 'GITHUB_REF_TYPE=tag',
+          'GITHUB_REF_NAME=${{ needs.plan.outputs.tag }}', 'GITHUB_SHA=${{ needs.plan.outputs.sha }}',
+        ]);
+      }
+      // An older docker-smoke.sh does not know --expect-repository: it is passed only when the script has it.
+      for (const s of j.steps.filter((x) => x.run?.includes('docker-smoke.sh'))) {
+        expect(s.run, `${name}: ${s.name}`).toContain(`if grep -q -- '--expect-repository' release/scripts/docker-smoke.sh; then args=(--expect-repository "$GITHUB_REPOSITORY"); fi`);
+        expect(s.run, `${name}: ${s.name}`).toMatch(/^release\/scripts\/docker-smoke\.sh .*\$\{args\[@\]\+"\$\{args\[@\]\}"\}$/m);
+        expect(s.run, `${name}: ${s.name}`).not.toMatch(/^release\/scripts\/docker-smoke\.sh[^\n]*--expect-repository/m);
+      }
+    }
+  });
+
+  it('tags only while it is still the latest published release and no release publish is queued or running', () => {
     const rank = publish.steps.find((s) => s.id === 'rank')!;
-    expect(publish.steps.indexOf(rank)).toBe(1);
-    expect(rank.run).toContain('if [ "$latest" != "$TAG" ]; then');
-    expect(rank.run).toContain('echo "push=false" >> "$GITHUB_OUTPUT"');
     expect(rank.run).toContain(`git tag --list 'v*' | node scripts/release-tags.mjs "$TAG" | tee -a "$GITHUB_OUTPUT"`);
-    for (const s of publish.steps.slice(2)) expect(s.if, s.name ?? s.uses).toMatch(/^steps\.rank\.outputs\.push == 'true'/);
+    const still = publish.steps.find((s) => s.id === 'still')!;
+    expect(still.run).toContain(`gh api --paginate "repos/$GITHUB_REPOSITORY/tags?per_page=100" --jq '.[].name' | node scripts/release-tags.mjs --latest`);
+    expect(still.run).toContain('gh run list --repo "$GITHUB_REPOSITORY" --workflow docker.yml --event push');
+    expect(still.run).toContain('select(.status != "completed")');
+    expect(still.run).toContain('gh release view "$TAG"');
+    const i = publish.steps.indexOf(still);
+    const tag = publish.steps.findIndex((s) => s.name === 'Tag the checked digest');
+    expect(i).toBe(tag - 1);
+    expect(publish.steps.findIndex((s) => s.run?.startsWith('.github/scripts/scan-image.sh'))).toBeLessThan(i);
+    for (const s of publish.steps.slice(tag)) expect(s.if, s.name ?? s.uses).toMatch(/^steps\.still\.outputs\.tag == 'true'/);
     const meta = publish.steps.find((s) => s.id === 'meta')!;
     const tags = String(meta.with!.tags).trim().split('\n').map((l) => l.trim());
     expect(tags).toEqual([
-      'type=semver,pattern={{version}},value=${{ needs.image.outputs.tag }}',
-      "type=semver,pattern={{major}}.{{minor}},value=${{ needs.image.outputs.tag }},enable=${{ steps.rank.outputs.minor == 'true' }}",
-      "type=semver,pattern={{major}},value=${{ needs.image.outputs.tag }},enable=${{ steps.rank.outputs.major == 'true' }}",
+      'type=semver,pattern={{version}},value=${{ needs.plan.outputs.tag }}',
+      "type=semver,pattern={{major}}.{{minor}},value=${{ needs.plan.outputs.tag }},enable=${{ steps.rank.outputs.minor == 'true' }}",
+      "type=semver,pattern={{major}},value=${{ needs.plan.outputs.tag }},enable=${{ steps.rank.outputs.major == 'true' }}",
       "type=raw,value=latest,enable=${{ steps.rank.outputs.latest == 'true' }}",
     ]);
-    expect(String(meta.with!.labels)).toContain('org.opencontainers.image.revision=${{ steps.rank.outputs.sha }}');
+    expect(String(meta.with!.labels)).toContain('org.opencontainers.image.revision=${{ needs.plan.outputs.sha }}');
+  });
+
+  it('a failure opens or updates a tracking issue, from a job that can only write issues', () => {
+    expect(notify.needs).toEqual(['plan', 'audit', 'image', 'publish']);
+    expect(notify.if).toBe('failure() && github.event.repository.fork != true');
+    expect(notify.permissions).toEqual({ issues: 'write' });
+    expect(notify.steps.some((s) => s.uses)).toBe(false); // no checkout, no action: only gh
+    const run = notify.steps[0]!.run!;
+    expect(run).toContain('gh issue comment "$number"');
+    expect(run).toContain('gh issue create --repo "$GITHUB_REPOSITORY" --title "$title"');
   });
 });

@@ -271,6 +271,39 @@ exit 0`);
     });
   });
 
+  describe('tag-image.sh (the tags point at exactly the checked digest)', () => {
+    const TAG_IMAGE = path('.github/scripts/tag-image.sh');
+    const REF = `ghcr.io/o/r@${DIGEST}`;
+    beforeEach(() => {
+      // imagetools inspect answers TAGGED_DIGEST (default: the checked one) for every tag.
+      stub('docker', `case "$*" in *"imagetools inspect"*) printf '{"digest":"%s"}' "\${TAGGED_DIGEST:-${DIGEST}}" ;; esac`);
+    });
+
+    it('carbon-copies the digest to every tag, then reads each tag back', () => {
+      const r = run(TAG_IMAGE, [REF, 'ghcr.io/o/r:1.2.3', 'ghcr.io/o/r:latest']);
+      expect(r.status, r.out + r.err).toBe(0);
+      expect(r.calls[0]).toBe(`docker buildx imagetools create --prefer-index=false -t ghcr.io/o/r:1.2.3 -t ghcr.io/o/r:latest ${REF}`);
+      expect(r.calls.slice(1)).toEqual([
+        'docker buildx imagetools inspect ghcr.io/o/r:1.2.3 --format {{json .Manifest}}',
+        'docker buildx imagetools inspect ghcr.io/o/r:latest --format {{json .Manifest}}',
+      ]);
+    });
+
+    it('fails when a tag does not resolve to the checked digest', () => {
+      const r = run(TAG_IMAGE, [REF, 'ghcr.io/o/r:1.2.3'], { TAGGED_DIGEST: `sha256:${'cd'.repeat(32)}` });
+      expect(r.status).toBe(1);
+      expect(r.out).toContain('not the checked');
+    });
+
+    it('refuses a non-digest source, no tags, or a tag of another repository', () => {
+      expect(run(TAG_IMAGE, ['ghcr.io/o/r:1.2.3', 'ghcr.io/o/r:latest']).status).toBe(1);
+      expect(run(TAG_IMAGE, [REF]).status).toBe(2);
+      const r = run(TAG_IMAGE, [REF, 'ghcr.io/other/r:latest']);
+      expect(r.status).toBe(1);
+      expect(r.calls).toEqual([]);
+    });
+  });
+
   describe('install-trivy.sh', () => {
     it('pins Trivy by exact version and the sha256 of each platform\'s release archive', () => {
       const script = root('.github/scripts/install-trivy.sh');
