@@ -104,3 +104,35 @@ describe('session tagging', () => {
     expect(ms).toBeLessThan(linearMs / 4);
   });
 });
+
+describe('tagSessions without windows: per-day memoization', () => {
+  const MIN = 60_000;
+  it('matches tagSessionFixedHours for every bar, across DST transitions and in any input order', () => {
+    // Every 7 minutes over 10 days around each DST transition of 2025 and 2026, weekends included.
+    const ts = [Date.UTC(2025, 2, 4), Date.UTC(2025, 9, 28), Date.UTC(2026, 2, 3), Date.UTC(2026, 9, 27)]
+      .flatMap((from) => Array.from({ length: (10 * 24 * 60) / 7 }, (_, i) => from + i * 7 * MIN));
+    const want = ts.map((t) => [t, tagSessionFixedHours(t)] as const).filter(([, s]) => s !== null);
+    expect(tagSessions(ts.map((t) => b(t))).map((x) => [x.ts, x.session])).toEqual(want);
+    const rev = ts.slice(0, 5000).reverse();
+    expect(tagSessions(rev.map((t) => b(t))).map((x) => x.ts)).toEqual(rev.filter((t) => tagSessionFixedHours(t) !== null));
+  });
+
+  it('perf: 30k 1m bars tag far faster than one time-zone lookup per bar', () => {
+    const bars = Array.from({ length: 30_000 }, (_, i) => b(Date.UTC(2026, 6, 6, 8) + i * MIN));
+    // Best of 3 runs, so a GC pause or a busy CPU during one run can't fail the comparison below.
+    let ms = Infinity;
+    for (let run = 0; run < 3; run++) {
+      const t0 = performance.now();
+      tagSessions(bars);
+      ms = Math.min(ms, performance.now() - t0);
+    }
+    // Baseline on the same machine (the unmemoized per-bar lookup), so a slow CI runner can't make this flaky.
+    let baseline = Infinity;
+    for (let run = 0; run < 2; run++) {
+      const t1 = performance.now();
+      for (const bar of bars) tagSessionFixedHours(bar.ts);
+      baseline = Math.min(baseline, performance.now() - t1);
+    }
+    expect(ms).toBeLessThan(baseline / 3);
+  });
+});

@@ -102,3 +102,47 @@ describe('resample', () => {
   });
   it('empty', () => { expect(resample([], '4h', 'utc')).toEqual([]); });
 });
+
+describe('resample on the NYSE calendars: per-day memoization', () => {
+  const MIN = 60_000;
+  // Every 7 minutes over 10 days around each DST transition of 2025 and 2026, weekends included.
+  const span = [Date.UTC(2025, 2, 4), Date.UTC(2025, 9, 28), Date.UTC(2026, 2, 3), Date.UTC(2026, 9, 27)]
+    .flatMap((from) => Array.from({ length: (10 * 24 * 60) / 7 }, (_, i) => from + i * 7 * MIN));
+
+  it('matches bucketStart for every bar, across DST transitions and in any input order', () => {
+    const bars = span.map((ts, i) => bar(ts, i, i, i, i));
+    for (const tf of ['30m', '2h', '4h'] as const) {
+      for (const cal of ['nyse-rth', 'nyse-eth'] as const) {
+        const want = [...new Set(span.map((ts) => bucketStart(ts, tf, cal)))];
+        expect(resample(bars, tf, cal).map((b) => b.ts), `${tf} ${cal}`).toEqual(want);
+      }
+    }
+    const some = bars.slice(0, 3000);
+    expect(resample(some.slice().reverse(), '2h', 'nyse-eth')).toEqual(resample(some, '2h', 'nyse-eth'));
+  });
+
+  it('perf: 2h nyse-eth over ~11k hourly bars is far cheaper than one time-zone lookup per bar', () => {
+    // 16 extended-hours 1h bars per weekday, ~2.7 years: about 11.4k bars.
+    const bars: ReturnType<typeof bar>[] = [];
+    for (let d = Date.UTC(2024, 0, 1); bars.length < 11_400; d += 24 * H) {
+      const dow = new Date(d).getUTCDay();
+      if (dow === 0 || dow === 6) continue;
+      for (let h = 0; h < 16; h++) bars.push(bar(d + 9 * H + h * H, 1, 2, 0, 1));
+    }
+    // Best of 3 runs, so a GC pause or a busy CPU during one run can't fail the comparison below.
+    let ms = Infinity;
+    for (let run = 0; run < 3; run++) {
+      const t0 = performance.now();
+      resample(bars, '2h', 'nyse-eth');
+      ms = Math.min(ms, performance.now() - t0);
+    }
+    // Baseline on the same machine (the unmemoized per-bar lookup), so a slow CI runner can't make this flaky.
+    let baseline = Infinity;
+    for (let run = 0; run < 2; run++) {
+      const t1 = performance.now();
+      for (const b of bars) bucketStart(b.ts, '2h', 'nyse-eth');
+      baseline = Math.min(baseline, performance.now() - t1);
+    }
+    expect(ms).toBeLessThan(baseline / 3);
+  });
+});

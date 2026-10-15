@@ -55,6 +55,47 @@ export function nyToUtc(y: number, m: number, d: number, hh: number, mm: number)
   return local + offBefore; // spring gap
 }
 
+/** A NY calendar day: its date, weekday and [start, end) span in UTC epoch ms (23, 24 or 25 hours long). */
+export interface NyDay { y: number; m: number /*1-12*/; d: number; dow: number /*0=Sun*/; start: number; end: number }
+
+/** The NY calendar day containing `ts`. */
+export function nyDay(ts: number): NyDay {
+  const p = nyParts(ts);
+  const next = new Date(Date.UTC(p.y, p.m - 1, p.d + 1));
+  return {
+    y: p.y, m: p.m, d: p.d, dow: p.dow,
+    start: nyToUtc(p.y, p.m, p.d, 0, 0),
+    end: nyToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, 0),
+  };
+}
+
+const HOUR_MS = 3_600_000;
+
+/**
+ * Memoizes `build(day)` per NY day, for scans over many timestamps: time-zone lookups (Intl) are slow, and a scan
+ * of sorted bars then makes a few per day instead of one or more per bar. A UTC hour never straddles two NY days
+ * (the offset is a whole number of hours), so unsorted input is served from a per-hour index.
+ */
+export function memoByNyDay<T>(build: (day: NyDay) => T): (ts: number) => T {
+  let cur: { day: NyDay; value: T } | undefined;
+  const byHour = new Map<number, { day: NyDay; value: T }>();
+  return (ts) => {
+    if (cur && ts >= cur.day.start && ts < cur.day.end) return cur.value;
+    const hour = Math.floor(ts / HOUR_MS);
+    let hit = byHour.get(hour);
+    if (!hit) {
+      const day = nyDay(ts);
+      hit = { day, value: build(day) };
+      // (Before 1883 NY ran on local mean time, not a whole-hour offset: no hour index there.)
+      if (day.start % HOUR_MS === 0 && day.end % HOUR_MS === 0) {
+        for (let h = day.start / HOUR_MS; h * HOUR_MS < day.end; h++) byHour.set(h, hit);
+      }
+    }
+    cur = hit;
+    return hit.value;
+  };
+}
+
 export function nyDateUtcMidnight(ts: number): number {
   const p = nyParts(ts);
   return Date.UTC(p.y, p.m - 1, p.d);
