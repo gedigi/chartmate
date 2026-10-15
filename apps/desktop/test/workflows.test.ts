@@ -15,6 +15,7 @@ const files = ['ci.yml', 'desktop.yml', 'docker.yml'];
 type Step = { uses?: string; with?: Record<string, unknown>; env?: Record<string, string>; name?: string; run?: string; if?: string; id?: string; shell?: string };
 type Job = { steps: Step[]; env?: unknown; permissions?: unknown; environment?: string; needs?: string[]; if?: string; outputs?: Record<string, string>; 'runs-on': string };
 
+const SIGN = "startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != ''";
 const COREPACK_RUN = [
   'set -euo pipefail',
   'corepack enable pnpm',
@@ -186,14 +187,32 @@ describe('desktop.yml secret scoping and release', () => {
   });
 
   it('macOS signing runs only on tags with the identity variable set; the unsigned build skips it', () => {
-    const plan = steps('package-mac').find((s) => s.id === 'plan')!;
-    expect(plan.env!.IDENTITY).toBe("${{ startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY || '' }}");
-    expect(job('package-mac').outputs!.sign).toBe('${{ steps.plan.outputs.sign }}');
-    expect(job('sign-mac').if).toBe("needs.package-mac.outputs.sign == 'true'");
-    expect(job('notarize-mac-dmg').if).toBe("needs.package-mac.outputs.sign == 'true'");
+    // Decided from the ref and the repository variable only, never from an output of a job that ran dependency code.
+    expect(job('package-mac').outputs).toBeUndefined();
+    expect(read('desktop.yml')).not.toContain('needs.package-mac.outputs');
+    expect(job('sign-mac').if).toBe(SIGN);
+    expect(job('notarize-mac-dmg').if).toBe(SIGN);
+    const pkg = steps('package-mac').find((s) => s.name === 'Bundle and package the apps (unsigned)')!;
+    expect(pkg.env!.SIGN).toBe(`\${{ ${SIGN} }}`);
     expect(job('notarize-mac-dmg').needs).toEqual(['package-mac', 'sign-mac', 'dist-mac']);
     // dist-mac never runs after a failed or cancelled signing run.
-    expect(job('dist-mac').if).toContain("needs.sign-mac.result == 'success' || (needs.sign-mac.result == 'skipped' && needs.package-mac.outputs.sign != 'true')");
+    expect(job('dist-mac').if).toContain("needs.sign-mac.result == 'success' || (needs.sign-mac.result == 'skipped' && !(startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != ''))");
+  });
+
+  it('a tag build without the macOS identity fails before any dependency code, unless unsigned macOS is allowed', () => {
+    const s = steps('test');
+    const plan = s.find((x) => x.name === 'macOS signing plan')!;
+    expect(plan.if).toBe("startsWith(github.ref, 'refs/tags/v')");
+    expect(plan.env).toEqual({
+      IDENTITY: '${{ vars.CHARTMATE_MAC_SIGN_IDENTITY }}',
+      ALLOW_UNSIGNED: '${{ vars.CHARTMATE_ALLOW_UNSIGNED_MAC }}',
+    });
+    expect(s.indexOf(plan)).toBeLessThan(s.findIndex((x) => x.name === 'pnpm (corepack)'));
+    const run = (env: Record<string, string>) => spawnSync('/bin/bash', ['-e', '-c', plan.run!], { env: { PATH: '/usr/bin:/bin', ...env }, encoding: 'utf8' });
+    expect(run({ IDENTITY: '', ALLOW_UNSIGNED: '' }).status).toBe(1);
+    expect(run({ IDENTITY: '', ALLOW_UNSIGNED: '' }).stdout).toContain('::error title=macOS would ship unsigned::');
+    expect(run({ IDENTITY: '', ALLOW_UNSIGNED: 'true' }).status).toBe(0);
+    expect(run({ IDENTITY: 'Developer ID Application: X (T)', ALLOW_UNSIGNED: '' }).status).toBe(0);
   });
 
   it('package-mac bundles (updater in only for a signed build) and packages without any signing identity', () => {
@@ -230,7 +249,7 @@ describe('desktop.yml secret scoping and release', () => {
   it('dist-mac builds dmg, zip, blockmaps and one latest-mac.yml from the signed apps, signing nothing', () => {
     const dist = steps('dist-mac');
     const download = dist.find((s) => s.uses?.startsWith('actions/download-artifact@'))!;
-    expect(download.with!.name).toBe("${{ needs.package-mac.outputs.sign == 'true' && 'mac-apps-signed' || 'mac-apps' }}");
+    expect(download.with!.name).toBe("${{ (startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != '') && 'mac-apps-signed' || 'mac-apps' }}");
     const pkg = dist.find((s) => /prepackaged/.test(s.name ?? ''))!;
     expect(pkg.run).toMatch(/electron-builder --config electron-builder\.config\.cjs --mac dmg zip "--\$arch" \\\n\s+--prepackaged "\$RUNNER_TEMP\/apps\/\$dir\/Chartmate\.app" --publish never/);
     expect(pkg.run).toContain('rm -rf release');
@@ -243,7 +262,7 @@ describe('desktop.yml secret scoping and release', () => {
     const uploads = (name: string) => steps(name).filter((s) => s.uses?.startsWith('actions/upload-artifact@')).map((s) => String(s.with!.name));
     expect(uploads('notarize-mac-dmg')).toEqual(['desktop-macos-dmg']);
     // A signed build's dmgs reach the release only through notarize-mac-dmg.
-    expect(uploads('dist-mac')).toEqual(['desktop-macos', "${{ needs.package-mac.outputs.sign == 'true' && 'mac-dmg-unsigned' || 'desktop-macos-dmg' }}"]);
+    expect(uploads('dist-mac')).toEqual(['desktop-macos', "${{ (startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != '') && 'mac-dmg-unsigned' || 'desktop-macos-dmg' }}"]);
     expect(uploads('package-mac')).toEqual(['mac-apps']);
     expect(uploads('sign-mac')).toEqual(['mac-apps-signed']);
     const download = steps('release').find((s) => s.uses?.startsWith('actions/download-artifact@'))!;
@@ -256,7 +275,7 @@ describe('desktop.yml secret scoping and release', () => {
       else expect(j.permissions, name).toBeUndefined();
     }
     expect(job('release').if).toMatch(/startsWith\(github\.ref, 'refs\/tags\/v'\)/);
-    expect(job('release').if).toContain("(needs.package-mac.outputs.sign != 'true' || needs.notarize-mac-dmg.result == 'success')");
+    expect(job('release').if).toContain("(!(startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != '') || needs.notarize-mac-dmg.result == 'success')");
     expect(secretsOf('release')).toEqual([]);
     const run = runs(steps('release'));
     expect(run).toMatch(/--repo "\$GITHUB_REPOSITORY"/);
