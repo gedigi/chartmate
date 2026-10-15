@@ -40,7 +40,7 @@ import {
 import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS } from './sessionShade';
 import { textColoredLegends } from './barLegends';
 import { solidBarFigures } from './solidBars';
-import { calendarTicks, countdownText, crosshairDate, hasCountdown } from './timeLabels';
+import { calendarTicks, countdownText, crosshairDate, hasCountdown, tickLabelFits } from './timeLabels';
 import {
   candleStyles, CHART_FONT, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, defaultIndicatorCircles, effectiveBarColors, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeSoftTone, themeTokens,
   type ThemeName,
@@ -117,8 +117,6 @@ export interface LoadParams {
 }
 
 const CANDLE_PANE = 'candle_pane';
-/** Time-axis ticks closer than this to the plot's left / right edge are left out (their label would be cut). */
-const AXIS_EDGE_PX = 16;
 /** Gap (px) after the latest bar when a date range is shown: KLineChart's default right offset. */
 const RANGE_RIGHT_MARGIN_PX = 80;
 /** KLineChart's double-click window and distance (Delay.ResetClick, ManhattanDistance.DoubleClick). */
@@ -425,8 +423,8 @@ export class ChartAdapter {
 
   /**
    * Time-axis ticks on calendar boundaries of the bars in view (see calendarTicks), placed at their bars; KLineChart's
-   * own ticks fall every n bars whatever the date, so their labels would skip months unevenly. A tick within
-   * AXIS_EDGE_PX of the plot's edges is left out: its label would be cut.
+   * own ticks fall every n bars whatever the date, so their labels would skip months unevenly. A tick whose label
+   * would come within AXIS_EDGE_PX of the plot's edges is left out (it would be cut).
    */
   private axisTicks(range: { realFrom: number; realTo: number }, width: number, tf: Timeframe, timezone: string) {
     const data = this.chart.getDataList();
@@ -437,7 +435,7 @@ export class ChartAdapter {
     return calendarTicks(times, this.chart.getBarSpace().bar, tf, timezone).flatMap(({ index, label }) => {
       const at = from + index;
       const x = (this.chart.convertToPixel({ dataIndex: at }, { paneId: CANDLE_PANE }) as Partial<Coordinate>).x;
-      if (x === undefined || x < AXIS_EDGE_PX || x > width - AXIS_EDGE_PX) return [];
+      if (x === undefined || !tickLabelFits(x, label, width)) return [];
       return [{ coord: x, value: data[at]!.timestamp, text: label }];
     });
   }

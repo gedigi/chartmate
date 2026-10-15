@@ -823,8 +823,9 @@ describe('ChartAdapter', () => {
         { coord: 70, value: sessions[7], text: '29' },
         { coord: 140, value: sessions[14], text: '30' },
       ]);
-      // A tick too close to the plot edge (its label would be cut) is left out.
-      expect(x.createTicks({ range: { realFrom: 1, realTo: 21 }, bounding: { width: 145 }, defaultTicks: [] }).map((t) => t.text)).toEqual(['29']);
+      // A tick whose label would come within 12 px of the plot edge (estimated 7 px a character) is left out.
+      expect(x.createTicks({ range: { realFrom: 1, realTo: 21 }, bounding: { width: 159 }, defaultTicks: [] }).map((t) => t.text)).toEqual(['29', '30']);
+      expect(x.createTicks({ range: { realFrom: 1, realTo: 21 }, bounding: { width: 158 }, defaultTicks: [] }).map((t) => t.text)).toEqual(['29']);
       expect(chart().setStyles.mock.calls.at(-1)![0].candle.priceMark.last.extendTexts[0].show).toBe(true);
       a.load({ symbol: AAPL, tf: '1D', session: 'rth', pollMs: 15000 }, events());
       expect(chart().setStyles.mock.calls.at(-1)![0].candle.priceMark.last.extendTexts[0].show).toBe(false);

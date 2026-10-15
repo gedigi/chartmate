@@ -404,10 +404,13 @@ Where to read next:
 - **Timeframes** 1m … 1M, chart types candles / bars / line / area, light and dark themes. The look is flat:
   the chart sits on its own rounded sheet, chrome is solid panels with hairline edges (no glass, glow or drop
   shadows), and every font is the system sans-serif (no web fonts). Time axis ticks (and the vertical grid lines)
-  fall on calendar boundaries: the finest step among 5 / 15 / 30 minutes, 1 / 2 / 3 / 6 / 12 hours, days, weeks,
-  months, quarters, half years and 1 / 2 / 5 / 10 years that keeps them at least 60 px apart, so they are evenly
-  spaced in time and never crowd. Each label names the largest unit starting there ("2026", "Sep", "Sep 21" on
-  intraday charts, "22", "13:30"). The crosshair date chip reads "Wed Sep 30 '26 · 12:30".
+  fall on calendar boundaries: the finest step among 5 / 15 / 30 minutes, 1 / 2 / 3 / 6 / 12 hours (on clock
+  multiples of the step), days, weeks, half months (the 1st and the 15th), months, quarters, half years and
+  1 / 2 / 5 / 10 years whose ticks all stay at least 60 px apart. No tick of that step is skipped, so they are evenly
+  spaced in time; only an hour tick right next to a session's start gives way to the day label. Each label names
+  the largest unit starting there ("2026", "Sep", "Sep 21" on intraday charts, "22", "13:30"; on a weekly grid, a
+  week starting a new month reads "Oct 5"), and labels that would be cut at the plot's edges are left out. The
+  crosshair date chip reads "Wed Sep 30 '26 · 12:30".
 - **Date ranges**: the row under the time axis (**1D 5D 1M 3M 6M YTD 1Y All**) shows that period, ending at the
   latest bar, and switches to a fitting interval (still changeable in the top bar afterwards). Older bars are
   loaded first when the range needs them, never past the data source's intraday limits; a symbol with less
