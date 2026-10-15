@@ -29,6 +29,8 @@ describe('symbol ids', () => {
       expect(tryNormalizeSymbolId(bad), bad).toBeNull();
     }
     expect(tryNormalizeSymbolId(42)).toBeNull();
+    // Case folding of non-ASCII letters must not alias another ticker (ß → SS, ı → I).
+    for (const bad of ['stock:ß', 'stock:maß', 'crypto:ıd', 'stock:ＡＡＰＬ']) expect(tryNormalizeSymbolId(bad), bad).toBeNull();
     expect(() => parseSymbolId(`stock:${'A'.repeat(200)}`)).toThrow();
   });
 

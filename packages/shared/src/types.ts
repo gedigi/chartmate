@@ -190,7 +190,8 @@ export const MAX_SYMBOL_ID_LENGTH = 100;
  */
 export function parseSymbolId(id: string): { assetClass: AssetClass; code: string } {
   const bad = () => new Error(`invalid symbol: ${String(id).slice(0, MAX_SYMBOL_ID_LENGTH)}`);
-  if (typeof id !== 'string' || id.length > MAX_SYMBOL_ID_LENGTH) throw bad();
+  // ASCII only, checked before case folding: 'ß'.toUpperCase() is 'SS', which would alias another ticker.
+  if (typeof id !== 'string' || id.length > MAX_SYMBOL_ID_LENGTH || !/^[\x20-\x7e]*$/.test(id)) throw bad();
   const s = id.trim();
   const i = s.indexOf(':');
   const prefix = i < 0 ? '' : s.slice(0, i);
