@@ -218,6 +218,23 @@ describe('Watchlist', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('a basket that no longer exists shows as "Deleted basket" and its info is not retried', async () => {
+    setup(['stock:AAPL', 'basket:gone']);
+    const { ApiError } = await import('../src/api/client');
+    vi.mocked(api.symbol).mockImplementation(async (id) => {
+      if (id === 'basket:gone') throw new ApiError(404, 'not_found', 'Basket gone not found');
+      return INFO[id]!;
+    });
+    vi.useFakeTimers();
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    const row = rows().find((r) => r.dataset.symbol === 'basket:gone')!;
+    expect(row).toHaveTextContent('Deleted basket');
+    expect(screen.getByRole('button', { name: 'Remove Deleted basket' })).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(vi.mocked(api.symbol).mock.calls.filter((c) => c[0] === 'basket:gone')).toHaveLength(1);
+  });
+
   it('polling stops on unmount, restarts on set change, not on reorder', async () => {
     setup(['stock:AAPL', 'crypto:BTC']);
     vi.useFakeTimers();

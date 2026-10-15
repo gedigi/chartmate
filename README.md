@@ -660,6 +660,10 @@ A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
   re-grids its **whole** intraday history to UTC buckets (daily and above are unaffected).
 - A version holds at most 50 constituents, and its effective date must lie between 1970-01-01 and
   tomorrow (UTC).
+- **Deleting** a basket (Baskets page) also removes it from the watchlist and clears its drawings; if it was
+  on the chart, the chart switches to the first other watchlist symbol. A reference that survives (say, the
+  cleanup failed or another tab still lists it) shows as "Deleted basket" in the watchlist and on the chart,
+  and is not reloaded over and over.
 
 ## Data sources and caveats
 

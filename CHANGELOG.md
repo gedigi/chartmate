@@ -27,6 +27,9 @@ app, the Docker image and the release tag share one version number.
 - Failed drawing and watchlist saves are retried with backoff instead of being dropped, and a failed watchlist
   load is retried too. Until the watchlist has loaded it shows placeholder rows and cannot be edited, so an
   early edit is no longer lost.
+- Deleting a basket removes it from the watchlist, clears its drawings and moves the chart to another symbol.
+  A stale reference to a deleted basket shows as "Deleted basket" instead of retrying forever, and symbol
+  lookups that fail for good (such as an unknown symbol) are no longer retried every 30 seconds.
 
 ## [1.0.0] - 2026-10-14
 

@@ -1,6 +1,6 @@
 import { MAX_SECTION_TITLE, MAX_WATCHLIST_SECTIONS, type Quote, type QuoteExt, type SymbolId, type SymbolInfo, type WatchlistSection } from '@chartmate/shared';
 import { memo, useEffect, useId, useRef, useState, type CSSProperties, type DragEvent, type JSX, type KeyboardEvent } from 'react';
-import { api } from '../api/client';
+import { api, ApiError, isPermanentError } from '../api/client';
 import { publishQuotes } from '../state/quoteStore';
 import { retryDelayMs } from '../state/retry';
 import { useElementWidth } from '../state/useElementWidth';
@@ -89,6 +89,8 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
   const [sparks, setSparks] = useState<Record<string, number[]>>({});
   const [infos, setInfos] = useState<Record<string, SymbolInfo>>({});
+  /** Baskets whose info load failed with 404: deleted (shown as "Deleted basket", never retried). */
+  const [deleted, setDeleted] = useState<ReadonlySet<string>>(() => new Set());
   /** Entry indexes of the dragged row and the row under the pointer. */
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -113,7 +115,8 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
   const rows = visibleRows(entries);
   const sectionCount = entries.length - ids.length;
 
-  // Symbol info (names, price precision), cached per id; failures are retried with backoff.
+  // Symbol info (names, price precision), cached per id; failures are retried with backoff, except permanent ones
+  // (e.g. 404: a deleted basket or an unknown symbol), which keep the fallback label.
   // Each pending id owns a load chain; canceling it (id removed, or unmount) stops any further retry,
   // including one a request still in flight would otherwise schedule.
   const infoLoads = useRef(new Map<string, { canceled: boolean; timer?: ReturnType<typeof setTimeout> }>());
@@ -134,8 +137,13 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
           loads.delete(id);
           setInfos((cur) => ({ ...cur, [id]: info }));
         },
-        () => {
+        (err: unknown) => {
           if (chain.canceled) return;
+          if (isPermanentError(err)) {
+            loads.delete(id);
+            if (id.startsWith('basket:') && err instanceof ApiError && err.status === 404) setDeleted((cur) => new Set(cur).add(id));
+            return;
+          }
           chain.timer = setTimeout(() => load(id, chain, attempt + 1), retryDelayMs(attempt));
         },
       );
@@ -446,7 +454,8 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
   function renderSymbol(row: WatchlistRow, id: SymbolId, pos: number) {
     const info = infos[id];
     const q = quotes[id];
-    const label = info ? (info.assetClass === 'basket' ? info.name : info.ticker) : fallbackTicker(id);
+    const gone = !info && deleted.has(id);
+    const label = info ? (info.assetClass === 'basket' ? info.name : info.ticker) : gone ? 'Deleted basket' : fallbackTicker(id);
     const chg = q?.changePct == null ? null : fmtChange(q.changePct);
     const spark = sparks[id] ?? [];
     // 30-day closing range: the sparkline's daily closes and the live price.
@@ -456,6 +465,7 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
     const classes = ['watchlist-row'];
     if (row.sectionId !== null) classes.push('in-section');
     if (id === currentSymbol) classes.push('current');
+    if (gone) classes.push('deleted');
     dragClasses(row, classes);
     return (
       <li key={id} className={classes.join(' ')} {...dragProps(row)}>

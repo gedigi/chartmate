@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import { retryDelayMs } from './retry';
 import { readStored, writeStored } from './storage';
+import { onBasketDeleted } from './useBaskets';
 import { useDebouncedSave } from './useDebouncedSave';
 import { addSymbol, removeSymbol } from './watchlistModel';
 
@@ -93,6 +94,8 @@ export function useWatchlist(): UseWatchlist {
   }, [edit]);
   const remove = useCallback((id: SymbolId) => edit((cur) => removeSymbol(cur, id)), [edit]);
   const update = edit;
+  // A basket deleted while the list is shown leaves it (the Baskets page also drops it from the stored list).
+  useEffect(() => onBasketDeleted((id) => edit((cur) => removeSymbol(cur, `basket:${id}`))), [edit]);
   const ids = useMemo(() => watchlistSymbols(entries), [entries]);
 
   return { entries, ids, loaded, error: loadError ?? saveError ?? seedError, add, remove, update };

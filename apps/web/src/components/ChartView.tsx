@@ -21,6 +21,8 @@ export interface ChartViewProps {
   symbolInfo: SymbolInfo | null;
   /** Set when the current symbol's info failed to load (an error panel with Retry replaces the chart). */
   symbolError?: string | null;
+  /** The symbol is a basket that no longer exists (its info load failed with 404). */
+  symbolDeleted?: boolean;
   /** Retry button of the symbol error panel. */
   onRetrySymbol?: () => void;
   theme: 'dark' | 'light';
@@ -84,7 +86,7 @@ const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringif
  * stale badge, etc.). The root fills its grid cell; `.chart-view` is itself a 2-column grid.
  * One ChartAdapter lives for the component's lifetime and is driven from `layout`.
  */
-function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, onRetrySymbol, theme }: ChartViewProps): JSX.Element {
+function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, symbolDeleted = false, onRetrySymbol, theme }: ChartViewProps): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
   const [adapter, setAdapter] = useState<ChartAdapter | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
@@ -309,7 +311,13 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, onR
             onResetColor={() => setLayout(({ drawingColor: _reset, ...l }) => l)}
           />
           {initError && <div className="center-message chart-init-error" role="alert">Chart failed to start: {initError}</div>}
-          {symbolFailed && (
+          {symbolFailed && symbolDeleted && (
+            <div className="center-message chart-deleted-panel" data-testid="symbol-deleted">
+              <p className="chart-deleted-title">Deleted basket</p>
+              <p className="chart-deleted-hint">This basket no longer exists. Pick another symbol in the watchlist or search.</p>
+            </div>
+          )}
+          {symbolFailed && !symbolDeleted && (
             <div className="center-message chart-error-panel" role="alert" data-testid="symbol-error">
               <p>Couldn&apos;t load symbol {symbol}: {symbolError}</p>
               <button type="button" onClick={onRetrySymbol}>Retry</button>

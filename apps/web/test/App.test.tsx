@@ -3,7 +3,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../src/api/client';
-import { notifyBasketChanged } from '../src/state/useBaskets';
+import { notifyBasketChanged, notifyBasketDeleted } from '../src/state/useBaskets';
 import { App } from '../src/App';
 
 beforeEach(() => {
@@ -127,6 +127,47 @@ describe('App', () => {
     vi.mocked(api.symbol).mockRejectedValue(new ApiError(404, 'not_found', 'Unknown symbol'));
     render(<App />);
     expect(await screen.findByText("Couldn't load symbol crypto:BTC: Unknown symbol")).toBeInTheDocument();
+  });
+
+  it('does not retry a symbol info load that failed permanently (404)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+      vi.mocked(api.symbol).mockRejectedValue(new ApiError(404, 'not_found', 'Unknown symbol'));
+      render(<App />);
+      await screen.findByTestId('symbol-error');
+      const n = vi.mocked(api.symbol).mock.calls.filter((c) => c[0] === 'crypto:BTC').length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(vi.mocked(api.symbol).mock.calls.filter((c) => c[0] === 'crypto:BTC').length).toBe(n);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a charted basket that no longer exists shows a "Deleted basket" state instead of an error', async () => {
+    vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+    const layout: Layout = { symbol: 'basket:gone', tf: '1D', session: 'rth', chartType: 'candle', indicators: [] };
+    vi.mocked(api.layouts.get).mockImplementation(async (key) => (key === 'default' ? layout : null));
+    vi.spyOn(api.baskets, 'get').mockRejectedValue(new ApiError(404, 'not_found', 'Basket gone not found'));
+    vi.mocked(api.symbol).mockRejectedValue(new ApiError(404, 'not_found', 'Basket gone not found'));
+    render(<App />);
+    const panel = await screen.findByTestId('symbol-deleted');
+    expect(panel).toHaveTextContent('Deleted basket');
+    expect(screen.queryByTestId('symbol-error')).not.toBeInTheDocument();
+  });
+
+  it('deleting the charted basket switches the chart to the first other watchlist symbol', async () => {
+    vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+    const layout: Layout = { symbol: 'basket:b1', tf: '1D', session: 'rth', chartType: 'candle', indicators: [] };
+    vi.mocked(api.layouts.get).mockImplementation(async (key) => (key === 'default' ? layout : null));
+    vi.spyOn(api.baskets, 'get').mockRejectedValue(new ApiError(404, 'not_found', 'gone'));
+    vi.spyOn(api.watchlist, 'get').mockResolvedValue([{ type: 'symbol', id: 'basket:b1' }, { type: 'symbol', id: 'stock:MSFT' }]);
+    vi.spyOn(api.watchlist, 'put').mockResolvedValue(undefined);
+    render(<App />);
+    await screen.findByTestId('chart-view');
+    act(() => notifyBasketDeleted('other'));
+    act(() => notifyBasketDeleted('b1'));
+    expect(await within(await screen.findByRole('banner')).findByText('stock:MSFT name')).toBeInTheDocument();
   });
 
   it('recovers from a failed symbol info load via the Retry button, by re-selecting the symbol, or automatically', async () => {

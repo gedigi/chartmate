@@ -1,6 +1,6 @@
 import { parseSymbolId, type SymbolId, type SymbolInfo } from '@chartmate/shared';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type JSX, type RefObject } from 'react';
-import { api, errorMessage, setUnauthorizedHandler } from './api/client';
+import { api, ApiError, errorMessage, isPermanentError, setUnauthorizedHandler } from './api/client';
 import { BasketsPage } from './components/BasketsPage';
 import { ChartView } from './components/ChartView';
 import { Login } from './components/Login';
@@ -9,8 +9,8 @@ import { SidebarResizer } from './components/SidebarResizer';
 import { SymbolDetails } from './components/SymbolDetails';
 import { Watchlist } from './components/Watchlist';
 import { syncShellThemeColor } from './desktopShell';
-import { onBasketChanged } from './state/useBaskets';
-import { useLayout } from './state/useLayout';
+import { onBasketChanged, onBasketDeleted } from './state/useBaskets';
+import { DEFAULT_LAYOUT, useLayout } from './state/useLayout';
 import { retryDelayMs } from './state/retry';
 import { useSidebarWidth } from './state/sidebarWidth';
 import { readStored, writeStored } from './state/storage';
@@ -55,11 +55,12 @@ function useHashView(): [View, (v: View) => void] {
 type SymbolInfoState =
   | { status: 'loading' }
   | { status: 'ready'; info: SymbolInfo }
-  | { status: 'error'; message: string };
+  | { status: 'error'; message: string; deleted: boolean };
 
 /**
  * Info for the current symbol, distinguishing loading from a failed load. A failed load is retried with
- * backoff (2 s, 5 s, 10 s, then every 30 s); `retry()` retries at once.
+ * backoff (2 s, 5 s, 10 s, then every 30 s), except a permanent failure (e.g. 404: an unknown symbol or a
+ * deleted basket, `deleted`), which cannot succeed later; `retry()` retries at once.
  */
 function useSymbolInfo(symbol: SymbolId): { state: SymbolInfoState; retry: () => void } {
   const [state, setState] = useState<{ id: SymbolId; value: SymbolInfoState } | null>(null);
@@ -72,8 +73,9 @@ function useSymbolInfo(symbol: SymbolId): { state: SymbolInfoState; retry: () =>
         (info) => { if (!canceled) setState({ id: symbol, value: { status: 'ready', info } }); },
         (err: unknown) => {
           if (canceled) return;
-          setState({ id: symbol, value: { status: 'error', message: errorMessage(err) } });
-          timer = setTimeout(() => load(attempt + 1), retryDelayMs(attempt));
+          const deleted = symbol.startsWith('basket:') && err instanceof ApiError && err.status === 404;
+          setState({ id: symbol, value: { status: 'error', message: errorMessage(err), deleted } });
+          if (!isPermanentError(err)) timer = setTimeout(() => load(attempt + 1), retryDelayMs(attempt));
         },
       );
     };
@@ -128,6 +130,7 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
   const { state: symbolInfoState, retry: retrySymbolInfo } = useSymbolInfo(layout.symbol);
   const symbolInfo = symbolInfoState.status === 'ready' ? symbolInfoState.info : null;
   const symbolError = symbolInfoState.status === 'error' ? symbolInfoState.message : null;
+  const symbolDeleted = symbolInfoState.status === 'error' && symbolInfoState.deleted;
   const showSession = useShowSession(layout.symbol);
 
   const current = useRef({ symbol: layout.symbol, failed: symbolError !== null });
@@ -137,6 +140,17 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
     if (id === current.current.symbol && current.current.failed) retrySymbolInfo();
     selectLayoutSymbol(id);
   }, [selectLayoutSymbol, retrySymbolInfo]);
+
+  // The charted basket was deleted: switch to the first other watchlist symbol (or the default symbol).
+  useEffect(() => onBasketDeleted((id) => {
+    const gone: SymbolId = `basket:${id}`;
+    if (current.current.symbol !== gone) return;
+    const fallback = (ids: SymbolId[]) => ids.find((s) => s !== gone) ?? DEFAULT_LAYOUT.symbol;
+    api.watchlist.get().then(
+      (list) => fallback(list.flatMap((e) => (e.type === 'symbol' ? [e.id] : []))),
+      () => fallback([]),
+    ).then((next) => { if (current.current.symbol === gone) selectLayoutSymbol(next); });
+  }), [selectLayoutSymbol]);
   const openChart = useCallback((id: SymbolId) => { selectSymbol(id); setView('chart'); }, [selectSymbol, setView]);
 
   const layoutBlocked = !loaded && loadError !== null;
@@ -167,7 +181,7 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
           <main className="chart-main">
             {loaded && (
               <ChartView layout={layout} setLayout={setLayout} symbolInfo={symbolInfo} symbolError={symbolError}
-                onRetrySymbol={retrySymbolInfo} theme={theme} />
+                symbolDeleted={symbolDeleted} onRetrySymbol={retrySymbolInfo} theme={theme} />
             )}
             {layoutBlocked && (
               <div className="center-message">
