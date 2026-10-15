@@ -63,8 +63,11 @@ Write the failing test first, then the code; a bug fix comes with a regression t
   a version published less than 3 days ago (`minimumReleaseAge: 4320`, strict) or one published with weaker
   provenance than an earlier version (`trustPolicy: no-downgrade`). An urgent security fix that cannot wait gets
   an exact-version entry in `minimumReleaseAgeExclude` (`- name@1.2.3`, never a bare name), with a comment saying
-  why and when to remove it; a reviewed provenance exception goes in `trustPolicyExclude` the same way. Remove
-  stale entries when they no longer apply.
+  why and `remove after YYYY-MM-DD`; a reviewed provenance exception goes in `trustPolicyExclude` the same way.
+  Dependabot's security pull requests are not delayed, so one that bumps to a fix published less than 3 days ago
+  fails the frozen install in CI: add that exact version to `minimumReleaseAgeExclude` in the same pull request,
+  with a remove-after date 3 days after its publication. A test fails once a remove-after date is 30 days past, so
+  stale entries get cleaned up.
 
 ## License
 
