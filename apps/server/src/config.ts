@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { parseAllowedHosts } from './hostGuard.js';
 
 export interface Config {
   port: number;
@@ -17,6 +18,16 @@ export interface Config {
   webDist: string | null;
   /** Fastify `trustProxy`: false (default), true, hop count, or an IP/CIDR list. */
   trustProxy: boolean | number | string;
+  /**
+   * Hostnames served besides localhost, 127.0.0.1 and [::1] (`CHARTMATE_ALLOWED_HOSTS`). Enforced without a
+   * password, and with one when non-empty (hostGuard.ts).
+   */
+  allowedHosts: string[];
+  /**
+   * Exact origins (`scheme://host`) accepted on state-changing API requests besides the request's own. Not
+   * configurable from the environment; the desktop app sets its renderer origin.
+   */
+  allowedOrigins: string[];
 }
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -41,6 +52,7 @@ const EnvSchema = z.object({
   CHARTMATE_PROVIDERS: z.preprocess(blankToUndefined, z.enum(['live', 'fixture']).default('live')),
   CHARTMATE_WEB_DIST: z.preprocess(blankToUndefined, z.string().optional()),
   CHARTMATE_TRUST_PROXY: z.preprocess(blankToUndefined, z.string().optional()),
+  CHARTMATE_ALLOWED_HOSTS: z.preprocess(blankToUndefined, z.string().optional()),
 });
 
 function sha256Hex(s: string): string {
@@ -74,6 +86,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     binanceBaseUrl: e.BINANCE_BASE_URL.replace(/\/+$/, ''),
     providers: e.CHARTMATE_PROVIDERS,
     trustProxy: parseTrustProxy(e.CHARTMATE_TRUST_PROXY),
+    allowedHosts: parseAllowedHosts(e.CHARTMATE_ALLOWED_HOSTS),
+    allowedOrigins: [],
     webDist: existsSync(join(webDistCandidate, 'index.html')) ? webDistCandidate : null,
   };
 }

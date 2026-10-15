@@ -85,15 +85,19 @@ Run Chartmate on your own server and use it from any browser. Every release publ
 One line, no files:
 
 ```sh
-docker run -d --name chartmate -p 127.0.0.1:8787:8787 -v chartmate-data:/data ghcr.io/gedigi/chartmate
+docker run -d --name chartmate -p 127.0.0.1:8787:8787 -v chartmate-data:/data ghcr.io/gedigi/chartmate:latest
 ```
 
-Open http://localhost:8787. If port 8787 is already taken (for example by `pnpm dev`), use another host port,
-such as `-p 127.0.0.1:8788:8787`, and open that one. Your data lives in the `chartmate-data` volume. Remove
-the container with `docker rm -f chartmate` (the volume, and your data, stays until you delete it with
-`docker volume rm chartmate-data`).
+Open http://localhost:8787. This runs the image without the hardening flags and is meant for trying Chartmate
+out; for anything long-lived use the [Compose install](#recommended-install-docker-compose) below (or the
+[hardened `docker run`](#advanced-hardened-docker-run)). If port 8787 is already taken (for example by
+`pnpm dev`), use another host port, such as `-p 127.0.0.1:8788:8787`, and open that one. Your data lives in the
+`chartmate-data` volume. Remove the container with `docker rm -f chartmate` (the volume, and your data, stays
+until you delete it with `docker volume rm chartmate-data`).
 
 ### Recommended install (Docker Compose)
+
+Download the Compose file, read it (it is short and commented), then start it:
 
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/gedigi/chartmate/main/compose.yaml
@@ -102,26 +106,31 @@ docker compose up -d
 
 Open http://localhost:8787. `docker compose ps` shows the container as `healthy` once it is up.
 
+Switching from the quick try? Run `docker rm -f chartmate` first: both publish port 8787. They also use
+different volumes (`chartmate-data` for the quick try, `chartmate_chartmate-data` for Compose), so the Compose
+install starts empty; to keep your data, copy one volume into the other the way [Backups](#backups) shows.
+
 This is the same image with the hardening on (read-only root filesystem, a tmpfs on `/tmp`, no Linux
 capabilities, `no-new-privileges`), a restart policy (`unless-stopped`) and a healthcheck. No `.env` is
 needed. Create one only to set a password, change the port or use Postgres; fetch the annotated template the
-same way and edit it:
+same way, copy it to `.env` (never over an existing one, readable by you only) and edit it:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/gedigi/chartmate/main/.env.example -o .env
+curl -fsSL -o .env.example https://raw.githubusercontent.com/gedigi/chartmate/main/.env.example
+[ -e .env ] || install -m 600 .env.example .env
 ```
 
 - Data lives in the `chartmate-data` volume (SQLite at `/data/chartmate.db`).
-- The port is published on `127.0.0.1` only. To reach it from other machines, set `CHARTMATE_BIND=0.0.0.0`
-  in `.env`, and set a password (see [Security](#security)). Ports Docker publishes bypass host firewalls
+- The port is published on `127.0.0.1` only. To reach it from other machines, prefer a
+  [reverse proxy](#behind-a-reverse-proxy-https) on the same host. Otherwise set a password first (see
+  [Security](#security)), then `CHARTMATE_BIND=0.0.0.0` in `.env`. Ports Docker publishes bypass host firewalls
   such as ufw, so `0.0.0.0` really is every interface. `CHARTMATE_PORT` changes the host port.
 - The container runs as a non-root user and writes only to `/data`, plus SQLite's temporary files (large
   sorts, `VACUUM`) to the `/tmp` tmpfs.
-- `CHARTMATE_IMAGE` overrides the image: pin a version (`ghcr.io/gedigi/chartmate:1.2.0`) or run your own
-  build (`docker build -t chartmate:local .`, then `CHARTMATE_IMAGE=chartmate:local`).
-- If the pull is denied, the package may not be public yet (a new package starts out private until a
-  maintainer changes its visibility); until then use `docker login ghcr.io` with a personal access token
-  (classic) that has the `read:packages` scope.
+- `CHARTMATE_IMAGE` overrides the image: pin a version (`ghcr.io/gedigi/chartmate:1.0.0`, or by digest, see
+  [Security](#security)) or run your own build (`docker build -t chartmate:local .`, then
+  `CHARTMATE_IMAGE=chartmate:local`). A fork publishes under its own name; pulling a private package needs
+  `docker login ghcr.io` with a token that has the `read:packages` scope.
 
 ### Upgrading
 
@@ -129,16 +138,16 @@ curl -fsSL https://raw.githubusercontent.com/gedigi/chartmate/main/.env.example 
 docker compose pull && docker compose up -d
 ```
 
-For the quick-try container: `docker pull ghcr.io/gedigi/chartmate && docker rm -f chartmate`, then run the
+For the quick-try container: `docker pull ghcr.io/gedigi/chartmate:latest && docker rm -f chartmate`, then run the
 same `docker run` line again (the volume keeps your data).
 
 Database migrations run at startup, and data saved by older versions stays loadable. To upgrade on your own
-schedule, pin a version (`CHARTMATE_IMAGE=ghcr.io/gedigi/chartmate:1.2.0` in `.env`) instead of `latest`, and
-take a backup first. `docker stop` (SIGTERM) shuts the server down cleanly.
+schedule, pin a version (`CHARTMATE_IMAGE=ghcr.io/gedigi/chartmate:1.0.0` in `.env`, or a digest as in
+[Security](#security)) instead of `latest`, and take a backup first. `docker stop` (SIGTERM) shuts the server down cleanly.
 
 ### Backups
 
-SQLite: stop the container and archive the volume (Compose names it `chartmate_chartmate-data`):
+SQLite: stop the container and archive its volume. Compose names the volume `chartmate_chartmate-data`:
 
 ```sh
 docker compose stop chartmate
@@ -147,8 +156,12 @@ docker run --rm -v chartmate_chartmate-data:/data:ro -v "$PWD:/backup" alpine \
 docker compose start chartmate
 ```
 
+The quick-try container uses the `chartmate-data` volume instead: `docker stop chartmate`, the same
+`docker run --rm …` line with `-v chartmate-data:/data:ro`, then `docker start chartmate`.
+
 To restore, stop the container and extract the archive into the volume the same way
-(`tar xzf /backup/chartmate-<date>.tgz -C /data`, with the volume mounted read-write).
+(`tar xzf /backup/chartmate-<date>.tgz -C /data`, with the volume mounted read-write). Restoring a quick-try
+archive into `chartmate_chartmate-data` moves your data to the Compose install.
 
 Postgres (the bundled service):
 
@@ -172,12 +185,31 @@ points Chartmate at it. Data is not copied over from SQLite. Any other Postgres 
 
 Terminate HTTPS in a reverse proxy (Caddy, nginx, Traefik, …) on the same host, forwarding to
 `127.0.0.1:8787`, and set `CHARTMATE_TRUST_PROXY=1` (the number of proxy hops, or `true`, or the proxy's
-IP/CIDR). Chartmate then takes the client IP and the `https` scheme from the `X-Forwarded-*` headers, so the
-login rate limits apply per client and the session cookie is marked `Secure`. With Caddy, for example:
+IP/CIDR). Chartmate then takes the client IP, the `https` scheme and the host from the `X-Forwarded-*` headers,
+so the login rate limits apply per client and the session cookie is marked `Secure`. Set a password (an
+exposed instance always needs one), and list the public name in `CHARTMATE_ALLOWED_HOSTS`
+(`chartmate.example.com`): without a password that is required, otherwise every request is refused with a 403.
+
+The proxy must pass the real host: the `Host` header and every `X-Forwarded-Host` entry must be allowed names
+(the `Host` may also be `127.0.0.1:8787`, which some proxies send by default). Serve Chartmate only from a
+site block for its own name, never from a catch-all or default server block, which would forward requests for
+any name an attacker points at your server. With Caddy, for example (it passes the host by default):
 
 ```
 chartmate.example.com {
   reverse_proxy 127.0.0.1:8787
+}
+```
+
+With nginx, inside the `server` block whose `server_name` is `chartmate.example.com`:
+
+```
+location / {
+  proxy_pass http://127.0.0.1:8787;
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-Host $host;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 }
 ```
 
@@ -189,13 +221,40 @@ chartmate.example.com {
   from the password, so a leaked session cookie would let someone guess the password offline.
 - Login attempts are rate limited: 10 failures per IP per 15 minutes, plus a global limit of 100
   failures per 15 minutes. The global limit means a determined attacker can lock *you* out for a while.
+- **Allowed hosts.** Without a password the server answers only to `localhost`, `127.0.0.1` and `[::1]` (on
+  any port), plus the names in `CHARTMATE_ALLOWED_HOSTS` (comma-separated hostnames or IP addresses, no scheme
+  or port, e.g. `chartmate.example.com,192.168.1.10`). A request for any other `Host` gets a 403 before it
+  reaches the API or the web app, so a malicious page cannot reach your instance by pointing its own domain at
+  your machine (DNS rebinding). Only these exact spellings count as loopback: `0.0.0.0`, `127.1`, other
+  `127.x.x.x` addresses and other IPv6 forms are refused, so open `http://localhost:8787` or
+  `http://127.0.0.1:8787`. Behind a trusted proxy (`CHARTMATE_TRUST_PROXY`) the `Host` header and every
+  `X-Forwarded-Host` entry must be allowed. With a password the login protects the instance and any host is
+  served, unless `CHARTMATE_ALLOWED_HOSTS` is set, which is then enforced as well. Opening Chartmate by a LAN
+  address or name without a password therefore needs that name in `CHARTMATE_ALLOWED_HOSTS`; for anything
+  beyond your own machine, set a password.
+- **Same-origin writes.** With or without a password, a state-changing API request (anything but `GET`) that
+  carries an `Origin` is refused unless that is the request's own origin: same hostname and port as the host
+  it was sent to, or the browser marks it `Sec-Fetch-Site: same-origin`. For a loopback host, a loopback
+  `Origin` on any port is accepted too, which is what `pnpm dev` needs (the page on port 5173, the API on 8787).
+  Requests without an `Origin` (curl, scripts) are not affected.
 - Behind a reverse proxy set `CHARTMATE_TRUST_PROXY`, otherwise every client appears to come from the
   proxy's IP and they all share one rate-limit budget, and the session cookie is not marked `Secure`.
 - The session cookie lasts 30 days. Changing `CHARTMATE_SESSION_SECRET` (or the password, if the secret
   is derived from it) revokes all existing sessions.
-- Images of a public repository carry a signed build provenance attestation:
-  `gh attestation verify oci://ghcr.io/gedigi/chartmate:<version> --repo gedigi/chartmate`. Every image also
-  carries BuildKit provenance and an SPDX SBOM (`docker buildx imagetools inspect <image> --format '{{json .SBOM}}'`).
+- **Pin the image.** `latest` follows every release. To run exactly the image you checked, look up the
+  digest of a version, verify that digest itself, then pin both in `.env`:
+
+  ```sh
+  docker buildx imagetools inspect ghcr.io/gedigi/chartmate:1.0.0   # prints "Digest: sha256:…"
+  gh attestation verify oci://ghcr.io/gedigi/chartmate@sha256:<digest> --repo gedigi/chartmate
+  ```
+
+  then `CHARTMATE_IMAGE=ghcr.io/gedigi/chartmate:1.0.0@sha256:<digest>`. Docker then pulls that digest only
+  (the tag is just a label), and `docker compose pull` never moves it; upgrade by changing both.
+  `gh attestation verify` checks the signed build provenance of exactly that digest: that it was built from
+  this repository by its release workflow. Verifying by digest rather than by tag means the image you run is the
+  one you checked, even if the tag is moved later. Every image also carries BuildKit provenance and an SPDX SBOM
+  (`docker buildx imagetools inspect <image> --format '{{json .SBOM}}'`).
 
 ### Advanced: hardened `docker run`
 
@@ -246,6 +305,7 @@ created if missing).
 | `CHARTMATE_PASSWORD` | unset (no auth) | Enables password login. |
 | `CHARTMATE_SESSION_SECRET` | derived from the password | Cookie signing secret, min 16 chars. Set explicitly in production. |
 | `CHARTMATE_TRUST_PROXY` | unset (`false`) | `true`, a hop count (e.g. `1`), or an IP/CIDR list of trusted proxies. |
+| `CHARTMATE_ALLOWED_HOSTS` | unset | Comma-separated hostnames or IP addresses (no scheme or port; IPv6 in brackets) served besides `localhost`, `127.0.0.1` and `[::1]`. Enforced without a password, and with one when set; see [Security](#security). |
 | `CRYPTO_PROVIDER` | `binance` | `binance` or `coinbase`. |
 | `BINANCE_BASE_URL` | `https://data-api.binance.vision` | Alternate Binance-compatible endpoint. |
 | `CHARTMATE_PROVIDERS` | `live` | `fixture` serves deterministic synthetic data (tests/demos, no network). |

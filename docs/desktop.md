@@ -132,6 +132,11 @@ The renderer is treated as untrusted web content, and the main process exposes n
 
 - **Auth is disabled** on desktop. No port is listening, and the only client is the app's own sandboxed
   renderer. A password would only put a login screen in front of a single-user local app.
+- **Host and Origin guard**: the embedded server keeps its guard against DNS rebinding and cross-site writes
+  (`apps/server/src/hostGuard.ts`). `desktopConfig.ts` builds the server with no extra allowed host (inject
+  requests carry Host `localhost`) and `allowedOrigins: ['app://chartmate']`, so a state-changing API request is
+  accepted only from the renderer's own origin. The environment cannot change either (`CHARTMATE_ALLOWED_HOSTS`
+  is ignored on desktop); `test/hostGuard.test.ts` runs the real protocol handler against the real server.
 - **Window settings** (`src/lib/hardening.ts`, pinned by a snapshot test):
   - `sandbox`, `contextIsolation` and `webSecurity` are on;
   - Node is off everywhere, including workers and subframes;

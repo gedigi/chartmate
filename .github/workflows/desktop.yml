@@ -10,7 +10,7 @@ name: Desktop
 #                  Certum (SimplySign) login secrets are passed only on tag builds (each signature counts against
 #                  the certificate's monthly quota, and the TOTP seed is a long-lived credential).
 #   release      — tags only: creates the GitHub Release for the tag (notes: the tag's CHANGELOG.md section, then
-#                  the signing table) and attaches the artifacts (contents: write).
+#                  the signing table) and attaches the artifacts plus compose.yaml and env.example (contents: write).
 # Builds without signing secrets are unsigned (allowed); unsigned builds contain no auto-updater at all.
 # The repository is never hardcoded: everything uses github.repository / GITHUB_REPOSITORY.
 on:
@@ -264,13 +264,16 @@ jobs:
     permissions:
       contents: write # create the release and upload its assets — nothing else
     steps:
-      # Only the changelog and its section extractor (before the download: a checkout cleans the workspace).
+      # Only the changelog, its section extractor and the self-hosting files attached to the release (before the
+      # download: a checkout cleans the workspace).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           sparse-checkout: |
             CHANGELOG.md
             apps/desktop/scripts/changelog-section.mjs
+            /compose.yaml
+            /.env.example
           sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -285,6 +288,13 @@ jobs:
           set -euo pipefail
           node apps/desktop/scripts/changelog-section.mjs CHANGELOG.md "$TAG" > changes.md
           if [ ! -s changes.md ]; then echo "::warning title=No changelog entry::CHANGELOG.md has no section for ${TAG#v}"; fi
+      # The tag's compose.yaml and .env.example, so releases/latest/download/compose.yaml always matches the
+      # released image. GitHub renames assets that start with a dot, hence env.example.
+      - name: Self-hosting files
+        run: |
+          set -euo pipefail
+          cp compose.yaml dist/compose.yaml
+          cp .env.example dist/env.example
       - name: Create the GitHub Release for the tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -327,4 +337,4 @@ jobs:
           ls -la dist
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "Chartmate ${TAG#v}" --notes-file notes.md \
             --verify-tag "${prerelease[@]}" \
-            dist/*.dmg dist/*.zip dist/*.exe dist/*.blockmap dist/latest*.yml
+            dist/*.dmg dist/*.zip dist/*.exe dist/*.blockmap dist/latest*.yml dist/compose.yaml dist/env.example

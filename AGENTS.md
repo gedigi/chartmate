@@ -48,6 +48,11 @@ uses it), Node 22 (`.nvmrc`), TypeScript 5.9, Vitest everywhere.
 - Desktop: the window loads `app://chartmate/`; `/api/*` goes to `fastify.inject`, everything else is a static
   file of the web build (`apps/desktop/src/lib/protocol.ts`). There is no network listener
   (`listenGuard.ts`), no preload and no IPC.
+- Every request first passes the Host / Origin guard (`apps/server/src/hostGuard.ts`, the first `onRequest`
+  hook): without a password (or with `CHARTMATE_ALLOWED_HOSTS` set) the Host, and behind a trusted proxy every
+  X-Forwarded-Host, must be loopback or listed; state-changing `/api` requests with an `Origin` must come from
+  the request's own origin, password or not. The desktop app builds the server with no extra host and
+  `allowedOrigins: ['app://chartmate']`; the environment cannot override either.
 
 ## Commands
 
@@ -131,11 +136,12 @@ and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by defa
   Wyckoff indicator files keep their MPL-2.0 headers. Only add dependencies whose licenses are compatible with
   AGPL-3.0 (MIT, BSD, ISC, Apache-2.0, MPL-2.0 and similar).
 - Never hardcode the GitHub repository URL or owner: use relative links in docs and
-  `github.repository` / `GITHUB_REPOSITORY` in workflows and build config. One exception: the published image
-  name `ghcr.io/gedigi/chartmate` (and the raw `compose.yaml` / `.env.example` download URLs) in the
-  user-facing self-host docs and the `compose.yaml` default, so a copy-paste install works. A test
-  (`apps/server/test/selfhost-docs.test.ts`) pins the image name in the README, `compose.yaml` and
-  `.env.example`, so a move is a one-line change there plus a search and replace.
+  `github.repository` / `GITHUB_REPOSITORY` in workflows and build config. One exception: the user-facing
+  self-host docs (README, `compose.yaml`, `.env.example`) name the published image `ghcr.io/gedigi/chartmate`
+  and the `compose.yaml` / `.env.example` download URLs (raw `main` today, `releases/latest/download` once a
+  release carries them), so a copy-paste install works. `apps/server/test/selfhost-docs.test.ts` pins the
+  image name and both URL bases in constants and asserts every reference in those files against them, so a
+  move is a change to those constants plus a search and replace.
 - Custom indicators: one file in `apps/web/src/chart/indicators/custom/` (start from `pnpm new:indicator`), colors
   only through palette slots (`lineSlots`) or `activeIndicatorColors()`; a test rejects color literals there.
 - Commits: small and logical, conventional style as in `git log`: `feat(web): …`, `fix(desktop): …`,
@@ -189,9 +195,13 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   staples each dmg (`xcrun notarytool`, `stapler`, checked with `spctl`).
 - The same tag runs `.github/workflows/docker.yml`: tests, `scripts/docker-smoke.sh` (amd64, and arm64 under
   QEMU), then pushes the multi-arch self-hosting image (`linux/amd64`, `linux/arm64`) to
-  `ghcr.io/gedigi/chartmate` (from `github.repository`, lowercased) as `X.Y.Z`, `X.Y`, `X` and `latest`
+  `ghcr.io/<owner>/<repo>`, derived from `github.repository` (lowercased), as `X.Y.Z`, `X.Y`, `X` and `latest`
   (pre-releases: `X.Y.Z-suffix` only), with provenance and SBOM attestations. Manual dispatch never publishes.
-  `compose.yaml` (no `.env` needed) is the documented way to run it, with `.env.example` as the optional template.
+  `compose.yaml` (no `.env` needed) is the documented way to run it, with `.env.example` as the optional
+  template; the desktop workflow's release job attaches both to the GitHub Release (`.env.example` as
+  `env.example`, since GitHub renames assets that start with a dot).
+- `CHANGELOG.md` keeps an `## Unreleased` section at the top for user-visible changes; it is renamed to
+  `## [X.Y.Z] - YYYY-MM-DD` at release time (CONTRIBUTING, "Releases").
 - Windows signing uses a Certum SimplySign cloud certificate (`docs/desktop.md`, "Windows signing with Certum"):
   - `build/signing.cjs` picks the method.
   - `build/win-sign.cjs` is electron-builder's sign hook. It signs `chartmate.exe`, the uninstaller and the

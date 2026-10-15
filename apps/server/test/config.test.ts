@@ -34,6 +34,14 @@ describe('loadConfig', () => {
     expect(loadConfig({ CHARTMATE_TRUST_PROXY: '10.0.0.0/8,127.0.0.1' }).trustProxy).toBe('10.0.0.0/8,127.0.0.1');
   });
 
+  it('parses CHARTMATE_ALLOWED_HOSTS and rejects invalid entries', () => {
+    expect(loadConfig({}).allowedHosts).toEqual([]);
+    expect(loadConfig({ CHARTMATE_ALLOWED_HOSTS: 'NAS.local, 192.168.1.10' }).allowedHosts).toEqual(['nas.local', '192.168.1.10']);
+    expect(() => loadConfig({ CHARTMATE_ALLOWED_HOSTS: 'nas.local:8787' })).toThrow(/CHARTMATE_ALLOWED_HOSTS/);
+    expect(loadConfig({ CHARTMATE_ALLOWED_HOSTS: 'chartmate_web' }).allowedHosts).toEqual(['chartmate_web']);
+    expect(loadConfig({}).allowedOrigins).toEqual([]);
+  });
+
   it('parses HOST (default 127.0.0.1; blank → default)', () => {
     expect(loadConfig({}).host).toBe('127.0.0.1');
     expect(loadConfig({ HOST: '' }).host).toBe('127.0.0.1');
