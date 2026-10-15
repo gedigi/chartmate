@@ -84,20 +84,26 @@ beforeEach(() => {
   cp "${packs}/$f" "$dest/$f" && echo "$f"
 fi
 exit 0`);
-  // corepack install unpacks the pnpm wrapper into the corepack home, as the real one does.
+  // corepack install unpacks the pnpm wrapper into the corepack home, as the real one does (STUB_SHADOW: plus a
+  // directory where the wrapper would find a platform package before pnpm-native).
   stub('corepack', `if [ "$1" = install ]; then
   d="${home}/v1/pnpm/${PNPM}"; mkdir -p "$d/bin"
   printf '{"name":"pnpm","version":"${PNPM}"}' > "$d/package.json"; : > "$d/bin/pnpm.mjs"
+  [ -z "$STUB_SHADOW" ] || mkdir -p "$d/$STUB_SHADOW"
 fi
 exit 0`);
+  // GNU tar (Git Bash on Windows) reads "D:" in an archive name as a remote host, so tar must only ever get
+  // relative names: an absolute or drive-letter argument fails here as it would there.
+  stub('tar', `for a in "$@"; do case "$a" in /*|[A-Za-z]:*) echo "tar: absolute path $a" >&2; exit 2 ;; esac; done
+exec ${spawnSync('sh', ['-c', 'command -v tar'], { encoding: 'utf8' }).stdout.trim()} "$@"`);
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-function run() {
+function run(extra: Record<string, string> = {}) {
   const r = spawnSync('bash', [join(repo, '.github', 'scripts', 'install-pnpm.sh')], {
     encoding: 'utf8',
     cwd: dir,
-    env: { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, RUNNER_TEMP: dir, HOME: dir, COREPACK_HOME: home },
+    env: { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, RUNNER_TEMP: dir, HOME: dir, COREPACK_HOME: home, ...extra },
   });
   return { status: r.status, out: r.stdout + r.stderr, calls: existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : [] };
 }
@@ -120,6 +126,22 @@ describe('install-pnpm.sh', () => {
     expect(r.calls.filter((c) => c.startsWith('npm install'))).toHaveLength(1);
     expect(r.calls).toEqual(expect.arrayContaining(['corepack enable pnpm', 'corepack install']));
     expect(readFileSync(native(), 'utf8')).toBe('native pnpm');
+    // tar only ever sees relative names (it runs inside the temporary directory).
+    const tars = r.calls.filter((c) => c.startsWith('tar '));
+    expect(tars).toEqual([`tar -xzf exe.tgz package/${exeName}`]);
+  });
+
+  it.each([
+    ['next to the corepack home (`v1/pnpm/@pnpm`)', '../@pnpm/exe.x'],
+    ['inside the wrapper (`node_modules`)', 'node_modules/@pnpm/exe.x'],
+  ])('fails closed when the wrapper would find a platform package %s before pnpm-native', (_where, shadow) => {
+    const corepack = tarball('corepack', { 'package.json': '{}' });
+    const exe = tarball('exe', { [exeName]: 'native pnpm' });
+    setUp({ corepackIntegrity: integrity(corepack), exeIntegrity: integrity(exe) });
+    const r = run({ STUB_SHADOW: shadow });
+    expect(r.status).not.toBe(0);
+    expect(r.out).toContain('would run a platform package from');
+    expect(existsSync(native())).toBe(false);
   });
 
   it('refuses a corepack tarball that does not match the pinned sha512 and installs nothing', () => {

@@ -63,7 +63,8 @@ integrity="$(node -e '
 fetch "$exe" "$integrity"
 bin=pnpm
 [ "${target%%-*}" = win32 ] && bin=pnpm.exe
-tar -xzf "$fetched" -C "$tmp" "package/$bin"
+# Relative names only: Git Bash's GNU tar reads the "D:" of a Windows path as a remote host.
+(cd "$tmp" && tar -xzf "${fetched##*/}" "package/$bin")
 
 # 2. corepack and the pnpm wrapper (sha512-checked against packageManager).
 corepack enable pnpm
@@ -79,6 +80,10 @@ node -e "
   const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
   if (pkg.name !== 'pnpm' || pkg.version !== version || !fs.existsSync(path.join(dir, 'bin', 'pnpm.mjs'))) {
     throw new Error('no pnpm ' + version + ' wrapper in ' + dir);
+  }
+  // The wrapper runs an installed platform package (@pnpm/exe.*) from either place before pnpm-native.
+  for (const shadow of [path.join(dir, 'node_modules'), path.join(home, 'v1', 'pnpm', '@pnpm')]) {
+    if (fs.existsSync(shadow)) throw new Error('the pnpm wrapper would run a platform package from ' + shadow + ', not the checked binary');
   }
   const dest = path.join(dir, name);
   fs.rmSync(dest, { force: true });
