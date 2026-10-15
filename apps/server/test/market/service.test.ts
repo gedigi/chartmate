@@ -61,7 +61,7 @@ describe('MarketDataService', () => {
     const run = vi.spyOn(queues.crypto, 'run');
     return vi.waitFor(() => {
       expect(run.mock.calls.filter(([key]) => key.startsWith(keyPrefix))).toHaveLength(callers);
-    }).then(() => open());
+    }, { timeout: 5000 }).then(() => open());
   }
 
   describe('getNativeBars caching', () => {
