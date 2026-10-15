@@ -25,6 +25,36 @@ describe('user routes', () => {
     expect((await t.app.inject({ method: 'GET', url: '/api/watchlist' })).json()).toEqual(entries(ids));
   });
 
+  it('symbol ids are normalized on write: watchlist, layout symbol and key, drawings key', async () => {
+    const put = await t.app.inject({ method: 'PUT', url: '/api/watchlist', payload: ['stock:aapl', ' crypto:btc', 'stock:AAPL'] });
+    expect(put.json()).toEqual(entries(['stock:AAPL', 'crypto:BTC']));
+    await t.app.inject({ method: 'PUT', url: '/api/layouts/sym:stock:msft', payload: { ...layout, symbol: 'stock:msft' } });
+    const got = await t.app.inject({ method: 'GET', url: '/api/layouts/sym:stock:MSFT' });
+    expect(got.json().symbol).toBe('stock:MSFT');
+    const d: DrawingState[] = [{ name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false }];
+    await t.app.inject({ method: 'PUT', url: '/api/drawings/stock:brk-b', payload: d });
+    expect((await t.app.inject({ method: 'GET', url: '/api/drawings/stock:BRK-B' })).json()).toEqual(d);
+  });
+
+  it('stored ids of older versions read back normalized; invalid ones are dropped, not fatal', async () => {
+    const db = (t.repos.layouts as unknown as { db: import('kysely').Kysely<any> }).db;
+    await db.insertInto('watchlist_entries').values([
+      { position: 0, kind: 'symbol', symbol: 'stock:spy', section_id: null, title: null, collapsed: null },
+      { position: 1, kind: 'symbol', symbol: 'stock:bad/id', section_id: null, title: null, collapsed: null },
+      { position: 2, kind: 'symbol', symbol: 'stock:SPY', section_id: null, title: null, collapsed: null },
+      { position: 3, kind: 'symbol', symbol: 'crypto:eth', section_id: null, title: null, collapsed: null },
+    ]).execute();
+    expect((await t.app.inject({ method: 'GET', url: '/api/watchlist' })).json()).toEqual(entries(['stock:SPY', 'crypto:ETH']));
+    await db.insertInto('layouts').values([
+      { key: 'default', json: JSON.stringify({ ...layout, symbol: 'stock:aapl' }), updated_at: 1 },
+    ]).execute();
+    expect((await t.app.inject({ method: 'GET', url: '/api/layouts/default' })).json().symbol).toBe('stock:AAPL');
+    await db.updateTable('layouts').set({ json: JSON.stringify({ ...layout, symbol: 'stock:no/pe' }) }).execute();
+    const fallback = await t.app.inject({ method: 'GET', url: '/api/layouts/default' });
+    expect(fallback.statusCode).toBe(200);
+    expect(fallback.json().symbol).toBe('crypto:BTC');
+  });
+
   it('legacy watchlist PUT (symbol id array) is stored as symbol entries; duplicates dropped', async () => {
     const put = await t.app.inject({ method: 'PUT', url: '/api/watchlist', payload: ['stock:AAPL', 'crypto:BTC', 'stock:AAPL'] });
     expect(put.statusCode).toBe(200);

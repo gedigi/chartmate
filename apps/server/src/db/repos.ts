@@ -1,5 +1,5 @@
 import { PostgresAdapter, sql, type Kysely } from 'kysely';
-import { watchlistSymbols, type Bar, type Basket, type BasketVersion, type DrawingState, type Layout, type NativeTimeframe, type SymbolId, type WatchlistEntry } from '@chartmate/shared';
+import { tryNormalizeSymbolId, watchlistSymbols, type Bar, type Basket, type BasketVersion, type DrawingState, type Layout, type NativeTimeframe, type SymbolId, type WatchlistEntry } from '@chartmate/shared';
 import type { Database } from './schema.js';
 import type { Dialect } from './connect.js';
 
@@ -267,9 +267,16 @@ export class WatchlistRepo {
   async list(): Promise<WatchlistEntry[]> {
     const rows = await this.db.selectFrom('watchlist_entries').selectAll().orderBy('position', 'asc').execute();
     const out: WatchlistEntry[] = [];
+    const seen = new Set<string>();
     for (const r of rows) {
-      if (r.kind === 'symbol' && r.symbol !== null) out.push({ type: 'symbol', id: r.symbol });
-      else if (r.kind === 'section' && r.section_id !== null) {
+      if (r.kind === 'symbol') {
+        // Ids are normalized on write; a stray old spelling is normalized here, an invalid one dropped.
+        const id = tryNormalizeSymbolId(r.symbol);
+        if (id !== null && !seen.has(id)) {
+          seen.add(id);
+          out.push({ type: 'symbol', id });
+        }
+      } else if (r.kind === 'section' && r.section_id !== null) {
         out.push({ type: 'section', id: r.section_id, title: r.title ?? '', collapsed: Number(r.collapsed) === 1 });
       }
     }

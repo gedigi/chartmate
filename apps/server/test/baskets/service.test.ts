@@ -91,7 +91,7 @@ describe('BasketService', () => {
     });
 
     it('rejects nested baskets', async () => {
-      await expectAppError(svc.create({ name: 'b', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'basket:abc': 0.5 })] }),
+      await expectAppError(svc.create({ name: 'b', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'basket:3f2b6c1e-3f1a-4c1e-9a7b-2a1d3c4e5f60': 0.5 })] }),
         400, 'invalid_basket', /no nested baskets/);
     });
 

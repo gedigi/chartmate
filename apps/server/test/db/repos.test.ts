@@ -178,14 +178,78 @@ describe.each(urls)('repos on %s', (url) => {
     const expected = ['stock:SPY', 'stock:AAPL', 'crypto:BTC'].map(sym);
     expect(await r.watchlist.list()).toEqual(expected);
     // A re-run (e.g. after a partially recorded run) neither fails nor duplicates rows.
-    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '=', '003_watchlist_sections').execute();
+    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '>=', '003_watchlist_sections').execute();
     await migrate(h.db);
     expect(await r.watchlist.list()).toEqual(expected);
     // Once migrated, the new table is authoritative: edits are not overwritten by a later re-run.
     await r.watchlist.replace([sym('crypto:ETH')]);
-    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '=', '003_watchlist_sections').execute();
+    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '>=', '003_watchlist_sections').execute();
     await migrate(h.db);
     expect(await r.watchlist.list()).toEqual([sym('crypto:ETH')]);
+  });
+  it('migration 004 rewrites ids stored by older versions to their canonical spelling', async () => {
+    for (const t of TABLES) await sql`drop table if exists ${sql.table(t)}`.execute(h.db);
+    await migrate(h.db, '003_watchlist_sections');
+    const L = (symbol: string, extra: object = {}) => JSON.stringify({ symbol, tf: '1D', session: 'rth', chartType: 'candle', indicators: [], ...extra });
+    await h.db.insertInto('watchlist_entries').values([
+      { position: 0, kind: 'symbol', symbol: 'stock:aapl', section_id: null, title: null, collapsed: null },
+      { position: 1, kind: 'section', symbol: null, section_id: SEC_A, title: 'Tech', collapsed: 0 },
+      { position: 2, kind: 'symbol', symbol: 'stock:AAPL', section_id: null, title: null, collapsed: null },
+      { position: 3, kind: 'symbol', symbol: 'stock:bad/id', section_id: null, title: null, collapsed: null },
+      { position: 4, kind: 'symbol', symbol: 'crypto:btc', section_id: null, title: null, collapsed: null },
+    ]).execute();
+    await h.db.insertInto('watchlist').values([{ symbol: 'stock:aapl', position: 0 }, { symbol: 'crypto:btc', position: 1 }]).execute();
+    await h.db.insertInto('layouts').values([
+      { key: 'default', json: L('crypto:eth'), updated_at: 1 },
+      { key: 'sym:stock:msft', json: L('stock:msft', { tf: '1h' }), updated_at: 5 },
+      { key: 'sym:stock:MSFT', json: L('stock:MSFT', { tf: '1W' }), updated_at: 3 },
+      { key: 'sym:stock:x y', json: L('stock:x y'), updated_at: 1 },
+      { key: 'sym:crypto:SOL', json: L('nonsense'), updated_at: 1 },
+    ]).execute();
+    const d = (name: string) => ({ name, points: [], lock: false });
+    await h.db.insertInto('drawings').values([
+      { symbol: 'stock:spy', json: JSON.stringify([d('a')]), updated_at: 1 },
+      { symbol: 'stock:SPY', json: JSON.stringify([d('b')]), updated_at: 2 },
+      { symbol: 'stock:QQQ', json: JSON.stringify([d('c')]), updated_at: 2 },
+      { symbol: 'stock:no/pe', json: JSON.stringify([d('x')]), updated_at: 2 },
+    ]).execute();
+    await h.db.insertInto('baskets').values({ id: 'b1', name: 'B', base_value: 100, created_at: 1, updated_at: 1 }).execute();
+    await h.db.insertInto('basket_versions').values([
+      { basket_id: 'b1', idx: 0, effective_from: '2024-01-02', weights_json: JSON.stringify({ 'stock:aapl': 0.25, 'stock:AAPL': 0.25, 'crypto:BTC': 0.5 }) },
+      { basket_id: 'b1', idx: 1, effective_from: '2024-02-01', weights_json: JSON.stringify({ 'stock:bad/x': 0.5, 'crypto:eth': 0.5 }) },
+    ]).execute();
+    await r.bars.upsert('crypto:btc', '1D', [{ ts: 0, open: 1, high: 1, low: 1, close: 1, volume: 1 }]);
+    await r.bars.upsert('crypto:BTC', '1D', [{ ts: 0, open: 2, high: 2, low: 2, close: 2, volume: 2 }]);
+    await r.coverage.add('crypto:btc', '1D', 0, 10);
+    await h.db.insertInto('symbols').values({ id: 'crypto:btc', name: 'x', exchange: null, price_precision: 2, first_ts: null, updated_at: 1, ticker: null, splits_checked_at: null }).execute();
+
+    await migrate(h.db);
+
+    expect(await r.watchlist.list()).toEqual([
+      sym('stock:AAPL'), { type: 'section', id: SEC_A, title: 'Tech', collapsed: false }, sym('crypto:BTC'),
+    ]);
+    const legacy = await h.db.selectFrom('watchlist').selectAll().orderBy('position').execute();
+    expect(legacy.map((x) => x.symbol)).toEqual(['stock:AAPL', 'crypto:BTC']);
+    const keys = (await h.db.selectFrom('layouts').select('key').orderBy('key').execute()).map((x) => x.key);
+    expect(keys).toEqual(['default', 'sym:crypto:SOL', 'sym:stock:MSFT']);
+    expect(await r.layouts.get('default')).toMatchObject({ symbol: 'crypto:ETH' });
+    expect(await r.layouts.get('sym:stock:MSFT')).toMatchObject({ symbol: 'stock:MSFT', tf: '1h' }); // newest variant wins
+    expect(await r.layouts.get('sym:crypto:SOL')).toMatchObject({ symbol: 'crypto:BTC' }); // invalid → fallback
+    expect((await r.drawings.get('stock:SPY')).map((x) => x.name)).toEqual(['a', 'b']);
+    expect((await r.drawings.get('stock:QQQ')).map((x) => x.name)).toEqual(['c']);
+    expect(await h.db.selectFrom('drawings').select('symbol').where('symbol', '=', 'stock:no/pe').execute()).toEqual([]);
+    const b = await r.baskets.get('b1');
+    expect(b!.versions.map((v) => v.weights)).toEqual([{ 'stock:AAPL': 0.5, 'crypto:BTC': 0.5 }, { 'crypto:ETH': 1 }]);
+    expect(await r.bars.range('crypto:BTC', '1D', 0, 1)).toEqual([{ ts: 0, open: 2, high: 2, low: 2, close: 2, volume: 2 }]);
+    expect(await r.bars.hasAny('crypto:btc')).toBe(false);
+    expect(await r.coverage.list('crypto:btc', '1D')).toEqual([]);
+    expect(await r.symbols.get('crypto:btc')).toBeNull();
+
+    // Idempotent: a re-run changes nothing.
+    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '>=', '004_symbol_ids').execute();
+    await migrate(h.db);
+    expect((await r.drawings.get('stock:SPY')).map((x) => x.name)).toEqual(['a', 'b']);
+    expect(await r.watchlist.list()).toHaveLength(3);
   });
   it('corrupt JSON rows raise a descriptive error', async () => {
     await h.db.insertInto('layouts').values({ key: 'bad', json: '{nope', updated_at: 1 }).execute();
@@ -209,7 +273,7 @@ describe.each(urls)('repos on %s', (url) => {
   });
   it('migration 002 is idempotent when its columns already exist', async () => {
     // Kysely re-runs migrations in order only, so the later ones are re-run (idempotently) too.
-    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, 'in', ['002_symbol_splits', '003_watchlist_sections']).execute();
+    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '>=', '002_symbol_splits').execute();
     await expect(migrate(h.db)).resolves.toBeUndefined();
     const row = { id: 'stock:M', name: 'M', exchange: null, pricePrecision: 2, firstTs: null, updatedAt: 5, ticker: 'M' };
     await r.symbols.upsert(row);

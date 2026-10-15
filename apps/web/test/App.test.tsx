@@ -105,10 +105,10 @@ describe('App', () => {
 
   it('refreshes the RTH/ETH toggle when the current basket is edited', async () => {
     vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
-    const layout: Layout = { symbol: 'basket:b1', tf: '1h', session: 'rth', chartType: 'candle', indicators: [] };
+    const layout: Layout = { symbol: 'basket:b1b1b1b1-0000-4000-8000-000000000001', tf: '1h', session: 'rth', chartType: 'candle', indicators: [] };
     vi.mocked(api.layouts.get).mockImplementation(async (key) => (key === 'default' ? layout : null));
-    vi.mocked(api.symbol).mockResolvedValue({ id: 'basket:b1', assetClass: 'basket', ticker: 'B1', name: 'B1', pricePrecision: 2 });
-    const cryptoOnly: Basket = { id: 'b1', name: 'B1', baseValue: 100, createdAt: 0, updatedAt: 0,
+    vi.mocked(api.symbol).mockResolvedValue({ id: 'basket:b1b1b1b1-0000-4000-8000-000000000001', assetClass: 'basket', ticker: 'B1', name: 'B1', pricePrecision: 2 });
+    const cryptoOnly: Basket = { id: 'b1b1b1b1-0000-4000-8000-000000000001', name: 'B1', baseValue: 100, createdAt: 0, updatedAt: 0,
       versions: [{ effectiveFrom: '2024-01-02', weights: { 'crypto:BTC': 1 } }] };
     const withStock: Basket = { ...cryptoOnly, versions: [...cryptoOnly.versions, { effectiveFrom: '2024-02-01', weights: { 'stock:AAPL': 1 } }] };
     const get = vi.spyOn(api.baskets, 'get').mockResolvedValue(cryptoOnly);
@@ -118,7 +118,7 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'RTH' })).not.toBeInTheDocument();
     get.mockResolvedValue(withStock);
     act(() => notifyBasketChanged('other'));
-    act(() => notifyBasketChanged('b1'));
+    act(() => notifyBasketChanged('b1b1b1b1-0000-4000-8000-000000000001'));
     expect(await screen.findByRole('button', { name: 'RTH' })).toBeInTheDocument();
   });
 
@@ -216,9 +216,9 @@ describe('App', () => {
 
   it('shows a basket\'s name only once in the top-bar symbol label', async () => {
     vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
-    const layout: Layout = { symbol: 'basket:b1', tf: '1D', session: 'rth', chartType: 'candle', indicators: [] };
+    const layout: Layout = { symbol: 'basket:b1b1b1b1-0000-4000-8000-000000000001', tf: '1D', session: 'rth', chartType: 'candle', indicators: [] };
     vi.mocked(api.layouts.get).mockImplementation(async (key) => (key === 'default' ? layout : null));
-    vi.mocked(api.symbol).mockResolvedValue({ id: 'basket:b1', assetClass: 'basket', ticker: 'Tech Mix', name: 'Tech Mix', pricePrecision: 2 });
+    vi.mocked(api.symbol).mockResolvedValue({ id: 'basket:b1b1b1b1-0000-4000-8000-000000000001', assetClass: 'basket', ticker: 'Tech Mix', name: 'Tech Mix', pricePrecision: 2 });
     vi.spyOn(api.baskets, 'get').mockRejectedValue(new Error('n/a'));
     render(<App />);
     const label = await waitFor(() => {

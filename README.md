@@ -789,7 +789,11 @@ JSON over `/api` (the web client uses nothing else). With `CHARTMATE_PASSWORD` s
 | `GET`, `PUT /api/drawings/:symbol` | Drawings of a symbol. |
 
 Symbol ids are `stock:<TICKER>`, `crypto:<BASE>` or `basket:<uuid>`; timeframes are `1m 5m 15m 30m 1h 2h 4h 1D
-1W 1M`.
+1W 1M`. Ids are case-insensitive and normalized (`crypto:btc` is `crypto:BTC`; basket UUIDs are lowercase), and
+each code must fit its class: a stock ticker is 1–20 of `A–Z 0–9 . - = ^` starting with a letter, digit or `^`
+(`BRK-B`, `^GSPC`, `ES=F`), a crypto base 1–20 letters or digits, a basket a UUID; anything else is a 400.
+Migration 004 rewrote the ids stored by earlier versions (watchlist, layouts, drawings, basket weights) to this
+spelling, merging case variants and dropping ids that are not valid.
 
 The watchlist is a `WatchlistEntry[]`: `{ type: 'symbol', id }` or `{ type: 'section', id: <uuid>, title,
 collapsed }`, read and replaced as a whole. `PUT /api/watchlist` still accepts the older plain symbol id array

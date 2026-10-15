@@ -304,6 +304,16 @@ describe('YahooProvider', () => {
     for (const a of seen) expect(a[2].fetchOptions.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it('createYahooClient percent-encodes the chart symbol (the library appends it to the URL path as is)', async () => {
+    const seen: string[] = [];
+    const yf = { chart: async (sym: string) => { seen.push(sym); return {}; }, search: async () => ({}), quote: async () => [] };
+    const c = createYahooClient(yf);
+    await c.chart('^GSPC', {});
+    await c.chart('ES=F', {});
+    await c.chart('A/../B?x=1#y', {});
+    expect(seen).toEqual(['%5EGSPC', 'ES%3DF', 'A%2F..%2FB%3Fx%3D1%23y']);
+  });
+
   it('quotes skip rows whose price is not finite', async () => {
     const { client } = fakeYahoo({
       quote: () => [

@@ -1,4 +1,5 @@
 import { sql, type Kysely } from 'kysely';
+import { tryNormalizeSymbolId } from '@chartmate/shared';
 import { Migrator, type Migration, type MigrationProvider } from 'kysely/migration';
 import type { Database } from './schema.js';
 
@@ -101,7 +102,168 @@ const m003: Migration = {
   },
 };
 
-const migrations: Record<string, Migration> = { '001_init': m001, '002_symbol_splits': m002, '003_watchlist_sections': m003 };
+/** Layout symbol used when a stored layout's symbol is not a valid id (the web app's default symbol). */
+export const FALLBACK_LAYOUT_SYMBOL = 'crypto:BTC';
+const MAX_DRAWINGS = 500;
+
+/**
+ * Symbol ids are normalized (`crypto:btc` → `crypto:BTC`, see parseSymbolId) and validated from this version on.
+ * Rewrites the ids stored by older versions to their canonical spelling:
+ * - watchlist (entries and the legacy mirror): normalized; invalid ids and the later of two case variants dropped.
+ * - layouts: `sym:<id>` keys normalized (invalid → row dropped; of two variants the newest wins); the `symbol` of
+ *   each layout normalized, an invalid one replaced by FALLBACK_LAYOUT_SYMBOL.
+ * - drawings: keys normalized; case variants are merged (oldest first, capped at MAX_DRAWINGS); invalid keys dropped.
+ * - basket weights: keys normalized (case variants summed); invalid keys dropped and the rest rescaled to sum 1
+ *   (a version left with no valid key is kept as it was).
+ * - market cache (bars, coverage, symbols): rows under a non-canonical id are deleted (refetched under the new id).
+ * Idempotent: canonical rows are left untouched.
+ */
+const m004: Migration = {
+  async up(db: Kysely<any>) {
+    const canon = (id: unknown) => tryNormalizeSymbolId(id);
+
+    // Watchlist entries (ordered) and the legacy mirror.
+    const entries = await db.selectFrom('watchlist_entries').selectAll().orderBy('position', 'asc').execute();
+    const seen = new Set<string>();
+    const kept: any[] = [];
+    let changed = false;
+    for (const e of entries) {
+      if (e.kind !== 'symbol') { kept.push(e); continue; }
+      const id = canon(e.symbol);
+      if (id === null || seen.has(id)) { changed = true; continue; }
+      seen.add(id);
+      if (id !== e.symbol) changed = true;
+      kept.push({ ...e, symbol: id });
+    }
+    if (changed) {
+      await db.deleteFrom('watchlist_entries').execute();
+      if (kept.length > 0) await db.insertInto('watchlist_entries').values(kept.map((e, position) => ({ ...e, position }))).execute();
+    }
+    const legacy = await db.selectFrom('watchlist').selectAll().orderBy('position', 'asc').execute();
+    const legacySeen = new Set<string>();
+    const legacyKept: { symbol: string; position: number }[] = [];
+    for (const r of legacy) {
+      const id = canon(r.symbol);
+      if (id === null || legacySeen.has(id)) continue;
+      legacySeen.add(id);
+      legacyKept.push({ symbol: id, position: legacyKept.length });
+    }
+    if (legacyKept.length !== legacy.length || legacyKept.some((r, i) => r.symbol !== legacy[i]!.symbol)) {
+      await db.deleteFrom('watchlist').execute();
+      if (legacyKept.length > 0) await db.insertInto('watchlist').values(legacyKept).execute();
+    }
+
+    // Layouts: keys, then the symbol inside each one.
+    const layouts = await db.selectFrom('layouts').selectAll().orderBy('updated_at', 'asc').execute();
+    const byKey = new Map<string, { key: string; json: string; updated_at: number }>();
+    for (const l of layouts) {
+      let key: string | null = l.key;
+      if (l.key.startsWith('sym:')) {
+        const id = canon(l.key.slice(4));
+        key = id === null ? null : `sym:${id}`;
+      }
+      if (key === null) continue;
+      let json: string = l.json;
+      try {
+        const parsed = JSON.parse(l.json) as { symbol?: unknown };
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const symbol = canon(parsed.symbol) ?? FALLBACK_LAYOUT_SYMBOL;
+          if (symbol !== parsed.symbol) json = JSON.stringify({ ...parsed, symbol });
+        }
+      } catch {
+        // Corrupt JSON stays as it is (the repo reports it when read).
+      }
+      byKey.set(key, { key, json, updated_at: Number(l.updated_at) }); // ascending: the newest variant wins
+    }
+    for (const l of layouts) {
+      const next = byKey.get(l.key);
+      if (next && next.json === l.json) continue;
+      await db.deleteFrom('layouts').where('key', '=', l.key).execute();
+    }
+    for (const [key, v] of byKey) {
+      const orig = layouts.find((l) => l.key === key);
+      if (orig && orig.json === v.json) continue;
+      await db.insertInto('layouts').values(v).execute();
+    }
+
+    // Drawings: keys normalized, case variants merged.
+    const drawings = await db.selectFrom('drawings').selectAll().orderBy('updated_at', 'asc').execute();
+    const merged = new Map<string, { items: unknown[]; updated_at: number; sources: string[] }>();
+    for (const d of drawings) {
+      const id = canon(d.symbol);
+      if (id === null) continue;
+      let items: unknown[];
+      try {
+        const parsed = JSON.parse(d.json) as unknown;
+        items = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        items = [];
+      }
+      const m = merged.get(id) ?? { items: [], updated_at: 0, sources: [] };
+      m.items.push(...items);
+      m.updated_at = Math.max(m.updated_at, Number(d.updated_at));
+      m.sources.push(d.symbol);
+      merged.set(id, m);
+    }
+    for (const d of drawings) {
+      const id = canon(d.symbol);
+      if (id !== null && id === d.symbol && merged.get(id)!.sources.length === 1) continue; // canonical, alone
+      await db.deleteFrom('drawings').where('symbol', '=', d.symbol).execute();
+    }
+    for (const [symbol, m] of merged) {
+      if (m.sources.length === 1 && m.sources[0] === symbol) continue;
+      await db.insertInto('drawings')
+        .values({ symbol, json: JSON.stringify(m.items.slice(-MAX_DRAWINGS)), updated_at: m.updated_at }).execute();
+    }
+
+    // Basket weights.
+    const versions = await db.selectFrom('basket_versions').selectAll().execute();
+    for (const v of versions) {
+      let weights: Record<string, unknown>;
+      try {
+        weights = JSON.parse(v.weights_json) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      if (!weights || typeof weights !== 'object' || Array.isArray(weights)) continue;
+      const out: Record<string, number> = {};
+      let dropped = false;
+      for (const [k, w] of Object.entries(weights)) {
+        const id = canon(k);
+        if (id === null || typeof w !== 'number') { dropped = true; continue; }
+        out[id] = (out[id] ?? 0) + w;
+      }
+      const keys = Object.keys(out);
+      if (keys.length === 0) continue;
+      if (dropped) {
+        const sum = keys.reduce((a, k) => a + out[k]!, 0);
+        if (!(sum > 0)) continue;
+        for (const k of keys) out[k] = out[k]! / sum;
+      }
+      const json = JSON.stringify(out);
+      if (json !== v.weights_json) {
+        await db.updateTable('basket_versions').set({ weights_json: json })
+          .where('basket_id', '=', v.basket_id).where('idx', '=', v.idx).execute();
+      }
+    }
+
+    // Market cache: rows under a non-canonical id are dropped.
+    for (const table of ['bars', 'coverage'] as const) {
+      const ids = await db.selectFrom(table).select('symbol').distinct().execute();
+      for (const { symbol } of ids) {
+        if (canon(symbol) !== symbol) await db.deleteFrom(table).where('symbol', '=', symbol).execute();
+      }
+    }
+    const symbols = await db.selectFrom('symbols').select('id').execute();
+    for (const { id } of symbols) {
+      if (canon(id) !== id) await db.deleteFrom('symbols').where('id', '=', id).execute();
+    }
+  },
+};
+
+const migrations: Record<string, Migration> = {
+  '001_init': m001, '002_symbol_splits': m002, '003_watchlist_sections': m003, '004_symbol_ids': m004,
+};
 const provider: MigrationProvider = {
   async getMigrations() { return migrations; },
 };

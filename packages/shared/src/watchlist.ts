@@ -1,4 +1,4 @@
-import { parseSymbolId, type SymbolId } from './types.js';
+import { tryNormalizeSymbolId, type SymbolId } from './types.js';
 
 /**
  * One row of the watchlist. The list is an ordered sequence of symbols and section headers: the symbols below a
@@ -21,30 +21,29 @@ export function watchlistSymbols(entries: readonly WatchlistEntry[]): SymbolId[]
   return out;
 }
 
-function validSymbol(id: unknown): id is SymbolId {
-  if (typeof id !== 'string' || id.length > 100) return false;
-  try { parseSymbolId(id); return true; } catch { return false; }
-}
-
 /**
  * Lenient reader for a stored / received watchlist: accepts the legacy `SymbolId[]` shape and the entry shape (also
- * mixed). Malformed items, repeated symbols and repeated section ids are dropped; titles are trimmed and clipped.
+ * mixed). Symbol ids are normalized (see parseSymbolId); malformed items, repeated symbols (case variants included)
+ * and repeated section ids are dropped; titles are trimmed and clipped.
  */
 export function normalizeWatchlist(raw: unknown): WatchlistEntry[] {
   if (!Array.isArray(raw)) return [];
   const out: WatchlistEntry[] = [];
   const symbols = new Set<string>();
   const sections = new Set<string>();
+  const addSymbol = (raw: unknown) => {
+    const id = tryNormalizeSymbolId(raw);
+    if (id !== null && !symbols.has(id)) { symbols.add(id); out.push({ type: 'symbol', id }); }
+  };
   for (const item of raw as unknown[]) {
     if (typeof item === 'string') {
-      if (validSymbol(item) && !symbols.has(item)) { symbols.add(item); out.push({ type: 'symbol', id: item }); }
+      addSymbol(item);
       continue;
     }
     if (typeof item !== 'object' || item === null) continue;
     const o = item as Record<string, unknown>;
     if (o['type'] === 'symbol') {
-      const id = o['id'];
-      if (validSymbol(id) && !symbols.has(id)) { symbols.add(id); out.push({ type: 'symbol', id }); }
+      addSymbol(o['id']);
     } else if (o['type'] === 'section') {
       const id = o['id'];
       const title = typeof o['title'] === 'string' ? o['title'].trim().slice(0, MAX_SECTION_TITLE).trim() : '';

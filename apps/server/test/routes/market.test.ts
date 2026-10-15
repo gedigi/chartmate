@@ -52,6 +52,27 @@ describe('market routes', () => {
     }
   });
 
+  it('GET /api/bars normalizes the symbol id; case variants share one set of cached rows', async () => {
+    const to = Date.now();
+    const from = to - 10 * DAY;
+    const lower = await get(`/api/bars?symbol=crypto:btc&tf=1D&session=rth&from=${from}&to=${to}`);
+    expect(lower.statusCode).toBe(200);
+    expect(lower.json<BarsResponse>().symbol).toBe('crypto:BTC');
+    const upper = await get(`/api/bars?symbol=crypto:BTC&tf=1D&session=rth&from=${from}&to=${to}`);
+    expect(upper.json<BarsResponse>().bars).toEqual(lower.json<BarsResponse>().bars);
+    const db = (t.repos.bars as unknown as { db: import('kysely').Kysely<any> }).db;
+    const symbols = await db.selectFrom('bars').select('symbol').distinct().execute();
+    expect(symbols.map((r) => r.symbol)).toEqual(['crypto:BTC']);
+  });
+
+  it('GET /api/bars rejects codes that do not fit their class (no provider call)', async () => {
+    for (const s of ['stock:AAPL%2F..%2Fx', 'stock:AAPL%3Fa%3D1', 'crypto:BTC-USD', 'basket:abc', 'stock:A%20B']) {
+      const r = await get(`/api/bars?symbol=${s}&tf=1D&session=rth&from=0&to=86400000`);
+      expect(r.statusCode, s).toBe(400);
+      expect(r.json().message, s).toMatch(/invalid symbol id/);
+    }
+  });
+
   it('GET /api/bars accepts exactly 4000 bars of span', async () => {
     const to = Date.now();
     const r = await get(`/api/bars?symbol=crypto:BTC&tf=1h&session=eth&from=${to - 4000 * HOUR}&to=${to}`);

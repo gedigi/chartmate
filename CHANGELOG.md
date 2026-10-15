@@ -20,6 +20,12 @@ app, the Docker image and the release tag share one version number.
 - State-changing API requests (with or without a password) are refused when their `Origin` is not the page's
   own origin.
 
+### Data and security
+
+- Symbol ids are validated and normalized: `crypto:btc` and `crypto:BTC` are one symbol with one cache, and a
+  ticker that does not look like one is refused before any request goes to the data provider. Saved watchlists,
+  layouts, drawings and baskets are rewritten to the normalized ids on upgrade (case variants merged).
+
 ## [1.0.0] - 2026-10-14
 
 The first stable release: a charting app for US stocks and ETFs, crypto and your own baskets, as a desktop app

@@ -174,13 +174,49 @@ export interface WatchlistItem { id: SymbolId; position: number }
 
 const ASSET_CLASSES: readonly AssetClass[] = ['stock', 'crypto', 'basket'];
 
+/** Stock / ETF / index codes as the stock provider spells them: AAPL, BRK-B, BRK.B, ^GSPC, ES=F. */
+export const STOCK_CODE_RE = /^[A-Z0-9^][A-Z0-9.\-=^]{0,19}$/;
+/** Crypto base assets (priced in USD): BTC, ETH, 1000SATS. */
+export const CRYPTO_CODE_RE = /^[A-Z0-9]{1,20}$/;
+/** Basket ids are UUIDs (lowercase once normalized). */
+export const BASKET_CODE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** Longest symbol id accepted anywhere (`basket:` + a UUID is the longest valid one). */
+export const MAX_SYMBOL_ID_LENGTH = 100;
+
+/**
+ * Parses and normalizes a symbol id: the whole id is trimmed, stock / crypto codes are uppercased and basket UUIDs
+ * lowercased, so `crypto:btc` and `crypto:BTC` are the same symbol. The code must match its class's pattern
+ * (STOCK_CODE_RE, CRYPTO_CODE_RE, BASKET_CODE_RE); anything else throws.
+ */
 export function parseSymbolId(id: string): { assetClass: AssetClass; code: string } {
-  const i = id.indexOf(':');
-  const prefix = i < 0 ? '' : id.slice(0, i);
-  const code = i < 0 ? '' : id.slice(i + 1);
+  const bad = () => new Error(`invalid symbol: ${String(id).slice(0, MAX_SYMBOL_ID_LENGTH)}`);
+  if (typeof id !== 'string' || id.length > MAX_SYMBOL_ID_LENGTH) throw bad();
+  const s = id.trim();
+  const i = s.indexOf(':');
+  const prefix = i < 0 ? '' : s.slice(0, i);
+  const raw = i < 0 ? '' : s.slice(i + 1).trim();
   const assetClass = ASSET_CLASSES.find((c) => c === prefix);
-  if (!assetClass || code.length === 0) throw new Error(`invalid symbol: ${id}`);
+  if (!assetClass) throw bad();
+  const code = assetClass === 'basket' ? raw.toLowerCase() : raw.toUpperCase();
+  const re = assetClass === 'stock' ? STOCK_CODE_RE : assetClass === 'crypto' ? CRYPTO_CODE_RE : BASKET_CODE_RE;
+  if (!re.test(code)) throw bad();
   return { assetClass, code };
+}
+
+/** The canonical spelling of a symbol id (see parseSymbolId); throws when it is not a valid one. */
+export function normalizeSymbolId(id: string): SymbolId {
+  const { assetClass, code } = parseSymbolId(id);
+  return `${assetClass}:${code}`;
+}
+
+/** The canonical spelling of `id`, or null when it is not a valid symbol id. */
+export function tryNormalizeSymbolId(id: unknown): SymbolId | null {
+  if (typeof id !== 'string') return null;
+  try {
+    return normalizeSymbolId(id);
+  } catch {
+    return null;
+  }
 }
 
 /** '#rrggbb'. */
