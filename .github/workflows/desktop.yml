@@ -591,8 +591,10 @@ jobs:
           prerelease=()
           case "$TAG" in *-*) prerelease=(--prerelease) ;; esac  # v1.2.3 = release, v1.2.3-beta.1 = pre-release
           # A Windows build whose signing failed is not published: the owner runs sign:win, then publishes the draft.
+          # A draft is never marked Latest: the owner chooses that when publishing it.
           draft=()
-          if [ "$WIN_SIGN_FAILED" = true ]; then draft=(--draft); fi
+          latest="$LATEST"
+          if [ "$WIN_SIGN_FAILED" = true ]; then draft=(--draft); latest=false; fi
           {
             echo "## Chartmate ${TAG#v}"
             echo
@@ -623,5 +625,5 @@ jobs:
           } > notes.md
           ls -la dist
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "Chartmate ${TAG#v}" --notes-file notes.md \
-            --verify-tag --latest="$LATEST" "${prerelease[@]}" "${draft[@]}" \
+            --verify-tag --latest="$latest" "${prerelease[@]}" "${draft[@]}" \
             dist/*.dmg dist/*.zip dist/*.exe dist/*.blockmap dist/latest*.yml dist/compose.yaml dist/env.example

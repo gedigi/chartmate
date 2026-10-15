@@ -295,12 +295,14 @@ describe('desktop.yml secret scoping and release', () => {
     const create = s.find((x) => /Create the GitHub Release/.test(x.name ?? ''))!;
     expect(s.indexOf(create)).toBeGreaterThan(s.indexOf(rank));
     expect(create.env!.LATEST).toBe('${{ steps.rank.outputs.latest }}');
-    expect(create.run).toContain('--latest="$LATEST"');
+    expect(create.run).toContain('--latest="$latest"');
+    expect(create.run).toContain('latest="$LATEST"');
   });
 
   it('a release whose Windows signing failed is a draft (published after sign:win); otherwise it is published', () => {
     const create = steps('release').find((x) => /Create the GitHub Release/.test(x.name ?? ''))!;
-    expect(create.run).toContain('if [ "$WIN_SIGN_FAILED" = true ]; then draft=(--draft); fi');
+    // A draft is never marked Latest; the owner sets it when publishing (docs/desktop.md).
+    expect(create.run).toContain('if [ "$WIN_SIGN_FAILED" = true ]; then draft=(--draft); latest=false; fi');
     expect(create.run).toContain('"${draft[@]}"');
     expect(create.run!.match(/--draft/g)).toHaveLength(1); // electron-updater only sees published releases
   });
