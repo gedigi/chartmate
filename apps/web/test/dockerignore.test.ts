@@ -30,6 +30,12 @@ describe('Docker build context', () => {
     expect(inContext('scripts/third-party-notices.mjs')).toBe(true);
   });
 
+  it('keeps the corepack installer the build stage gets pnpm with, and nothing else under .github', () => {
+    expect(inContext('.github/scripts/install-corepack.sh')).toBe(true);
+    expect(inContext('.github/scripts/macos-sign.sh')).toBe(false);
+    expect(inContext('.github/workflows/docker.yml')).toBe(false);
+  });
+
   it('never sends environment files, at any depth (the template is not needed either)', () => {
     for (const f of ['.env', '.env.local', 'apps/server/.env', 'apps/server/.env.production', 'e2e/.env', 'apps/web/.env.local', '.env.example']) {
       expect(inContext(f), f).toBe(false);

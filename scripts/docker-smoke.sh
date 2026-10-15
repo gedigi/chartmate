@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Smoke test for the Chartmate Docker image: runs it the hardened way (read-only root filesystem with a tmpfs
 # /tmp, all capabilities dropped, fixture providers, a throwaway volume), waits for the image's own healthcheck,
-# checks the API, the web UI and SQLite (including temp-file spills), then stops it and checks that it shut down
-# cleanly. Removes everything it created. Works under emulation (e.g. an arm64 image on an amd64 runner).
+# checks the user (numeric 1000:1000), the license files, that no package manager ships in it, the API, the web UI
+# and SQLite (including temp-file spills), then stops it and checks that it shut down cleanly. Removes everything it created. Works under emulation (e.g. an arm64 image on an amd64 runner).
 #
 #   scripts/docker-smoke.sh <image> [--platform <os/arch>] [--expect-repository <owner/name>]
 #
@@ -75,7 +75,12 @@ if [ -n "$expect_repository" ]; then
   docker exec "$name" grep -rqE "[\"'\`]https://github\.com/${repo_re}[\"'\`]" /app/web/assets \
     || fail "web UI does not link to https://github.com/${expect_repository} (build-arg GITHUB_REPOSITORY missing?)"
 fi
-echo "platform: $(docker exec "$name" node -p 'process.platform + "/" + process.arch')"
+# The runtime needs only the node binary: no package manager ships in it.
+for tool in npm npx corepack yarn pnpm; do
+  if docker exec "$name" sh -c "command -v $tool" >/dev/null 2>&1; then fail "$tool is in the image"; fi
+done
+echo "platform: $(docker exec "$name" node -p 'process.platform + "/" + process.arch')," \
+  "node $(docker exec "$name" node -v) on $(docker exec "$name" sh -c '. /etc/os-release && echo "$PRETTY_NAME"')"
 
 hostport="$(docker port "$name" 8787/tcp | head -n 1)"
 base="http://${hostport}"

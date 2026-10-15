@@ -28,4 +28,7 @@ playwright-report
 !/scripts/new-indicator.d.mts
 # ...and the third-party notices generator (the image ships its output).
 !/scripts/third-party-notices.mjs
+# ...and the corepack installer (version and sha512 pinned) the build stage gets pnpm through.
+!/.github/scripts/install-corepack.sh
 compose.yaml
+.trivyignore

@@ -28,8 +28,10 @@ updates:
     groups:
       actions:
         patterns: ['*']
-  # Keeps the digest-pinned Node base image of the Docker image current (security patches) on the same Node major;
-  # a new major (and only an LTS one) is a deliberate upgrade together with .nvmrc and @types/node.
+  # The Docker image's base is a floating tag (node:<major>-trixie-slim, no digest): every build pulls the newest
+  # one, so patch and security releases need no pull request. Dependabot watches the tag in case it ever pins a
+  # version again; a new Node major (and only an LTS one) is a deliberate upgrade together with .nvmrc and
+  # @types/node, so majors are never proposed.
   - package-ecosystem: docker
     directory: /
     schedule:

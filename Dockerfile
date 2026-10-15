@@ -1,12 +1,27 @@
 # syntax=docker/dockerfile:1
 # Chartmate server + web UI. Multi-arch (linux/amd64, linux/arm64): the build stage runs on the build host's
 # platform (its output is plain JavaScript plus better-sqlite3's bundled prebuilds), only the runtime stage is
-# per-target. The base image is pinned by digest (same in both stages); Dependabot keeps it current.
-FROM --platform=$BUILDPLATFORM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS build
+# per-target.
+# Base image: the Node.js line of .nvmrc on the newest Debian (trixie) slim, by tag (no digest pin), so a build
+# gets the current patch releases of Node.js and Debian. Build with --pull (CI and the release workflows always
+# do). The workflows resolve the tag once per run (.github/scripts/resolve-base-image.sh), log its digest and pin
+# every build of that run to it; BuildKit's provenance records it too. Both stages use the same image.
+FROM --platform=$BUILDPLATFORM node:26-trixie-slim AS build
 WORKDIR /repo
-RUN corepack enable
+# Node.js 25 and later no longer bundle corepack: install the release pinned (version and sha512) in
+# install-corepack.sh, as the workflows do. corepack then installs the pnpm that package.json pins
+# (packageManager, also sha512-checked), and the build stops unless that is the pnpm that runs.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+COPY .github/scripts/install-corepack.sh /tmp/install-corepack.sh
+COPY package.json ./
+RUN bash /tmp/install-corepack.sh \
+ && corepack enable pnpm \
+ && want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")" \
+ && got="$(pnpm --version)" \
+ && { [ "$got" = "$want" ] || { echo "pnpm $got, but package.json pins $want" >&2; exit 1; }; } \
+ && rm /tmp/install-corepack.sh
 # Manifests + lockfile first so the dependency layer is cached until they change.
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .pnpmfile.cjs ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml .pnpmfile.cjs ./
 COPY patches ./patches
 COPY packages/shared/package.json packages/shared/
 COPY apps/server/package.json apps/server/
@@ -34,14 +49,20 @@ RUN set -eu; \
       test -f "$pkg/prebuilds/linux-$arch.node"; \
     done
 
-FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS runtime
+FROM node:26-trixie-slim AS runtime
 LABEL org.opencontainers.image.title="Chartmate" \
       org.opencontainers.image.description="Self-hosted charting app for stocks, crypto and custom baskets (server + web UI)" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
+# Debian's security updates published since the base image was built, applied at build time (no package lists,
+# apt caches or logs stay behind).
 # The app needs only the node binary: drop npm, npx, corepack and yarn (less to patch, less attack surface).
 # /data is the only persistent directory the app writes to; SQLite's temp files (large sorts, VACUUM) go to
 # TMPDIR. With a read-only root filesystem, mount a tmpfs on /tmp (compose.yaml does).
-RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get -y --no-install-recommends upgrade \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /var/log/apt /var/log/dpkg.log \
+ && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
            /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-* \
  && test "$(id -u node):$(id -g node)" = 1000:1000 \
  && mkdir -p /data && chown 1000:1000 /data

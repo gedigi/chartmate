@@ -1,0 +1,10 @@
+# Vulnerabilities the image scan (.github/scripts/scan-image.sh) does not fail on. Empty is the goal.
+#
+# Only for a finding reviewed as not applicable to Chartmate (the vulnerable code is never reached, or the scanner
+# misidentifies the package), never to get a release out past a real one: update the package or the base image
+# instead. Each entry is one ID with an expiry date at most 90 days out, and the comment line directly above it
+# says what was reviewed, by whom and why it does not apply (a test checks the format). Trivy reports the finding
+# again once the date passes, so it gets reviewed again. Example:
+#
+#   # libfoo in the base image: only its CLI is affected, which Chartmate never runs. Reviewed by <name>, <date>.
+#   CVE-2026-12345 exp:2026-12-31
