@@ -151,9 +151,11 @@ An invalid `CHARTMATE_PROVIDERS`, `CRYPTO_PROVIDER` (or, in the dev bundle, `BIN
 `CHARTMATE_USER_DATA_DIR`) stops the app at startup with a short error box naming the variable, with no stack or
 path, and exit code 1. The reason is also logged.
 
-A released (hardened) build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY` or `SSLKEYLOGFILE` is set.
-Node applies the first during pre-execution, before any app code runs, so the app cannot undo it, and the second
-would let TLS session keys be logged. `NODE_USE_SYSTEM_CA` is allowed: provider requests ignore it (see below).
+A released (hardened) build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE`,
+`UNDICI_USE_MILO` or `UNDICI_NO_WASM_SIMD` is set. Node applies the first during pre-execution, before any app code
+runs, so the app cannot undo it; the second would let TLS session keys be logged; the undici ones would swap the
+HTTP/1.1 parser of the provider fetch for another implementation. `NODE_USE_SYSTEM_CA` is allowed: provider requests
+ignore it (see below).
 
 `NODE_EXTRA_CA_CERTS` is dropped by Electron itself: the `EnableNodeOptionsEnvironmentVariable` fuse covers it
 along with `NODE_OPTIONS`. The guard still refuses it if it ever got through.
@@ -194,7 +196,8 @@ The renderer is treated as untrusted web content, and the main process exposes n
   crashed renderer is reloaded at most 3 times per minute. After that, a static error page is shown once, and if
   that page crashes too, the window is closed with an error dialog. There is never a reload loop.
 - **Command-line switches and environment** (`src/boot.ts`, the first module evaluated): a hardened build exits
-  with code 1 if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE` or `NODE_EXTRA_CA_CERTS` is set (see
+  with code 1 if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE`, `NODE_EXTRA_CA_CERTS`, `UNDICI_USE_MILO` or
+  `UNDICI_NO_WASM_SIMD` is set (see
   [Network and environment](#network-and-environment)), or any of these switches is present (`--x`, `-x`, and `/x`
   on Windows):
 

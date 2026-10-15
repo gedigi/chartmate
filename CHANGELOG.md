@@ -64,7 +64,7 @@ app, the Docker image and the release tag share one version number.
 - `latest`, `X` and `X.Y` move only to the highest release in their range: a fix for an older line no longer
   moves them backward. The GitHub Release marked Latest follows the same rule.
 - Running from source now needs Node 26 and pnpm 12 (`corepack enable`; Node 26 no longer bundles corepack, so
-  install it first with `npm install --global corepack`).
+  install it first with `npm install --global corepack@0.36.0`).
 - The image moves to Node.js 26 on Debian 13 (trixie) slim, applies Debian's security updates when it is built,
   and pulls the newest base image on every build. Every image is scanned before it is published: a high or
   critical vulnerability with a fix available stops it. Each Monday the latest release's image is rebuilt and

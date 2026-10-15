@@ -18,8 +18,7 @@ type Job = { steps: Step[]; env?: unknown; permissions?: unknown; environment?: 
 const SIGN = "startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != ''";
 const COREPACK_RUN = [
   'set -euo pipefail',
-  'bash .github/scripts/install-corepack.sh',
-  'corepack enable pnpm',
+  'bash .github/scripts/install-pnpm.sh',
   `want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"`,
   'got="$(pnpm --version)"',
   'if [ "$got" != "$want" ]; then',
@@ -115,6 +114,11 @@ describe('toolchain pins', () => {
   it('pins pnpm by version and sha512 (corepack verifies it in CI and in the Docker build)', () => {
     const pkg = JSON.parse(root('package.json')) as { packageManager: string };
     expect(pkg.packageManager).toMatch(/^pnpm@\d+\.\d+\.\d+\+sha512\.[0-9a-f]{128}$/);
+  });
+  it('nothing loosens corepack or the pnpm download checks (keys, registry, custom URLs)', () => {
+    for (const f of [...files.map((x) => `.github/workflows/${x}`), 'Dockerfile', '.github/scripts/install-pnpm.sh']) {
+      expect(root(f), f).not.toMatch(/COREPACK_(INTEGRITY_KEYS|NPM_REGISTRY|ENABLE_UNSAFE_CUSTOM_URLS)/);
+    }
   });
   it('pins Node.js to an exact version for every workflow (.nvmrc)', () => {
     expect(root('.nvmrc').trim()).toMatch(/^\d+\.\d+\.\d+$/);

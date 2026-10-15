@@ -29,7 +29,7 @@ async function exercise(page: Page): Promise<Record<string, string>> {
 test('live providers only touch allowlisted hosts', async () => {
   const userData = mkdtempSync(join(tmpdir(), 'chartmate-live-'));
   const env = { ...process.env, CHARTMATE_USER_DATA_DIR: userData, CHARTMATE_PROVIDERS: 'live' } as Record<string, string>;
-  for (const k of ['ELECTRON_RUN_AS_NODE', 'NODE_USE_ENV_PROXY', 'NODE_USE_SYSTEM_CA', 'NODE_EXTRA_CA_CERTS', 'SSLKEYLOGFILE']) delete env[k];
+  for (const k of ['ELECTRON_RUN_AS_NODE', 'NODE_USE_ENV_PROXY', 'NODE_USE_SYSTEM_CA', 'NODE_EXTRA_CA_CERTS', 'SSLKEYLOGFILE', 'UNDICI_USE_MILO', 'UNDICI_NO_WASM_SIMD']) delete env[k];
   let results: Record<string, string>;
   if (process.env.SMOKE_APP) {
     const { child, wsUrl } = await spawnWithCdp(executableOf(process.env.SMOKE_APP), env);

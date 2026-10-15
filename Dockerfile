@@ -8,20 +8,20 @@
 # every build of that run to it; BuildKit's provenance records it too. Both stages use the same image.
 FROM --platform=$BUILDPLATFORM node:26-trixie-slim AS build
 WORKDIR /repo
-# Node.js 25 and later no longer bundle corepack: install the release pinned (version and sha512) in
-# install-corepack.sh, as the workflows do. corepack then installs the pnpm that package.json pins
-# (packageManager, also sha512-checked), and the build stops unless that is the pnpm that runs.
+# Node.js 25 and later no longer bundle corepack: install-pnpm.sh installs the corepack release it pins (version
+# and sha512), the pnpm that package.json pins (packageManager, sha512-checked) and pnpm's native binary
+# (checked against pnpm-lock.yaml), as the workflows do. It reads package.json and pnpm-lock.yaml, so both come
+# first; the build stops unless the pnpm that runs is the pinned one.
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-COPY .github/scripts/install-corepack.sh /tmp/install-corepack.sh
-COPY package.json ./
-RUN bash /tmp/install-corepack.sh \
- && corepack enable pnpm \
+COPY .github/scripts/install-pnpm.sh .github/scripts/
+COPY package.json pnpm-lock.yaml ./
+RUN bash .github/scripts/install-pnpm.sh \
  && want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")" \
  && got="$(pnpm --version)" \
  && { [ "$got" = "$want" ] || { echo "pnpm $got, but package.json pins $want" >&2; exit 1; }; } \
- && rm /tmp/install-corepack.sh
+ && rm -rf .github
 # Manifests + lockfile first so the dependency layer is cached until they change.
-COPY pnpm-lock.yaml pnpm-workspace.yaml .pnpmfile.cjs ./
+COPY pnpm-workspace.yaml .pnpmfile.cjs ./
 COPY patches ./patches
 COPY packages/shared/package.json packages/shared/
 COPY apps/server/package.json apps/server/

@@ -30,14 +30,17 @@ describe('Dockerfile', () => {
     expect(text).not.toMatch(/^FROM\s.*@sha256:/m);
   });
 
-  it('gets pnpm through the pinned, hash-checked corepack and asserts the version package.json pins', () => {
-    expect(text).toContain('COPY .github/scripts/install-corepack.sh');
-    expect(text).toMatch(/RUN bash \S*install-corepack\.sh/);
-    expect(text).toContain('corepack enable pnpm');
+  it('gets pnpm through install-pnpm.sh (everything hash-checked) and asserts the version package.json pins', () => {
+    const install = text.indexOf('RUN bash .github/scripts/install-pnpm.sh');
+    expect(install).toBeGreaterThan(0);
+    expect(text).toMatch(/^COPY \.github\/scripts\/install-pnpm\.sh \.github\/scripts\/$/m);
+    // The script reads package.json and pnpm-lock.yaml from the repository root: both are there before it runs.
+    const manifests = text.search(/^COPY package\.json pnpm-lock\.yaml \.\/$/m);
+    expect(manifests).toBeGreaterThan(0);
+    expect(manifests).toBeLessThan(install);
     expect(text).toContain(`require('./package.json').packageManager.split('@')[1].split('+')[0]`);
     expect(text).toMatch(/\[ "\$got" = "\$want" \]/);
-    // pnpm is enabled before the first pnpm command.
-    expect(text.indexOf('corepack enable pnpm')).toBeLessThan(text.indexOf('pnpm install'));
+    expect(install).toBeLessThan(text.indexOf('RUN pnpm install'));
   });
 
   it('applies the OS security updates in the runtime stage and leaves no package lists behind', () => {

@@ -9,9 +9,10 @@ a default updates the docs in the same commit, and a user-visible change gets a 
 ## What Chartmate is
 
 A single-user charting app (desktop app for macOS and Windows, or self-hosted): candlestick charts for US
-stocks/ETFs (with pre/post market) and crypto, indicators, drawing tools, a watchlist with sections, and baskets (weighted synthetic
-instruments charted like any symbol). Free data only (Yahoo Finance; Binance or Coinbase), cached in SQLite or
-Postgres. It ships as a web server (also as a Docker image) and as an Electron desktop app for macOS and Windows.
+stocks/ETFs (with pre/post market) and crypto, indicators, drawing tools, a watchlist with sections, and baskets
+(weighted synthetic instruments charted like any symbol). Free data only (Yahoo Finance; Binance or Coinbase),
+cached in SQLite or Postgres. It ships as a web server (also as a Docker image) and as an Electron desktop app for
+macOS and Windows.
 
 Visual beauty is the core value proposition. A change that works but looks worse is not done.
 
@@ -20,9 +21,14 @@ Visual beauty is the core value proposition. A change that works but looks worse
 pnpm 12 workspace (12.11.2, pinned with its sha512 in the root `package.json` `packageManager`; `corepack enable`
 uses it, and so does CI), Node 26 (the exact version in `.nvmrc`, used by every workflow), TypeScript 7 (the native
 `tsc`, for typechecking and the shared/server builds; Vite, Vitest, tsx and esbuild strip types themselves, and
-nothing uses the compiler's JavaScript API), Vitest everywhere. Node 25 and later no longer bundle corepack: install it once (`npm install --global corepack`); CI
-installs the release pinned, by version and sha512, in `.github/scripts/install-corepack.sh`. pnpm settings
-(`allowBuilds`, `patchedDependencies`) live in `pnpm-workspace.yaml`; the install hook is `.pnpmfile.cjs`.
+nothing uses the compiler's JavaScript API), Vitest everywhere. Node 25 and later no longer bundle corepack:
+install it once (`npm install --global corepack@0.36.0`). CI runs `.github/scripts/install-pnpm.sh` instead, which
+hash-checks everything it downloads: corepack (version and sha512 pinned in the script), the pnpm wrapper (the
+`packageManager` sha512) and pnpm's native binary (`@pnpm/exe.<os>-<arch>`, against its sha512 in
+`pnpm-lock.yaml`). A plain `corepack enable` setup lets the wrapper download that binary on first use, checked
+only against npm's registry signature; run the script locally to get CI's checks. pnpm settings (`allowBuilds`,
+`patchedDependencies`, the `minimumReleaseAge` and `trustPolicy` supply-chain policies with their exceptions) live
+in `pnpm-workspace.yaml`; the install hook is `.pnpmfile.cjs`.
 
 | Path | Package | Responsibility |
 | --- | --- | --- |
@@ -101,11 +107,11 @@ Desktop (`apps/desktop`; `pnpm --filter @chartmate/desktop <script>`):
 | `test` | Unit + security tests, then the server's DB suites on `node:sqlite`. |
 | `smoke` | Playwright + Electron smoke tests. |
 
-Smoke env vars: `SMOKE_APP` (the TEST-ONLY copy from `smoke/prepare-inspectable.mjs`; unset = unpackaged
-app, which needs the dev bundle: `node apps/desktop/scripts/bundle.mjs --dev`), `SMOKE_HARDENED_APP` (the unmodified packaged app), `SMOKE_EXPECT_UNSIGNED` (`1` unsigned, `0` signed),
-`SMOKE_ALLOW_REAL_USERDATA=1` (needed outside CI for the hardened spec; it moves the real per-user data aside
-and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by default). See "Smoke tests" in
-`docs/desktop.md` for the full sequence.
+Smoke env vars: `SMOKE_APP` (the TEST-ONLY copy from `smoke/prepare-inspectable.mjs`; unset = unpackaged app, which
+needs the dev bundle: `node apps/desktop/scripts/bundle.mjs --dev`), `SMOKE_HARDENED_APP` (the unmodified packaged
+app), `SMOKE_EXPECT_UNSIGNED` (`1` unsigned, `0` signed), `SMOKE_ALLOW_REAL_USERDATA=1` (needed outside CI for the
+hardened spec; it moves the real per-user data aside and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS`
+(`fixture` by default). See "Smoke tests" in `docs/desktop.md` for the full sequence.
 
 ## Testing
 
@@ -268,19 +274,18 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
 - If CI cannot log in, the owner runs `pnpm --filter @chartmate/desktop sign:win` from a checkout of the tag. It
   rebuilds, signs, verifies and replaces the Windows assets of that release. Changes to the signing hook, the
   login script or the secret scoping are security changes.
-- `.github/workflows/ci.yml` runs `pnpm audit`, typecheck, tests, the license gate, the indicator scaffold check,
-  the web build, e2e and the Docker build on pull requests and pushes to `main`; the release workflows audit and
-  check licenses too. Every workflow gets Node from `.nvmrc`, corepack from `.github/scripts/install-corepack.sh`
-  (pinned version and sha512; Dependabot does not bump it) and pnpm through corepack (which checks the
-  `packageManager` sha512); only `ci.yml` caches the pnpm store (no cache on a release path). ci.yml's Docker job
-  builds with `--pull` and runs the same Trivy gate. Dependabot (`.github/dependabot.yml`) opens weekly update PRs
-  for npm packages (7-day cooldown) and the pinned actions (3 days); the Docker base image and the Compose
-  Postgres image are floating tags pulled fresh on every build or `up`, so its docker entries only matter if a
-  version is pinned again. It never proposes a new major of Node (the base image, `@types/node`) or Postgres:
-  those are deliberate upgrades (Node: the next LTS, together with `.nvmrc` and the Dockerfile; Postgres: a dump
-  and restore, documented for users).
-  `apps/desktop/test/workflows.test.ts` pins the workflows' rules (actions pinned to SHAs, read-only default
-  tokens, secrets only in the step that needs them, signing jobs without dependency code).
+- `.github/workflows/ci.yml` runs `pnpm audit`, typecheck, tests, the license gate, the indicator scaffold check, the
+  web build, e2e and the Docker build on pull requests and pushes to `main`; the release workflows audit and check
+  licenses too. Every workflow gets Node from `.nvmrc`, then corepack and pnpm from `.github/scripts/install-pnpm.sh`
+  (corepack pinned by version and sha512, which Dependabot does not bump; pnpm by the `packageManager` sha512 and its
+  native binary by `pnpm-lock.yaml`); only `ci.yml` caches the pnpm store (no cache on a release path). ci.yml's
+  Docker job builds with `--pull` and runs the same Trivy gate. Dependabot (`.github/dependabot.yml`) opens weekly
+  update PRs for npm packages (7-day cooldown) and the pinned actions (3 days); the Docker base image and the
+  Compose Postgres image are floating tags pulled fresh on every build or `up`, so its docker entries only matter if
+  a version is pinned again. It never proposes a new major of Node (the base image, `@types/node`) or Postgres:
+  those are deliberate upgrades (Node: the next LTS, together with `.nvmrc` and the Dockerfile; Postgres: a dump and
+  restore, documented for users). `apps/desktop/test/workflows.test.ts` pins the workflows' rules (actions pinned to
+  SHAs, read-only default tokens, secrets only in the step that needs them, signing jobs without dependency code).
 
 ## Specs and plans
 
