@@ -21,10 +21,11 @@ describe('visibleBounds: size clamped to the chosen display', () => {
     expect(visibleBounds({ x: 200, y: 100, width: 1400, height: 850 }, [mac])).toEqual({ x: 40, y: 50, width: 1400, height: 850 });
   });
 
-  it('a work area smaller than the minimum window size: the minimum size, centered on it (no one-sided overhang)', () => {
+  it('a work area smaller than the minimum window size: the minimum size, centered across, top edge on the work area', () => {
     const tiny = { x: 100, y: 20, width: 640, height: 460 };
-    expect(visibleBounds({ x: 150, y: 40, width: 1000, height: 700 }, [tiny])).toEqual({ x: 20, y: 0, width: 800, height: 500 });
-    // Only the axis that does not fit is centered.
+    // Vertically the title bar stays reachable (top of the work area); the bottom overhangs instead.
+    expect(visibleBounds({ x: 150, y: 40, width: 1000, height: 700 }, [tiny])).toEqual({ x: 20, y: 20, width: 800, height: 500 });
+    // Only the axis that does not fit is affected.
     const narrow = { x: 0, y: 0, width: 700, height: 1000 };
     expect(visibleBounds({ x: 10, y: 300, width: 900, height: 600 }, [narrow])).toEqual({ x: -50, y: 300, width: 800, height: 600 });
   });
