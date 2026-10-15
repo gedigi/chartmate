@@ -115,6 +115,17 @@ export function zipExtractCommand(platform, env, zip, entry) {
   return { command: 'unzip', args: ['-p', zip, entry] };
 }
 
+/** latestYmlProblems for the text of latest.yml; one that does not parse is a problem of its own. */
+export function latestYmlTextProblems(text, files, installers) {
+  let latest;
+  try {
+    latest = require('js-yaml').load(text); // js-yaml 5 throws on an empty document
+  } catch (e) {
+    return [`latest.yml is not valid YAML (${e.message.split('\n')[0]})`];
+  }
+  return latestYmlProblems(latest, files, installers);
+}
+
 /** Problems with an unpacked app's resources/app-update.yml: the updater must pin the publisher. */
 export function appUpdateProblems(label, text, publisher) {
   if (text == null) return [`${label}: resources/app-update.yml is missing (the signed build would have no updater config)`];
@@ -167,14 +178,8 @@ export function verifyRelease(dir, { publisher, signLog, exeName = 'chartmate.ex
   const yml = join(dir, 'latest.yml');
   if (!existsSync(yml)) problems.push('latest.yml is missing');
   else {
-    let latest;
-    try {
-      latest = require('js-yaml').load(readFileSync(yml, 'utf8')); // js-yaml 5 throws on an empty document
-    } catch {
-      latest = undefined; // reported by latestYmlProblems
-    }
     const files = Object.fromEntries(installers.map((i) => [i, { size: statSync(join(dir, i)).size, sha512: sha512(join(dir, i)) }]));
-    problems.push(...latestYmlProblems(latest, files, installers));
+    problems.push(...latestYmlTextProblems(readFileSync(yml, 'utf8'), files, installers));
   }
   if (signLog) {
     const lines = existsSync(signLog) ? readFileSync(signLog, 'utf8').split('\n').filter(Boolean) : [];
