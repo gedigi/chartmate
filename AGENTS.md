@@ -27,7 +27,8 @@ hash-checks everything it downloads: corepack (version and sha512 pinned in the 
 `packageManager` sha512) and pnpm's native binary (`@pnpm/exe.<os>-<arch>`, against its sha512 in
 `pnpm-lock.yaml`). A plain `corepack enable` setup lets the wrapper download that binary on first use, checked
 only against npm's registry signature; run the script locally to get CI's checks. pnpm settings (`allowBuilds`,
-`patchedDependencies`) live in `pnpm-workspace.yaml`; the install hook is `.pnpmfile.cjs`.
+`patchedDependencies`, the `minimumReleaseAge` and `trustPolicy` supply-chain policies with their exceptions) live
+in `pnpm-workspace.yaml`; the install hook is `.pnpmfile.cjs`.
 
 | Path | Package | Responsibility |
 | --- | --- | --- |

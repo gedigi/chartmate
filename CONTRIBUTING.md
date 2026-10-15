@@ -59,6 +59,12 @@ Write the failing test first, then the code; a bug fix comes with a regression t
 - **Dependencies**: only licenses compatible with AGPL-3.0 (MIT, BSD, ISC, Apache-2.0, MPL-2.0 and similar).
   `pnpm licenses:check` checks every shipped dependency against the allowlist in
   `scripts/third-party-notices.mjs` (CI runs it too).
+- **Release age and provenance**: `pnpm-workspace.yaml` makes every install, the frozen one in CI included, refuse
+  a version published less than 3 days ago (`minimumReleaseAge: 4320`, strict) or one published with weaker
+  provenance than an earlier version (`trustPolicy: no-downgrade`). An urgent security fix that cannot wait gets
+  an exact-version entry in `minimumReleaseAgeExclude` (`- name@1.2.3`, never a bare name), with a comment saying
+  why and when to remove it; a reviewed provenance exception goes in `trustPolicyExclude` the same way. Remove
+  stale entries when they no longer apply.
 
 ## License
 
