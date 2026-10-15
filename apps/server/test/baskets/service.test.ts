@@ -621,6 +621,17 @@ describe('BasketService', () => {
       expect(compared).toBeGreaterThan(30);
     }, 30_000); // 48 getBars+getLatest pairs: slow under a loaded parallel (Postgres) run
 
+    it('1D for a stock-only basket on a weekend: Friday\'s bar, not null', async () => {
+      const b = await svc.create({ name: 's', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'stock:BBB': 0.5 })] });
+      for (const at of [D(10, 10, 15), D(10, 11, 15), D(10, 11, 23, 59)]) { // Sat, Sun 11:00 EDT, Sun 19:59 EDT
+        now = at;
+        const latest = await svc.getLatest(b.id, '1D', 'rth');
+        const full = (await svc.getBars({ id: b.id, tf: '1D', session: 'rth', from: D(9, 20), to: now + DAY })).bars.at(-1);
+        expect(latest.bar, new Date(at).toISOString()).toEqual(full);
+        expect(latest.bar?.ts).toBe(D(10, 9));
+      }
+    });
+
     it('falls back to the full pad when a stock constituent has no seed within the small pad', async () => {
       const b = await svc.create({ name: 'm', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'crypto:BTC': 0.5 })] });
       now = D(10, 9, 15); // Fri 11:00 EDT

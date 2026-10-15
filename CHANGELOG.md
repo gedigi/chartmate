@@ -20,6 +20,11 @@ app, the Docker image and the release tag share one version number.
 - State-changing API requests (with or without a password) are refused when their `Origin` is not the page's
   own origin.
 
+### Charts and baskets
+
+- A daily chart of a stock or a stock-only basket keeps updating its last bar over the weekend instead of
+  getting no latest bar until the next session.
+
 ## [1.0.0] - 2026-10-14
 
 The first stable release: a charting app for US stocks and ETFs, crypto and your own baskets, as a desktop app

@@ -221,7 +221,8 @@ export class BasketService {
     const anyCrypto = classes.includes('crypto');
     const cal: Calendar = !isIntraday(tf) || anyCrypto ? 'utc' : session === 'eth' ? 'nyse-eth' : 'nyse-rth';
     const now = this.now();
-    const back = tf === '1W' ? 7 * DAY : tf === '1M' ? 31 * DAY : tfMs(tf);
+    // 1D looks back a week so a stock basket's last session is found over a (long) weekend.
+    const back = tf === '1D' || tf === '1W' ? 7 * DAY : tf === '1M' ? 31 * DAY : tfMs(tf);
     // Polled often: fetch just enough history to seed forward-fill (stocks: across a long weekend).
     const base = baseTimeframe(tf);
     const padMs = !isIntraday(base) ? undefined : classes.includes('stock') ? LATEST_STOCK_PAD_MS : 2 * tfMs(base);

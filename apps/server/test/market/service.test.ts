@@ -247,6 +247,14 @@ describe('MarketDataService', () => {
       expect(r.bar?.volume).toBe(1); // only the 18:00 hourly bar exists so far
       for (const c of crypto.calls) expect(c.from).toBeGreaterThanOrEqual(Date.UTC(2026, 10, 4, 16));
     });
+    it('1D for a stock on a weekend: Friday\'s bar, not null', async () => {
+      for (const at of [Date.UTC(2026, 10, 7, 15), Date.UTC(2026, 10, 8, 15), Date.UTC(2026, 10, 8, 23, 59)]) {
+        now = at; // Sat 10:00 EST; Sun 10:00 EST; Sun 18:59 EST
+        const r = await svc.getLatest('stock:AAPL', '1D', 'rth');
+        const full = (await svc.getBars({ symbol: 'stock:AAPL', tf: '1D', session: 'rth', from: at - 20 * DAY, to: at + DAY })).bars.at(-1);
+        expect(r.bar, new Date(at).toISOString()).toEqual(full);
+      }
+    });
     it('null when nothing exists', async () => {
       crypto.fail = new ProviderError('x', 'down', true);
       expect(await svc.getLatest('crypto:BTC', '1h', 'eth')).toEqual({ bar: null, stale: true });
