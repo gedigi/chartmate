@@ -773,10 +773,11 @@ describe('Docker image freshness: every build pulls, on a base digest resolved o
         '.github/scripts/scan-image.sh "$REF" --platform linux/amd64 --remote',
         '.github/scripts/scan-image.sh "$REF" --platform linux/arm64 --remote',
       ]);
-      const smoke = s.map((x, i) => [x.run ?? '', i] as const).filter(([r]) => r.includes('docker-smoke.sh "$REF"'));
+      // Each platform's image of the pushed digest, by its own manifest digest.
+      const smoke = s.map((x, i) => [x.run ?? '', i] as const).filter(([r]) => r.includes('docker-smoke.sh "$img"'));
       const smokeText = smoke.map(([r]) => r).join('\n');
-      expect(smokeText, f).toContain('"$REF" --platform linux/amd64');
-      expect(smokeText, f).toContain('"$REF" --platform linux/arm64');
+      expect(smokeText, f).toMatch(/img="\$\(\.github\/scripts\/platform-digest\.sh "\$REF" (linux\/amd64|"\$p")\)"/);
+      for (const p of ['linux/amd64', 'linux/arm64']) expect(smokeText, f).toContain(p);
       const tag = s.findIndex((x) => x.name === 'Tag the checked digest');
       expect(s[tag]!.run, f).toContain('.github/scripts/tag-image.sh "$REF" "${tags[@]}"');
       expect(s[tag]!.env?.TAGS, f).toBe('${{ steps.meta.outputs.tags }}');
@@ -869,8 +870,8 @@ describe('docker-refresh.yml (weekly rebuild of the latest release)', () => {
       // An older docker-smoke.sh does not know --expect-repository: it is passed only when the script has it.
       for (const s of j.steps.filter((x) => x.run?.includes('docker-smoke.sh'))) {
         expect(s.run, `${name}: ${s.name}`).toContain(`if grep -q -- '--expect-repository' release/scripts/docker-smoke.sh; then args=(--expect-repository "$GITHUB_REPOSITORY"); fi`);
-        expect(s.run, `${name}: ${s.name}`).toMatch(/^release\/scripts\/docker-smoke\.sh .*\$\{args\[@\]\+"\$\{args\[@\]\}"\}$/m);
-        expect(s.run, `${name}: ${s.name}`).not.toMatch(/^release\/scripts\/docker-smoke\.sh[^\n]*--expect-repository/m);
+        expect(s.run, `${name}: ${s.name}`).toMatch(/^\s*release\/scripts\/docker-smoke\.sh .*\$\{args\[@\]\+"\$\{args\[@\]\}"\}$/m);
+        expect(s.run, `${name}: ${s.name}`).not.toMatch(/^\s*release\/scripts\/docker-smoke\.sh[^\n]*--expect-repository/m);
       }
     }
   });

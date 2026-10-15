@@ -268,10 +268,17 @@ jobs:
         run: .github/scripts/scan-image.sh "$REF" --platform linux/amd64 --remote
       - name: Vulnerability scan (linux/arm64, the pushed digest)
         run: .github/scripts/scan-image.sh "$REF" --platform linux/arm64 --remote
+      # Each platform's image of the pushed digest (Docker's image store pulls one platform per index digest).
       - name: Smoke test (linux/amd64, the pushed digest)
-        run: scripts/docker-smoke.sh "$REF" --platform linux/amd64 --expect-repository "$GITHUB_REPOSITORY"
+        run: |
+          set -euo pipefail
+          img="$(.github/scripts/platform-digest.sh "$REF" linux/amd64)"
+          scripts/docker-smoke.sh "$img" --platform linux/amd64 --expect-repository "$GITHUB_REPOSITORY"
       - name: Smoke test (linux/arm64, the pushed digest)
-        run: scripts/docker-smoke.sh "$REF" --platform linux/arm64 --expect-repository "$GITHUB_REPOSITORY"
+        run: |
+          set -euo pipefail
+          img="$(.github/scripts/platform-digest.sh "$REF" linux/arm64)"
+          scripts/docker-smoke.sh "$img" --platform linux/arm64 --expect-repository "$GITHUB_REPOSITORY"
       - name: Tag the checked digest
         env:
           TAGS: ${{ steps.meta.outputs.tags }}

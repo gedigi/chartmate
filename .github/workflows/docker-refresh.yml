@@ -322,8 +322,11 @@ jobs:
           set -euo pipefail
           args=()
           if grep -q -- '--expect-repository' release/scripts/docker-smoke.sh; then args=(--expect-repository "$GITHUB_REPOSITORY"); fi
-          release/scripts/docker-smoke.sh "$REF" --platform linux/amd64 ${args[@]+"${args[@]}"}
-          release/scripts/docker-smoke.sh "$REF" --platform linux/arm64 ${args[@]+"${args[@]}"}
+          # Each platform's image of the pushed digest (Docker's image store pulls one platform per index digest).
+          for p in linux/amd64 linux/arm64; do
+            img="$(.github/scripts/platform-digest.sh "$REF" "$p")"
+            release/scripts/docker-smoke.sh "$img" --platform "$p" ${args[@]+"${args[@]}"}
+          done
       # Right before the tags move: still the latest published release, and no release publish queued or running
       # (docker.yml's own image wins). Otherwise this run stands down; the untagged digest stays unreferenced.
       - name: Still the latest release, and no release being published

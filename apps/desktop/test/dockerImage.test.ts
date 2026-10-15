@@ -304,6 +304,26 @@ exit 0`);
     });
   });
 
+  describe('platform-digest.sh (one platform of a pushed digest, by its own manifest digest)', () => {
+    const PD = path('.github/scripts/platform-digest.sh');
+    const AMD = `sha256:${'11'.repeat(32)}`;
+    beforeEach(() => {
+      stub('docker', `printf '%s' '{"manifests":[{"digest":"${AMD}","platform":{"os":"linux","architecture":"amd64"}},{"digest":"sha256:${'22'.repeat(32)}","platform":{"os":"linux","architecture":"arm64"}},{"digest":"sha256:${'33'.repeat(32)}","platform":{"os":"unknown","architecture":"unknown"}}]}'`);
+    });
+
+    it('prints name@digest of that platform\'s manifest', () => {
+      const r = run(PD, [`ghcr.io/o/r@${DIGEST}`, 'linux/amd64']);
+      expect(r.status, r.err).toBe(0);
+      expect(r.out.trim()).toBe(`ghcr.io/o/r@${AMD}`);
+      expect(r.calls).toEqual([`docker buildx imagetools inspect ghcr.io/o/r@${DIGEST} --format {{json .Manifest}}`]);
+    });
+
+    it('fails for a platform the index lacks, or a reference that is not a digest', () => {
+      expect(run(PD, [`ghcr.io/o/r@${DIGEST}`, 'linux/s390x']).status).toBe(1);
+      expect(run(PD, ['ghcr.io/o/r:latest', 'linux/amd64']).status).toBe(1);
+    });
+  });
+
   describe('install-trivy.sh', () => {
     it('pins Trivy by exact version and the sha256 of each platform\'s release archive', () => {
       const script = root('.github/scripts/install-trivy.sh');
