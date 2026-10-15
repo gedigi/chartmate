@@ -71,6 +71,13 @@ describe('loadConfig', () => {
     expect(loadConfig({ CRYPTO_PROVIDER: '' }).cryptoProvider).toBe('binance');
   });
 
+  it('BINANCE_BASE_URL must be an https URL without credentials, query or fragment', () => {
+    for (const bad of ['http://api.binance.example', 'ftp://x.example', 'https://user:pw@x.example', 'https://x.example/?a=1', 'https://x.example/#f']) {
+      expect(() => loadConfig({ BINANCE_BASE_URL: bad }), bad).toThrow(/BINANCE_BASE_URL/);
+    }
+    expect(loadConfig({ BINANCE_BASE_URL: 'https://x.example/base/' }).binanceBaseUrl).toBe('https://x.example/base');
+  });
+
   it('rejects a sqlite: DATABASE_URL with an empty path', () => {
     expect(() => loadConfig({ DATABASE_URL: 'sqlite:' })).toThrow(/DATABASE_URL.*empty.*path/i);
     expect(() => loadConfig({ DATABASE_URL: 'sqlite:  ' })).toThrow(/DATABASE_URL/);

@@ -47,6 +47,7 @@ app, the Docker image and the release tag share one version number.
   pauses quote requests for 30 seconds.
 - An unknown symbol is answered with a plain "Unknown symbol" message; the data provider's own error text is only
   logged by the server.
+- `BINANCE_BASE_URL` must be an `https://` URL (as in the desktop app); the server refuses to start otherwise.
 - A stock split the data provider reports a few days late is now still applied to cached history (and never
   twice).
 

@@ -297,7 +297,7 @@ created if missing).
 | `CHARTMATE_TRUST_PROXY` | unset (`false`) | `true`, a hop count (e.g. `1`), or an IP/CIDR list of trusted proxies. |
 | `CHARTMATE_ALLOWED_HOSTS` | unset | Comma-separated hostnames or IP addresses (no scheme or port; IPv6 in brackets) served besides `localhost`, `127.0.0.1` and `[::1]`. Enforced without a password, and with one when set; see [Security](#security). |
 | `CRYPTO_PROVIDER` | `binance` | `binance` or `coinbase`. |
-| `BINANCE_BASE_URL` | `https://data-api.binance.vision` | Alternate Binance-compatible endpoint. |
+| `BINANCE_BASE_URL` | `https://data-api.binance.vision` | Alternate Binance-compatible endpoint (`https://` only, no credentials, query or fragment). |
 | `CHARTMATE_PROVIDERS` | `live` | `fixture` serves deterministic synthetic data (tests/demos, no network). |
 | `CHARTMATE_WEB_DIST` | `apps/web/dist` (Docker: `/app/web`) | Directory of the built web app. |
 

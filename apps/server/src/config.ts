@@ -51,7 +51,11 @@ const EnvSchema = z.object({
   }).optional()),
   CHARTMATE_SESSION_SECRET: z.preprocess(blankToUndefined, z.string().min(16).optional()),
   CRYPTO_PROVIDER: z.preprocess(blankToUndefined, z.enum(['binance', 'coinbase']).default('binance')),
-  BINANCE_BASE_URL: z.preprocess(blankToUndefined, z.url().default('https://data-api.binance.vision')),
+  // https only: market data must not travel (or be tampered with) in clear text.
+  BINANCE_BASE_URL: z.preprocess(blankToUndefined, z.url({ protocol: /^https$/ }).refine((v) => {
+    const u = new URL(v);
+    return u.username === '' && u.password === '' && u.search === '' && u.hash === '';
+  }, { message: 'must be an https URL without credentials, query or fragment' }).default('https://data-api.binance.vision')),
   CHARTMATE_PROVIDERS: z.preprocess(blankToUndefined, z.enum(['live', 'fixture']).default('live')),
   CHARTMATE_WEB_DIST: z.preprocess(blankToUndefined, z.string().optional()),
   CHARTMATE_TRUST_PROXY: z.preprocess(blankToUndefined, z.string().optional()),
