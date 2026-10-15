@@ -35,7 +35,7 @@ export function testConfig(): Config {
 
 export interface TestApp { app: FastifyInstance; market: MarketDataService; baskets: BasketService; repos: Repos; close(): Promise<void> }
 
-export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () => number } = {}): Promise<TestApp> {
+export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () => number; version?: string } = {}): Promise<TestApp> {
   const h = await createTestDb();
   await migrate(h.db);
   const repos = createRepos(h.db, h.dialect);
@@ -47,7 +47,7 @@ export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () 
   const market = new MarketDataService({ repos, registry, queues, ...(opts.now ? { now: opts.now } : {}) });
   const baskets = new BasketService({ repos, market, ...(opts.now ? { now: opts.now } : {}) });
   const config: Config = { ...testConfig(), ...overrides };
-  const app = await buildApp({ config, repos, market, baskets, logger: false, now: opts.now });
+  const app = await buildApp({ config, repos, market, baskets, logger: false, now: opts.now, version: opts.version });
   return {
     app,
     market,
