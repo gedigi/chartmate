@@ -173,6 +173,8 @@ jobs:
           CHARTMATE_CERTUM_USERNAME: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.CHARTMATE_CERTUM_USERNAME || '' }}
           CHARTMATE_CERTUM_OTP_URI: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.CHARTMATE_CERTUM_OTP_URI || '' }}
           CHARTMATE_WIN_PUBLISHER_NAME: ${{ vars.CHARTMATE_WIN_PUBLISHER_NAME }}
+          # Full subject DN (at least CN, O, C) the update installer's signature must match; unset = no Windows updates.
+          CHARTMATE_WIN_PUBLISHER_DN: ${{ vars.CHARTMATE_WIN_PUBLISHER_DN }}
           CHARTMATE_CERTUM_SIMPLYSIGN_VERSION: ${{ vars.CHARTMATE_CERTUM_SIMPLYSIGN_VERSION }}
           CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256: ${{ vars.CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256 }}
           CHARTMATE_CERTUM_SIMPLYSIGN_SIGNER_SHA1: ${{ vars.CHARTMATE_CERTUM_SIMPLYSIGN_SIGNER_SHA1 }}

@@ -15,7 +15,20 @@ export const ARM_WINDOW_MS = 60_000;
  * Returns false (and changes nothing) off macOS or if the updater does not have that method, in which case the
  * listener stays refused and a macOS update install fails closed.
  */
-export function armOnUpdateDownloaded(updater: MacUpdaterLike, guard: ListenGuard, opts: { platform: NodeJS.Platform; onUnsupported?: () => void }): boolean {
+export function armOnUpdateDownloaded(
+  updater: MacUpdaterLike,
+  guard: ListenGuard,
+  opts: {
+    platform: NodeJS.Platform;
+    onUnsupported?: () => void;
+    /**
+     * Pre-install check of the downloaded update (gets updateDownloaded's arguments: zipFileInfo, then the event with
+     * `downloadedFile` and `version`). Throwing refuses the update: the guard is never armed and Squirrel.Mac never
+     * sees the file.
+     */
+    beforeHandOver?: (args: unknown[]) => Promise<void>;
+  },
+): boolean {
   if (opts.platform !== 'darwin') return false;
   const original = updater.updateDownloaded;
   if (typeof original !== 'function') {
@@ -23,6 +36,7 @@ export function armOnUpdateDownloaded(updater: MacUpdaterLike, guard: ListenGuar
     return false;
   }
   updater.updateDownloaded = async function armed(this: unknown, ...args: unknown[]) {
+    await opts.beforeHandOver?.(args);
     const disarm = guard.armForUpdateInstall(ARM_WINDOW_MS);
     try {
       return await original.apply(this ?? updater, args);

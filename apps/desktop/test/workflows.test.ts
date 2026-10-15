@@ -274,6 +274,26 @@ describe('desktop.yml secret scoping and release', () => {
       expect(smoke.env?.SIGNING, job).toBe('${{ steps.package.outputs.signing }}');
     }
   });
+  it('auto-update: both packaging steps write app-update.yml for this repository, and the release carries what electron-updater fetches', () => {
+    for (const [job, step] of [['package-mac', 'Bundle, package, sign, notarize (macOS)'], ['package-win', 'Bundle, package, sign (Windows)']]) {
+      const s = (wf.jobs[job!].steps as Step[]).find((x) => x.name === step)!;
+      expect(s.env?.CHARTMATE_PUBLISH, job).toBe('github'); // owner/repo from GITHUB_REPOSITORY (build/builder-config.cjs)
+      expect(s.run, job).toMatch(/--publish never/);
+    }
+    const uploaded = (job: string) => String((wf.jobs[job].steps as Step[]).find((s) => s.uses?.startsWith('actions/upload-artifact@'))!.with!.path);
+    // macOS: Squirrel.Mac installs from the zip; latest-mac.yml lists it; the blockmaps enable differential downloads.
+    expect(uploaded('package-mac')).toMatch(/release\/\*\.zip/);
+    expect(uploaded('package-mac')).toMatch(/release\/\*\.blockmap/);
+    expect(uploaded('package-mac')).toMatch(/release\/latest-mac\.yml/);
+    expect(uploaded('package-win')).toMatch(/release\/latest\.yml/);
+    const create = (wf.jobs.release.steps as Step[]).map((s) => s.run ?? '').join('\n');
+    expect(create).toMatch(/gh release create[\s\S]*dist\/\*\.zip dist\/\*\.exe dist\/\*\.blockmap dist\/latest\*\.yml/);
+    expect(create).not.toMatch(/--draft/); // electron-updater only sees published releases
+  });
+  it('Windows packaging gets the publisher DN pin (a repository variable) for the update signature check', () => {
+    const s = (wf.jobs['package-win'].steps as Step[]).find((x) => x.name === 'Bundle, package, sign (Windows)')!;
+    expect(s.env?.CHARTMATE_WIN_PUBLISHER_DN).toBe('${{ vars.CHARTMATE_WIN_PUBLISHER_DN }}');
+  });
 });
 
 describe('docker.yml publish', () => {

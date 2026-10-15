@@ -5,7 +5,7 @@ import './boot.js'; // MUST stay first: command-line switch guard + environment 
 import net from 'node:net';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { app, BrowserWindow, dialog, Menu, protocol, screen, session } from 'electron';
+import { app, BrowserWindow, dialog, Menu, protocol, screen, session, shell } from 'electron';
 import product from '../product.json' with { type: 'json' };
 import { BasketService } from '../../server/src/baskets/service.js';
 import { buildApp } from '../../server/src/app.js';
@@ -28,7 +28,10 @@ import { createNodeSqliteDb, type NodeSqliteHandle } from './lib/nodeSqlite.js';
 import { createAppProtocolHandler } from './lib/protocol.js';
 import { ensurePrivateDir, migrateLegacyUserData, restrictFiles } from './lib/storage.js';
 import { frameOptions, themeFromThemeColor, titleBarOverlay } from './lib/titleBar.js';
-import { shouldEnableAutoUpdate } from './lib/updatePolicy.js';
+import { isAllowedReleasesUrl } from './lib/releasesPage.js';
+import type { UpdateController } from './lib/updateController.js';
+import { startUpdatesSafely, unsupportedUpdateMessage, type UpdateMenuState } from './lib/updateMenu.js';
+import { updateAvailability, type UpdateAvailability } from './lib/updatePolicy.js';
 import {
   BACKGROUND, DEFAULT_SIZE, loadWindowState, MIN_SIZE, saveWindowState, visibleBounds, type WindowState,
 } from './lib/windowState.js';
@@ -38,6 +41,10 @@ declare const __WEB_ROOT_REL__: string;
 declare const __TEST_INSPECTABLE__: boolean;
 /** Build signed for THIS platform (build/signing.cjs, decided at bundle time). False → updater not even bundled. */
 declare const __BUILD_SIGNED__: boolean;
+/** https://github.com/<owner>/<name>/releases of the repository the app was built from (GITHUB_REPOSITORY), or ''. */
+declare const __RELEASES_URL__: string;
+/** Windows publisher DN pinned at bundle time (CHARTMATE_WIN_PUBLISHER_DN), or ''. */
+declare const __WIN_PUBLISHER_DN__: string;
 
 const t0 = Date.now() - Math.round(process.uptime() * 1000);
 const isPackaged = app.isPackaged;
@@ -140,12 +147,53 @@ async function start(): Promise<void> {
   hardenAllSessions(app, [session.defaultSession], hardenOpts);
 
   if (!isPackaged && process.platform === 'darwin') app.dock?.setIcon(join(__dirname, 'icon.png'));
-  Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({ isMac: process.platform === 'darwin', isPackaged, appName: product.productName })));
+  updateState = updatesAvailability();
+  setMenu();
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-  maybeStartUpdater();
+  if (updateState === 'enabled') {
+    // A broken updater never takes the app down: log it and carry on with updates unavailable.
+    const started = await startUpdatesSafely(startUpdater, (err) => log.error('updater failed to start', err));
+    updates = started.controller;
+    updateState = started.availability;
+    setMenu();
+  }
+}
+
+let updateState: UpdateAvailability = 'unavailable';
+let updates: UpdateController | null = null;
+
+function setMenu(): void {
+  const isMac = process.platform === 'darwin';
+  const state: UpdateMenuState = updates
+    ? { kind: 'enabled', automatic: updates.automatic }
+    : { kind: updateState === 'enabled' ? 'unavailable' : updateState };
+  Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({
+    isMac, isPackaged, appName: product.productName,
+    updates: {
+      state,
+      onCheck: () => {
+        if (updates) void updates.checkNow();
+        else if (state.kind === 'unsigned' || state.kind === 'unavailable') void explainNoUpdates(state.kind);
+      },
+      onToggleAutomatic: (on) => updates?.setAutomatic(on),
+    },
+  })));
+}
+
+/** "Check for Updates…" (macOS) in a build that cannot update itself: explain, and offer the releases page. */
+async function explainNoUpdates(kind: 'unsigned' | 'unavailable'): Promise<void> {
+  const url = __RELEASES_URL__;
+  const hasReleasesPage = isAllowedReleasesUrl(url, url);
+  const m = unsupportedUpdateMessage(kind, { appName: product.productName, hasReleasesPage });
+  const opts = { ...m, title: product.productName, noLink: true };
+  const { response } = mainWindow ? await dialog.showMessageBox(mainWindow, opts) : await dialog.showMessageBox(opts);
+  // The only URL ever handed to the OS browser: the exact build-time releases page, re-validated right here.
+  if (hasReleasesPage && response === 0) {
+    await shell.openExternal(url).catch((err: unknown) => log.error('could not open the releases page', err));
+  }
 }
 
 function createWindow(): void {
@@ -228,19 +276,23 @@ function createWindow(): void {
   void win.loadURL(APP_ENTRY_URL);
 }
 
-function maybeStartUpdater(): void {
-  // Unsigned builds: this whole function body is compiled out (and dist/updater.cjs is not even produced).
-  if (!__BUILD_SIGNED__) return;
+function updatesAvailability(): UpdateAvailability {
+  const input = {
+    isPackaged, productAutoUpdate: product.autoUpdate === true, platform: process.platform, env: process.env, winPublisherDn: __WIN_PUBLISHER_DN__,
+  };
+  // Unsigned builds: the rest of this function is compiled out (and dist/updater.cjs is not even produced).
+  if (!__BUILD_SIGNED__) return updateAvailability({ ...input, isSigned: false, updateConfig: null });
   const ymlPath = join(process.resourcesPath, 'app-update.yml');
   const updateConfig = isPackaged && existsSync(ymlPath) ? readFileSync(ymlPath, 'utf8') : null;
-  if (!shouldEnableAutoUpdate({
-    isPackaged, productAutoUpdate: product.autoUpdate === true, isSigned: __BUILD_SIGNED__, platform: process.platform,
-    updateConfig, env: process.env,
-  })) return;
+  return updateAvailability({ ...input, isSigned: __BUILD_SIGNED__, updateConfig });
+}
+
+async function startUpdater(): Promise<UpdateController | null> {
+  if (!__BUILD_SIGNED__) return null;
   // Loaded only when enabled: electron-updater is a separate bundle that costs nothing otherwise.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { startAutoUpdate } = require('./updater.cjs') as typeof import('./updater.js');
-  startAutoUpdate(log, listenGuard);
+  return startAutoUpdate({ log, listenGuard, appName: product.productName, settingsDir: userData, onChange: setMenu });
 }
 
 app.on('window-all-closed', () => {

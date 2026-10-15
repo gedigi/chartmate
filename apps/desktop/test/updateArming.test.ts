@@ -44,6 +44,23 @@ describe('armOnUpdateDownloaded', () => {
     expect(disarm).toHaveBeenCalled();
   });
 
+  it('runs the pre-install check first; a refusal never arms the guard or reaches Squirrel', async () => {
+    const g = { armForUpdateInstall: vi.fn(() => () => {}), uninstall: () => {} };
+    const original = vi.fn(async () => []);
+    const updater = { updateDownloaded: original as (...a: unknown[]) => Promise<unknown> };
+    const check = vi.fn(async (args: unknown[]) => {
+      if ((args[1] as { version: string }).version === '0.9.0') throw new Error('older');
+    });
+    armOnUpdateDownloaded(updater, g, { platform: 'darwin', beforeHandOver: check });
+    await expect(updater.updateDownloaded({}, { version: '0.9.0', downloadedFile: '/x.zip' })).rejects.toThrow('older');
+    expect(g.armForUpdateInstall).not.toHaveBeenCalled();
+    expect(original).not.toHaveBeenCalled();
+    await updater.updateDownloaded({}, { version: '1.2.0', downloadedFile: '/x.zip' });
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(g.armForUpdateInstall).toHaveBeenCalledTimes(1);
+    expect(original).toHaveBeenCalledTimes(1);
+  });
+
   it('does nothing off macOS, or when the updater lacks the hook (fails closed)', () => {
     const g = { armForUpdateInstall: vi.fn(), uninstall: () => {} };
     expect(armOnUpdateDownloaded({ updateDownloaded: async () => [] }, g, { platform: 'win32' })).toBe(false);

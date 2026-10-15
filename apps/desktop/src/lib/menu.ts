@@ -1,10 +1,14 @@
 import type { MenuItemConstructorOptions } from 'electron';
+import { updateMenuItems, type UpdateMenuOptions } from './updateMenu.js';
 
 /**
  * Application menu. macOS gets the standard app/Edit/View/Window menus (Edit is what makes ⌘C/⌘V/⌘A work in
  * text fields); Windows gets Edit/View/Window under a File menu. DevTools entries exist only in development.
+ * The update items (`updates`) go under About in the macOS app menu. Windows gets none: its frameless window has
+ * no visible menu bar, so they would be unreachable there.
  */
-export function menuTemplate(opts: { isMac: boolean; isPackaged: boolean; appName: string }): MenuItemConstructorOptions[] {
+export function menuTemplate(opts: { isMac: boolean; isPackaged: boolean; appName: string; updates?: UpdateMenuOptions }): MenuItemConstructorOptions[] {
+  const updates = opts.isMac && opts.updates ? updateMenuItems(opts.updates) : [];
   const view: MenuItemConstructorOptions[] = [
     { role: 'reload' },
     { role: 'forceReload' },
@@ -21,7 +25,7 @@ export function menuTemplate(opts: { isMac: boolean; isPackaged: boolean; appNam
       ? [{
         label: opts.appName,
         submenu: [
-          { role: 'about' }, { type: 'separator' }, { role: 'services' }, { type: 'separator' },
+          { role: 'about' }, ...updates, { type: 'separator' }, { role: 'services' }, { type: 'separator' },
           { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' },
         ],
       } as MenuItemConstructorOptions]
