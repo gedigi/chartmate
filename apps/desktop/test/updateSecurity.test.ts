@@ -1,10 +1,10 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { deflateRawSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';
 import { compareSemver, isNewerVersion, isPrereleaseVersion, parseSemver } from '../src/lib/semver.js';
-import { checkDownloadedBundle, plistBundleVersion, readZipEntry } from '../src/lib/updateBundle.js';
+import { type BundleExec, checkDownloadedBundle, DITTO, PLUTIL } from '../src/lib/updateBundle.js';
 import { createWindowsSignatureVerifier, isPinnedPublisherDn, parseDn, subjectMatches } from '../src/lib/winSignature.js';
 
 describe('semver', () => {
@@ -33,91 +33,121 @@ describe('semver', () => {
   });
 });
 
-/** Minimal zip writer (local headers + central directory + EOCD) for test fixtures. */
-function zip(entries: { name: string; data: Buffer; deflate?: boolean }[]): Buffer {
-  const locals: Buffer[] = [];
-  const centrals: Buffer[] = [];
-  let offset = 0;
-  for (const e of entries) {
-    const name = Buffer.from(e.name);
-    const body = e.deflate ? deflateRawSync(e.data) : e.data;
-    const local = Buffer.alloc(30);
-    local.writeUInt32LE(0x04034b50, 0);
-    local.writeUInt16LE(20, 4);
-    local.writeUInt16LE(e.deflate ? 8 : 0, 8);
-    local.writeUInt32LE(body.length, 18);
-    local.writeUInt32LE(e.data.length, 22);
-    local.writeUInt16LE(name.length, 26);
-    const central = Buffer.alloc(46);
-    central.writeUInt32LE(0x02014b50, 0);
-    central.writeUInt16LE(20, 6);
-    central.writeUInt16LE(e.deflate ? 8 : 0, 10);
-    central.writeUInt32LE(body.length, 20);
-    central.writeUInt32LE(e.data.length, 24);
-    central.writeUInt16LE(name.length, 28);
-    central.writeUInt32LE(offset, 42);
-    locals.push(local, name, body);
-    centrals.push(central, name);
-    offset += local.length + name.length + body.length;
+const isMac = process.platform === 'darwin';
+const run = (cmd: string, args: string[]) => execFileSync(cmd, args, { stdio: 'pipe' });
+
+/** A fake update zip, built the way releases are (ditto -c -k --keepParent): `apps` maps app name → version. */
+function appZip(apps: Record<string, string | null>, o: { binary?: boolean; extra?: string } = {}): string {
+  const root = mkdtempSync(join(tmpdir(), 'update-src-'));
+  const src = join(root, 'payload');
+  mkdirSync(src);
+  for (const [name, version] of Object.entries(apps)) {
+    mkdirSync(join(src, name, 'Contents', 'MacOS'), { recursive: true });
+    writeFileSync(join(src, name, 'Contents', 'MacOS', 'x'), 'x');
+    if (version !== null) {
+      const plist = join(src, name, 'Contents', 'Info.plist');
+      writeFileSync(plist, `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>CFBundleName</key><string>Chartmate</string>
+<key>CFBundleShortVersionString</key><string>${version}</string></dict></plist>`);
+      if (o.binary) run('/usr/bin/plutil', ['-convert', 'binary1', plist]);
+    }
   }
-  const cd = Buffer.concat(centrals);
-  const eocd = Buffer.alloc(22);
-  eocd.writeUInt32LE(0x06054b50, 0);
-  eocd.writeUInt16LE(entries.length, 8);
-  eocd.writeUInt16LE(entries.length, 10);
-  eocd.writeUInt32LE(cd.length, 12);
-  eocd.writeUInt32LE(offset, 16);
-  return Buffer.concat([...locals, cd, eocd]);
+  if (o.extra) writeFileSync(join(src, o.extra), 'x');
+  const zipFile = join(root, 'u.zip');
+  const names = Object.keys(apps);
+  if (names.length === 1 && !o.extra) run('/usr/bin/ditto', ['-c', '-k', '--keepParent', join(src, names[0]!), zipFile]);
+  else run('/usr/bin/ditto', ['-c', '-k', src, zipFile]);
+  return zipFile;
 }
 
-const plist = (v: string) => Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
-<plist version="1.0"><dict><key>CFBundleName</key><string>Chartmate</string>
-<key>CFBundleShortVersionString</key>
-<string>${v}</string></dict></plist>`);
-
-const write = (b: Buffer) => {
-  const f = join(mkdtempSync(join(tmpdir(), 'update-zip-')), 'u.zip');
-  writeFileSync(f, b);
-  return f;
+const tmpRoots: string[] = [];
+const privateTmp = () => {
+  const d = mkdtempSync(join(tmpdir(), 'update-check-'));
+  tmpRoots.push(d);
+  return d;
 };
+const leftovers = (d: string) => readdirSync(d);
 
-describe('downloaded macOS bundle version (checked before the hand-over to Squirrel.Mac)', () => {
-  it('reads Info.plist from the zip (stored or deflated) and parses CFBundleShortVersionString', async () => {
-    for (const deflate of [false, true]) {
-      const f = write(zip([
-        { name: 'Chartmate.app/Contents/Frameworks/x/Info.plist', data: plist('9.9.9') },
-        { name: 'Chartmate.app/Contents/Info.plist', data: plist('1.2.0'), deflate },
-      ]));
-      const entry = await readZipEntry(f, (n) => /^[^/]+\.app\/Contents\/Info\.plist$/.test(n), 1 << 20);
-      expect(plistBundleVersion(entry!.toString('utf8'))).toBe('1.2.0');
-    }
+describe.skipIf(!isMac)('downloaded macOS bundle version (ditto + plutil, before the Squirrel.Mac hand-over)', () => {
+  it('accepts only a newer version that matches the advertised one, and cleans up', async () => {
+    const zipFile = appZip({ 'Chartmate.app': '1.2.0' });
+    const t = privateTmp();
+    await expect(checkDownloadedBundle(zipFile, { advertised: '1.2.0', current: '1.1.0', tmpRoot: t })).resolves.toBeUndefined();
+    await expect(checkDownloadedBundle(zipFile, { advertised: '1.3.0', current: '1.1.0', tmpRoot: t })).rejects.toThrow(/does not match/);
+    await expect(checkDownloadedBundle(zipFile, { advertised: '1.2.0', current: '1.2.0', tmpRoot: t })).rejects.toThrow(/not newer/);
+    await expect(checkDownloadedBundle(zipFile, { advertised: '1.2.0', current: '1.5.0', tmpRoot: t })).rejects.toThrow(/not newer/);
+    expect(leftovers(t)).toEqual([]);
   });
-  it('accepts only a newer version that matches the advertised one', async () => {
-    const f = write(zip([{ name: 'Chartmate.app/Contents/Info.plist', data: plist('1.2.0'), deflate: true }]));
-    await expect(checkDownloadedBundle(f, { advertised: '1.2.0', current: '1.1.0' })).resolves.toBeUndefined();
-    await expect(checkDownloadedBundle(f, { advertised: '1.3.0', current: '1.1.0' })).rejects.toThrow(/does not match/);
-    await expect(checkDownloadedBundle(f, { advertised: '1.2.0', current: '1.2.0' })).rejects.toThrow(/not newer/);
-    await expect(checkDownloadedBundle(f, { advertised: '1.2.0', current: '1.5.0' })).rejects.toThrow(/not newer/);
+  it('reads binary plists too', async () => {
+    const zipFile = appZip({ 'Chartmate.app': '1.2.0' }, { binary: true });
+    await expect(checkDownloadedBundle(zipFile, { advertised: '1.2.0', current: '1.1.0', tmpRoot: privateTmp() })).resolves.toBeUndefined();
   });
-  it('fails closed on anything unexpected', async () => {
-    const noPlist = write(zip([{ name: 'Chartmate.app/Contents/MacOS/x', data: Buffer.from('x') }]));
-    await expect(checkDownloadedBundle(noPlist, { advertised: '1.2.0', current: '1.1.0' })).rejects.toThrow();
-    const binary = write(zip([{ name: 'Chartmate.app/Contents/Info.plist', data: Buffer.from('bplist00....') }]));
-    await expect(checkDownloadedBundle(binary, { advertised: '1.2.0', current: '1.1.0' })).rejects.toThrow();
-    const two = write(zip([
-      { name: 'A.app/Contents/Info.plist', data: plist('1.2.0') },
-      { name: 'B.app/Contents/Info.plist', data: plist('1.2.0') },
-    ]));
-    await expect(checkDownloadedBundle(two, { advertised: '1.2.0', current: '1.1.0' })).rejects.toThrow(/one app/);
-    await expect(checkDownloadedBundle(write(Buffer.from('not a zip')), { advertised: '1.2.0', current: '1.1.0' })).rejects.toThrow();
-    const huge = write(zip([{ name: 'Chartmate.app/Contents/Info.plist', data: Buffer.alloc(2 << 20, 0x20) }]));
-    await expect(checkDownloadedBundle(huge, { advertised: '1.2.0', current: '1.1.0' })).rejects.toThrow();
-  });
-  it('plistBundleVersion rejects non-semver and duplicate keys', () => {
-    expect(plistBundleVersion('<key>CFBundleShortVersionString</key><string>1.2</string>')).toBeNull();
-    expect(plistBundleVersion('<key>CFBundleShortVersionString</key><string>1.2.0</string><key>CFBundleShortVersionString</key><string>1.3.0</string>')).toBeNull();
+  it('fails closed: two apps, extra top-level files, no plist, a non-semver version, or not a zip', async () => {
+    const t = privateTmp();
+    const opts = { advertised: '1.2.0', current: '1.1.0', tmpRoot: t };
+    await expect(checkDownloadedBundle(appZip({ 'A.app': '1.2.0', 'B.app': '1.2.0' }), opts)).rejects.toThrow(/exactly one app/);
+    await expect(checkDownloadedBundle(appZip({ 'Chartmate.app': '1.2.0' }, { extra: 'README' }), opts)).rejects.toThrow(/exactly one app/);
+    await expect(checkDownloadedBundle(appZip({ 'Chartmate.app': null }), opts)).rejects.toThrow();
+    await expect(checkDownloadedBundle(appZip({ 'Chartmate.app': '1.2' }), opts)).rejects.toThrow(/no valid version/);
+    const notZip = join(privateTmp(), 'x.zip');
+    writeFileSync(notZip, 'not a zip');
+    await expect(checkDownloadedBundle(notZip, opts)).rejects.toThrow();
+    expect(leftovers(t)).toEqual([]);
   });
 });
+
+describe('downloaded bundle check: process handling (any platform, fake runner)', () => {
+  it('uses ditto and plutil by absolute path, with a timeout and no shell, in a private temp dir', async () => {
+    const calls: { cmd: string; args: string[]; opts: { timeout: number; shell?: boolean } }[] = [];
+    const t = privateTmp();
+    const exec: BundleExec = async (cmd, args, opts) => {
+      calls.push({ cmd, args, opts });
+      if (cmd === DITTO) mkdirSync(join(args[3]!, 'Chartmate.app', 'Contents'), { recursive: true });
+      return { stdout: cmd === PLUTIL ? '1.2.0\n' : '', stderr: '' };
+    };
+    const zipFile = join(t, 'u.zip');
+    writeFileSync(zipFile, 'zip');
+    await checkDownloadedBundle(zipFile, { advertised: '1.2.0', current: '1.1.0', tmpRoot: t, exec });
+    expect(calls.map((c) => c.cmd)).toEqual(['/usr/bin/ditto', '/usr/bin/plutil']);
+    expect(calls[0]!.args.slice(0, 3)).toEqual(['-x', '-k', zipFile]);
+    expect(calls[1]!.args).toEqual(['-extract', 'CFBundleShortVersionString', 'raw', '-o', '-', expect.stringMatching(/Chartmate\.app\/Contents\/Info\.plist$/)]);
+    for (const c of calls) {
+      expect(c.opts.timeout).toBeGreaterThan(0);
+      expect(c.opts.shell).not.toBe(true);
+    }
+    const extractDir = calls[0]!.args[3]!;
+    if (process.platform !== 'win32') expect(statSafe(extractDir)).toBeNull(); // removed afterwards
+    expect(leftovers(t)).toEqual(['u.zip']);
+  });
+  it('refuses when extraction fails or times out, and still cleans up', async () => {
+    const t = privateTmp();
+    const zipFile = join(t, 'u.zip');
+    writeFileSync(zipFile, 'zip');
+    const exec: BundleExec = async (cmd, args) => {
+      if (cmd === DITTO) {
+        mkdirSync(join(args[3]!, 'partial'), { recursive: true });
+        throw Object.assign(new Error('timed out'), { killed: true });
+      }
+      return { stdout: '1.2.0', stderr: '' };
+    };
+    await expect(checkDownloadedBundle(zipFile, { advertised: '1.2.0', current: '1.1.0', tmpRoot: t, exec })).rejects.toThrow(/could not be extracted/);
+    expect(leftovers(t)).toEqual(['u.zip']);
+  });
+  it('refuses an oversized or missing download before extracting', async () => {
+    const exec = vi.fn<BundleExec>();
+    await expect(checkDownloadedBundle('/nonexistent/u.zip', { advertised: '1.2.0', current: '1.1.0', tmpRoot: privateTmp(), exec })).rejects.toThrow();
+    expect(exec).not.toHaveBeenCalled();
+  });
+});
+
+const statSafe = (p: string) => {
+  try {
+    return statSync(p);
+  } catch {
+    return null;
+  }
+};
 
 const DN = 'CN="Open Source Developer, Jane Doe", O=Open Source Developer, L=Szczecin, C=PL';
 
