@@ -11,6 +11,7 @@ import { drawingsStore } from '../state/drawingsStore';
 import { DrawingsNote } from './DrawingsSave';
 import { SaveNote, type SaveNoteState } from './SaveNote';
 import { retryDelayMs } from '../state/retry';
+import { scrollFade, useScrollEdges } from '../state/useScrollEdges';
 import { DrawingStyleBar } from './DrawingStyleBar';
 import { DrawingToolbar } from './DrawingToolbar';
 import { IndicatorChips } from './IndicatorChips';
@@ -120,6 +121,10 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
   const [range, setRange] = useState<ActiveRange | null>(null);
   /** Bumped by each range pick and by symbol / interval / session changes: a pending All probe then gives up. */
   const rangeSeq = useRef(0);
+  /** The pending All history lookup: aborted by the next pick, a symbol / interval / session change or unmounting. */
+  const allLookup = useRef<AbortController | null>(null);
+  /** The symbol whose data has arrived at least once: until then the range row is disabled (not on every reload). */
+  const [dataFor, setDataFor] = useState<SymbolId | null>(null);
 
   // Adapter lifetime + resize.
   useEffect(() => {
@@ -183,6 +188,7 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
         setMeta(m);
         setDataSettled(true);
         setDataReceived(true);
+        setDataFor(info.id);
       },
       onError: (e) => { if (active) setToast(errorMessage(e)); },
       onConnection: (lost, e) => {
@@ -209,8 +215,13 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
   }, [adapter, range, info, tf, session, pollMs, basketHasCrypto, reloadKey]);
   useEffect(() => {
     rangeSeq.current++;
+    allLookup.current?.abort();
     setRange((r) => (r && (r.symbol !== symbol || r.tf !== tf || r.session !== session) ? null : r));
   }, [symbol, tf, session]);
+  useEffect(() => () => {
+    rangeSeq.current++;
+    allLookup.current?.abort();
+  }, []);
   useEffect(() => adapter?.onRangeCanceled(() => setRange(null)), [adapter]);
   const [shown, setShown] = useState<ShownRange | null>(null);
   useEffect(() => adapter?.onRangeShown(setShown), [adapter]);
@@ -218,6 +229,7 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
   const selectRange = useCallback((preset: RangePreset) => {
     if (!adapter || !info) return;
     const seq = ++rangeSeq.current;
+    allLookup.current?.abort(); // a newer pick wins over a pending All
     const show = (rangeTf: Timeframe) => {
       if (seq !== rangeSeq.current) return; // superseded while All looked up the history
       setRange({ preset, symbol: info.id, tf: rangeTf, session, calendar });
@@ -229,11 +241,17 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
     }
     // All: weekly bars, or monthly ones when the weekly history would not fit the chart (one monthly page tells).
     const now = Date.now();
-    api.bars({ symbol: info.id, tf: '1M', session, from: now - initialWindowMs('1M'), to: now }).then(
-      (r) => show(rangeTimeframe('All', allTimeframe(r.hasMoreBefore ? 0 : (r.bars[0]?.ts ?? null), r.bars.at(-1)?.ts ?? now, adapter.plotWidth()))),
-      () => show(rangeTimeframe('All')),
-    );
+    const lookup = new AbortController();
+    allLookup.current = lookup;
+    api.bars({ symbol: info.id, tf: '1M', session, from: now - initialWindowMs('1M'), to: now }, lookup.signal).then(
+      (r) => {
+        if (lookup.signal.aborted) return;
+        show(rangeTimeframe('All', allTimeframe(r.hasMoreBefore ? 0 : (r.bars[0]?.ts ?? null), r.bars.at(-1)?.ts ?? now, adapter.plotWidth())));
+      },
+      () => { if (!lookup.signal.aborted) show(rangeTimeframe('All')); },
+    ).finally(() => { if (allLookup.current === lookup) allLookup.current = null; });
   }, [adapter, info, session, calendar, setLayout]);
+  const [bottomRowRef, bottomRowEdges] = useScrollEdges();
   const activeRange = range && range.symbol === symbol && range.tf === tf && range.session === session ? range.preset : null;
   const rangeSpan = activeRange !== null && shown?.preset === activeRange ? shown.label : '';
 
@@ -432,8 +450,10 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
           )}
         </div>
         {/* Bottom row, under the time axis (in flow, like the top row: it never covers plot data). */}
-        <div className="chart-bottomrow">
-          <RangeBar value={activeRange} onSelect={selectRange} disabled={!info || pollMs === null || !dataReceived || symbolFailed} />
+        {/* Scrolls sideways on a narrow chart, its hidden edge(s) faded. Enabled once the symbol has data (not on each
+            reload: a range switching the interval must not take the focus away from its button). */}
+        <div className="chart-bottomrow" ref={bottomRowRef} data-fade={scrollFade(bottomRowEdges)}>
+          <RangeBar value={activeRange} onSelect={selectRange} disabled={!info || pollMs === null || dataFor !== symbol || symbolFailed} />
           <span className="range-span" role="status" data-testid="range-span">{rangeSpan}</span>
         </div>
       </div>

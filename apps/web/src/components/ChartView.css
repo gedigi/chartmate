@@ -44,6 +44,13 @@
   overflow-x: auto; scrollbar-width: none;
 }
 .chart-bottomrow::-webkit-scrollbar { display: none; }
+/* A narrow row hides some presets: the edge(s) hiding them fade out (a mask, so it suits both themes' sheet). */
+.chart-bottomrow { --fade: 28px; }
+.chart-bottomrow[data-fade='end'] { mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent); }
+.chart-bottomrow[data-fade='start'] { mask-image: linear-gradient(to left, #000 calc(100% - var(--fade)), transparent); }
+.chart-bottomrow[data-fade='both'] {
+  mask-image: linear-gradient(to right, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent);
+}
 .chart-bottomrow .range-bar { flex: none; gap: 1px; padding: 0; background: none; border-color: transparent; }
 .chart-bottomrow .range-bar button { flex: none; min-height: 22px; padding: 1px 8px; font-size: 11.5px; font-weight: 500; letter-spacing: 0.01em; }
 .chart-bottomrow .range-bar button:disabled { opacity: 0.5; cursor: default; }

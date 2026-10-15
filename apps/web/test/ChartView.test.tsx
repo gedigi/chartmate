@@ -1,5 +1,6 @@
 import type { Basket, Layout, SymbolInfo } from '@chartmate/shared';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api/client';
 import { notifyBasketChanged } from '../src/state/useBaskets';
@@ -664,14 +665,14 @@ describe('ChartView date ranges', () => {
     });
     const r = render(<ChartView layout={layout} setLayout={setLayout} symbolInfo={info} theme="dark" />);
     return {
-      setLayout, layout: () => layout,
+      setLayout, layout: () => layout, unmount: () => r.unmount(),
       rerender: (l: Layout) => { layout = l; r.rerender(<ChartView layout={l} setLayout={setLayout} symbolInfo={info} theme="dark" />); },
     };
   }
   const rangeButton = (name: string) => within(screen.getByRole('group', { name: 'Date range' })).getByRole('button', { name });
   const dataIn = () => act(() => adapter().events!.onMeta(meta()));
 
-  it('sits in a row under the chart, disabled until the first data arrives', async () => {
+  it('sits in a row under the chart, disabled until the symbol\'s first data arrives', async () => {
     renderLive(LAYOUT);
     await flush();
     const group = screen.getByRole('group', { name: 'Date range' });
@@ -679,6 +680,37 @@ describe('ChartView date ranges', () => {
     expect(rangeButton('1Y')).toBeDisabled();
     dataIn();
     expect(rangeButton('1Y')).toBeEnabled();
+  });
+
+  it('stays enabled while a picked range loads its interval: the clicked button keeps the focus', async () => {
+    const v = renderLive(LAYOUT);
+    await flush();
+    dataIn();
+    await userEvent.click(rangeButton('1Y'));
+    expect(v.layout().tf).toBe('1D');
+    expect(adapter().load.mock.calls.at(-1)![0]).toMatchObject({ tf: '1D' }); // reloading: no data of 1D yet
+    expect(rangeButton('1Y')).toBeEnabled();
+    expect(rangeButton('5D')).toBeEnabled();
+    expect(document.activeElement).toBe(rangeButton('1Y'));
+  });
+
+  it('a new symbol disables the row until its own data arrives', async () => {
+    const v = renderLive(LAYOUT);
+    await flush();
+    dataIn();
+    act(() => v.rerender({ ...v.layout(), symbol: 'stock:MSFT' }));
+    expect(rangeButton('1Y')).toBeDisabled();
+  });
+
+  it('fades the row\'s edges where it scrolls (narrow charts)', async () => {
+    renderLive(LAYOUT);
+    await flush();
+    const row = screen.getByRole('group', { name: 'Date range' }).closest('.chart-bottomrow') as HTMLElement;
+    expect(row.dataset.fade).toBe('none');
+    Object.defineProperty(row, 'scrollWidth', { configurable: true, value: 500 });
+    Object.defineProperty(row, 'clientWidth', { configurable: true, value: 300 });
+    fireEvent.scroll(row);
+    expect(row.dataset.fade).toBe('end');
   });
 
   it('1Y on a 5m chart switches to 1D, then shows the range on the new data (selected)', async () => {
@@ -767,7 +799,7 @@ describe('ChartView date ranges', () => {
     await flush();
     dataIn();
     await act(async () => { fireEvent.click(rangeButton('All')); });
-    expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: AAPL.id, tf: '1M', session: 'eth' }));
+    expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: AAPL.id, tf: '1M', session: 'eth' }), expect.any(AbortSignal));
     expect(v.layout().tf).toBe('1W'); // ~6 years: ~310 weekly bars on a 1000 px plot
     expect(adapter().showRange).toHaveBeenLastCalledWith('All', 'stock');
     expect(rangeButton('All')).toHaveAttribute('aria-pressed', 'true');
@@ -781,6 +813,37 @@ describe('ChartView date ranges', () => {
     expect(v.layout().tf).toBe('1W');
   });
 
+  it('All: a second pick aborts the pending history lookup; unmounting aborts it too', async () => {
+    const signals: AbortSignal[] = [];
+    const resolvers: Array<(v: unknown) => void> = [];
+    vi.spyOn(api, 'bars').mockImplementation((_p, signal) => {
+      signals.push(signal!);
+      return new Promise((r) => { resolvers.push(r); }) as never;
+    });
+    const v = renderLive(LAYOUT);
+    await flush();
+    dataIn();
+    act(() => { fireEvent.click(rangeButton('All')); });
+    act(() => { fireEvent.click(rangeButton('All')); });
+    expect(signals).toHaveLength(2);
+    expect(signals[0]!.aborted).toBe(true);
+    expect(signals[1]!.aborted).toBe(false);
+    const empty = { bars: [], hasMoreBefore: false };
+    await act(async () => { resolvers[0]!(empty); });
+    expect(v.setLayout).not.toHaveBeenCalled(); // the aborted lookup does nothing
+    await act(async () => { resolvers[1]!(empty); });
+    expect(v.layout().tf).toBe('1W');
+    dataIn();
+    act(() => { fireEvent.click(rangeButton('All')); });
+    act(() => { fireEvent.click(rangeButton('1Y')); }); // any other pick aborts it as well
+    expect(signals[2]!.aborted).toBe(true);
+    expect(v.layout().tf).toBe('1D');
+    dataIn();
+    act(() => { fireEvent.click(rangeButton('All')); });
+    v.unmount();
+    expect(signals[3]!.aborted).toBe(true);
+  });
+
   it('All gives up when the symbol changes during its history lookup', async () => {
     let resolve!: (v: unknown) => void;
     vi.spyOn(api, 'bars').mockReturnValueOnce(new Promise((r) => { resolve = r; }) as never);
@@ -789,6 +852,7 @@ describe('ChartView date ranges', () => {
     dataIn();
     act(() => { fireEvent.click(rangeButton('All')); });
     act(() => v.rerender({ ...v.layout(), symbol: 'crypto:BTC' }));
+    expect((vi.mocked(api.bars).mock.calls.at(-1)![1] as AbortSignal).aborted).toBe(true);
     await act(async () => { resolve({ bars: [], hasMoreBefore: false }); });
     expect(v.layout().tf).toBe('5m');
     expect(adapter().showRange).not.toHaveBeenCalled();
