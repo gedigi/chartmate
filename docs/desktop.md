@@ -348,7 +348,8 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
       a regular file of at most 1 GiB, extraction is limited to 2 minutes, and the archive must hold exactly one
       top-level entry, an `.app` directory. Its `CFBundleShortVersionString`, read with `/usr/bin/plutil` (XML or
       binary plist), must equal the version the release advertised and be newer than the running app. The
-      temporary directory is always removed. Anything unexpected refuses the update, and the loopback listener is
+      temporary directory is always removed: its directories are made owner-writable first (a bundle can hold
+      read-only ones), and a failed removal is only logged, never turning a result into another. Anything unexpected refuses the update, and the loopback listener is
       then never armed. This compares versions; it does not by itself prove what Squirrel.Mac will install, which
       is why Squirrel.Mac's own signature check (next) still matters. Squirrel.Mac then checks that the new app's code
       signature satisfies the running app's designated requirement. The hand-over is the only case that opens a
