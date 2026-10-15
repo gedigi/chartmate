@@ -86,7 +86,16 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           # Only a published release is republished: never a draft (e.g. waiting for sign:win) or a pre-release.
-          state="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease --jq '"\(.isDraft) \(.isPrerelease)"' || echo missing)"
+          # A 404 (no release, or a draft, which this endpoint does not show) stands down; any other error fails.
+          if state="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '"\(.draft) \(.prerelease)"' 2>"$RUNNER_TEMP/release.err")"; then
+            :
+          elif grep -q 'HTTP 404' "$RUNNER_TEMP/release.err"; then
+            state=missing
+          else
+            cat "$RUNNER_TEMP/release.err" >&2
+            echo "::error title=GitHub API::could not read the release for $tag"
+            exit 1
+          fi
           if [ "$state" = "false false" ]; then
             echo "published=true" >> "$GITHUB_OUTPUT"
             echo "Refreshing the image of $tag ($sha)" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -338,7 +347,15 @@ jobs:
           set -euo pipefail
           latest="$(gh api --paginate "repos/$GITHUB_REPOSITORY/tags?per_page=100" --jq '.[].name' | node scripts/release-tags.mjs --latest)"
           busy="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow docker.yml --event push --limit 50 --json status --jq '[.[] | select(.status != "completed")] | length')"
-          state="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease --jq '"\(.isDraft) \(.isPrerelease)"' || echo missing)"
+          if state="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '"\(.draft) \(.prerelease)"' 2>"$RUNNER_TEMP/release.err")"; then
+            :
+          elif grep -q 'HTTP 404' "$RUNNER_TEMP/release.err"; then
+            state=missing
+          else
+            cat "$RUNNER_TEMP/release.err" >&2
+            echo "::error title=GitHub API::could not read the release for $TAG"
+            exit 1
+          fi
           if [ "$latest" != "$TAG" ]; then
             reason="$TAG is no longer the latest release ($latest is)"
           elif [ "$busy" != 0 ]; then

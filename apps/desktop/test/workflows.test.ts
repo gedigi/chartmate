@@ -845,7 +845,12 @@ describe('docker-refresh.yml (weekly rebuild of the latest release)', () => {
     const release = plan.steps.find((s) => s.id === 'release')!;
     expect(release.run).toContain(`git tag --list 'v*' | node scripts/release-tags.mjs --latest`);
     expect(release.run).toContain('git merge-base --is-ancestor "refs/tags/$tag" HEAD');
-    expect(release.run).toContain('gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease');
+    expect(release.run).toContain(`gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '"\\(.draft) \\(.prerelease)"'`);
+    // A real 404 (no release, or a draft) stands down; any other API error fails the step, so notify opens an issue.
+    for (const run of [release.run!, publish.steps.find((s) => s.id === 'still')!.run!]) {
+      expect(run).toMatch(/elif grep -q 'HTTP 404' "\$RUNNER_TEMP\/release\.err"; then\n\s*state=missing\n\s*else\n[\s\S]*?::error title=GitHub API::[\s\S]*?exit 1\n\s*fi/);
+      expect(run).not.toMatch(/\|\| echo missing/);
+    }
     expect(release.run).toContain('if [ "$state" = "false false" ]; then');
     expect(plan.outputs.refresh).toBe("${{ steps.base.outputs.context != '' && steps.release.outputs.published == 'true' }}");
     expect(plan.steps.find((s) => s.name === 'Check the version')!.run).toContain(`require('./release/apps/desktop/package.json').version`);
@@ -893,7 +898,7 @@ describe('docker-refresh.yml (weekly rebuild of the latest release)', () => {
     expect(still.run).toContain(`gh api --paginate "repos/$GITHUB_REPOSITORY/tags?per_page=100" --jq '.[].name' | node scripts/release-tags.mjs --latest`);
     expect(still.run).toContain('gh run list --repo "$GITHUB_REPOSITORY" --workflow docker.yml --event push');
     expect(still.run).toContain('select(.status != "completed")');
-    expect(still.run).toContain('gh release view "$TAG"');
+    expect(still.run).toContain('gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG"');
     const i = publish.steps.indexOf(still);
     const tag = publish.steps.findIndex((s) => s.name === 'Tag the checked digest');
     expect(i).toBe(tag - 1);
