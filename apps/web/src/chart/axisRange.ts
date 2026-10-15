@@ -1,5 +1,6 @@
 import type { OverlayFigure, OverlayTemplate } from 'klinecharts';
 import { drawingContext } from './drawingTemplates';
+import { THEME_TOKENS } from './theme';
 
 /**
  * The time-axis labels of a selected drawing spanning a time range (rectangles, long / short positions): a band
@@ -48,6 +49,35 @@ export function rangeLabels(p: {
   return [{ x: leftEnd, text: left, align: 'right' }, { x: rightStart, text: right, align: 'left' }];
 }
 
+/** Air (px) kept between a range label and a time-axis tick label; a closer tick label is masked. */
+const TICK_AIR = 6;
+/** Margin (px) of a tick label's mask around its text. */
+const MASK_PAD = 2;
+
+/**
+ * Masks (x and width, the axis' full height) hiding the time-axis tick labels that would show partly beside the
+ * range labels (`measure` gives a label's full width): each tick whose text box (`measureTick` wide, centered on
+ * its coord) overlaps a label's box or comes within TICK_AIR of it is covered whole, so no clipped tick text ("Ju",
+ * "ug") peeks out next to a label.
+ */
+export function tickMasks(
+  labels: readonly RangeLabel[], ticks: ReadonlyArray<{ coord: number; text: string }>, measure: (text: string) => number,
+  measureTick: (text: string) => number = measure,
+): Array<{ x: number; width: number }> {
+  const boxes = labels.map((l) => {
+    const w = measure(l.text);
+    const left = l.align === 'right' ? l.x - w : l.align === 'left' ? l.x : l.x - w / 2;
+    return [left, left + w] as const;
+  });
+  const masks: Array<{ x: number; width: number }> = [];
+  for (const t of ticks) {
+    const half = measureTick(t.text) / 2;
+    const [l, r] = [t.coord - half, t.coord + half];
+    if (boxes.some(([bl, br]) => l < br + TICK_AIR && r > bl - TICK_AIR)) masks.push({ x: l - MASK_PAD, width: r - l + 2 * MASK_PAD });
+  }
+  return masks;
+}
+
 type FigureParams = Parameters<NonNullable<OverlayTemplate['createXAxisFigures']>>[0];
 
 let ctx2d: CanvasRenderingContext2D | null | undefined;
@@ -90,12 +120,27 @@ export function rangeAxisFigures(p: FigureParams, i0: number, i1: number): Overl
   const family = String(own.family ?? text.family ?? 'sans-serif');
   const weight = String(own.weight ?? text.weight ?? 'normal');
   const pad = (Number(own.paddingLeft ?? text.paddingLeft) || 0) + (Number(own.paddingRight ?? text.paddingRight) || 0);
+  const labelWidth = (s: string) => Math.ceil(textWidth(s, size, family, weight)) + pad;
   const labels = rangeLabels({
     x0: c0.x, x1: c1.x, start: dateText(p, t0), end: dateText(p, t1), width: p.bounding.width,
-    measure: (s) => Math.ceil(textWidth(s, size, family, weight)) + pad,
+    measure: labelWidth,
   });
   const left = Math.min(c0.x, c1.x);
+  // Tick labels the range labels would partly cover are masked with the chart background (drawn first, under the
+  // band and the labels). They are measured in the axis' own tick font.
+  const tick = (p.chart.getStyles?.()?.xAxis?.tickText ?? {}) as Partial<Record<'size' | 'family' | 'weight', unknown>>;
+  const tickSize = typeof tick.size === 'number' ? tick.size : 11;
+  const ticks = (p.xAxis as { getTicks?: () => Array<{ coord: number; text: unknown }> } | null)?.getTicks?.() ?? [];
+  const masks = tickMasks(
+    labels, ticks.map((t) => ({ coord: t.coord, text: String(t.text) })), labelWidth,
+    (s) => textWidth(s, tickSize, String(tick.family ?? family), String(tick.weight ?? 'normal')),
+  );
+  const bg = drawingContext.bg || THEME_TOKENS[drawingContext.theme].bg;
   return [
+    ...masks.map((m) => ({
+      type: 'rect', ignoreEvent: true, attrs: { x: m.x, y: 0, width: m.width, height: p.bounding.height },
+      styles: { style: 'fill', color: bg, borderSize: 0 },
+    }) as OverlayFigure),
     { type: 'rect', ignoreEvent: true, attrs: { x: left, y: 0, width: Math.abs(c1.x - c0.x), height: p.bounding.height } } as OverlayFigure,
     ...labels.map((l) => ({ type: 'text', ignoreEvent: true, attrs: { x: l.x, y: 0, text: l.text, align: l.align } }) as OverlayFigure),
   ];
