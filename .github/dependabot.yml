@@ -5,6 +5,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Version updates wait a week after a release (time for a compromised publish to be caught and pulled);
+    # security updates are not delayed.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     groups:
       minor-and-patch:
@@ -14,6 +18,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
     groups:
       actions:
         patterns: ['*']
@@ -22,8 +28,12 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
   # Keeps the digest-pinned Postgres image in compose.yaml current.
   - package-ecosystem: docker-compose
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3

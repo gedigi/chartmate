@@ -13,7 +13,9 @@ name: Docker
 #              attestation (public repositories only; private ones on non-Enterprise plans cannot create them).
 # publish rebuilds from the same commit and digest-pinned base image that `image` tested (it does not reuse
 # that job's local build).
-# Tags: X.Y.Z, X.Y, X and latest for a vX.Y.Z tag; only X.Y.Z-suffix for a pre-release tag (vX.Y.Z-beta.1).
+# Tags: X.Y.Z for a vX.Y.Z tag, plus X.Y, X and latest each only when no higher full release exists in that range
+# (scripts/release-tags.mjs; a backport never moves them backward); only X.Y.Z-suffix for a pre-release tag.
+# The tagged commit must be on main. The publish path uses no dependency cache.
 # Pull requests only build (ci.yml also runs a plain docker build on every pull request).
 on:
   push:
@@ -45,17 +47,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      # No dependency cache on the publish path.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+      # pnpm exactly as pinned in package.json (packageManager): corepack checks its sha512.
+      - name: pnpm (corepack)
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: corepack enable pnpm && pnpm --version
       # No dependency install scripts run (the image build installs the same way).
       - run: pnpm install --frozen-lockfile --ignore-scripts
       # An image never ships with a known vulnerability in any dependency (prod or dev).
       - run: pnpm audit
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm licenses:check
 
   image:
     runs-on: ubuntu-latest
@@ -109,10 +116,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0 # origin/main and the tags, for the checks below
       - name: Check the tag
         run: |
           if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-.+)?$ ]]; then
             echo "::error::not a release tag: $GITHUB_REF_NAME"
+            exit 1
+          fi
+          # Releases come only from reviewed code: the tagged commit must be on main.
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error title=Tag is not on main::$GITHUB_REF_NAME ($GITHUB_SHA) is not an ancestor of origin/main"
             exit 1
           fi
           # One version for the desktop app, the image and the tag.
@@ -121,6 +134,13 @@ jobs:
             echo "::error title=Tag does not match the version::tag $GITHUB_REF_NAME, apps/desktop/package.json $version"
             exit 1
           fi
+      # :latest, :X.Y and :X move only when no higher full release exists in that range (a backport such as
+      # v1.2.5 after v1.3.0 gets :1.2.5 and :1.2, never :1 or :latest).
+      - name: Floating tags
+        id: rank
+        run: |
+          set -euo pipefail
+          git tag --list 'v*' | node scripts/release-tags.mjs "$GITHUB_REF_NAME" | tee -a "$GITHUB_OUTPUT"
       - name: Image name
         # Registry paths must be lowercase; the repository is never hardcoded.
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
@@ -143,9 +163,9 @@ jobs:
           # Pre-release tags (vX.Y.Z-suffix) only get {{version}}: metadata-action skips X.Y and X for them.
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ steps.rank.outputs.minor == 'true' }}
+            type=semver,pattern={{major}},enable=${{ steps.rank.outputs.major == 'true' }}
+            type=raw,value=latest,enable=${{ steps.rank.outputs.latest == 'true' }}
           # source (the repository URL), revision, version and created come from the GitHub context.
           labels: |
             org.opencontainers.image.title=Chartmate
