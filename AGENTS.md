@@ -18,8 +18,9 @@ Visual beauty is the core value proposition. A change that works but looks worse
 ## Repo layout
 
 pnpm 12 workspace (12.11.2, pinned with its sha512 in the root `package.json` `packageManager`; `corepack enable`
-uses it, and so does CI), Node 26 (the exact version in `.nvmrc`, used by every workflow), TypeScript 5.9, Vitest
-everywhere. Node 25 and later no longer bundle corepack: install it once (`npm install --global corepack`); CI
+uses it, and so does CI), Node 26 (the exact version in `.nvmrc`, used by every workflow), TypeScript 7 (the native
+`tsc`, for typechecking and the shared/server builds; Vite, Vitest, tsx and esbuild strip types themselves, and
+nothing uses the compiler's JavaScript API), Vitest everywhere. Node 25 and later no longer bundle corepack: install it once (`npm install --global corepack`); CI
 installs the release pinned, by version and sha512, in `.github/scripts/install-corepack.sh`. pnpm settings
 (`allowBuilds`, `patchedDependencies`) live in `pnpm-workspace.yaml`; the install hook is `.pnpmfile.cjs`.
 
