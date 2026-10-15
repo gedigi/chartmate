@@ -202,6 +202,12 @@ describe('Watchlist', () => {
     expect(put).not.toHaveBeenCalled();
   });
 
+  it('owns its keys: the drawing shortcuts (Delete removes the selected drawing) leave the watchlist alone', () => {
+    setup([]);
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Watchlist' })).toHaveAttribute('data-keyboard-owner');
+  });
+
   it('retries a failed watchlist save', async () => {
     setup(['stock:AAPL', 'crypto:BTC']);
     vi.useFakeTimers();

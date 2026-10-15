@@ -510,7 +510,7 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
   }
 
   return (
-    <section className="watchlist" data-testid="watchlist" aria-label="Watchlist" ref={railRef}
+    <section className="watchlist" data-testid="watchlist" data-keyboard-owner="" aria-label="Watchlist" ref={railRef}
       style={{ '--wl-spark-w': `${sparkWidth}px` } as CSSProperties}>
       <div className="watchlist-head">
         <h2 className="panel-title">Watchlist</h2>

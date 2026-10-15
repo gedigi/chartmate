@@ -114,12 +114,13 @@ function isFormControl(target: EventTarget | null): boolean {
 }
 
 /**
- * True when the key event belongs to another widget (watchlist, dialog, button, listbox / option): Delete there
- * means something else (or nothing) and must not remove the selected drawing.
+ * True when the key event belongs to another widget (a region marked `data-keyboard-owner`, such as the watchlist; a
+ * dialog, button, listbox / option): Delete there means something else (or nothing) and must not remove the selected
+ * drawing.
  */
 function isOtherWidget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
-  return target.closest('button, [role="listbox"], [role="option"], [role="dialog"], dialog, [data-testid="watchlist"]') !== null;
+  return target.closest('button, [role="listbox"], [role="option"], [role="dialog"], dialog, [data-keyboard-owner]') !== null;
 }
 
 /**

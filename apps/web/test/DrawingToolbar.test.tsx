@@ -319,7 +319,7 @@ describe('DrawingToolbar', () => {
     const { c } = makeControls();
     const { rerender } = render(
       <>
-        <section data-testid="watchlist"><span tabIndex={0}>row</span></section>
+        <section data-keyboard-owner=""><span tabIndex={0}>row</span></section>
         <div role="dialog" aria-label="dlg"><span tabIndex={0}>in dialog</span></div>
         <button type="button">btn</button>
         <ul role="listbox" aria-label="lb"><li role="option" aria-selected="false">opt</li></ul>
