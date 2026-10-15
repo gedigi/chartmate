@@ -340,10 +340,12 @@ const m006: Migration = {
  * null ratio, which matches any. Idempotent.
  */
 const m007: Migration = {
-  async up(db: Kysely<any>) {
-    if (!(await columnsOf(db, 'applied_splits')).has('factor')) {
-      await db.schema.alterTable('applied_splits').addColumn('factor', dbl).execute();
-    }
+  async up(outer: Kysely<any>) {
+    await atomically(outer, async (db) => {
+      if (!(await columnsOf(db, 'applied_splits')).has('factor')) {
+        await db.schema.alterTable('applied_splits').addColumn('factor', dbl).execute();
+      }
+    });
   },
 };
 
