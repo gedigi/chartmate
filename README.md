@@ -721,8 +721,9 @@ A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
   post-market (which runs past midnight UTC in winter) stays on the old holdings; the `Start` and version
   markers sit at that time too.
 - When a version starts, each constituent is sized in units at the **prior trading close**, so the
-  basket value is continuous across a rebalance (no jump). If that daily close is invalid (zero, negative
-  or missing in the provider's data), the last valid close up to 5 bars earlier is used and a notice says so.
+  basket value is continuous across a rebalance (no jump). If that daily close is invalid (zero or
+  negative in the provider's data), the last valid close up to 5 bars and 10 days earlier is used and a notice
+  says so. A constituent bar with an invalid price keeps that constituent at its previous close for the bar.
 - Versions are **chained**: the series continues from the previous version's last value, giving one
   continuous index.
 - On intraday timeframes, the basket bar's high/low is an **approximation** (derived from
