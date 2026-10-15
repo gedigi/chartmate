@@ -3,6 +3,8 @@ import { buildApp } from '../../src/app.js';
 import { BasketService } from '../../src/baskets/service.js';
 import type { Config } from '../../src/config.js';
 import { createTestDb } from '../helpers/testDb.js';
+
+type TestDb = Awaited<ReturnType<typeof createTestDb>>;
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';
 import { MarketDataService } from '../../src/market/service.js';
@@ -33,7 +35,12 @@ export function testConfig(): Config {
   };
 }
 
-export interface TestApp { app: FastifyInstance; market: MarketDataService; baskets: BasketService; repos: Repos; close(): Promise<void> }
+export interface TestApp {
+  app: FastifyInstance; market: MarketDataService; baskets: BasketService; repos: Repos;
+  /** The app's database, for tests that seed rows an older version would have written. */
+  db: TestDb['db'];
+  close(): Promise<void>;
+}
 
 export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () => number; version?: string } = {}): Promise<TestApp> {
   const h = await createTestDb();
@@ -53,6 +60,7 @@ export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () 
     market,
     baskets,
     repos,
+    db: h.db,
     async close() {
       await app.close();
       await h.close();

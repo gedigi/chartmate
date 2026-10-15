@@ -40,7 +40,7 @@ describe('user routes', () => {
   });
 
   it('a database from before the stored marker: a non-empty list counts as stored', async () => {
-    const db = (t.repos.layouts as unknown as { db: import('kysely').Kysely<any> }).db;
+    const { db } = t;
     await db.insertInto('watchlist_entries').values({ position: 0, kind: 'symbol', symbol: 'stock:SPY', section_id: null, title: null, collapsed: null }).execute();
     const r = await t.app.inject({ method: 'GET', url: '/api/watchlist' });
     expect(r.json()).toEqual(entries(['stock:SPY']));
@@ -59,7 +59,7 @@ describe('user routes', () => {
   });
 
   it('stored ids of older versions read back normalized; invalid ones are dropped, not fatal', async () => {
-    const db = (t.repos.layouts as unknown as { db: import('kysely').Kysely<any> }).db;
+    const { db } = t;
     await db.insertInto('watchlist_entries').values([
       { position: 0, kind: 'symbol', symbol: 'stock:spy', section_id: null, title: null, collapsed: null },
       { position: 1, kind: 'symbol', symbol: 'stock:bad/id', section_id: null, title: null, collapsed: null },
