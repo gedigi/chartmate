@@ -243,6 +243,9 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
   useEffect(() => { drawingsStore.setActive(activeDrawings); }, [activeDrawings]);
   useEffect(() => () => drawingsStore.setActive(null), []);
   useEffect(() => { if (info) drawingsStore.setTicker(info.id, info.ticker); }, [info]);
+  // Discarding the charted symbol's rejected drawings: show the server's drawings again.
+  const [drawingsReload, setDrawingsReload] = useState(0);
+  useEffect(() => drawingsStore.onDiscard((s) => { if (s === symbolRef.current) setDrawingsReload((k) => k + 1); }), []);
   const symbolRef = useRef(symbol);
   symbolRef.current = symbol;
   const drawingsForRef = useRef(drawingsFor);
@@ -283,7 +286,7 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
       canceled = true;
       clearTimeout(timer);
     };
-  }, [adapter, symbol]);
+  }, [adapter, symbol, drawingsReload]);
 
   // A finished Shift measure, read out to screen readers (the chart itself is a canvas).
   const [measureText, setMeasureText] = useState('');

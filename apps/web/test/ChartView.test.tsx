@@ -328,6 +328,25 @@ describe('ChartView', () => {
     expect(drawingsStore.getSnapshot().values.has('stock:AAPL')).toBe(false);
   });
 
+  it('discarding the charted symbol\'s rejected drawings reloads the server\'s drawings onto the chart', async () => {
+    const { ApiError } = await import('../src/api/client');
+    renderView();
+    await flush();
+    await flush();
+    vi.useFakeTimers();
+    vi.mocked(api.drawings.put).mockRejectedValue(new ApiError(400, 'invalid', 'too large'));
+    act(() => adapter().changeCb!());
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(screen.getByRole('alert')).toHaveTextContent('Drawings not saved for AAPL.');
+    const server = [{ name: 'rayLine', points: [{ timestamp: 5, value: 5 }], lock: false }];
+    vi.mocked(api.drawings.get).mockResolvedValue(server);
+    vi.mocked(api.drawings.get).mockClear();
+    await act(async () => { screen.getByRole('button', { name: /Discard/ }).click(); await vi.advanceTimersByTimeAsync(0); });
+    expect(api.drawings.get).toHaveBeenCalledWith('stock:AAPL');
+    expect(adapter().restoreDrawings).toHaveBeenLastCalledWith(server, 'stock:AAPL');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('leaving the chart view keeps retrying unsaved drawings (the savers live above the view)', async () => {
     const { leaveChart } = renderView();
     await flush();
