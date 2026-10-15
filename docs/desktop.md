@@ -36,6 +36,11 @@ otherwise.
   mode with `synchronous = NORMAL`: a committed change survives an app crash and the file never corrupts, but an
   OS crash or power loss can lose the last few commits. `FULL` would close that window with an fsync on every
   write, which layout and drawing autosaves make frequent; NORMAL is the chosen tradeoff.
+- **Electron's Node.js.** The main process and the embedded server run on the Node.js inside Electron (Node 24.21
+  in Electron 44), not on the Node 26 the workspace develops on. So `apps/desktop` typechecks against
+  `@types/node` 24 (which covers the server code it imports), esbuild targets `node24`, and runtime libraries it
+  bundles must support Node 24. A test keeps the target and the types on the
+  Node major Electron declares; move them together when Electron moves to a new Node major.
 - **One file.** esbuild bundles the desktop main process and the whole server into a single minified
   `dist/main.cjs` (~2.5 MB). The package holds only `package.json`, that file and its third-party license
   comments (`dist/main.cjs.LEGAL.txt`), the web build, the icon and, in signed builds only, the updater bundle

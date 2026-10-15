@@ -51,6 +51,9 @@ installs the release pinned, by version and sha512, in `.github/scripts/install-
 - Desktop: the window loads `app://chartmate/`; `/api/*` goes to `fastify.inject`, everything else is a static
   file of the web build (`apps/desktop/src/lib/protocol.ts`). There is no network listener
   (`listenGuard.ts`), no preload and no IPC.
+- Desktop runs the server on Electron's Node.js (Electron 44: Node 24), not Node 26: server and desktop code must
+  not use Node APIs newer than that. `apps/desktop` typechecks against `@types/node` 24 and esbuild targets
+  `node24`; a test keeps both on Electron's Node major.
 - Every request first passes the Host / Origin guard (`apps/server/src/hostGuard.ts`, the first `onRequest`
   hook): without a password (or with `CHARTMATE_ALLOWED_HOSTS` set) the Host, and behind a trusted proxy every
   X-Forwarded-Host, must be loopback or listed; state-changing `/api` requests with an `Origin` must come from

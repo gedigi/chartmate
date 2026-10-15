@@ -67,7 +67,7 @@ let tlsPort = 0;
 let certFile = '';
 
 beforeAll(async () => {
-  await build({ stdin: { contents: PROBE_SRC, resolveDir: fileURLToPath(new URL('..', import.meta.url)), loader: 'ts' }, bundle: true, platform: 'node', format: 'cjs', target: 'node22', outfile: probe, logLevel: 'error' });
+  await build({ stdin: { contents: PROBE_SRC, resolveDir: fileURLToPath(new URL('..', import.meta.url)), loader: 'ts' }, bundle: true, platform: 'node', format: 'cjs', target: 'node24', outfile: probe, logLevel: 'error' });
   // A fake proxy that records CONNECT requests and refuses them.
   proxy = net.createServer((s) => {
     s.once('data', (d) => {
