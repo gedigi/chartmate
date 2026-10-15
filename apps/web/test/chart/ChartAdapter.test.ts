@@ -923,8 +923,8 @@ describe('ChartAdapter', () => {
       a.setAppearance({ dark: { upColor: '#ffffff', downColor: '#e63b7a', drawing: { color: '#ffffff', size: 1, style: 'solid' } } });
       let s = chart().setStyles.mock.calls.at(-1)![0];
       // Neutral last price line by default: the theme's lamp white with dark text on the dark theme.
-      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#e9ecf4', downColor: '#e9ecf4', noChangeColor: '#e9ecf4', text: { color: '#131722' } });
-      expect(s.overlay.text).toMatchObject({ backgroundColor: '#ffffff', color: '#131722' });
+      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#e9ecf4', downColor: '#e9ecf4', noChangeColor: '#e9ecf4', text: { color: '#131726' } });
+      expect(s.overlay.text).toMatchObject({ backgroundColor: '#ffffff', color: '#131726' });
       a.setTheme('light');
       s = chart().setStyles.mock.calls.at(-1)![0];
       expect(s.candle.priceMark.last).toMatchObject({ upColor: '#131726', downColor: '#131726', text: { color: '#ffffff' } });
@@ -932,7 +932,7 @@ describe('ChartAdapter', () => {
       a.setAppearance({ light: { lastPriceLine: 'candle' } });
       s = chart().setStyles.mock.calls.at(-1)![0];
       // Dark text with the light crosshair gray for no change (chosen by contrast over all three fills).
-      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#0b9da0', downColor: '#c43d68', noChangeColor: '#a6abb8', text: { color: '#131722' } });
+      expect(s.candle.priceMark.last).toMatchObject({ upColor: '#0b9da0', downColor: '#c43d68', noChangeColor: '#a6abb8', text: { color: '#131726' } });
       expect(s.overlay.line).toMatchObject({ color: THEME_TOKENS.light.accent });
     });
   });

@@ -16,7 +16,7 @@ describe('contrast helpers', () => {
 
   it('readableTextOn keeps white while it reaches 3:1, else picks the higher-contrast color', () => {
     expect(LIGHT_TEXT).toBe('#ffffff');
-    expect(DARK_TEXT).toBe('#131722');
+    expect(DARK_TEXT).toBe('#131726');
     expect(WHITE_TEXT_MIN_CONTRAST).toBe(2.99);
     expect(readableTextOn('#ffffff')).toBe(DARK_TEXT);
     expect(readableTextOn('#000000')).toBe(LIGHT_TEXT);
@@ -60,9 +60,9 @@ describe('contrast helpers', () => {
   });
 
   it('a preferred color other than white is kept while it reaches 3:1 (e.g. muted marker text)', () => {
-    expect(readableTextOnAll(['#131722'], '#868b98')).toBe('#868b98');
+    expect(readableTextOnAll([DARK_TEXT], '#868b98')).toBe('#868b98');
     expect(readableTextOnAll(['#ffffff'], '#6a6d78')).toBe('#6a6d78');
-    expect(readableTextOnAll(['#131722'], '#1a1e2a')).toBe(LIGHT_TEXT);
+    expect(readableTextOnAll([DARK_TEXT], '#1a1e2a')).toBe(LIGHT_TEXT);
     expect(readableTextOnAll(['#ffffff'], '#eeeeee')).toBe(DARK_TEXT);
   });
 

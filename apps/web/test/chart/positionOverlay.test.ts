@@ -69,7 +69,7 @@ describe('positionFigures', () => {
     expect(label(f, 'Waiting').styles).toMatchObject({ backgroundColor: '#868b98' });
     expect(f.filter((x) => x.type === 'rect')).toHaveLength(2); // no traversed shading
     const light = positionFigures({ ...base, colors: { ...colors, up: '#c8f7c5' } }) as Fig[];
-    expect(label(light, 'Target').styles.color).toBe('#131722');
+    expect(label(light, 'Target').styles.color).toBe('#131726');
   });
 
   it('needs earlier data: neutral label, no shading', () => {
@@ -234,5 +234,16 @@ describe('position overlay templates', () => {
     expect(positionContext.minGapPrice).toBeCloseTo(1.2); // 12 px
     positionContext.historyComplete = () => true;
     expect(texts(k.templates.get('longPosition')!.createPointFigures(params) as Fig[])).toContain('Waiting for entry');
+  });
+
+  it('labels fall back to the chart typeface when the chart styles carry no text font', async () => {
+    const { CHART_FONT } = await import('../../src/chart/theme');
+    const chart = { getStyles: () => ({ overlay: {} }), getSymbol: () => ({ pricePrecision: 2 }), getDataList: () => [] };
+    const yAxis = { convertToPixel: (v: number) => 100 - (v - 100) * 10 };
+    const params = { chart, overlay: { id: 'ov2', points: toPositionPoints(g), styles: null }, coordinates: coords, bounding: { width: 800 }, xAxis: null, yAxis };
+    const figs = k.templates.get('longPosition')!.createPointFigures(params) as Array<{ type: string; styles?: { family?: string } }>;
+    const families = figs.filter((f) => f.type === 'text').map((f) => f.styles?.family);
+    expect(families.length).toBeGreaterThan(0);
+    expect(new Set(families)).toEqual(new Set([CHART_FONT]));
   });
 });

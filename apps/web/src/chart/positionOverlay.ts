@@ -8,7 +8,7 @@ import {
   sideOf, stopLabel, targetLabel, toPositionPoints, type OutcomeBar, type PositionGeometry, type PositionMetrics, type PositionOutcome,
   type PositionSide,
 } from './position';
-import { hexToRgba, LABEL_RADIUS, THEME_TOKENS } from './theme';
+import { CHART_FONT, hexToRgba, LABEL_RADIUS, THEME_TOKENS } from './theme';
 
 /**
  * Zone fills, light so the candles under them keep their colors: the profit / loss zones, and the part already
@@ -239,7 +239,7 @@ function template(name: 'longPosition' | 'shortPosition'): OverlayTemplate {
         xOf: (ts) => xAxis?.convertTimestampToPixel?.(ts) ?? p.coordinates[0]!.x,
         yOf: (v) => yAxis?.convertToPixel(v) ?? p.coordinates[0]!.y,
         formatTime: positionContext.formatTime,
-        font: { family: font?.family ?? 'Helvetica Neue', size: font?.size ?? 12 },
+        font: { family: font?.family ?? CHART_FONT, size: font?.size ?? 12 },
         paneWidth: p.bounding?.width ?? 0,
       });
     },

@@ -1,6 +1,9 @@
-/** Text colors for labels drawn on a colored background (the dark one is the dark theme's background). */
+/**
+ * Text colors for labels drawn on a colored background. The dark one is the light theme's ink (THEME_TOKENS.light.text;
+ * a test keeps them equal; not imported, since theme.ts imports this module).
+ */
 export const LIGHT_TEXT = '#ffffff';
-export const DARK_TEXT = '#131722';
+export const DARK_TEXT = '#131726';
 export type LabelTextColor = typeof LIGHT_TEXT | typeof DARK_TEXT;
 
 const HEX = /^#[0-9a-f]{6}$/i;
