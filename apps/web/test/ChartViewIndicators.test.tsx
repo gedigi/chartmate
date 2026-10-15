@@ -12,7 +12,7 @@ vi.mock('../src/chart/ChartAdapter', () => ({
     restoreDrawings = vi.fn(); serializeDrawings = vi.fn(() => []); onDrawingsChange = vi.fn(() => () => {}); onLockAllChange = vi.fn(() => () => {});
     resize = vi.fn(); destroy = vi.fn(); clear = vi.fn();
     setAppearance = vi.fn(); setPositionDefaults = vi.fn(); setNewDrawingColor = vi.fn(); onSelectionChange = vi.fn(() => () => {}); setMagnetOverride = vi.fn(); deselect = vi.fn();
-    setSelectedPrice = vi.fn(() => true); setSelectedLabel = vi.fn(); setSelectedExtend = vi.fn(); setShiftConstraint = vi.fn(); onPriceEditRequest = vi.fn(() => () => {});
+    setSelectedPrice = vi.fn(() => true); setSelectedLabel = vi.fn(); setSelectedExtend = vi.fn(); setSelectedFill = vi.fn(); setShiftConstraint = vi.fn(); onPriceEditRequest = vi.fn(() => () => {});
     clearMeasure = vi.fn(); onMeasureChange = vi.fn(() => () => {});
   },
 }));

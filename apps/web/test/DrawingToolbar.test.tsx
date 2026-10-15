@@ -177,7 +177,7 @@ describe('DrawingToolbar', () => {
   it.each([
     ['Trend line', 'segment'], ['Ray', 'rayLine'], ['Extended line', 'straightLine'],
     ['Horizontal line', 'horizontalStraightLine'], ['Vertical line', 'verticalStraightLine'], ['Price line', 'priceLine'],
-    ['Parallel channel', 'parallelChannel'], ['Fibonacci retracement', 'fibonacciLine'],
+    ['Parallel channel', 'parallelChannel'], ['Rectangle', 'rectangle'], ['Fibonacci retracement', 'fibonacciLine'],
     ['Long position', 'longPosition'], ['Short position', 'shortPosition'],
   ])('clicking %s starts drawing %s and highlights it until the drawing completes', async (label, tool) => {
     const { c, end } = makeControls();
@@ -431,6 +431,18 @@ describe('DrawingToolbar keyboard shortcuts (Option/Alt+T trend line, Option/Alt
     expect(c.startDrawing).toHaveBeenLastCalledWith('horizontalStraightLine', expect.objectContaining({ onEnd: expect.any(Function) }));
     expect(screen.getByRole('button', { name: 'Horizontal line' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'Trend line' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('Alt+R starts a rectangle (matched by code: Option+R types ®), shown in its title', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    expect(fireEvent.keyDown(document.body, { key: '®', code: 'KeyR', altKey: true })).toBe(false);
+    expect(c.startDrawing).toHaveBeenLastCalledWith('rectangle', expect.objectContaining({ onEnd: expect.any(Function) }));
+    const btn = screen.getByRole('button', { name: 'Rectangle' });
+    expect(btn).toHaveAttribute('aria-pressed', 'true');
+    expect(btn).toHaveAttribute('title', 'Rectangle (⌥R)');
+    expect(btn).toHaveAttribute('aria-keyshortcuts', 'Alt+R');
   });
 
   it('pressing the shortcut of the active tool toggles it off', () => {

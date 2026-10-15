@@ -39,6 +39,7 @@ const TOOLS: ReadonlyArray<{ tool: DrawingTool; label: string; icon: JSX.Element
   { tool: 'verticalStraightLine', label: 'Vertical line', icon: <Icon><path d="M10 1v18" />{dot(10, 10)}</Icon> },
   { tool: 'priceLine', label: 'Price line', icon: <Icon><path d="M3 12h11" />{dot(3, 12)}<path d="M13 8h5v4h-5z" strokeWidth="1.2" /></Icon> },
   { tool: 'parallelChannel', label: 'Parallel channel', icon: <Icon><path d="M2 13L13 2M7 18L18 7" /></Icon> },
+  { tool: 'rectangle', label: 'Rectangle', icon: <Icon><rect x="3" y="5" width="14" height="10" rx="0.5" />{dot(3, 5)}{dot(17, 15)}</Icon> },
   { tool: 'fibonacciLine', label: 'Fibonacci retracement', icon: <Icon><path d="M2 3h16M2 8h16M2 12h16M2 17h16" /><path d="M4 17L16 3" strokeDasharray="2 2" /></Icon> },
   // Positions: a box split at the entry line, the arrow in the profit zone.
   { tool: 'longPosition', label: 'Long position', icon: <Icon><rect x="3" y="3" width="14" height="14" rx="1" /><path d="M3 11h14M10 9V5M8 7l2-2 2 2" /></Icon> },
@@ -75,6 +76,7 @@ function clearQuestion({ total, locked }: { total: number; locked: number }, tic
 export const TOOL_SHORTCUTS: Readonly<Partial<Record<DrawingTool, { code: string; key: string }>>> = {
   segment: { code: 'KeyT', key: 'T' },
   horizontalStraightLine: { code: 'KeyH', key: 'H' },
+  rectangle: { code: 'KeyR', key: 'R' },
 };
 
 /** The tool whose shortcut `e` is (Alt alone + its key), or null. */
@@ -128,8 +130,8 @@ function isOtherWidget(target: EventTarget | null): boolean {
  * (locked drawings are kept).
  * Keyboard: Delete/Backspace removes the selected drawing, ⌘C / ⌘V (Ctrl+C / Ctrl+V elsewhere) copies it / pastes
  * the copy (in-app clipboard), Escape cancels the active tool, holding ⌘ (macOS) / Ctrl
- * snaps the drawing being placed or dragged to OHLC values, Option/Alt+T starts a trend line and Option/Alt+H a
- * horizontal line (see TOOL_SHORTCUTS), holding Shift keeps trend lines / rays / extended lines / channels horizontal.
+ * snaps the drawing being placed or dragged to OHLC values, Option/Alt+T starts a trend line, Option/Alt+H a
+ * horizontal line and Option/Alt+R a rectangle (see TOOL_SHORTCUTS), holding Shift keeps trend lines / rays / extended lines / channels horizontal.
  * With no tool active, a Shift press on the chart measures (handled by the adapter); Escape removes the measure.
  */
 export function DrawingToolbar({ controls, disabled: disabledProp = false, ticker }: DrawingToolbarProps): JSX.Element {

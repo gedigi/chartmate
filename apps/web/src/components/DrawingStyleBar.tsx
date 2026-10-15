@@ -6,7 +6,7 @@ import { DrawingColorPicker } from './DrawingColorPicker';
 import { DrawingLockToggle } from './LockIcon';
 import { PositionStyleBar, type PositionControls } from './PositionStyleBar';
 
-export type DrawingStyleControls = Pick<ChartAdapter, 'onSelectionChange' | 'setSelectedStyle' | 'setSelectedPrice' | 'setSelectedLabel' | 'setSelectedExtend' | 'onPriceEditRequest' | 'setSelectedLock' | 'drawingSwatches' | 'resetSelectedColor'>
+export type DrawingStyleControls = Pick<ChartAdapter, 'onSelectionChange' | 'setSelectedStyle' | 'setSelectedPrice' | 'setSelectedLabel' | 'setSelectedExtend' | 'setSelectedFill' | 'onPriceEditRequest' | 'setSelectedLock' | 'drawingSwatches' | 'resetSelectedColor'>
   & PositionControls;
 
 /** `value` with the symbol precision, or with its own decimals (≤ MAX_PRICE_DECIMALS) when it is finer. */
@@ -97,7 +97,7 @@ const FONT_SIZES = [10, 12, 14, 16, 18, 20, 22, 24];
  * Floating style bar for the selected drawing: color (theme palette swatches; the pick becomes the color of new
  * drawings), width and solid/dashed/dotted for lines; color and font size
  * for text annotations, plus the exact price of horizontal lines, price-label toggles of price / horizontal lines and
- * "Extend left / right" of parallel channels; long / short positions get their own settings bar. Every bar ends with the drawing's own lock toggle; locked drawings (own lock
+ * "Extend left / right" of parallel channels, "Fill" of rectangles; long / short positions get their own settings bar. Every bar ends with the drawing's own lock toggle; locked drawings (own lock
  * or "Lock all drawings") are read-only except that toggle. Hidden while a drawing is being placed. Changes go through the adapter (overrideOverlay) and are saved with the drawings.
  */
 export function DrawingStyleBar({ controls, onUsePositionDefaults, onPickColor, onResetColor }: {
@@ -182,6 +182,13 @@ export function DrawingStyleBar({ controls, onUsePositionDefaults, onPickColor, 
             Extend right
           </label>
         </>
+      )}
+      {sel.kind === 'line' && sel.fill !== undefined && (
+        <label className="drawing-style-toggle" title="Tint the inside of the rectangle">
+          <input type="checkbox" aria-label="Fill" checked={sel.fill} disabled={locked}
+            onChange={(e) => controls.setSelectedFill(e.target.checked)} />
+          Fill
+        </label>
       )}
       <span className="drawing-style-sep" role="separator" aria-orientation="vertical" />
       <DrawingLockToggle locked={locked} ownLock={sel.ownLock} onToggle={(v) => controls.setSelectedLock(v)} />

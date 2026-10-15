@@ -173,6 +173,19 @@ export const EXTEND_DEFAULTS: Readonly<Record<string, ExtendOptions>> = {
   [LEGACY_CHANNEL]: { left: true, right: true },
 };
 
+/** Key of a drawing's fill option inside its KLineChart styles (ignored by KLineChart itself). */
+export const FILL_STYLE_KEY = 'chartmateFill';
+/** Drawings with a fill toggle and their default (rectangles are filled unless turned off). */
+export const FILL_DEFAULTS: Readonly<Record<string, boolean>> = { rectangle: true };
+
+/** Effective fill option of a drawing (null when it has none): its own (from styles) over the default. */
+export function fillOption(name: string, styles: unknown): boolean | null {
+  const d = FILL_DEFAULTS[name];
+  if (d === undefined) return null;
+  const own = (styles as Record<string, unknown> | null | undefined)?.[FILL_STYLE_KEY];
+  return typeof own === 'boolean' ? own : d;
+}
+
 /** Effective extend options of a drawing (null when it has none): its own (from styles) over the defaults. */
 export function extendOptions(name: string, styles: unknown): ExtendOptions | null {
   const d = EXTEND_DEFAULTS[name];
