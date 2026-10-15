@@ -161,6 +161,34 @@ describe('useDebouncedSave', () => {
     }
   });
 
+  it('with retry: gives up after MAX_SAVE_RETRIES (stalled, so a stale tab cannot overwrite newer saves for long); retryNow and a newer value resume', async () => {
+    const { MAX_SAVE_RETRIES } = await import('../src/state/useDebouncedSave');
+    const save = vi.fn<(v: number) => Promise<void>>().mockRejectedValue(new Error('offline'));
+    const { rerender, result } = renderHook(({ v }) => useDebouncedSave(v, save, 1000, true, { retry: true }), { initialProps: { v: 1 } });
+    rerender({ v: 2 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60_000); });
+    expect(save).toHaveBeenCalledTimes(1 + MAX_SAVE_RETRIES);
+    expect(result.current.stalled).toBe(true);
+    expect(result.current.error).toBe('offline');
+    // Manual retry: one attempt now (and the backoff again on failure).
+    save.mockResolvedValue(undefined);
+    await act(async () => { result.current.retryNow(); await vi.advanceTimersByTimeAsync(0); });
+    expect(save).toHaveBeenLastCalledWith(2);
+    expect(result.current.stalled).toBe(false);
+    expect(result.current.error).toBeNull();
+    // A newer value after a stall is saved normally (and clears the stall).
+    save.mockRejectedValue(new Error('offline'));
+    rerender({ v: 3 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60_000); });
+    expect(result.current.stalled).toBe(true);
+    save.mockResolvedValue(undefined);
+    rerender({ v: 4 });
+    expect(result.current.stalled).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(save).toHaveBeenLastCalledWith(4);
+  });
+
   it('without retry, a failed save is not retried', async () => {
     const save = vi.fn<(v: number) => Promise<void>>().mockRejectedValue(new Error('x'));
     const { rerender } = renderHook(({ v }) => useDebouncedSave(v, save, 1000), { initialProps: { v: 1 } });

@@ -130,7 +130,22 @@
   min-height: 0; border: none; background: transparent; text-align: left; padding: 6px 8px; border-radius: 7px; font-size: 13px; font-weight: 400;
 }
 .wl-section-popup [role='menuitem']:hover, .wl-section-popup [role='menuitem']:focus-visible { background: var(--bg-hover); }
-.watchlist-error { color: var(--error); font-size: 12px; padding: 0 16px; }
+/* Load / save status: one quiet line (muted; the error color only for a permanent save failure). */
+.watchlist-status {
+  display: flex; align-items: center; gap: 7px; min-height: 18px; padding: 0 16px 4px; font-size: 12px; line-height: 16px;
+  color: var(--text-muted);
+}
+.watchlist-status.is-error { color: var(--error); }
+.wl-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wl-status-dot {
+  flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted);
+  animation: wl-placeholder 1.6s ease-in-out infinite alternate;
+}
+.wl-status-retry { flex: none; min-height: 20px; padding: 0 8px; margin-left: auto; font-size: 12px; border-radius: 6px; }
+@media (prefers-reduced-motion: reduce) { .wl-status-dot { animation: none; } }
+/* The add field while the list loads (or cannot): visibly off, not interactive. */
+.watchlist > .symbol-search:has(input:disabled) { opacity: 0.5; pointer-events: none; }
+.watchlist .symbol-search input:disabled { background-color: var(--bg-raised); cursor: default; }
 .watchlist-empty { color: var(--text-muted); font-size: 12px; padding: 8px 16px; }
 
 /* Symbol detail panel at the bottom of the rail. */

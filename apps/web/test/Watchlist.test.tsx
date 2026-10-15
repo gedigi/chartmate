@@ -177,7 +177,7 @@ describe('Watchlist', () => {
     setup(['stock:AAPL']);
     vi.mocked(api.watchlist.get).mockRejectedValue(new Error('boom'));
     render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
-    expect(await screen.findByRole('alert')).toHaveTextContent(/boom/);
+    expect((await screen.findByText("Can't reach the server. Retrying…")).closest('[role="status"]')).toHaveAttribute('title', 'boom');
     await act(async () => { await new Promise((r) => setTimeout(r, 800)); });
     expect(put).not.toHaveBeenCalled();
   });
@@ -188,7 +188,11 @@ describe('Watchlist', () => {
     vi.useFakeTimers();
     render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
-    expect(screen.getByRole('alert')).toHaveTextContent(/boom/);
+    // A transient failure is a quiet status (muted, one line, raw error in the title), never a red alert.
+    const status = screen.getByText("Can't reach the server. Retrying…");
+    expect(status.closest('[role="status"]')).toHaveAttribute('title', 'boom');
+    expect(status.closest('[role="status"]')!.querySelector('.wl-status-dot')).not.toBeNull();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Search symbol' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Add section' })).toBeDisabled();
     expect(screen.getByRole('list', { name: 'Watchlist symbols' })).toHaveAttribute('aria-busy', 'true');
@@ -196,7 +200,7 @@ describe('Watchlist', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(api.watchlist.get).toHaveBeenCalledTimes(2);
     expect(order()).toEqual(['stock:AAPL']);
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText("Can't reach the server. Retrying…")).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Search symbol' })).toBeEnabled();
     expect(screen.queryByText('Loading watchlist…')).not.toBeInTheDocument();
     expect(put).not.toHaveBeenCalled();
@@ -208,7 +212,23 @@ describe('Watchlist', () => {
     expect(screen.getByRole('region', { name: 'Watchlist' })).toHaveAttribute('data-keyboard-owner');
   });
 
-  it('retries a failed watchlist save', async () => {
+  it('a permanent load failure (4xx) is not retried: a muted error, the list stays read-only', async () => {
+    setup(['stock:AAPL']);
+    const { ApiError } = await import('../src/api/client');
+    vi.mocked(api.watchlist.get).mockRejectedValue(new ApiError(403, 'forbidden', 'Origin not allowed'));
+    vi.useFakeTimers();
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(api.watchlist.get).toHaveBeenCalledTimes(1);
+    const err = screen.getByRole('alert');
+    expect(err).toHaveTextContent("Couldn't load the watchlist.");
+    expect(err).toHaveAttribute('title', 'Origin not allowed');
+    expect(err).not.toHaveClass('is-error');
+    expect(screen.getByRole('combobox', { name: 'Search symbol' })).toBeDisabled();
+  });
+
+  it('retries a failed watchlist save (quiet status); after giving up shows "Changes not saved" with Retry', async () => {
+    const { MAX_SAVE_RETRIES } = await import('../src/state/useDebouncedSave');
     setup(['stock:AAPL', 'crypto:BTC']);
     vi.useFakeTimers();
     render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
@@ -217,11 +237,37 @@ describe('Watchlist', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove BTC' }));
     await act(async () => { await vi.advanceTimersByTimeAsync(500); });
     expect(put).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('alert')).toHaveTextContent(/offline/);
+    expect(screen.getByText('Not saved yet. Retrying…').closest('[role="status"]')).toHaveAttribute('title', 'offline');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(put).toHaveBeenCalledTimes(2);
     expect(put).toHaveBeenLastCalledWith(syms(['stock:AAPL']));
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText('Not saved yet. Retrying…')).not.toBeInTheDocument();
+    // Give up after MAX_SAVE_RETRIES: a persistent muted note with a Retry action.
+    put.mockRejectedValue(new Error('offline'));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove AAPL' }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60_000); });
+    expect(put).toHaveBeenCalledTimes(3 + MAX_SAVE_RETRIES);
+    expect(screen.getByText('Changes not saved.')).toBeInTheDocument();
+    put.mockResolvedValue(undefined);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Retry saving the watchlist' })); await vi.advanceTimersByTimeAsync(0); });
+    expect(put).toHaveBeenLastCalledWith([]);
+    expect(screen.queryByText('Changes not saved.')).not.toBeInTheDocument();
+  });
+
+  it('a permanent save failure (4xx) is shown in the error color', async () => {
+    setup(['stock:AAPL', 'crypto:BTC']);
+    const { ApiError } = await import('../src/api/client');
+    vi.useFakeTimers();
+    render(<Watchlist currentSymbol="stock:AAPL" onSelect={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    put.mockRejectedValueOnce(new ApiError(400, 'invalid', 'Too many symbols'));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove BTC' }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(put).toHaveBeenCalledTimes(1);
+    const err = screen.getByRole('alert');
+    expect(err).toHaveTextContent("Couldn't save the watchlist: Too many symbols");
+    expect(err).toHaveClass('is-error');
   });
 
   it('a basket that no longer exists shows as "Deleted basket" and its info is not retried', async () => {

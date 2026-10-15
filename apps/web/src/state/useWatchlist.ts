@@ -1,6 +1,6 @@
 import { MAX_WATCHLIST_SYMBOLS, watchlistSymbols, type SymbolId, type WatchlistEntry } from '@chartmate/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, errorMessage } from '../api/client';
+import { api, errorMessage, isPermanentError } from '../api/client';
 import { retryDelayMs } from './retry';
 import { readStored, writeStored } from './storage';
 import { onBasketDeleted } from './useBaskets';
@@ -20,6 +20,18 @@ function setFlag(): void {
   writeStored(INITIALIZED_KEY, '1');
 }
 
+/**
+ * What the watchlist shows about loading / saving, if anything. `retrying`: a transient failure being retried (a quiet
+ * muted line); `stalled`: saving gave up after its retries (muted, with a Retry action); `failed`: a permanent failure
+ * (a load: muted, the list stays read-only; a save: `tone: 'error'`). `detail` is the raw error (a tooltip).
+ */
+export interface WatchlistStatus {
+  kind: 'retrying' | 'stalled' | 'failed';
+  text: string;
+  detail: string;
+  tone: 'muted' | 'error';
+}
+
 export interface UseWatchlist {
   /** Symbols and section headers, in order. */
   entries: WatchlistEntry[];
@@ -27,7 +39,9 @@ export interface UseWatchlist {
   ids: SymbolId[];
   /** False until the server list is loaded; edits are ignored meanwhile (the load would replace them). */
   loaded: boolean;
-  error: string | null;
+  status: WatchlistStatus | null;
+  /** Saves again at once after saving stalled. */
+  retrySave: () => void;
   /** Adds a symbol at the end of `sectionId` (or of the list); duplicates are ignored. */
   add: (id: SymbolId, sectionId?: string | null) => void;
   remove: (id: SymbolId) => void;
@@ -42,7 +56,7 @@ export interface UseWatchlist {
 export function useWatchlist(): UseWatchlist {
   const [entries, setEntries] = useState<WatchlistEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadStatus, setLoadStatus] = useState<WatchlistStatus | null>(null);
   const [seedError, setSeedError] = useState<string | null>(null);
   const loadedRef = useRef(loaded);
   loadedRef.current = loaded;
@@ -60,7 +74,7 @@ export function useWatchlist(): UseWatchlist {
       api.watchlist.get().then(
         (list) => {
           if (canceled) return;
-          setLoadError(null);
+          setLoadStatus(null);
           if (list.length === 0 && !readFlag()) {
             setEntries(DEFAULT_ENTRIES);
             setLoaded(true);
@@ -72,7 +86,13 @@ export function useWatchlist(): UseWatchlist {
         },
         (err: unknown) => {
           if (canceled) return;
-          setLoadError(`Couldn't load the watchlist: ${errorMessage(err)}. Retrying…`);
+          const detail = errorMessage(err);
+          // A permanent failure (e.g. 403) cannot succeed by retrying: the list stays read-only.
+          if (isPermanentError(err)) {
+            setLoadStatus({ kind: 'failed', text: "Couldn't load the watchlist.", detail, tone: 'muted' });
+            return;
+          }
+          setLoadStatus({ kind: 'retrying', text: "Can't reach the server. Retrying…", detail, tone: 'muted' });
           timer = setTimeout(() => load(attempt + 1), retryDelayMs(attempt));
         },
       );
@@ -85,7 +105,15 @@ export function useWatchlist(): UseWatchlist {
   }, [saveList]);
 
   // Saving stays disabled until the server list is loaded (so a failed load never overwrites it).
-  const { error: saveError } = useDebouncedSave(entries, saveList, SAVE_DELAY_MS, loaded, { retry: true });
+  const save = useDebouncedSave(entries, saveList, SAVE_DELAY_MS, loaded, { retry: true });
+  let saveStatus: WatchlistStatus | null = null;
+  if (save.error !== null) {
+    if (save.permanent) saveStatus = { kind: 'failed', text: `Couldn't save the watchlist: ${save.error}`, detail: save.error, tone: 'error' };
+    else if (save.stalled) saveStatus = { kind: 'stalled', text: 'Changes not saved.', detail: save.error, tone: 'muted' };
+    else saveStatus = { kind: 'retrying', text: 'Not saved yet. Retrying…', detail: save.error, tone: 'muted' };
+  }
+  const seedStatus: WatchlistStatus | null = seedError === null ? null
+    : { kind: 'failed', text: `Couldn't save the watchlist: ${seedError}`, detail: seedError, tone: 'error' };
 
   // Edits before the load would be replaced by the loaded list (and never saved): ignored.
   const edit = useCallback((fn: (cur: WatchlistEntry[]) => WatchlistEntry[]) => setEntries((cur) => (loadedRef.current ? fn(cur) : cur)), []);
@@ -98,5 +126,5 @@ export function useWatchlist(): UseWatchlist {
   useEffect(() => onBasketDeleted((id) => edit((cur) => removeSymbol(cur, `basket:${id}`))), [edit]);
   const ids = useMemo(() => watchlistSymbols(entries), [entries]);
 
-  return { entries, ids, loaded, error: loadError ?? saveError ?? seedError, add, remove, update };
+  return { entries, ids, loaded, status: loadStatus ?? saveStatus ?? seedStatus, retrySave: save.retryNow, add, remove, update };
 }

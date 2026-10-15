@@ -599,10 +599,14 @@ line ("Pre 231.40 +0.82%") shows the extended price and its change vs the last r
 otherwise the name. A small gauge under the price places the price in its 30-day closing range (the sparkline's daily
 closes and the live price).
 
-The list is loaded from the server when the app opens. Until it arrives, quiet placeholder rows show and adding,
-removing or reordering is off, so nothing you do is replaced by the loaded list; a failed load shows the error
-and is retried with backoff (2 s, 5 s, 10 s, then every 30 s). Changes are saved about half a second after
-each edit, and a failed save is retried the same way.
+The list is loaded from the server when the app opens. Until it arrives, quiet placeholder rows show and the add
+field, adding, removing and reordering are off, so nothing you do is replaced by the loaded list. If the server
+cannot be reached, a muted "Can't reach the server. Retrying…" line shows (the error itself in its tooltip) and
+the load is retried with backoff (2 s, 5 s, 10 s, then every 30 s); a load the server refuses for good (a 4xx
+error) is not retried and the list stays read-only. Changes are saved about half a second after each edit; a
+failed save is retried the same way ("Not saved yet. Retrying…"), and after about 4 minutes (10 retries) it
+stops and shows "Changes not saved." with a **Retry** button, so a tab left open offline never keeps writing an
+old list over changes made elsewhere. A save the server rejects (a 4xx error) shows in the error color.
 
 Below the list, a **detail panel** shows the open symbol: market status (stocks: open / pre-market / after hours /
 closed from the New York clock and the quote's freshness; crypto trades around the clock), the day range as a
