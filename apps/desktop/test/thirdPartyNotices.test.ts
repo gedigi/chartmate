@@ -1,5 +1,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 // @ts-expect-error plain ESM script without types
@@ -97,5 +98,32 @@ describe('packages without a license file', () => {
     expect(problems([{ name: 'x', version: '1.0.0', license: 'Apache-2.0', dir, pkg: { name: 'x' } }])).toEqual([
       'x@1.0.0: ships no LICENSE/NOTICE file to reproduce',
     ]);
+  });
+});
+
+describe('the desktop roots cover what the main-process bundle contains', () => {
+  // The same esbuild settings as scripts/bundle.mjs (signed build: main.cjs and updater.cjs), in memory.
+  it('every npm package esbuild bundles is in the desktop notices', { timeout: 60_000 }, async () => {
+    const { build } = await import('esbuild');
+    const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
+    const inputs = new Set<string>();
+    for (const entry of ['../src/main.ts', '../src/updater.ts']) {
+      const r = await build({
+        entryPoints: [here(entry)], bundle: true, platform: 'node', target: 'node24', format: 'cjs', write: false,
+        metafile: true, logLevel: 'silent', external: ['electron', './updater.cjs'],
+        alias: { '@chartmate/shared': here('../../../packages/shared/src/index.ts') },
+        define: {
+          __WEB_ROOT_REL__: '"web"', __BUILD_SIGNED__: 'true', __RELEASES_URL__: '""', __WIN_PUBLISHER_DN__: '""',
+          __TEST_INSPECTABLE__: 'false', __DEV_BUNDLE__: 'false', 'process.env.NODE_ENV': '"production"',
+        },
+      });
+      for (const p of Object.keys(r.metafile.inputs)) inputs.add(p);
+    }
+    const bundled = new Set(
+      [...inputs].map((p) => /.*node_modules\/((?:@[^/]+\/)?[^/]+)\//.exec(p)?.[1]).filter((n): n is string => !!n),
+    );
+    expect(bundled.size).toBeGreaterThan(10);
+    const listed = new Set(collect('desktop').map((p) => p.name));
+    expect([...bundled].filter((n) => !listed.has(n)).sort()).toEqual([]);
   });
 });

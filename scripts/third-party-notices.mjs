@@ -181,8 +181,8 @@ function resolvePackage(name, fromDir) {
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
 
 /**
- * Third-party packages reachable through `dependencies` / `optionalDependencies` (installed ones only) from the
- * profile's roots. Workspace packages are walked through but not listed (they are Chartmate itself).
+ * Third-party packages reachable through `dependencies`, `optionalDependencies` and peer dependencies (installed
+ * ones only) from the profile's roots. Workspace packages are walked through but not listed (they are Chartmate itself).
  * @returns {{ name: string, version: string, license: string, dir: string, pkg: any }[]}
  */
 export function collect(profileName, repo = REPO) {
@@ -198,15 +198,23 @@ export function collect(profileName, repo = REPO) {
     if (seen.has(dir)) return;
     seen.add(dir);
     const pkg = readJson(join(dir, 'package.json'));
-    if (!isWorkspace(dir)) found.set(`${pkg.name}@${pkg.version}`, { name: pkg.name, version: pkg.version, license: declaredLicense(pkg), dir, pkg });
+    if (!isWorkspace(dir)) {
+      found.set(`${pkg.name}@${pkg.version}`, { name: pkg.name, version: pkg.version, license: declaredLicense(pkg), dir, pkg });
+    }
     if (leaves.has(pkg.name)) return;
-    const deps = { ...(pkg.optionalDependencies ?? {}), ...(pkg.dependencies ?? {}) };
+    // Installed (optional) peer dependencies count too: a bundler picks them up when they resolve, as debug's
+    // supports-color does from pnpm's hoisted node_modules.
+    const deps = {
+      ...(pkg.peerDependenciesMeta ?? {}), ...(pkg.peerDependencies ?? {}),
+      ...(pkg.optionalDependencies ?? {}), ...(pkg.dependencies ?? {}),
+    };
     for (const name of Object.keys(deps).sort()) {
       if (exclude.has(name)) continue;
       const child = resolvePackage(name, dir);
       if (child) visit(child);
-      // An optional dependency for another platform is simply not installed; a regular one must be.
-      else if (!(name in (pkg.optionalDependencies ?? {}))) throw new Error(`${pkg.name}: dependency ${name} is not installed`);
+      // An optional dependency for another platform, or a peer nobody installed, is simply absent; a regular one
+      // must be installed.
+      else if (name in (pkg.dependencies ?? {})) throw new Error(`${pkg.name}: dependency ${name} is not installed`);
     }
   };
 
