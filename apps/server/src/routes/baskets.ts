@@ -17,10 +17,11 @@ const VersionSchema = z.object({
  * kept as sent, so the service reports it as an invalid constituent.
  */
 function normalizeWeightKeys(w: Record<string, number>): Record<string, number> {
-  const out: Record<string, number> = {};
+  // Null prototype: a key such as 'constructor' must not find an inherited member.
+  const out = Object.create(null) as Record<string, number>;
   for (const [k, v] of Object.entries(w)) {
     const id = tryNormalizeSymbolId(k) ?? k;
-    out[id] = id in out ? out[id]! + v : v;
+    out[id] = Object.hasOwn(out, id) ? out[id]! + v : v;
   }
   return out;
 }

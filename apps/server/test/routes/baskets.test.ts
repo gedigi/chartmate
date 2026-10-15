@@ -51,6 +51,17 @@ describe('basket routes', () => {
     expect(r.json<Basket>().versions[0]!.weights).toEqual({ 'stock:AAPL': 0.5, 'crypto:BTC': 0.5 });
   });
 
+  it('weight keys named like Object.prototype members are plain (invalid) constituents', async () => {
+    for (const key of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      const body = basketBody();
+      const weights = JSON.parse(`{"${key}": 0.5, "stock:AAPL": 0.5}`) as Record<string, number>;
+      const r = await t.app.inject({ method: 'POST', url: '/api/baskets', payload: { ...body, versions: [{ ...body.versions[0]!, weights }] } });
+      expect(r.statusCode, key).toBe(400);
+      // __proto__ is refused by the shape check; the others reach validation as the invalid ids they are.
+      if (key !== '__proto__') expect(r.json(), key).toEqual({ code: 'invalid_basket', message: `Version 1: invalid constituent ${key}` });
+    }
+  });
+
   it('concurrent version appends never overwrite each other', async () => {
     const b = (await t.app.inject({ method: 'POST', url: '/api/baskets', payload: basketBody() })).json<Basket>();
     const v = (days: number) => ({ effectiveFrom: isoDate(Date.now() - days * DAY), weights: { 'stock:AAPL': 0.25, 'crypto:BTC': 0.75 } });
