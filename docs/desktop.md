@@ -592,6 +592,8 @@ Residual risk:
 - So the dependencies run on the runner where the certificate session is live, from the login until
   electron-builder returns (the packaging step then ends the session at once, before verification, a fallback
   rebuild or the smoke tests): anything executed during that window could sign files with your certificate.
+  `scripts/certum/logout.ps1` stops SimplySign Desktop, waits for it to exit and fails the job if it is still
+  running, so a session that outlives the build is an error, not a silent risk.
 - Logging in first keeps the seed out of every later step's environment and away from anything a dependency could
   leave behind (a background process, `GITHUB_ENV` or `GITHUB_PATH` entries), because no dependency code has run
   yet. It is not a hard boundary: GitHub hands every secret a job references to that job's runner, and later

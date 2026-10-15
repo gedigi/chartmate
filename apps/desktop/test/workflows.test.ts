@@ -514,7 +514,12 @@ describe('desktop.yml secret scoping and release', () => {
     expect(end).toBeGreaterThan(builder);
     expect(end).toBeLessThan(run.indexOf('if [ "$eb" != 0 ]; then'));
     expect(end).toBeLessThan(run.indexOf('scripts/verify-win-signatures.mjs release'));
-    expect(run).toContain("pwsh -NoProfile -NonInteractive -Command 'Get-Process SimplySignDesktop -ErrorAction SilentlyContinue | Stop-Process -Force'");
+    expect(run).toContain('pwsh -NoProfile -NonInteractive -File scripts/certum/logout.ps1 || { echo "::error title=Certum::could not end the SimplySign session"; exit 1; }');
+    // logout.ps1 stops SimplySign, waits, and fails while it is still running.
+    const logout = root('apps/desktop/scripts/certum/logout.ps1');
+    expect(logout).toContain('Get-Process SimplySignDesktop -ErrorAction SilentlyContinue | Stop-Process -Force');
+    expect(logout).toContain('Wait-Process -Name SimplySignDesktop -Timeout 15');
+    expect(logout).toMatch(/if \(Get-Process SimplySignDesktop -ErrorAction SilentlyContinue\) \{[\s\S]*?exit 1\s*\}/);
     expect(steps('package-win').find((x) => x.name === 'Certum SimplySign login')!.run).toContain('rm -f "$RUNNER_TEMP/certum-thumbprint"');
     // SimplySign Desktop is closed whatever happened, before the smoke tests, in a step that holds no secrets.
     const close = s.findIndex((x) => x.name === 'Close SimplySign Desktop');

@@ -546,7 +546,8 @@ jobs:
           # gets a live session.
           end_certum_session() {
             if [ -n "${CHARTMATE_WIN_CERT_SHA1:-}" ]; then
-              pwsh -NoProfile -NonInteractive -Command 'Get-Process SimplySignDesktop -ErrorAction SilentlyContinue | Stop-Process -Force'
+              # Fails unless SimplySign is really gone: a session that outlives the build stops the job.
+              pwsh -NoProfile -NonInteractive -File scripts/certum/logout.ps1 || { echo "::error title=Certum::could not end the SimplySign session"; exit 1; }
             fi
           }
           # build: 0 = ok, 3 = the Certum sign hook failed, 2 = signature verification failed, 1 = anything else.
@@ -592,7 +593,7 @@ jobs:
       - name: Close SimplySign Desktop
         if: always()
         shell: pwsh
-        run: Get-Process SimplySignDesktop -ErrorAction SilentlyContinue | Stop-Process -Force
+        run: pwsh -NoProfile -NonInteractive -File apps/desktop/scripts/certum/logout.ps1
       - name: Smoke test (shipped x64 exe + TEST-ONLY inspectable copy)
         timeout-minutes: 15
         working-directory: apps/desktop
