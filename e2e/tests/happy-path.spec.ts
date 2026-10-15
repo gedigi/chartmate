@@ -51,8 +51,16 @@ async function expectNoErrorsFor(page: Page, ms = 2000): Promise<void> {
   } while (Date.now() < until);
 }
 
+/** Collects Content Security Policy violations reported on `page` (the server sends a strict CSP). */
+function watchCsp(page: Page): string[] {
+  const violations: string[] = [];
+  page.on('console', (m) => { if (/Content Security Policy|Trusted Type/i.test(m.text())) violations.push(m.text()); });
+  return violations;
+}
+
 test('happy path: chart, indicators, drawings, baskets', async ({ page, request }) => {
   await resetServerState(request);
+  const cspViolations = watchCsp(page);
 
   // 1. Open the app, search AAPL and select it.
   await page.goto('/');
@@ -189,6 +197,7 @@ test('happy path: chart, indicators, drawings, baskets', async ({ page, request 
   expect(marked.bars.length).toBeGreaterThan(0);
   expect(marked.markers.some((m) => new Date(m.ts).toISOString().slice(0, 10) === effective)).toBe(true);
   await expectNoErrorsFor(page);
+  expect(cspViolations, 'CSP violations').toEqual([]);
 });
 
 test('chart appearance persists; a basket starting today shows simulated history', async ({ page, request }) => {

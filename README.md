@@ -209,6 +209,13 @@ location / {
   it was sent to, or the browser marks it `Sec-Fetch-Site: same-origin`. For a loopback host, a loopback
   `Origin` on any port is accepted too, which is what `pnpm dev` needs (the page on port 5173, the API on 8787).
   Requests without an `Origin` (curl, scripts) are not affected.
+- **Response headers.** The web app is served with a strict Content Security Policy (same-origin scripts,
+  styles, fonts and API calls only, no inline code, Trusted Types required, no framing), `X-Frame-Options:
+  DENY`, `Cross-Origin-Opener-Policy: same-origin`, `X-Content-Type-Options: nosniff` and `Referrer-Policy:
+  no-referrer`; API responses carry the last two. Hashed bundles under `/assets/` are cached for a year
+  (`immutable`), `index.html` and the other files are revalidated on every load. Files whose name starts with a
+  dot are never served, and a missing file (a path under `/assets/` or with a file extension) is a 404 rather
+  than the app page. If you add your own CSP at a reverse proxy, keep it at least this strict.
 - Behind a reverse proxy set `CHARTMATE_TRUST_PROXY`, otherwise every client appears to come from the
   proxy's IP and they all share one rate-limit budget, and the session cookie is not marked `Secure`.
 - The session cookie lasts 30 days. Changing `CHARTMATE_SESSION_SECRET` (or the password, if the secret

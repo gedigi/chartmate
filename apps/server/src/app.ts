@@ -4,9 +4,10 @@ import Fastify, {
 } from 'fastify';
 import { ZodError } from 'zod';
 import { readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { registerAuth } from './auth.js';
 import { registerHostGuard } from './hostGuard.js';
+import { registerSecurityHeaders } from './securityHeaders.js';
 import type { BasketService } from './baskets/service.js';
 import type { Config } from './config.js';
 import type { Repos } from './db/repos.js';
@@ -19,6 +20,21 @@ import { marketRoutes } from './routes/market.js';
 import { userRoutes } from './routes/user.js';
 
 const BODY_LIMIT = 1024 * 1024;
+const IMMUTABLE = 'public, max-age=31536000, immutable';
+
+/** A file of the web build's `assets/` directory (Vite's content-hashed bundles). */
+function isHashedAsset(webDist: string, path: string): boolean {
+  const rel = relative(webDist, path);
+  return rel.startsWith(`assets${sep}`) && !rel.includes('..');
+}
+
+/** A path under /assets/, or whose last segment has a file extension: a static file, never an SPA route. */
+function looksLikeFile(url: string): boolean {
+  const path = decodedPath(url) ?? url.split('?')[0]!;
+  if (/^\/assets(\/|$)/.test(path)) return true;
+  const last = path.slice(path.lastIndexOf('/') + 1);
+  return /\.[A-Za-z0-9]+$/.test(last);
+}
 
 export interface AppDeps {
   config: Config; repos: Repos; market: MarketDataService; baskets: BasketService;
@@ -116,6 +132,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     return reply.code(500).send({ code: 'internal', message: 'Internal error' });
   });
 
+  registerSecurityHeaders(app);
   // First hook: a request for a host that is not allowed never reaches auth, the API or the static files.
   registerHostGuard(app, {
     password: config.password, allowedHosts: config.allowedHosts, allowedOrigins: config.allowedOrigins,
@@ -142,12 +159,23 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       scope.addHook('onRequest', async (request, reply) => {
         if (isApiPath(request.url)) return reply.callNotFound();
       });
-      await scope.register(fastifyStatic, { root: webDist, prefix: '/' });
+      await scope.register(fastifyStatic, {
+        root: webDist, prefix: '/', dotfiles: 'deny', cacheControl: false,
+        // Vite's hashed bundles under /assets never change; everything else (index.html, theme-init.js) is revalidated.
+        setHeaders: (reply: FastifyReply, path: string) => {
+          reply.header('cache-control', isHashedAsset(webDist, path) ? IMMUTABLE : 'no-cache');
+        },
+      });
     });
   }
 
   app.setNotFoundHandler(async (request, reply) => {
     if (indexHtml && (request.method === 'GET' || request.method === 'HEAD') && !isApiPath(request.url)) {
+      // A missing bundle file (e.g. an old hashed asset after an upgrade) is a 404, never the page: a script or
+      // stylesheet answered with HTML would only fail later, and confusingly.
+      if (looksLikeFile(request.url)) {
+        return reply.code(404).header('cache-control', 'no-cache').type('text/plain; charset=utf-8').send('Not found');
+      }
       const html = await indexHtml.get();
       if (html === null) {
         return reply.code(404).send({ code: 'web_not_built', message: 'Web UI not built (index.html missing)' });
