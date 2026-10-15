@@ -476,6 +476,7 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
           onKeyDown={(e) => onSymbolKeyDown(e, id, row, pos)}
         >
           <span className="wl-symbol" title={info?.name}>{label}</span>
+          {gone ? <span className="wl-name">No longer exists</span> : <>
           <span className="wl-spark"><Sparkline values={spark} width={sparkWidth} height={20} /></span>
           <span className="wl-price">{q && info ? fmtPrice(q.price, info.pricePrecision) : '—'}</span>
           <span className={`wl-change ${chg?.dir ?? ''}`}>{chg ? chg.text : '—'}</span>
@@ -496,6 +497,7 @@ function WatchlistPanel({ currentSymbol, onSelect }: WatchlistProps): JSX.Elemen
           >
             {range && <RangeGauge value={q!.price} low={range.lo} high={range.hi} dir={chg?.dir ?? ''} />}
           </span>
+          </>}
         </div>
         <button
           type="button"

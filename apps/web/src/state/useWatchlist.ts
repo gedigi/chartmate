@@ -72,7 +72,7 @@ export function useWatchlist(): UseWatchlist {
         },
         (err: unknown) => {
           if (canceled) return;
-          setLoadError(errorMessage(err));
+          setLoadError(`Couldn't load the watchlist: ${errorMessage(err)}. Retrying…`);
           timer = setTimeout(() => load(attempt + 1), retryDelayMs(attempt));
         },
       );

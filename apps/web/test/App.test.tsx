@@ -154,6 +154,10 @@ describe('App', () => {
     const panel = await screen.findByTestId('symbol-deleted');
     expect(panel).toHaveTextContent('Deleted basket');
     expect(screen.queryByTestId('symbol-error')).not.toBeInTheDocument();
+    // The top bar names it too (never the raw basket id).
+    const bar = screen.getByRole('banner');
+    expect(within(bar).getByText('Deleted basket')).toBeInTheDocument();
+    expect(within(bar).queryByText(/basket:gone/)).not.toBeInTheDocument();
   });
 
   it('deleting the charted basket switches the chart to the first other watchlist symbol', async () => {

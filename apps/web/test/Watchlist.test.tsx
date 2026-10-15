@@ -236,6 +236,8 @@ describe('Watchlist', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     const row = rows().find((r) => r.dataset.symbol === 'basket:gone')!;
     expect(row).toHaveTextContent('Deleted basket');
+    expect(row).toHaveTextContent('No longer exists');
+    expect(row.querySelector('.wl-price')).toBeNull(); // no price / change placeholders
     expect(screen.getByRole('button', { name: 'Remove Deleted basket' })).toBeInTheDocument();
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
     expect(vi.mocked(api.symbol).mock.calls.filter((c) => c[0] === 'basket:gone')).toHaveLength(1);

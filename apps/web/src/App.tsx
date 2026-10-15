@@ -164,6 +164,7 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
         layout={layout}
         setLayout={setLayout}
         symbolInfo={symbolInfo}
+        symbolDeleted={symbolDeleted}
         showSession={showSession}
         onSelectSymbol={selectSymbol}
         theme={theme}
