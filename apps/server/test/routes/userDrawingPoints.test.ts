@@ -21,5 +21,8 @@ describe('drawing points', () => {
 
   it('still rejects a list with an otherwise invalid drawing', async () => {
     expect((await putDrawings([{ name: 'segment', points: 'x', lock: false }])).statusCode).toBe(400);
+    // Only an empty points ARRAY is dropped: other empty values (a string, a missing list) are invalid.
+    expect((await putDrawings([{ name: 'segment', points: '', lock: false }])).statusCode).toBe(400);
+    expect((await putDrawings([{ name: 'segment', lock: false }])).statusCode).toBe(400);
   });
 });
