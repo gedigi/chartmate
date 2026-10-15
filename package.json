@@ -22,7 +22,8 @@
     "typecheck": "pnpm -r typecheck && tsc -p e2e/tsconfig.json",
     "dev": "pnpm -r --parallel dev",
     "e2e": "playwright test -c e2e/playwright.config.ts",
-    "new:indicator": "node scripts/new-indicator.mjs"
+    "new:indicator": "node scripts/new-indicator.mjs",
+    "licenses:check": "node scripts/third-party-notices.mjs --profile=server --check && node scripts/third-party-notices.mjs --profile=desktop --check"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",
