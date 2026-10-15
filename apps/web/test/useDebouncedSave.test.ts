@@ -147,6 +147,12 @@ describe('useDebouncedSave', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
     expect(save).toHaveBeenCalledTimes(1);
     expect(result.current.error).toBe('too many indicators');
+    expect(result.current.permanent).toBe(true);
+    // A newer value clears the permanent error as soon as it starts saving (scheduled), before any response.
+    save.mockReturnValue(new Promise(() => {}));
+    rerender({ v: 3 });
+    expect(result.current.error).toBeNull();
+    expect(result.current.permanent).toBe(false);
   });
 
   it('with retry: transient statuses (e.g. 503, 429, 409) are retried', async () => {

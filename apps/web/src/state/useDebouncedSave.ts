@@ -34,6 +34,7 @@ export function useDebouncedSave<T>(
   const [stalled, setStalled] = useState(false);
   /** The error is permanent (e.g. 400): retrying cannot help. */
   const [permanent, setPermanent] = useState(false);
+  const permanentRef = useRef(false);
   /** The value whose retries were given up (stalled), for retryNow. */
   const stalledValue = useRef<{ value: T } | null>(null);
 
@@ -76,13 +77,15 @@ export function useDebouncedSave<T>(
         // Only the latest save's outcome is shown: an older response arriving late changes nothing.
         if (mySeq !== seq.current) return;
         attempts.current = 0;
+        permanentRef.current = false;
         if (mounted.current) { setError(null); setStalled(false); setPermanent(false); }
       },
       (err: unknown) => {
         if (!mounted.current || mySeq !== seq.current) return;
         setError(err instanceof Error ? err.message : String(err));
         // A permanent client error (e.g. 400) cannot succeed by retrying: keep it shown, do not retry.
-        setPermanent(isPermanentError(err));
+        permanentRef.current = isPermanentError(err);
+        setPermanent(permanentRef.current);
         if (isPermanentError(err)) return;
         // Retry only if nothing newer is already queued.
         if (retryRef.current && pending.current === null && timer.current === null) {
@@ -112,10 +115,15 @@ export function useDebouncedSave<T>(
     }
     if (pending.current === null && Object.is(value, baseline.current)) return;
     baseline.current = value;
-    // A newer value supersedes a stalled one (and gets a fresh backoff).
+    // A newer value supersedes a stalled one (and gets a fresh backoff), and a permanent error is no longer current.
     stalledValue.current = null;
     attempts.current = 0;
     setStalled(false);
+    if (permanentRef.current) {
+      permanentRef.current = false;
+      setPermanent(false);
+      setError(null);
+    }
     pending.current = { value };
     setScheduled(true);
     if (timer.current !== null) clearTimeout(timer.current);
