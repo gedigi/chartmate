@@ -71,7 +71,11 @@ app, the Docker image and the release tag share one version number.
   critical vulnerability with a fix available stops it. Each Monday the latest release's image is rebuilt and
   re-pushed under its tags and `latest`, so OS and Node.js fixes arrive between releases.
 - `docker compose up` now pulls newer images itself (`pull_policy: always`); `CHARTMATE_PULL_POLICY=never` keeps
-  a local build.
+  a local build, and `CHARTMATE_POSTGRES_PULL_POLICY=missing` keeps the Postgres image you have.
+- The image's base must be a digest Docker's official-images project recorded, and is named in the image's
+  `org.opencontainers.image.base.*` labels. Each image is pushed by digest, scanned and smoke-tested, and only then
+  tagged, so the tags point at exactly the image that was checked. The weekly rebuild's attestations name
+  `docker-refresh.yml` and `main` (README, Security, shows how to accept only one workflow).
 - The bundled Postgres is now Postgres 18 on trixie, kept at its newest 18.x. See the upgrade note below.
 
 ### Upgrade notes

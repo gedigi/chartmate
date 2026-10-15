@@ -77,6 +77,7 @@ describe('self-hosting docs use the published image', () => {
     for (const f of docs) {
       const rest = read(f)
         .replaceAll(`--repo ${REPO_SLUG}`, '')
+        .replaceAll(`--signer-workflow ${REPO_SLUG}/.github/workflows/`, '')
         .replaceAll(`${RAW_MAIN}/`, '')
         .replaceAll(`${RELEASE_DOWNLOAD}/`, '')
         .replace(/ghcr\.io\/[\w./:@<>-]*[\w>]/g, (ref) => (IMAGE_REF.test(ref.replace('@sha256:<digest>', `@sha256:${'0'.repeat(64)}`)) ? '' : ref));

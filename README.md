@@ -326,15 +326,21 @@ location / {
   every session out. Over HTTPS the cookie is named `__Host-chartmate_session` (Secure, `Path=/`, no `Domain`,
   so no other site or subdomain can set it); over plain HTTP it is `chartmate_session`. Logout clears both.
 - **A fresh, scanned image.** Every image build pulls the newest `node:26-trixie-slim` and applies Debian's
-  security updates. Before anything is pushed, each platform's image is scanned with Trivy (a pinned release,
-  checked against its sha256): a vulnerability rated high or critical that has a fix available, in a Debian
-  package or in the app's Node.js dependencies, fails the release. Findings without a fix yet do not block it;
-  the weekly rebuild (Mondays) picks the fix up once Debian or Node.js ships it, and re-tags the latest release
-  with it. The base image digest each build used is in the workflow's log and in the image's BuildKit provenance.
-  To scan an image yourself: `trivy image --ignore-unfixed --severity HIGH,CRITICAL ghcr.io/gedigi/chartmate:latest`.
+  security updates. The base image's digest must be one Docker's official-images project recorded for that tag
+  (checked against `docker-library/repo-info`), built within the last 60 days; it is in the workflow's log, in
+  the image's BuildKit provenance and in its `org.opencontainers.image.base.digest` label. Each image is pushed by
+  digest only, then that exact digest is scanned with Trivy (a pinned release, checked against its sha256) and
+  smoke-tested on both platforms, and only then do the tags move to it. A vulnerability rated high or critical
+  that has a fix available, in a Debian package or in the app's Node.js dependencies, stops the release. Findings
+  without a fix yet do not block it (the job summary lists them); the weekly rebuild (Mondays) picks the fix up
+  once Debian or Node.js ships it and re-tags the latest release with it. The scan cannot see the Node.js runtime
+  itself (the official image installs it from a tarball that no package database records), so Node.js fixes
+  arrive through the fresh base image rather than through the scan. The bundled Postgres image is Docker's
+  official `postgres:18-trixie` as the registry serves it; Chartmate's CI does not check it the same way. To scan
+  an image yourself: `trivy image --ignore-unfixed --severity HIGH,CRITICAL ghcr.io/gedigi/chartmate:latest`.
 - **Pin the image.** `latest` follows every release, and each release's tags (`X.Y.Z` too) move to the weekly
-  rebuild. To run exactly the image you checked, look up the
-  digest of a version, verify that digest itself, then pin both in `.env`:
+  rebuild. To run exactly the image you checked, look up the digest of a version, verify that digest itself, then
+  pin both in `.env`:
 
   ```sh
   docker buildx imagetools inspect ghcr.io/gedigi/chartmate:1.0.0   # prints "Digest: sha256:…"
@@ -344,9 +350,23 @@ location / {
   then `CHARTMATE_IMAGE=ghcr.io/gedigi/chartmate:1.0.0@sha256:<digest>`. Docker then pulls that digest only
   (the tag is just a label), and `docker compose pull` never moves it; upgrade by changing both.
   `gh attestation verify` checks the signed build provenance of exactly that digest: that it was built from
-  this repository by its release workflow (`docker.yml`) or its weekly rebuild (`docker-refresh.yml`). A pinned
-  digest never gets the weekly fixes: move the pin now and then. Verifying by digest rather than by tag means the image you run is the
-  one you checked, even if the tag is moved later. Every image also carries BuildKit provenance and an SPDX SBOM
+  this repository by its release workflow (`docker.yml`, run on the version's tag) or by its weekly rebuild
+  (`docker-refresh.yml`, which runs on `main` and builds the tag's code, so its provenance names `main` as the
+  source ref and the image's `org.opencontainers.image.revision` label names the tag's commit). To accept only
+  one of the two:
+
+  ```sh
+  gh attestation verify oci://ghcr.io/gedigi/chartmate@sha256:<digest> --repo gedigi/chartmate \
+    --signer-workflow gedigi/chartmate/.github/workflows/docker.yml           # the release build only
+  gh attestation verify oci://ghcr.io/gedigi/chartmate@sha256:<digest> --repo gedigi/chartmate \
+    --signer-workflow gedigi/chartmate/.github/workflows/docker-refresh.yml   # a weekly rebuild
+  ```
+
+  Verifying by digest rather than by tag means the image you run is the one you checked, even if the tag is moved
+  later. A pinned digest never gets the weekly fixes: move the pin now and then. Each weekly rebuild leaves the
+  previous digest of a version untagged, and an untagged digest stays pullable only as long as GitHub Container
+  Registry keeps untagged versions (the repository's package settings decide; a cleanup policy can delete them),
+  so pin a digest for a while, not forever. Every image also carries BuildKit provenance and an SPDX SBOM
   (`docker buildx imagetools inspect <image> --format '{{json .SBOM}}'`).
 
 ### Advanced: hardened `docker run`

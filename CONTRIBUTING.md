@@ -341,13 +341,19 @@ What the tag runs:
   `latest` move only for the highest release in their range (ranked by the repository's `v*` tags), so a backport
   never moves them backward.
 
-Every Monday `.github/workflows/docker-refresh.yml` rebuilds, scans and re-pushes the latest release's image under
-its tags and `latest` (only from the default branch, never on a fork; run it by hand from the Actions tab after a
-Debian or Node.js security fix). If its scan fails, update the dependency and release, or, when a finding does not
-apply, add it to `.trivyignore` after review: one ID per line with `exp:YYYY-MM-DD` (at most 90 days out) and a
-comment line above it saying what was reviewed, by whom and why it does not apply. The Compose Postgres follows the
-same idea (`postgres:18-trixie`, pulled by `docker compose up`); a new Postgres major needs a documented dump and
-restore for users, as in the README's "Upgrading from Postgres 17".
+Every Monday `.github/workflows/docker-refresh.yml` rebuilds, audits, scans, smoke-tests and re-tags the latest
+release's image (only a release with a published GitHub Release and a tagged base image; only from the default
+branch, never on a fork; run it by hand from the Actions tab after a Debian or Node.js security fix). When it
+fails, it opens or comments on a "Weekly Docker image refresh failed" issue. Then update the dependency and
+release, or, when a finding does not apply, add it to `.trivyignore` after review: one ID per line below the
+header, with `exp:YYYY-MM-DD` (a real date at most 90 days out; an expired entry fails the tests) and a comment
+line directly above it saying what was reviewed, by whom and why it does not apply. The Compose Postgres follows
+the same idea (`postgres:18-trixie`, pulled by `docker compose up`); a new Postgres major needs a documented dump
+and restore for users, as in the README's "Upgrading from Postgres 17".
+
+Once, in the repository settings: create a `ghcr` environment (Settings, Environments) and limit its deployment
+branches and tags to `main` and `v*`. Both image publish jobs run in it; without the rule, GitHub creates it
+unprotected on first use.
 
 After the first image is published, make the GHCR package public once (the package's **Package settings**,
 **Change visibility**) and check that it is linked to this repository; until then, pulls need a login.

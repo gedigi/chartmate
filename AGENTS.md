@@ -92,7 +92,7 @@ or an unpackaged smoke run, fetch it once with `node apps/desktop/node_modules/e
 | End-to-end | `pnpm e2e` (first time: `pnpm exec playwright install chromium`); `E2E_PORT=8873 pnpm e2e` for another port |
 | Docker image (always pull the base) | `docker build --pull -t chartmate .` |
 | Docker image smoke test (read-only rootfs + tmpfs, healthcheck, API, UI, SQLite temp files, SIGTERM) | `scripts/docker-smoke.sh chartmate` (another arch: `--platform linux/arm64`; an image built with `--build-arg GITHUB_REPOSITORY=owner/name`: add `--expect-repository owner/name` to check its source link) |
-| Docker image vulnerability gate (as CI) | `.github/scripts/install-trivy.sh ~/.local/bin`, then `.github/scripts/scan-image.sh chartmate` (fails on a fixable HIGH/CRITICAL; reviewed exceptions in `.trivyignore`, each with a reason and an `exp:` date) |
+| Docker image vulnerability gate (as CI) | `.github/scripts/install-trivy.sh ~/.local/bin`, then `.github/scripts/scan-image.sh chartmate` (fails on a fixable HIGH/CRITICAL; reviewed exceptions in `.trivyignore`, each under its own reason comment with an `exp:` date at most 90 days out; the Node.js runtime itself is not visible to the scan) |
 | Re-record provider fixtures (network) | `pnpm --filter @chartmate/server exec tsx scripts/record-fixtures.ts` |
 | Scaffold a custom indicator + its test (see `CONTRIBUTING.md`) | `pnpm new:indicator <Name> [--pane main]` |
 
@@ -233,26 +233,33 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   --prepackaged`, one run per arch, merged by `scripts/merge-update-info.mjs`). The Apple secrets are
   `macos-signing` environment secrets only. Residual risk: the dependencies build the code that is signed. Changes
   to the signing script, those jobs or the secret scoping are security changes.
-- The same tag runs `.github/workflows/docker.yml`: tests, resolves the base image tag (`node:26-trixie-slim`, no
-  digest pin) once with `.github/scripts/resolve-base-image.sh` (digest in the log and job summary, every build of
-  the run pinned to it with a build context, always `--pull`), `scripts/docker-smoke.sh` (amd64, and arm64 under
-  QEMU) and the Trivy gate (`.github/scripts/scan-image.sh`: fixable HIGH/CRITICAL in Debian packages or
-  node_modules fails; Trivy itself is a pinned, sha256-checked release from `install-trivy.sh`), then rescans
-  both platforms in the publish job and pushes the multi-arch self-hosting image (`linux/amd64`, `linux/arm64`) to
-  `ghcr.io/<owner>/<repo>`, derived from `github.repository` (lowercased), as `X.Y.Z`, plus `X.Y`, `X` and
-  `latest` each only when no higher full release exists in that range (pre-releases: `X.Y.Z-suffix` only), with
-  provenance and SBOM attestations. The image runs as the numeric user `1000:1000`. Manual dispatch never publishes.
-  `compose.yaml` (no `.env` needed) is the documented way to run it, with `.env.example` as the optional
-  template; the desktop workflow's release job attaches both to the GitHub Release (`.env.example` as
-  `env.example`, since GitHub renames assets that start with a dot).
-- `.github/workflows/docker-refresh.yml` (Mondays, or manual dispatch from the default branch; never on forks)
-  rebuilds the latest full release's tag the same way (fresh base, Debian updates, smoke tests, scan) and
-  re-pushes its `X.Y.Z`, `X.Y`, `X` and `latest` with the same attestations, only if that tag is still the latest
-  release (`scripts/release-tags.mjs --latest`). Both publish jobs share the `ghcr-publish` concurrency group. A
-  failed weekly scan means a fixed dependency needs a release (or a reviewed `.trivyignore` entry).
-- The Compose Postgres is `postgres:18-trixie` with `pull_policy: always`, mounted at `/var/lib/postgresql` (18's
-  layout); a Postgres 17 volume is refused at start. The README's "Upgrading from Postgres 17" is the tested
-  dump-and-restore path; a future major needs the same.
+- The same tag runs `.github/workflows/docker.yml`:
+  - tests; then `.github/scripts/resolve-base-image.sh` resolves the base tag (`node:26-trixie-slim`, no digest
+    pin) once, to a digest `docker-library/repo-info` recorded (newest recorded one if the registry's is not; built
+    within 60 days), logged in the job summary and pinned into every build of the run with a build context,
+    always `--pull`; the Dockerfile's `# syntax=` frontend is pinned by digest;
+  - `scripts/docker-smoke.sh` (amd64, and arm64 under QEMU) and the Trivy gate (`.github/scripts/scan-image.sh`:
+    fixable HIGH/CRITICAL in Debian packages or node_modules fails; unfixed ones are listed in the summary; Trivy is
+    a pinned, sha256-checked release from `install-trivy.sh`, run with `--config /dev/null`);
+  - the publish job (`ghcr` environment, `packages: write`) builds once and pushes by digest only, scans
+    (`--remote`) and smoke-tests that digest per platform (`platform-digest.sh`), then `tag-image.sh` points
+    `X.Y.Z`, plus `X.Y`, `X` and `latest` each only when no higher full release exists in that range
+    (pre-releases: `X.Y.Z-suffix` only), at exactly that digest; provenance (mode=max), SBOM, the
+    `org.opencontainers.image.base.*` labels and a GitHub attestation. Image: `ghcr.io/<owner>/<repo>` from
+    `github.repository` (lowercased); user `1000:1000`. Manual dispatch never publishes.
+  - `compose.yaml` (no `.env` needed) is the documented way to run it, with `.env.example` as the optional
+    template; the desktop workflow's release job attaches both to the GitHub Release (`.env.example` as
+    `env.example`, since GitHub renames assets that start with a dot).
+- `.github/workflows/docker-refresh.yml` (Mondays, or manual dispatch from the default branch; never on forks):
+  `plan` picks the latest full release (`scripts/release-tags.mjs --latest`) and stands down unless it has a
+  published GitHub Release and a Dockerfile with a tagged base (v1.0.0 pins a digest, so it is never refreshed);
+  `audit` runs the tag's `pnpm audit`; `image` builds, smoke-tests (the tag's own script) and scans; `publish`
+  pushes by digest, rechecks, and tags only while the tag is still the latest published release and no docker.yml
+  tag run is queued or in progress; `notify` opens or comments on a "Weekly Docker image refresh failed" issue
+  (`issues: write` only). No concurrency group is shared with docker.yml (it could cancel a pending release).
+- The Compose Postgres is `postgres:18-trixie` with `pull_policy: ${CHARTMATE_POSTGRES_PULL_POLICY:-always}`,
+  mounted at `/var/lib/postgresql` (18's layout); a Postgres 17 volume is refused at start. The README's
+  "Upgrading from Postgres 17" is the tested dump-and-restore path; a future major needs the same.
 - `CHANGELOG.md` keeps an `## Unreleased` section at the top for user-visible changes; it is renamed to
   `## [X.Y.Z] - YYYY-MM-DD` at release time (CONTRIBUTING, "Releases").
 - Windows signing uses a Certum SimplySign cloud certificate (`docs/desktop.md`, "Windows signing with Certum"):
