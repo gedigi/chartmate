@@ -4,9 +4,14 @@ import { nyParts } from './nytime.js';
 /** Explicit session window, [start, end) in UTC epoch ms. */
 export interface SessionWindow { start: number; end: number; session: Session }
 
-/** NY: 04:00–09:30 pre, 09:30–16:00 regular, 16:00–20:00 post, else null. */
+/**
+ * Fallback session hours, Monday to Friday (NY date): 04:00–09:30 pre, 09:30–16:00 regular, 16:00–20:00 post, else
+ * null; weekends are null. Holidays and early closes are not modeled here: they come from the provider's session
+ * windows (see `tagSessions`).
+ */
 export function tagSessionFixedHours(ts: number): Session | null {
   const p = nyParts(ts);
+  if (p.dow === 0 || p.dow === 6) return null;
   const min = p.hh * 60 + p.mm;
   if (min >= 240 && min < 570) return 'pre';
   if (min >= 570 && min < 960) return 'regular';
