@@ -5,6 +5,8 @@
 //
 //   git tag --list 'v*' | node scripts/release-tags.mjs vX.Y.Z
 //   (prints latest=…, minor=…, major=…, each true or false)
+//   git tag --list 'v*' | node scripts/release-tags.mjs --latest
+//   (prints the latest full release, the one :latest points at; fails when there is none)
 //
 // Pure semver over the tag names (SemVer 2.0.0 precedence); names that are not vMAJOR.MINOR.PATCH[-PRE] are ignored.
 import { readFileSync, realpathSync } from 'node:fs';
@@ -62,10 +64,31 @@ export function floatingTags(tag, tags) {
   };
 }
 
+/**
+ * @param {string[]} tags
+ * @returns {string | null} the highest full release (vX.Y.Z, no pre-release), or null when there is none
+ */
+export function latestRelease(tags) {
+  let best = null;
+  for (const t of tags) {
+    const p = parseTag(t);
+    if (p && p.pre.length === 0 && (best === null || compareTags(p, parseTag(best)) > 0)) best = String(t).trim();
+  }
+  return best;
+}
+
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const tag = process.argv[2];
-  if (!tag || !parseTag(tag)) {
-    console.error('usage: git tag --list "v*" | node scripts/release-tags.mjs vX.Y.Z[-pre]');
+  if (tag === '--latest') {
+    const latest = latestRelease(readFileSync(0, 'utf8').split('\n').filter(Boolean));
+    if (latest) {
+      process.stdout.write(`${latest}\n`);
+    } else {
+      console.error('no full release (vX.Y.Z) among the tags');
+      process.exitCode = 1;
+    }
+  } else if (!tag || !parseTag(tag)) {
+    console.error('usage: git tag --list "v*" | node scripts/release-tags.mjs vX.Y.Z[-pre] | --latest');
     process.exitCode = 2;
   } else {
     const r = floatingTags(tag, readFileSync(0, 'utf8').split('\n').filter(Boolean));

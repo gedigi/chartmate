@@ -4,10 +4,11 @@ import { describe, expect, it } from 'vitest';
 // @ts-expect-error plain ESM script without types
 import * as releaseTags from '../../../scripts/release-tags.mjs';
 
-const { parseTag, compareTags, floatingTags } = releaseTags as {
+const { parseTag, compareTags, floatingTags, latestRelease } = releaseTags as {
   parseTag: (t: string) => unknown;
   compareTags: (a: string, b: string) => number;
   floatingTags: (tag: string, tags: string[]) => { latest: boolean; minor: boolean; major: boolean };
+  latestRelease: (tags: string[]) => string | null;
 };
 
 describe('release tag ranking (which floating names a release may move)', () => {
@@ -50,5 +51,17 @@ describe('release tag ranking (which floating names a release may move)', () => 
     const script = fileURLToPath(new URL('../../../scripts/release-tags.mjs', import.meta.url));
     const out = execFileSync(process.execPath, [script, 'v1.2.5'], { input: 'v1.2.4\nv1.3.0\nv1.2.5\n', encoding: 'utf8' });
     expect(out).toBe('latest=false\nminor=true\nmajor=false\n');
+  });
+
+  it('the latest full release: the highest vX.Y.Z, never a pre-release or another name', () => {
+    expect(latestRelease(['v1.2.5', 'v1.10.0', 'v1.9.9', 'v2.0.0-beta.1', 'nightly', 'v3'])).toBe('v1.10.0');
+    expect(latestRelease(['v1.0.0-rc.1'])).toBeNull();
+    expect(latestRelease([])).toBeNull();
+  });
+
+  it('CLI --latest: prints the latest full release, and fails when there is none', () => {
+    const script = fileURLToPath(new URL('../../../scripts/release-tags.mjs', import.meta.url));
+    expect(execFileSync(process.execPath, [script, '--latest'], { input: 'v0.1.0\nv1.0.0\nv1.1.0-beta.1\n', encoding: 'utf8' })).toBe('v1.0.0\n');
+    expect(() => execFileSync(process.execPath, [script, '--latest'], { input: 'v1.0.0-beta.1\n', encoding: 'utf8', stdio: 'pipe' })).toThrow();
   });
 });
