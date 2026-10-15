@@ -10,6 +10,11 @@ export type WatchlistEntry =
 export type WatchlistSection = Extract<WatchlistEntry, { type: 'section' }>;
 
 export const MAX_WATCHLIST_SYMBOLS = 200;
+/**
+ * Response header of `GET /api/watchlist`: `1` when a watchlist was ever saved (even if it is empty now), `0` for a
+ * database that never had one. Absent from older servers.
+ */
+export const WATCHLIST_STORED_HEADER = 'chartmate-watchlist-stored';
 export const MAX_WATCHLIST_SECTIONS = 50;
 export const MAX_SECTION_TITLE = 40;
 const MAX_SECTION_ID = 64;

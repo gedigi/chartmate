@@ -327,8 +327,22 @@ function toBasket(r: Database['baskets'], versions: BasketVersion[]): Basket {
   return { id: r.id, name: r.name, baseValue: r.base_value, versions, createdAt: Number(r.created_at), updatedAt: Number(r.updated_at) };
 }
 
+/** `settings` key marking that a watchlist was saved at least once (an emptied list is still a stored one). */
+const WATCHLIST_STORED_KEY = 'watchlist_stored';
+
 export class WatchlistRepo {
   constructor(private db: Kysely<Database>) {}
+
+  /**
+   * Whether a watchlist was ever saved, so a client seeds its defaults only into a database that never had one.
+   * Databases from before the marker existed count as stored when they hold any entry.
+   */
+  async stored(): Promise<boolean> {
+    const mark = await this.db.selectFrom('settings').select('key').where('key', '=', WATCHLIST_STORED_KEY).executeTakeFirst();
+    if (mark) return true;
+    const row = await this.db.selectFrom('watchlist_entries').select('position').limit(1).executeTakeFirst();
+    return row !== undefined;
+  }
 
   async list(): Promise<WatchlistEntry[]> {
     const rows = await this.db.selectFrom('watchlist_entries').selectAll().orderBy('position', 'asc').execute();
@@ -369,6 +383,8 @@ export class WatchlistRepo {
       // Mirror the symbols into the legacy table, read by an older server after a manual rollback (see README).
       await trx.deleteFrom('watchlist').execute();
       if (legacy.length > 0) await trx.insertInto('watchlist').values(legacy).execute();
+      await trx.insertInto('settings').values({ key: WATCHLIST_STORED_KEY, value: '1' })
+        .onConflict(oc => oc.column('key').doNothing()).execute();
     });
   }
 }

@@ -25,6 +25,28 @@ describe('user routes', () => {
     expect((await t.app.inject({ method: 'GET', url: '/api/watchlist' })).json()).toEqual(entries(ids));
   });
 
+  it('GET /api/watchlist says in a header whether a list was ever stored (an emptied list is not a new one)', async () => {
+    const STORED = 'chartmate-watchlist-stored';
+    const fresh = await t.app.inject({ method: 'GET', url: '/api/watchlist' });
+    expect(fresh.json()).toEqual([]); // the body keeps its shape for older clients
+    expect(fresh.headers[STORED]).toBe('0');
+    await t.app.inject({ method: 'PUT', url: '/api/watchlist', payload: ['stock:AAPL'] });
+    expect((await t.app.inject({ method: 'GET', url: '/api/watchlist' })).headers[STORED]).toBe('1');
+    // Emptied: still stored.
+    expect((await t.app.inject({ method: 'PUT', url: '/api/watchlist', payload: [] })).statusCode).toBe(200);
+    const emptied = await t.app.inject({ method: 'GET', url: '/api/watchlist' });
+    expect(emptied.json()).toEqual([]);
+    expect(emptied.headers[STORED]).toBe('1');
+  });
+
+  it('a database from before the stored marker: a non-empty list counts as stored', async () => {
+    const db = (t.repos.layouts as unknown as { db: import('kysely').Kysely<any> }).db;
+    await db.insertInto('watchlist_entries').values({ position: 0, kind: 'symbol', symbol: 'stock:SPY', section_id: null, title: null, collapsed: null }).execute();
+    const r = await t.app.inject({ method: 'GET', url: '/api/watchlist' });
+    expect(r.json()).toEqual(entries(['stock:SPY']));
+    expect(r.headers['chartmate-watchlist-stored']).toBe('1');
+  });
+
   it('symbol ids are normalized on write: watchlist, layout symbol and key, drawings key', async () => {
     const put = await t.app.inject({ method: 'PUT', url: '/api/watchlist', payload: ['stock:aapl', ' crypto:btc', 'stock:AAPL'] });
     expect(put.json()).toEqual(entries(['stock:AAPL', 'crypto:BTC']));

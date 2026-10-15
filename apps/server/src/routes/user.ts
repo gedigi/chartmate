@@ -1,7 +1,7 @@
 import {
   DRAWING_COLOR_RE, DRAWING_COLOR_TOKENS, HEX_COLOR_RE, MAX_INDICATOR_LEVEL, MAX_INDICATOR_LEVELS, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_POSITION_PCT, MAX_SECTION_TITLE,
   MAX_TEXT_SIZE, MAX_WATCHLIST_SECTIONS, MAX_WATCHLIST_SYMBOLS, MIN_LINE_WIDTH, MIN_TEXT_SIZE, migrateAppearance, TIMEFRAMES,
-  mergeLegacyWatchlist, normalizeSymbolId, tryNormalizeSymbolId, watchlistProblem,
+  mergeLegacyWatchlist, normalizeSymbolId, tryNormalizeSymbolId, WATCHLIST_STORED_HEADER, watchlistProblem,
   type DrawingState, type Layout, type Timeframe, type WatchlistEntry,
 } from '@chartmate/shared';
 import type { FastifyInstance } from 'fastify';
@@ -142,7 +142,13 @@ const SymbolParams = z.object({ symbol: SymbolIdSchema });
 export async function userRoutes(app: FastifyInstance, deps: { repos: Repos }): Promise<void> {
   const { repos } = deps;
 
-  app.get('/api/watchlist', async (): Promise<WatchlistEntry[]> => repos.watchlist.list());
+  // The body stays the plain entry array older clients read; `chartmate-watchlist-stored: 1|0` tells a new client
+  // whether a list was ever saved, so it seeds its defaults only into a fresh database, never over an emptied list.
+  app.get('/api/watchlist', async (_request, reply): Promise<WatchlistEntry[]> => {
+    const [list, stored] = await Promise.all([repos.watchlist.list(), repos.watchlist.stored()]);
+    reply.header(WATCHLIST_STORED_HEADER, stored ? '1' : '0');
+    return list;
+  });
   app.put('/api/watchlist', async (request): Promise<WatchlistEntry[]> => {
     const body = parse(WatchlistBody, request.body);
     // A tab opened before sections existed sends symbol ids only: merge them so the stored sections survive.
