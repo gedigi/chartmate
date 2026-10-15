@@ -43,12 +43,10 @@ cmd_import() {
   # -x: the private key is not extractable (not even by this job); -T: only codesign may use it without a prompt.
   security import "$p12" -k "$KEYCHAIN" -f pkcs12 -P "$CSC_KEY_PASSWORD" -x -T /usr/bin/codesign >/dev/null
   security set-key-partition-list -S apple-tool:,apple: -s -k "$pass" "$KEYCHAIN" >/dev/null
-  if [ "${GITHUB_ACTIONS:-}" = true ]; then
-    # codesign resolves the certificate chain only through the search list. Only on the throwaway runner: never
-    # rewrite a developer's own search list.
-    # shellcheck disable=SC2046
-    security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
-  fi
+  # codesign resolves the certificate chain only through the user's keychain search list (create-keychain
+  # normally adds it; make sure). `cleanup` deletes the keychain, which also drops it from the list.
+  # shellcheck disable=SC2046
+  security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
   security find-identity -v -p codesigning "$KEYCHAIN" | grep -qF "\"$IDENTITY\"" \
     || die "no valid identity \"$IDENTITY\" in the .p12 (wrong CHARTMATE_MAC_SIGN_IDENTITY, or an untrusted chain: export the .p12 with its certificate chain)"
   echo "imported \"$IDENTITY\" into a temporary keychain (key not extractable)"
