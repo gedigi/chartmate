@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { axisTickLabels, barCloseTime, countdownText, crosshairDate, hasCountdown, zonedParts } from '../../src/chart/timeLabels';
+import { nyToUtc } from '@chartmate/shared';
+import { barCloseTime, calendarTicks, countdownText, crosshairDate, hasCountdown, MIN_TICK_GAP_PX, zonedParts } from '../../src/chart/timeLabels';
 
 const NY = 'America/New_York';
 const utc = (s: string) => Date.parse(`${s}Z`);
@@ -11,18 +12,59 @@ describe('zonedParts', () => {
   });
 });
 
-describe('axisTickLabels', () => {
-  it('intraday: month on the first tick and at a month change, day number on a new day, else the time', () => {
-    const ts = ['2026-09-29T14:00:00', '2026-09-29T18:00:00', '2026-09-30T14:00:00', '2026-10-01T14:00:00', '2026-10-01T17:30:00'].map(utc);
-    expect(axisTickLabels(ts, '1h', NY)).toEqual(['Sep 29', '14:00', '30', 'Oct 1', '13:30']);
+describe('calendarTicks', () => {
+  const DAY = 86_400_000;
+  /** Weekday dates (UTC midnight) from `from` to `to`, inclusive. */
+  const weekdays = (from: string, to: string) => {
+    const out: number[] = [];
+    for (let t = utc(`${from}T00:00:00`); t <= utc(`${to}T00:00:00`); t += DAY) if (![0, 6].includes(new Date(t).getUTCDay())) out.push(t);
+    return out;
+  };
+  const labels = (ticks: Array<{ label: string }>) => ticks.map((t) => t.label);
+
+  it('one year of daily bars on a wide chart: a tick on the first session of each month, the year in January', () => {
+    const times = weekdays('2025-10-15', '2026-10-15'); // the first bar is only context (the one before the view)
+    const ticks = calendarTicks(times, 3.5, '1D', 'UTC');
+    expect(labels(ticks)).toEqual(['Nov', 'Dec', '2026', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct']);
+    expect(times[ticks[0]!.index]).toBe(utc('2025-11-03T00:00:00')); // Nov 1–2 2025 is a weekend
+    expect(times[ticks[2]!.index]).toBe(utc('2026-01-01T00:00:00'));
   });
 
-  it('daily / weekly: year, month or day; monthly: year or month', () => {
-    const days = ['2025-12-29', '2025-12-31', '2026-01-02', '2026-01-06', '2026-02-02'].map((d) => utc(`${d}T00:00:00`));
-    expect(axisTickLabels(days, '1D', 'UTC')).toEqual(['2025', '31', '2026', '6', 'Feb']);
-    expect(axisTickLabels(days, '1W', 'UTC')).toEqual(['2025', '31', '2026', '6', 'Feb']);
-    const months = ['2025-11-01', '2025-12-01', '2026-01-01', '2026-02-01'].map((d) => utc(`${d}T00:00:00`));
-    expect(axisTickLabels(months, '1M', 'UTC')).toEqual(['2025', 'Dec', '2026', 'Feb']);
+  it('the same year on a narrow chart: quarters, never closer than the minimum gap', () => {
+    const times = weekdays('2025-10-15', '2026-10-15');
+    const ticks = calendarTicks(times, 1.9, '1D', 'UTC');
+    expect(labels(ticks)).toEqual(['2026', 'Apr', 'Jul', 'Oct']);
+    for (let i = 1; i < ticks.length; i++) expect((ticks[i]!.index - ticks[i - 1]!.index) * 1.9).toBeGreaterThanOrEqual(MIN_TICK_GAP_PX);
+  });
+
+  it('a crowded pair keeps the larger unit: a month start a few days before a week start', () => {
+    const times = weekdays('2026-09-14', '2026-10-30');
+    const ticks = calendarTicks(times, 15, '1D', 'UTC'); // weeks: 75 px apart
+    // Oct 1 (Thu) is too close to Mon Sep 28 and Mon Oct 5: the month start replaces the one and drops the other.
+    expect(labels(ticks)).toEqual(['21', 'Oct', '12', '19', '26']);
+  });
+
+  it('intraday: the session start shows the day, then the finest clock step that fits (New York time)', () => {
+    const day = (d: number) => Array.from({ length: 78 }, (_, i) => nyToUtc(2026, 10, d, 9, 30) + i * 5 * 60_000);
+    const times = [day(13).at(-1)!, ...day(14)]; // the previous session's last bar, then Oct 14
+    const ticks = calendarTicks(times, 11, '5m', 'America/New_York');
+    expect(labels(ticks)).toEqual(['14', '10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30']);
+  });
+
+  it('intraday across a month: the month start reads "Oct 1"', () => {
+    const times = [utc('2026-09-30T19:00:00'), utc('2026-09-30T20:00:00'), utc('2026-10-01T13:00:00'), utc('2026-10-01T14:00:00')];
+    expect(labels(calendarTicks(times, 80, '1h', 'America/New_York'))).toEqual(['16:00', 'Oct 1', '10:00']);
+  });
+
+  it('monthly bars over years: one tick per year (or per 2 / 5 / 10 years when narrower)', () => {
+    const months = Array.from({ length: 142 }, (_, i) => Date.UTC(2015, i, 1));
+    expect(labels(calendarTicks(months, 6.5, '1M', 'UTC'))).toEqual(['2016', '2017', '2018', '2019', '2020', '2021', '2022', '2023', '2024', '2025', '2026']);
+    expect(labels(calendarTicks(months, 3, '1M', 'UTC'))).toEqual(['2016', '2018', '2020', '2022', '2024', '2026']);
+  });
+
+  it('no ticks without a previous bar to compare with', () => {
+    expect(calendarTicks([utc('2026-01-01T00:00:00')], 10, '1D', 'UTC')).toEqual([]);
+    expect(calendarTicks([], 10, '1D', 'UTC')).toEqual([]);
   });
 });
 

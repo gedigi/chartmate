@@ -403,8 +403,11 @@ Where to read next:
   the chart the full width.
 - **Timeframes** 1m … 1M, chart types candles / bars / line / area, light and dark themes. The look is flat:
   the chart sits on its own rounded sheet, chrome is solid panels with hairline edges (no glass, glow or drop
-  shadows), and every font is the system sans-serif (no web fonts). The time axis labels read with context
-  ("Sep 21", "22", "13:30"; daily: "Sep", "22"), the crosshair date chip reads "Wed Sep 30 '26 · 12:30".
+  shadows), and every font is the system sans-serif (no web fonts). Time axis ticks (and the vertical grid lines)
+  fall on calendar boundaries: the finest step among 5 / 15 / 30 minutes, 1 / 2 / 3 / 6 / 12 hours, days, weeks,
+  months, quarters, half years and 1 / 2 / 5 / 10 years that keeps them at least 60 px apart, so they are evenly
+  spaced in time and never crowd. Each label names the largest unit starting there ("2026", "Sep", "Sep 21" on
+  intraday charts, "22", "13:30"). The crosshair date chip reads "Wed Sep 30 '26 · 12:30".
 - **Date ranges**: the row under the time axis (**1D 5D 1M 3M 6M YTD 1Y All**) shows that period, ending at the
   latest bar, and switches to a fitting interval (still changeable in the top bar afterwards). Older bars are
   loaded first when the range needs them, never past the data source's intraday limits; a symbol with less

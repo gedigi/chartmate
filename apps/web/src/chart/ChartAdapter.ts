@@ -40,7 +40,7 @@ import {
 import { registerSessionShade, SESSION_SHADE, SHADE_INDICATORS } from './sessionShade';
 import { textColoredLegends } from './barLegends';
 import { solidBarFigures } from './solidBars';
-import { axisTickLabels, countdownText, crosshairDate, hasCountdown } from './timeLabels';
+import { calendarTicks, countdownText, crosshairDate, hasCountdown } from './timeLabels';
 import {
   candleStyles, CHART_FONT, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, defaultIndicatorCircles, effectiveBarColors, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeSoftTone, themeTokens,
   type ThemeName,
@@ -117,6 +117,8 @@ export interface LoadParams {
 }
 
 const CANDLE_PANE = 'candle_pane';
+/** Time-axis ticks closer than this to the plot's left / right edge are left out (their label would be cut). */
+const AXIS_EDGE_PX = 16;
 /** Gap (px) after the latest bar when a date range is shown: KLineChart's default right offset. */
 const RANGE_RIGHT_MARGIN_PX = 80;
 /** KLineChart's double-click window and distance (Delay.ResetClick, ManhattanDistance.DoubleClick). */
@@ -416,13 +418,27 @@ export class ChartAdapter {
       // Stock-like charts: the bar also closes with the session (16:00 / 20:00 New York).
       formatExtendText: ({ data }) => countdownText(data.timestamp, tf, Date.now(), this.stockLike() ? session : undefined),
     });
-    this.chart.overrideXAxis({
-      createTicks: ({ defaultTicks }) => {
-        const labels = axisTickLabels(defaultTicks.map((t) => Number(t.value)), tf, timezone);
-        return defaultTicks.map((t, i) => ({ ...t, text: labels[i]! }));
-      },
-    });
+    this.chart.overrideXAxis({ createTicks: ({ range, bounding }) => this.axisTicks(range, bounding.width, tf, timezone) });
     this.chart.setStyles(this.styles());
+  }
+
+  /**
+   * Time-axis ticks on calendar boundaries of the bars in view (see calendarTicks), placed at their bars; KLineChart's
+   * own ticks fall every n bars whatever the date, so their labels would skip months unevenly. A tick within
+   * AXIS_EDGE_PX of the plot's edges is left out: its label would be cut.
+   */
+  private axisTicks(range: { realFrom: number; realTo: number }, width: number, tf: Timeframe, timezone: string) {
+    const data = this.chart.getDataList();
+    const from = Math.max(0, Math.floor(range.realFrom) - 1); // the bar before the view: is the first one a boundary?
+    const to = Math.min(data.length, Math.ceil(range.realTo));
+    if (to - from < 2) return [];
+    const times = data.slice(from, to).map((d) => d.timestamp);
+    return calendarTicks(times, this.chart.getBarSpace().bar, tf, timezone).flatMap(({ index, label }) => {
+      const at = from + index;
+      const x = (this.chart.convertToPixel({ dataIndex: at }, { paneId: CANDLE_PANE }) as Partial<Coordinate>).x;
+      if (x === undefined || x < AXIS_EDGE_PX || x > width - AXIS_EDGE_PX) return [];
+      return [{ coord: x, value: data[at]!.timestamp, text: label }];
+    });
   }
 
   /**
