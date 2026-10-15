@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, symlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,5 +37,19 @@ describe('bundle.mjs --test-inspectable', () => {
   it.runIf(process.platform === 'darwin' || process.platform === 'win32')('refuses a case variant of dist/ on case-insensitive systems', () => {
     const variant = dist.replace(/dist$/, 'DIST');
     expect(run('--test-inspectable', `--out=${variant}/x`).status).toBe(2);
+  });
+});
+
+describe("the desktop build targets Electron's Node.js, not the development Node.js", () => {
+  // The main process and the embedded server run on the Node.js inside Electron (Electron 44: Node 24), which is
+  // older than the Node.js the workspace develops on. Electron's own @types/node range names its Node major.
+  const read = (p: string) => JSON.parse(readFileSync(fileURLToPath(new URL(p, import.meta.url)), 'utf8'));
+  const electronNode = Number(/^\^?(\d+)\./.exec(read('../node_modules/electron/package.json').dependencies['@types/node'])![1]);
+
+  it("esbuild targets Electron's Node major", () => {
+    expect(readFileSync(script, 'utf8')).toContain(`target: 'node${electronNode}',`);
+  });
+  it("the desktop package typechecks against Electron's Node major (@types/node)", () => {
+    expect(read('../package.json').devDependencies['@types/node']).toMatch(new RegExp(`^\\^${electronNode}\\.`));
   });
 });

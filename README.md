@@ -146,7 +146,8 @@ same `docker run` line again (the volume keeps your data).
 
 Database migrations run at startup, and data saved by older versions stays loadable. To upgrade on your own
 schedule, pin a version (`CHARTMATE_IMAGE=ghcr.io/gedigi/chartmate:1.0.0` in `.env`, or a digest as in
-[Security](#security)) instead of `latest`, and take a backup first. `docker stop` (SIGTERM) shuts the server down cleanly.
+[Security](#security)) instead of `latest`, and take a backup first. `docker stop` (SIGTERM) shuts the server down
+cleanly.
 
 ### Backups
 
@@ -182,8 +183,8 @@ docker compose start chartmate
 In `.env` (see above), set `POSTGRES_PASSWORD` and uncomment `DATABASE_URL` and `COMPOSE_PROFILES=postgres` (all three
 are in `.env.example`), then `docker compose up -d`. This starts the `postgres` service with its own volume and
 points Chartmate at it. Data is not copied over from SQLite. Any other Postgres works too: set
-`DATABASE_URL=postgres://user:pass@host:5432/chartmate`. Chartmate keeps its tables, and its migration bookkeeping, in the connection's current
-schema (the first schema of its `search_path`).
+`DATABASE_URL=postgres://user:pass@host:5432/chartmate`. Chartmate keeps its tables, and its migration bookkeeping, in
+the connection's current schema (the first schema of its `search_path`).
 
 ### Behind a reverse proxy (HTTPS)
 
@@ -259,10 +260,11 @@ location / {
 - **Response headers.** The web app is served with a strict Content Security Policy (same-origin scripts,
   styles, fonts and API calls only, no inline code, Trusted Types required, no framing), `X-Frame-Options:
   DENY`, `Cross-Origin-Opener-Policy: same-origin`, `X-Content-Type-Options: nosniff` and `Referrer-Policy:
-  no-referrer`; API responses carry the last two plus `Cache-Control: no-store`. Hashed bundles under `/assets/` are cached for a year
-  (`immutable`), `index.html` and the other files are revalidated on every load. Files whose name starts with a
-  dot are never served, and a missing file (a path under `/assets/` or with a file extension) is a 404 rather
-  than the app page. If you add your own CSP at a reverse proxy, keep it at least this strict.
+  no-referrer`; API responses carry the last two plus `Cache-Control: no-store`. Hashed bundles under `/assets/`
+  are cached for a year (`immutable`), `index.html` and the other files are revalidated on every load. Files
+  whose name starts with a dot are never served, and a missing file (a path under `/assets/` or with a file
+  extension) is a 404 rather than the app page. If you add your own CSP at a reverse proxy, keep it at least this
+  strict.
 - Behind a reverse proxy set `CHARTMATE_TRUST_PROXY`, otherwise every client appears to come from the
   proxy's IP and they all share one rate-limit budget, and the session cookie is not marked `Secure`.
 - The session cookie lasts 30 days. Each cookie carries a keyed fingerprint of the password, so changing
@@ -307,7 +309,7 @@ docker run -d --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-priv
 
 ### Without Docker
 
-Requires Node 22 or later and pnpm 8 (see [Develop](#develop)):
+Requires Node 26 or later and pnpm 12 (see [Develop](#develop)):
 
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
@@ -343,8 +345,10 @@ created if missing).
 ## Develop
 
 Monorepo (pnpm): `packages/shared` (types, sessions, resampling, basket math), `apps/server` (Fastify API),
-`apps/web` (React + KLineChart), `apps/desktop` (Electron app) and `e2e` (Playwright). Requires Node 22
-(`.nvmrc`) and pnpm 8: `corepack enable` installs the exact version pinned (with its hash) in `package.json`.
+`apps/web` (React + KLineChart), `apps/desktop` (Electron app) and `e2e` (Playwright). Requires Node 26
+(`.nvmrc`) and pnpm 12: `corepack enable` installs the exact version pinned (with its hash) in `package.json`.
+Node 25 and later no longer bundle corepack: install it once with `npm install --global corepack@0.36.0`, or run
+`bash .github/scripts/install-pnpm.sh` as CI does (it also hash-checks pnpm's native binary).
 
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
@@ -429,10 +433,10 @@ Where to read next:
   hollow, hollow up, hollow down; OHLC bars use the colors only), **last price line** (neutral, the default:
   the theme's text color, near-white on dark and ink on light; or the candle up/down color). The last price
   sits in a capsule on the price axis with a fine dashed price line and the bar-close countdown, see
-  below), line/area color and width, and the default style (color, width, solid/dashed/dotted) of new drawings. It is global (stored in the `default`
-  layout, not per symbol) and applies live. Appearance is **per theme**: the dialog edits the active theme
-  ("Dark theme" / "Light theme"), toggling the theme switches to the other theme's settings, and "Reset to
-  defaults" resets only the active theme. A color that barely shows on the theme background (contrast
+  below), line/area color and width, and the default style (color, width, solid/dashed/dotted) of new drawings. It is
+  global (stored in the `default` layout, not per symbol) and applies live. Appearance is **per theme**: the dialog
+  edits the active theme ("Dark theme" / "Light theme"), toggling the theme switches to the other theme's settings, and
+  "Reset to defaults" resets only the active theme. A color that barely shows on the theme background (contrast
   ratio below 1.5) gets an inline "Low contrast on the … background" warning. Layouts saved before
   appearance was per theme (one flat appearance) still load: their settings become the dark theme's.
 - **Default market colors**: one up and one down color per theme (the `--up` / `--down` CSS tokens; dark
@@ -467,8 +471,8 @@ Where to read next:
 
 - **Adding**: the **Indicators** button in the top bar opens the picker; type to filter. Each indicator on the chart
   has a chip above it to hide it, open its settings or remove it.
-- **One set for every symbol**: up to **30** indicators per chart (the picker stops adding beyond that and the server rejects
-  larger layouts). Indicators are a **single global set**, configured once and shown on every ticker;
+- **One set for every symbol**: up to **30** indicators per chart (the picker stops adding beyond that and the server
+  rejects larger layouts). Indicators are a **single global set**, configured once and shown on every ticker;
   timeframe, session, chart type and appearance are global too (all stored in the `default` layout).
   Older per-symbol `sym:<id>` layouts from earlier versions are ignored.
 - **Indicator settings** also set each line's width (1–4 px) and solid/dashed/dotted style, and the up/down bar
@@ -505,8 +509,8 @@ Where to read next:
   save wins over changes another tab made meanwhile). A save the server refuses for good (a 4xx error) turns the
   note red and keeps the drawings until you choose **Discard** (it asks first when that covers more than one
   symbol; a charted symbol then shows its saved drawings again). On a narrow chart the note shortens to "Drawings
-  not saved (3)." with the names in its tooltip. Deleting a basket drops its unsaved drawings for good. Reloading or closing the tab drops drawings that
-  were never saved. Points are stored in
+  not saved (3)." with the names in its tooltip. Deleting a basket drops its unsaved drawings for good. Reloading or
+  closing the tab drops drawings that were never saved. Points are stored in
   time/price coordinates (bar timestamp + price), not pixels, so they stay anchored to the same price and
   time across timeframes, zoom levels and window sizes.
 - **Drawing styles**: selecting a drawing shows a small style bar at the top of the chart (color, width,
@@ -530,9 +534,9 @@ Where to read next:
   **Lock all drawings** in the toolbar locks every drawing on top of that. A locked drawing
   can still be selected (so it can be unlocked) but cannot be moved, resized or removed (Delete / Backspace and a
   right click leave it; the toolbar's delete button is disabled while it is selected), and its style bar fields
-  are disabled except the lock toggle; its handles show as hollow rings. A drawing's own lock is kept when "Lock all" is turned off, and is
-  saved with it (`locked: true`; `lock` is the effective lock), so it survives reloads and timeframe switches.
-  Drawings saved before per-drawing locks keep their lock: all locked → "Lock all", otherwise each locked one
+  are disabled except the lock toggle; its handles show as hollow rings. A drawing's own lock is kept when "Lock all" is
+  turned off, and is saved with it (`locked: true`; `lock` is the effective lock), so it survives reloads and timeframe
+  switches. Drawings saved before per-drawing locks keep their lock: all locked → "Lock all", otherwise each locked one
   becomes locked on its own. **Clear all** removes only unlocked drawings: the confirmation says how many locked
   ones are kept, and when every drawing is locked it removes nothing and says so (with no drawings at all it does
   nothing).
@@ -585,8 +589,8 @@ Where to read next:
   - **Stored** as `parallelChannel` drawings (three points) with optional `styles.extend` (`left` / `right`;
     only the sides that differ from the default are saved).
   - **Legacy channels** (`parallelStraightLine`, drawn by older versions as infinite channels) still look exactly
-    as before (infinite, no fill): a missing `extend` means both sides extended. They get the same toggles (turning a side off is
-    saved as `extend: { left: false }`).
+    as before (infinite, no fill): a missing `extend` means both sides extended. They get the same toggles (turning a
+    side off is saved as `extend: { left: false }`).
 
 ### Long and short positions
 
@@ -600,8 +604,8 @@ R:R and the outcome in %, with no account, risk, quantity or money amounts.
 - **Chart**: a profit zone (entry → target) and a loss zone (entry → stop) as translucent tints of the
   candle up / down colors, light enough that candles inside keep their colors (both zones equally strong on
   either theme, at most 12 % opacity; hue-locked where the background allows it), the entry line,
-  and labels `Target: <price> (<±%>)`, `Stop: <price> (<±%>)` and `<Long|Short> · R:R <ratio>` (the % is the position's gain / loss at that level, in % of the entry; label
-  text is white or dark, whichever reads on its color). Labels
+  and labels `Target: <price> (<±%>)`, `Stop: <price> (<±%>)` and `<Long|Short> · R:R <ratio>` (the % is the position's
+  gain / loss at that level, in % of the entry; label text is white or dark, whichever reads on its color). Labels
   are centered on the visible part of the box and stay inside the chart (a box wider than the screen still shows
   them); the center / outcome labels move to the right of a box narrower than them, the outcome label moves
   beyond the stop label when the stop zone is too short, and labels wider than the chart are cut with "…".
@@ -650,14 +654,15 @@ R:R and the outcome in %, with no account, risk, quantity or money amounts.
 
 ### Measure
 
-With no drawing tool active, hold **Shift** and drag on the price pane to measure from the press to the cursor: a box tinted in the up color (end price at or above the start) or the down color,
-with the price change and percent, the number of bars and the time span (e.g. "12 bars, 3d 4h"), and the
-volume over those bars when the symbol has volume. **Shift**-click without dragging starts a measure whose end
-follows the mouse until the next click. It stays until the next click without Shift, **Escape**, the next
-measure, a new drawing tool or a symbol / timeframe change. Points snap like drawings (the magnet, or ⌘ / Ctrl
-held). Bars are the chart's actual bars (sessions, weekends and baskets included); the span is calendar time.
-A measure is never a drawing: it is not saved, copied, locked or counted, and Clear all leaves it alone.
-Shift on a drawing still drags it (kept horizontal), and indicator panes and the axes ignore it.
+With no drawing tool active, hold **Shift** and drag on the price pane to measure from the press to the cursor: a box
+tinted in the up color (end price at or above the start) or the down color, with the price change and percent, the
+number of bars and the time span (e.g. "12 bars, 3d 4h"), and the volume over those bars when the symbol has volume.
+**Shift**-click without dragging starts a measure whose end follows the mouse until the next click. It stays until the
+next click without Shift, **Escape**, the next measure, a new drawing tool or a symbol / timeframe change. Points snap
+like drawings (the magnet, or ⌘ / Ctrl held). Bars are the chart's actual bars (sessions, weekends and baskets
+included); the span is calendar time. A measure is never a drawing: it is not saved, copied, locked or counted, and
+Clear all leaves it alone. Shift on a drawing still drags it (kept horizontal), and indicator panes and the axes ignore
+it.
 
 ### Keyboard shortcuts
 
@@ -684,9 +689,9 @@ dialog, and are shown in the buttons' tooltips.
 
 ### Watchlist and sections
 
-The right sidebar lists symbols with live quotes (every 15 s) and a 30-day sparkline. Click a row (or press Enter or Space) to
-open its chart; Delete or Backspace removes the focused row; drag rows or press **Alt+↑/↓** to reorder. The open symbol's row
-has a quiet highlight.
+The right sidebar lists symbols with live quotes (every 15 s) and a 30-day sparkline. Click a row (or press Enter or
+Space) to open its chart; Delete or Backspace removes the focused row; drag rows or press **Alt+↑/↓** to reorder. The
+open symbol's row has a quiet highlight.
 The row always shows the regular-session price and day change (a tinted pill); during pre/post-market a second
 line ("Pre 231.40 +0.82%") shows the extended price and its change vs the last regular close (`Quote.ext`),
 otherwise the name. A small gauge under the price places the price in its 30-day closing range (the sparkline's daily
@@ -696,10 +701,10 @@ The list is loaded from the server when the app opens. A server that has never s
 with SPY, AAPL, BTC and ETH; a list you emptied stays empty, in every browser and on every device. (A list
 emptied before this was tracked stays empty on the browsers that already had it, and is then recorded; a
 brand-new browser gets the defaults once in that case, until the first save.) Until it arrives, quiet
-placeholder rows show and the add field, adding, removing and reordering are off, so nothing you do is replaced by the loaded list. If the server
-cannot be reached, a muted "Can't reach the server. Retrying…" line shows (the error itself in its tooltip) and
-the load is retried with backoff (2 s, 5 s, 10 s, then every 30 s); a load the server refuses for good (a 4xx
-error) is not retried and the list stays read-only. Changes are saved about half a second after each edit; a
+placeholder rows show and the add field, adding, removing and reordering are off, so nothing you do is replaced by the
+loaded list. If the server cannot be reached, a muted "Can't reach the server. Retrying…" line shows (the error itself
+in its tooltip) and the load is retried with backoff (2 s, 5 s, 10 s, then every 30 s); a load the server refuses for
+good (a 4xx error) is not retried and the list stays read-only. Changes are saved about half a second after each edit; a
 failed save is retried the same way ("Watchlist not saved. Retrying…"), and after about 4 minutes (10 retries)
 it stops at "Watchlist not saved." with a **Retry** button, so a tab left open offline never keeps writing an old
 list over changes made elsewhere. The layout and drawings use the same small amber note, stacked at the top
@@ -717,10 +722,11 @@ than 60 s before).
 **Resizing.** Drag the sidebar's left edge (a hairline appears on hover) to make it wider or narrower; the chart
 follows live. The width ranges from 240 px to half the window, and never leaves the chart narrower than 480 px.
 With the handle focused, **←/→** resize by 16 px (64 px with **Shift**), **Home/End** jump to the
-narrowest/widest, and **Enter** or a double-click restores the default 320 px. The width is a per-device preference stored in the browser
-(`chartmate.sidebar.width`), not in the saved layout; it is re-clamped when the window is resized, and hiding the
-watchlist keeps it. Narrow rails drop the sparkline first, then the 30-day gauge, so names keep their room; wide
-rails give the extra space to names and a longer sparkline, and the detail panel shows its stats in three columns.
+narrowest/widest, and **Enter** or a double-click restores the default 320 px. The width is a per-device preference
+stored in the browser (`chartmate.sidebar.width`), not in the saved layout; it is re-clamped when the window is resized,
+and hiding the watchlist keeps it. Narrow rails drop the sparkline first, then the 30-day gauge, so names keep their
+room; wide rails give the extra space to names and a longer sparkline, and the detail panel shows its stats in three
+columns.
 
 **Sections** group symbols under a header. The watchlist is one ordered list of symbols and
 section headers: the symbols below a header belong to it until the next header; symbols above the first header
@@ -792,8 +798,8 @@ Baskets page, the symbol search or the watchlist.
 - A version holds at most 50 constituents, and its effective date must lie between 1970-01-01 and
   tomorrow (UTC). A version dated tomorrow is sized at the latest daily close before that date, which may
   not be final yet: until that date begins (00:00 UTC) its holdings are provisional, re-sized every few
-  minutes, and they are then fixed at that final close. A basket holds at most 100 versions and 100 different symbols across all of
-  them.
+  minutes, and they are then fixed at that final close. A basket holds at most 100 versions and 100 different symbols
+  across all of them.
 - **Deleting** a basket (Baskets page) also removes it from the watchlist and clears its drawings; if it was
   on the chart, the chart switches to the first other watchlist symbol. A reference that survives (say, the
   cleanup failed or another tab still lists it) shows as "Deleted basket" in the watchlist and on the chart,
@@ -824,23 +830,24 @@ Fetched history is cached in the database and not re-downloaded. An empty answer
 remembered as "no bars here" when it cannot be a passing glitch: the range ended more than 7 days ago, lies
 before the symbol's listing date, or holds no trading session (a stock's weekend or night); otherwise it is
 asked again on the next load. Bars and the record of the range they cover are written in one transaction.
-Yahoo's bars are split- and
-dividend-adjusted *as of the day they were fetched*, so the server checks each stock for splits at most
-once a day when serving its bars (a lightweight Yahoo chart call with split events since the last check,
-stamped in `symbols.splits_checked_at`). When a split occurred since the last check, that symbol's daily
-bars and the intraday bars still within Yahoo's lookback are dropped and refetched on demand; older intraday
-bars (no longer downloadable) are kept and rescaled by the split ratio. Baskets holding the stock recompute
-their units. Each check also looks back 7 days before the previous one, so a split the provider reports a few
-days late is still applied; applied splits are recorded by their New York date (`applied_splits`), so none is applied twice, even when the
-provider restamps an event a few hours later. A stock
-whose bars were cached before its metadata row existed (e.g. the lookup failed at the time) has its refetchable
-bars dropped once when the row appears, since when they were fetched is unknown. Note for upgrades: the first check after upgrading looks for splits since each symbol's last
-metadata refresh (`symbols.updated_at`) minus 7 days, so older splits (already reflected in the cache) change
-nothing; a split between an older cached fetch and that baseline is not detected (delete the symbol's cache as
-in Troubleshooting if a chart shows such a jump). Split events dated in the future are applied only once they
-have happened. A failed check
-never fails a request; it is retried after an hour. Dividends are not detected: after one, older cached
-bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting) to refetch a symbol).
+Yahoo's bars are split- and dividend-adjusted *as of the day they were fetched*, so the server checks each stock
+for splits at most once a day when serving its bars (a lightweight Yahoo chart call with split events since the
+last check, stamped in `symbols.splits_checked_at`). When a split occurred since the last check, that symbol's
+daily bars and the intraday bars still within Yahoo's lookback are dropped and refetched on demand; older
+intraday bars (no longer downloadable) are kept and rescaled by the split ratio. Baskets holding the stock
+recompute their units. Each check also looks back 7 days before the previous one, so a split the provider
+reports a few days late is still applied. Applied splits are recorded with their New York date and ratio
+(`applied_splits`), so none is applied twice: a split with the same ratio within one New York trading day of an
+applied one (weekends skipped, exchange holidays not) is the same split, even when the provider restamps it
+across a date boundary (00:00 UTC is the evening before in New York). Splits recorded before the ratio was
+recorded (migration 007) match any ratio. A stock whose bars were cached before its metadata row existed (e.g. the
+lookup failed at the time) has its refetchable bars dropped once when the row appears, since when they were fetched
+is unknown. Note for upgrades: the first check after upgrading looks for splits since each symbol's last metadata
+refresh (`symbols.updated_at`) minus 7 days, so older splits (already reflected in the cache) change nothing; a
+split between an older cached fetch and that baseline is not detected (delete the symbol's cache as in
+Troubleshooting if a chart shows such a jump). Split events dated in the future are applied only once they have
+happened. A failed check never fails a request; it is retried after an hour. Dividends are not detected: after one,
+older cached bars stay adjusted as of their fetch day (see [Troubleshooting](#troubleshooting) to refetch a symbol).
 
 ## Troubleshooting
 
@@ -874,11 +881,17 @@ mirrored `watchlist` table (symbols only; sections are not visible to it). Upgra
 the existing `watchlist_entries` rows, so watchlist edits made while downgraded are not carried over (empty that
 table before upgrading to re-import the old list instead).
 
-**Rolling back to 1.0.0.** This version adds migrations 004 (symbol ids), 005 (applied splits) and 006
-(settings), and 1.0.0 refuses to start while they are recorded. Stop the server, back up the database, then
-`DELETE FROM kysely_migration WHERE name IN ('004_symbol_ids', '005_applied_splits', '006_settings');` and start
-1.0.0. Migration 004 cannot be undone: ids stay in their normalized spelling (1.0.0 reads them fine) and merged
-or dropped entries do not come back. The added `applied_splits` and `settings` tables and the
+**Rolling back to 1.0.0.** This version adds migrations 004 (symbol ids), 005 (applied splits), 006 (settings)
+and 007 (applied split ratios), and 1.0.0 refuses to start while they are recorded. Stop the server, back up the
+database, then run
+
+```sql
+DELETE FROM kysely_migration
+WHERE name IN ('004_symbol_ids', '005_applied_splits', '006_settings', '007_applied_split_factor');
+```
+
+and start 1.0.0. Migration 004 cannot be undone: ids stay in their normalized spelling (1.0.0 reads them fine)
+and merged or dropped entries do not come back. The added `applied_splits` and `settings` tables and the
 `symbols.splits_tracked_from` column are left in place and ignored by 1.0.0. Sessions issued by either version
 are not accepted by the other, so expect to log in again. Before upgrading again, run
 `UPDATE symbols SET splits_tracked_from = splits_checked_at;`: splits 1.0.0 applied in the meantime are not in
@@ -930,10 +943,12 @@ Environment overrides the desktop app honors:
   `https://api.binance.us`; any other value is ignored (and logged);
 - `CHARTMATE_DISABLE_UPDATES=1` (no update checks or downloads at all, see [Updates](#updates)).
 
-A released (hardened) build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE` or
-`NODE_EXTRA_CA_CERTS` is set. Node applies the first during pre-execution, before any app code runs, so the app
-cannot undo it; the second would let TLS session keys be logged; the third would add trusted root certificates
-(Electron normally drops it already). `NODE_USE_SYSTEM_CA` is allowed: provider requests ignore it (see below).
+A released (hardened) build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE`,
+`NODE_EXTRA_CA_CERTS`, `UNDICI_USE_MILO` or `UNDICI_NO_WASM_SIMD` is set. Node applies the first during
+pre-execution, before any app code runs, so the app cannot undo it; the second would let TLS session keys be logged;
+the third would add trusted root certificates (Electron normally drops it already); the last two would swap the
+HTTP/1.1 parser of the provider requests for another implementation. `NODE_USE_SYSTEM_CA` is allowed: provider
+requests ignore it (see below).
 
 Provider requests connect **directly**: they ignore `HTTP(S)_PROXY` and trust only Node's bundled root
 certificates. Corporate HTTP proxies are not supported, and neither are TLS-inspecting middleboxes, which need
@@ -984,8 +999,9 @@ and not in a browser that seeded it with an earlier version (there it saves the 
 
 To add one, run `pnpm new:indicator <Name>` (add `--pane main` for an overlay on the candles): it creates
 `apps/web/src/chart/indicators/custom/<name>.ts` and a matching test in `apps/web/test/indicators/`, wired to the
-palette, and refuses names already in the picker or files that exist. [CONTRIBUTING.md](CONTRIBUTING.md#add-an-indicator)
-walks through the rest (calculation, catalog fields, colors, screenshots); this section is the reference.
+palette, and refuses names already in the picker or files that exist.
+[CONTRIBUTING.md](CONTRIBUTING.md#add-an-indicator) walks through the rest (calculation, catalog fields, colors,
+screenshots); this section is the reference.
 
 Every file in `apps/web/src/chart/indicators/custom/*.ts` is a custom indicator. Each one must
 `export default` an object `{ template, catalog }` (type `CustomIndicator` from
@@ -1018,8 +1034,8 @@ annotated example that CONTRIBUTING.md walks through. Restart `pnpm dev` (or reb
 
 `custom/wyckoff.ts` (with its calculation in `apps/web/src/chart/indicators/wyckoffCalc.ts`) is a port of the
 Pine Script indicator 'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colors
-in a `draw` callback. Indicator code never hardcodes a color: lines take palette slots (`lineSlots`), and an indicator that
-paints on the canvas itself takes its colors from `indicators/colors.ts` (`activeIndicatorColors()`, read at draw
+in a `draw` callback. Indicator code never hardcodes a color: lines take palette slots (`lineSlots`), and an indicator
+that paints on the canvas itself takes its colors from `indicators/colors.ts` (`activeIndicatorColors()`, read at draw
 time); a test rejects color literals in `src/chart/indicators/`. **License:** these two files (and their tests)
 are covered by the [Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/), not by the project's AGPL-3.0;
 keep their MPL-2.0 headers and attribution when modifying or redistributing them.
@@ -1084,12 +1100,15 @@ and third-party dependencies keep their own licenses.
 
 **Source code offer.** Click the Chartmate mark at the left of the top bar to open **About Chartmate**: it shows
 the version (self-hosted, also the server's version when it differs from the page's) and links to the source code
-of that version (its release tag; a development build links the repository) and to the license. The repository
-comes from `GITHUB_REPOSITORY` (`owner/name`) at build time: the release workflows build the desktop app with it
-in the environment and pass it to the Docker image build as `--build-arg GITHUB_REPOSITORY=...`. A build made
-without it tells the people using it to ask whoever runs the server for the source, and links the license text
-at gnu.org. In the desktop app, which opens no links, the address is shown as text to copy into a browser. If you
-run a modified version for other people, build it with `GITHUB_REPOSITORY` naming your own repository (for the
-Docker image: `docker build --build-arg GITHUB_REPOSITORY=your-account/your-fork .`), so the dialog offers your
-source.
+of that build and to the license. The repository comes from `GITHUB_REPOSITORY` (`owner/name`) at build time: the
+release workflows build the desktop app with it in the environment and pass it to the Docker image build as
+`--build-arg GITHUB_REPOSITORY=...`. A build made without it tells the people using it to ask whoever runs the
+server for the source, and links the license text at gnu.org. Where in the repository comes from the variables
+GitHub Actions sets: a build of exactly the release tag `v<version>` (`GITHUB_REF_TYPE=tag`,
+`GITHUB_REF_NAME=v<version>`) links that tag; any other build links the commit it was built from (`GITHUB_SHA`),
+so a build made after a release but before the next version bump never claims to be that release; a build
+without them, and a development build, links the repository itself. In the desktop app, which opens no links, the
+address is shown as text to copy into a browser. If you run a modified version for other people, build it with
+`GITHUB_REPOSITORY` naming your own repository (for the Docker image:
+`docker build --build-arg GITHUB_REPOSITORY=your-account/your-fork .`), so the dialog offers your source.
 

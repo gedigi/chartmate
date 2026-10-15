@@ -20,7 +20,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, win32 } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { verifyRelease } from './verify-win-signatures.mjs';
@@ -77,39 +77,179 @@ export function takePin(env) {
   return pin;
 }
 
+/** Windows' taskkill, by absolute path (never looked up on PATH, where a planted taskkill.exe could sit). */
+export function taskkillPath(env = process.env) {
+  return win32.join(env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe');
+}
+
+const defaultKillGroup = (pid, s) => process.kill(-pid, s);
+const defaultTaskkill = (pid) => spawnSync(taskkillPath(), ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' }).status === 0;
+
 /**
- * Runs `run` (the electron-builder step) with `cleanup` (removing the PIN file) guaranteed: when the step ends,
- * whatever the outcome, and on SIGINT / SIGTERM, after which the signal is re-raised with its default action so the
- * exit status still says how the script ended. The handlers are removed afterwards.
+ * SIGKILLs what is left of `child`'s process group (POSIX; shAsync starts the child as a group leader), so no
+ * grandchild of electron-builder (a signing tool that may have the PIN) outlives it. Best effort and synchronous, so it
+ * also works in an `exit` handler: an empty group (ESRCH) is fine. On Windows a still running child's tree is
+ * ended with taskkill (an exited one's orphans can no longer be found there).
  */
-export function withSignalCleanup(cleanup, run, proc = process) {
+export function reapGroup(child, { platform = process.platform, killGroup = defaultKillGroup, taskkill = defaultTaskkill } = {}) {
+  if (platform === 'win32') {
+    if (child.exitCode === null && child.signalCode === null && !taskkill(child.pid)) {
+      try { child.kill('SIGKILL'); } catch { /* gone */ }
+    }
+    return;
+  }
+  try {
+    killGroup(child.pid, 'SIGKILL');
+  } catch {
+    // ESRCH: nothing left in the group.
+  }
+}
+
+/**
+ * Stops `child` (electron-builder) and everything it started, resolving once it has exited. POSIX: `sig` goes to its
+ * process group, or to the child alone if there is no group; after `timeoutMs` the group gets SIGKILL, and once the
+ * leader has exited the rest of the group always does (reapGroup). Windows has no signals: `taskkill /T /F` ends the
+ * whole tree, `child.kill()` if that fails.
+ */
+export function stopChild(child, sig, {
+  platform = process.platform,
+  killGroup = defaultKillGroup,
+  taskkill = defaultTaskkill,
+  timeoutMs = 10_000,
+} = {}) {
+  return new Promise((done) => {
+    if (child.exitCode !== null || child.signalCode !== null) return done();
+    const timers = [];
+    const finish = () => {
+      for (const t of timers) clearTimeout(t);
+      done();
+    };
+    child.once('exit', () => {
+      reapGroup(child, { platform, killGroup, taskkill });
+      finish();
+    });
+    const send = (s) => {
+      if (platform === 'win32') {
+        if (!taskkill(child.pid)) child.kill(s);
+        return;
+      }
+      try {
+        killGroup(child.pid, s);
+      } catch {
+        child.kill(s);
+      }
+    };
+    send(sig);
+    timers.push(setTimeout(() => {
+      send('SIGKILL');
+      // Give up waiting shortly after SIGKILL, so the parent still cleans up and exits.
+      timers.push(setTimeout(finish, 2000));
+    }, timeoutMs));
+  });
+}
+
+/** The signals forwarded to electron-builder: Ctrl-C, kill, and the terminal closing. */
+const FORWARDED = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+
+/**
+ * Runs `run` (the electron-builder step) with `cleanup` (removing the PIN file) guaranteed. `run` gets a
+ * `track(child)` function for the process it starts.
+ * - When the step ends, whatever the outcome: the rest of the child's process group is killed (reapGroup), then
+ *   cleanup runs.
+ * - On SIGINT / SIGTERM / SIGHUP: the child's group gets the signal too, and the PIN file is removed only once the
+ *   child has exited (SIGKILL after a timeout), since the sign hook may hold the PIN in memory and a builder left
+ *   running would keep signing with it. Then the signal is re-raised with its default action, so the exit status
+ *   still says how the script ended; the returned promise never settles in that case. Further signals while waiting
+ *   are absorbed.
+ * - On any other exit of this process (process.exit, an uncaught error): the child's group is killed and cleanup
+ *   runs, synchronously, in the `exit` handler. Only a SIGKILL of this process itself skips all of this.
+ */
+export function withSignalCleanup(cleanup, run, proc = process, { stopChild: stop = stopChild, reapGroup: reap = reapGroup } = {}) {
   const handlers = new Map();
+  let child = null;
+  let interrupted = null;
   const remove = () => {
-    for (const [sig, h] of handlers) proc.removeListener(sig, h);
+    for (const [event, h] of handlers) proc.removeListener(event, h);
     handlers.clear();
   };
-  for (const sig of ['SIGINT', 'SIGTERM']) {
-    const h = () => {
+  const interrupt = async (sig) => {
+    try {
+      if (child) await stop(child, sig);
+    } finally {
       remove();
       try {
         cleanup();
       } finally {
         proc.kill(proc.pid, sig);
       }
+    }
+  };
+  for (const sig of FORWARDED) {
+    const h = () => {
+      if (!interrupted) interrupted = interrupt(sig);
     };
     handlers.set(sig, h);
-    proc.once(sig, h);
+    proc.on(sig, h);
   }
-  return Promise.resolve().then(run).finally(() => {
+  const onExit = () => {
     remove();
-    cleanup();
-  });
+    try {
+      if (child) reap(child);
+    } finally {
+      cleanup();
+    }
+  };
+  handlers.set('exit', onExit);
+  proc.on('exit', onExit);
+  const track = (c) => {
+    child = c;
+  };
+  const pending = () => interrupted.then(() => new Promise(() => {}), () => new Promise(() => {}));
+  const settle = () => {
+    remove();
+    try {
+      if (child) reap(child);
+    } finally {
+      cleanup();
+    }
+  };
+  return Promise.resolve().then(() => run(track)).then(
+    (value) => {
+      if (interrupted) return pending();
+      settle();
+      return value;
+    },
+    (error) => {
+      if (interrupted) return pending();
+      settle();
+      throw error;
+    },
+  );
+}
+
+/**
+ * The GitHub ref variables for the web build (the About dialog's source link, apps/web/build/sourceRef.cjs). When
+ * publishing, HEAD has been checked to be `tag`, so the build is of that tag; otherwise (--no-upload, any commit)
+ * only the commit is known. Ref variables already in the shell are never trusted.
+ */
+export function sourceRefEnv(env, { upload, tag, head }) {
+  const out = { ...env };
+  delete out.GITHUB_REF_TYPE;
+  delete out.GITHUB_REF_NAME;
+  if (upload) {
+    out.GITHUB_REF_TYPE = 'tag';
+    out.GITHUB_REF_NAME = tag;
+  }
+  out.GITHUB_SHA = head;
+  return out;
 }
 
 /** sh(), asynchronously: the event loop keeps running, so signal handlers fire while the child runs. */
 function shAsync(command, args, opts = {}) {
   return new Promise((resolveRun, reject) => {
-    const child = spawn(command, args, { stdio: 'inherit', cwd: opts.cwd ?? desktop, env: opts.env ?? process.env });
+    // Its own process group on POSIX, so a forwarded signal reaches everything electron-builder starts.
+    const child = spawn(command, args, { stdio: 'inherit', cwd: opts.cwd ?? desktop, env: opts.env ?? process.env, detached: process.platform !== 'win32' });
+    opts.onSpawn?.(child);
     child.once('error', reject);
     child.once('exit', (code, signal) => (code === 0 ? resolveRun() : reject(new Error(`${command} ${args.join(' ')} failed (${code ?? signal})`))));
   });
@@ -158,9 +298,9 @@ async function main() {
   const repo = process.env.GITHUB_REPOSITORY?.trim() || sh('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], { capture: true });
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error(`cannot tell the GitHub repository (got "${repo}"); set GITHUB_REPOSITORY=owner/name`);
 
+  const head = sh('git', ['rev-parse', 'HEAD'], { capture: true });
   // When publishing, the build must be exactly the tagged source, the tag the one on GitHub, and the release must exist.
   if (upload) {
-    const head = sh('git', ['rev-parse', 'HEAD'], { capture: true });
     const tagged = sh('git', ['rev-parse', `${tag}^{commit}`], { capture: true });
     if (head !== tagged) throw new Error(`HEAD is not ${tag}: run it from a checkout of the tag (git checkout ${tag})`);
     if (sh('git', ['status', '--porcelain'], { capture: true }) !== '') throw new Error('the working tree has changes or untracked files');
@@ -180,7 +320,8 @@ async function main() {
   // The PIN is never in any build environment, electron-builder's included (its children would inherit it): it is
   // asked for right before electron-builder and written to an owner-only file in a private temp directory, whose path
   // build/win-sign.cjs gets; the hook reads and deletes it on first use and gives it to osslsigncode as PKCS11_PIN.
-  const env = builderEnv({ ...process.env, CHARTMATE_PUBLISH: 'github', GITHUB_REPOSITORY: repo }, null);
+  // The web build's About dialog links the source at the tag when publishing (HEAD is the tag), else at HEAD.
+  const env = builderEnv(sourceRefEnv({ ...process.env, CHARTMATE_PUBLISH: 'github', GITHUB_REPOSITORY: repo }, { upload, tag, head }), null);
   let pinFile = null;
 
   const out = resolve(desktop, 'release-win-signed', tag);
@@ -199,12 +340,14 @@ async function main() {
     }
     if (pin) pinFile = writePinFile(pin);
     pin = undefined;
-    // The PIN file goes away when packaging ends, and also on Ctrl-C / SIGTERM (the signal is then re-raised).
+    // The PIN file goes away when packaging ends. On Ctrl-C / SIGTERM / SIGHUP, electron-builder and its children get
+    // the signal too, and the PIN file is removed once they have exited (SIGKILL after 10 s); then the signal is
+    // re-raised. Any other exit kills them and removes the file too.
     await withSignalCleanup(() => {
       pinFile?.cleanup();
       pinFile = null;
-    }, () => shAsync(process.execPath, [require.resolve('electron-builder/cli.js'), '--config', 'electron-builder.config.cjs', '--win', '--publish', 'never',
-      `-c.directories.output=${out}`], { env: builderEnv(env, pinFile?.file ?? null) }));
+    }, (track) => shAsync(process.execPath, [require.resolve('electron-builder/cli.js'), '--config', 'electron-builder.config.cjs', '--win', '--publish', 'never',
+      `-c.directories.output=${out}`], { env: builderEnv(env, pinFile?.file ?? null), onSpawn: track }));
 
     console.log('\n== Verifying ==');
     const problems = verifyRelease(out, { publisher, signLog: env.CHARTMATE_WIN_SIGN_LOG });

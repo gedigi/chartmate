@@ -1,6 +1,7 @@
 /** Set by vite.config.ts at build time. */
 declare const __CHARTMATE_VERSION__: string;
 declare const __CHARTMATE_SOURCE_URL__: string;
+declare const __CHARTMATE_SOURCE_REF__: string;
 
 /** This build's version (the web package's, kept equal to the product version). */
 export const APP_VERSION: string = __CHARTMATE_VERSION__;
@@ -10,3 +11,9 @@ export const APP_VERSION: string = __CHARTMATE_VERSION__;
  * validated by build/repository.cjs), or null for a build made without it.
  */
 export const SOURCE_URL: string | null = __CHARTMATE_SOURCE_URL__ || null;
+
+/**
+ * The git ref this build's source is at (build/sourceRef.cjs): `v<version>` for a build of exactly that release tag,
+ * else the commit id it was built from, or null when unknown (the dialog then links the repository).
+ */
+export const SOURCE_REF: string | null = __CHARTMATE_SOURCE_REF__ || null;

@@ -1,3 +1,40 @@
 packages:
   - 'packages/*'
   - 'apps/*'
+
+# No dependency install (lifecycle) script runs: CI installs with --ignore-scripts, and every package that has one
+# is denied here, so a plain `pnpm install` neither runs nor asks about them. better-sqlite3 ships prebuilt
+# binaries; esbuild finds its platform package; Electron's binary is fetched on demand
+# (`node apps/desktop/node_modules/electron/install.js`); electron-winstaller is unused (no Squirrel builds).
+allowBuilds:
+  better-sqlite3: false
+  electron: false
+  electron-winstaller: false
+  esbuild: false
+
+patchedDependencies:
+  app-builder-lib@26.15.3: patches/app-builder-lib@26.15.3.patch
+
+# Supply-chain policies, checked on every install, the frozen one included (CONTRIBUTING.md, "Dependencies").
+# A version must be 3 days old before it can be resolved (strict: an install fails instead of picking it).
+minimumReleaseAge: 4320
+minimumReleaseAgeExclude:
+  # Locked before this policy, published 2026-10-12 to 2026-10-14; remove after 2026-10-18.
+  - '@hono/node-server@2.1.5'
+  - '@peculiar/asn1-schema@2.11.0'
+  - '@testing-library/user-event@14.6.8'
+  - electron@44.7.2
+  - fastify@5.12.7
+  - klinecharts@10.0.4
+  - postcss@8.5.30
+  - undici@8.12.1
+  - whatwg-url@17.3.0
+  - zod@4.6.7
+# Refuse a version published with weaker provenance than an earlier one (a possible account takeover).
+trustPolicy: no-downgrade
+trustPolicyExclude:
+  # Maintenance releases of older lines published without provenance after newer lines had it: semver 5.7.2 and
+  # 6.3.1 (ReDoS backports, under electron-builder) and undici-types 6.21.0 (types under @types/node 22).
+  - semver@5.7.2
+  - semver@6.3.1
+  - undici-types@6.21.0

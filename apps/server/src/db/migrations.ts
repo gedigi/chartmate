@@ -334,9 +334,24 @@ const m006: Migration = {
   },
 };
 
+/**
+ * The ratio of each applied split (`applied_splits.factor`, null = unknown), so a provider restamp across a NY date
+ * boundary is recognized as the same split (same ratio within one trading day). Splits recorded before it keep a
+ * null ratio, which matches any. Idempotent.
+ */
+const m007: Migration = {
+  async up(outer: Kysely<any>) {
+    await atomically(outer, async (db) => {
+      if (!(await columnsOf(db, 'applied_splits')).has('factor')) {
+        await db.schema.alterTable('applied_splits').addColumn('factor', dbl).execute();
+      }
+    });
+  },
+};
+
 const migrations: Record<string, Migration> = {
   '001_init': m001, '002_symbol_splits': m002, '003_watchlist_sections': m003, '004_symbol_ids': m004,
-  '005_applied_splits': m005, '006_settings': m006,
+  '005_applied_splits': m005, '006_settings': m006, '007_applied_split_factor': m007,
 };
 const provider: MigrationProvider = {
   async getMigrations() { return migrations; },

@@ -1,6 +1,6 @@
 import { useEffect, useState, type JSX } from 'react';
 import { api } from '../api/client';
-import { APP_VERSION, SOURCE_URL } from '../buildInfo';
+import { APP_VERSION, SOURCE_REF, SOURCE_URL } from '../buildInfo';
 import { isDesktopApp } from '../desktopShell';
 import { Modal } from './Modal';
 import './AboutDialog.css';
@@ -10,25 +10,28 @@ export interface AboutDialogProps {
   /** Defaults: this build's version and source repository (src/buildInfo.ts), and where the page runs. */
   version?: string;
   sourceUrl?: string | null;
+  /** The git ref of this build's source (default: src/buildInfo.ts): its release tag or its commit. */
+  sourceRef?: string | null;
   /** The desktop app: it opens no links, so addresses are selectable text; its server is the app itself. */
   desktop?: boolean;
-  /** A production build, whose version has a release tag (default); a development build links the repository root. */
+  /** A production build (default); a development build links the repository root. */
   release?: boolean;
 }
 
 /** The license text, for a build that does not know its repository. */
 export const GNU_AGPL_URL = 'https://www.gnu.org/licenses/agpl-3.0.html';
-/** A version a release is tagged with (`v1.2.3`, `v1.3.0-beta.1`). */
-const RELEASE_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+/** A release tag (`v1.2.3`, `v1.3.0-beta.1`) or a full commit id. */
+const VALID_REF = /^(?:v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?|[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /**
- * Where the source code and the license of this build are: at its release tag (`<repo>/tree/v<version>`) for a
- * release build, else the repository root; without a repository, no source link and the license text at gnu.org.
+ * Where the source code and the license of this build are: at its ref (`<repo>/tree/<ref>`: the release tag for a
+ * build of that tag, else the commit it was built from) for a production build, else the repository root; without a
+ * repository, no source link and the license text at gnu.org.
  */
-export function sourceLinks(sourceUrl: string | null, version: string, release: boolean): { source: string | null; license: string } {
+export function sourceLinks(sourceUrl: string | null, ref: string | null, release: boolean): { source: string | null; license: string } {
   if (sourceUrl === null) return { source: null, license: GNU_AGPL_URL };
-  if (release && RELEASE_VERSION.test(version)) {
-    return { source: `${sourceUrl}/tree/v${version}`, license: `${sourceUrl}/blob/v${version}/LICENSE` };
+  if (release && ref !== null && VALID_REF.test(ref) && !ref.includes('..')) {
+    return { source: `${sourceUrl}/tree/${ref}`, license: `${sourceUrl}/blob/${ref}/LICENSE` };
   }
   return { source: sourceUrl, license: `${sourceUrl}/blob/HEAD/LICENSE` };
 }
@@ -41,7 +44,8 @@ const shortUrl = (url: string) => url.replace(/^https:\/\//, '');
  * and the license, the offer AGPL-3.0 section 13 asks of software used over a network.
  */
 export function AboutDialog({
-  onClose, version = APP_VERSION, sourceUrl = SOURCE_URL, desktop = isDesktopApp(), release = !import.meta.env.DEV,
+  onClose, version = APP_VERSION, sourceUrl = SOURCE_URL, sourceRef = SOURCE_REF, desktop = isDesktopApp(),
+  release = !import.meta.env.DEV,
 }: AboutDialogProps): JSX.Element {
   const [serverVersion, setServerVersion] = useState<string | null>(null);
 
@@ -55,7 +59,7 @@ export function AboutDialog({
     return () => { live = false; };
   }, [desktop]);
 
-  const links = sourceLinks(sourceUrl, version, release);
+  const links = sourceLinks(sourceUrl, sourceRef, release);
   const external = { target: '_blank', rel: 'noopener noreferrer' } as const;
   let source: JSX.Element;
   if (links.source === null) {

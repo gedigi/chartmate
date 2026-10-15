@@ -12,27 +12,37 @@ const REPO = 'https://github.com/octo-org/chartmate';
 const GNU_AGPL = 'https://www.gnu.org/licenses/agpl-3.0.html';
 
 describe('sourceLinks', () => {
-  it('a release build links the source and the license at its version tag', () => {
-    expect(sourceLinks(REPO, '1.2.3', true)).toEqual({
+  const SHA = '0123456789abcdef0123456789abcdef01234567';
+
+  it('a build of a release tag links the source and the license at that tag', () => {
+    expect(sourceLinks(REPO, 'v1.2.3', true)).toEqual({
       source: `${REPO}/tree/v1.2.3`, license: `${REPO}/blob/v1.2.3/LICENSE`,
     });
-    expect(sourceLinks(REPO, '1.3.0-beta.1', true).source).toBe(`${REPO}/tree/v1.3.0-beta.1`);
+    expect(sourceLinks(REPO, 'v1.3.0-beta.1', true).source).toBe(`${REPO}/tree/v1.3.0-beta.1`);
   });
 
-  it('a development build (or an unusual version) links the repository root', () => {
-    expect(sourceLinks(REPO, '1.2.3', false)).toEqual({ source: REPO, license: `${REPO}/blob/HEAD/LICENSE` });
-    expect(sourceLinks(REPO, 'local build', true)).toEqual({ source: REPO, license: `${REPO}/blob/HEAD/LICENSE` });
+  it('a build of any other commit links that commit, not the previous release', () => {
+    expect(sourceLinks(REPO, SHA, true)).toEqual({ source: `${REPO}/tree/${SHA}`, license: `${REPO}/blob/${SHA}/LICENSE` });
+  });
+
+  it('a development build, one without a ref, or an invalid ref links the repository root', () => {
+    const root = { source: REPO, license: `${REPO}/blob/HEAD/LICENSE` };
+    expect(sourceLinks(REPO, 'v1.2.3', false)).toEqual(root);
+    expect(sourceLinks(REPO, null, true)).toEqual(root);
+    for (const ref of ['main', 'vlocal build', '../x', `${SHA}/../x`, SHA.slice(0, 12), 'v1.2.3/../../x']) {
+      expect(sourceLinks(REPO, ref, true), ref).toEqual(root);
+    }
   });
 
   it('without a repository: no source link, the license at gnu.org', () => {
-    expect(sourceLinks(null, '1.2.3', true)).toEqual({ source: null, license: GNU_AGPL });
+    expect(sourceLinks(null, 'v1.2.3', true)).toEqual({ source: null, license: GNU_AGPL });
   });
 });
 
 describe('AboutDialog (AGPL-3.0 section 13 source offer)', () => {
   it('shows the version and links to the source of this version and the license (new tab, no referrer)', async () => {
     vi.spyOn(api, 'about').mockResolvedValue({ version: '1.0.0' });
-    render(<AboutDialog version="1.0.0" sourceUrl={REPO} desktop={false} release onClose={() => {}} />);
+    render(<AboutDialog version="1.0.0" sourceUrl={REPO} sourceRef="v1.0.0" desktop={false} release onClose={() => {}} />);
     const dialog = screen.getByRole('dialog', { name: 'About Chartmate' });
     expect(dialog).toHaveTextContent('Version 1.0.0');
     expect(dialog).toHaveTextContent('GNU Affero General Public License');
@@ -43,6 +53,14 @@ describe('AboutDialog (AGPL-3.0 section 13 source offer)', () => {
     const license = screen.getByRole('link', { name: 'AGPL-3.0' });
     expect(license).toHaveAttribute('href', `${REPO}/blob/v1.0.0/LICENSE`);
     expect(license).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('a build of a commit after the release links that commit, not the release tag', () => {
+    vi.spyOn(api, 'about').mockResolvedValue({ version: '1.0.0' });
+    const sha = 'fedcba9876543210fedcba9876543210fedcba98';
+    render(<AboutDialog version="1.0.0" sourceUrl={REPO} sourceRef={sha} desktop={false} release onClose={() => {}} />);
+    expect(screen.getByRole('link', { name: 'github.com/octo-org/chartmate' })).toHaveAttribute('href', `${REPO}/tree/${sha}`);
+    expect(screen.getByRole('link', { name: 'AGPL-3.0' })).toHaveAttribute('href', `${REPO}/blob/${sha}/LICENSE`);
   });
 
   it('self-hosted: shows the server version only when it differs from the web app\'s', async () => {
@@ -76,7 +94,7 @@ describe('AboutDialog (AGPL-3.0 section 13 source offer)', () => {
 
   it('desktop: the address of this version\'s source is selectable text (the app opens no links), no server row', () => {
     const about = vi.spyOn(api, 'about');
-    render(<AboutDialog version="1.0.0" sourceUrl={REPO} desktop release onClose={() => {}} />);
+    render(<AboutDialog version="1.0.0" sourceUrl={REPO} sourceRef="v1.0.0" desktop release onClose={() => {}} />);
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
     const url = screen.getByText(`${REPO}/tree/v1.0.0`);
     expect(url).toHaveClass('about-url');
