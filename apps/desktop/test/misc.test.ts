@@ -96,6 +96,10 @@ describe('allowsPrereleaseUpdates', () => {
 });
 
 describe('shouldEnableAutoUpdate', () => {
+  it('product.json turns auto-update on (it still runs only in signed builds)', () => {
+    const product = JSON.parse(readFileSync(new URL('../product.json', import.meta.url), 'utf8')) as { autoUpdate: unknown };
+    expect(product.autoUpdate).toBe(true);
+  });
   const yml = 'owner: o\nrepo: r\nprovider: github\nupdaterCacheDirName: chartmate-updater\n';
   const winYml = `${yml}publisherName:\n  - CN=Chartmate\n`;
   const base = { isPackaged: true, productAutoUpdate: true, isSigned: true, platform: 'darwin' as NodeJS.Platform, updateConfig: yml, env: {} };
