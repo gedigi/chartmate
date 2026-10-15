@@ -265,8 +265,16 @@ describe('desktop.yml secret scoping and release', () => {
     expect(uploads('dist-mac')).toEqual(['desktop-macos', "${{ (startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != '') && 'mac-dmg-unsigned' || 'desktop-macos-dmg' }}"]);
     expect(uploads('package-mac')).toEqual(['mac-apps']);
     expect(uploads('sign-mac')).toEqual(['mac-apps-signed']);
-    const download = steps('release').find((s) => s.uses?.startsWith('actions/download-artifact@'))!;
-    expect(download.with).toMatchObject({ pattern: 'desktop-*', 'merge-multiple': true });
+    // The release downloads exactly the three release artifacts by name (no pattern), then checks the file set.
+    const rs = steps('release');
+    const downloads = rs.filter((s) => s.uses?.startsWith('actions/download-artifact@'));
+    expect(downloads.map((d) => d.with)).toEqual(['desktop-macos', 'desktop-macos-dmg', 'desktop-windows'].map((name) => ({ name, path: 'dist' })));
+    const check = rs.find((s) => s.name === 'Release assets')!;
+    expect(check.run).toContain('node scripts/check-release-assets.mjs dist "${TAG#v}"');
+    expect(JSON.stringify(check)).not.toMatch(/GH_TOKEN|github\.token|secrets\./);
+    expect(rs.indexOf(check)).toBeGreaterThan(rs.indexOf(downloads.at(-1)!));
+    expect(rs.indexOf(check)).toBeLessThan(rs.findIndex((s) => s.name === 'Self-hosting files'));
+    expect(String(rs[0]!.with?.['sparse-checkout'])).toContain('/scripts/check-release-assets.mjs');
   });
 
   it('only the tag-only release job can write, and it holds no signing secrets', () => {

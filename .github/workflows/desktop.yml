@@ -546,14 +546,22 @@ jobs:
             CHANGELOG.md
             apps/desktop/scripts/changelog-section.mjs
             /scripts/release-tags.mjs
+            /scripts/check-release-assets.mjs
             /compose.yaml
             /.env.example
           sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          name: desktop-macos
           path: dist
-          pattern: desktop-*
-          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-macos-dmg
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-windows
+          path: dist
       # The tag's CHANGELOG.md section (empty, with a warning, when there is none: the release still ships). Its own
       # step, without the token: repository code never runs next to GH_TOKEN.
       - name: Changelog section for the tag
@@ -571,6 +579,11 @@ jobs:
         run: |
           set -euo pipefail
           git tag --list 'v*' | node scripts/release-tags.mjs "$TAG" | tee -a "$GITHUB_OUTPUT"
+      # Exactly the expected files for this version, and latest*.yml matching them (sha512, size); no token.
+      - name: Release assets
+        env:
+          TAG: ${{ github.ref_name }}
+        run: node scripts/check-release-assets.mjs dist "${TAG#v}"
       # The tag's compose.yaml and .env.example, so releases/latest/download/compose.yaml always matches the
       # released image. GitHub renames assets that start with a dot, hence env.example.
       - name: Self-hosting files
