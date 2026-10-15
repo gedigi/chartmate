@@ -105,6 +105,11 @@ app, the Docker image and the release tag share one version number.
 
 ### Charts and baskets
 
+- **Rectangle** drawing tool (toolbar, or **⌥R** / **Alt+R**): click two opposite corners to mark a zone in time
+  and price. Drag any corner or edge midpoint to resize it, or the inside to move it. It has a crisp border in
+  the drawing colors, widths and line styles, and a calm tint of its own color on the chart background, which
+  **Fill** in the style bar turns off. Locking, copy and paste, the magnet and theme recoloring work as for other
+  drawings.
 - A daily chart of a stock or a stock-only basket keeps updating its last bar over the weekend instead of
   getting no latest bar until the next session.
 - On intraday charts and live quotes of a stock-only basket, a new version now takes effect at the start of
