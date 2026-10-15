@@ -37,8 +37,10 @@ otherwise.
   OS crash or power loss can lose the last few commits. `FULL` would close that window with an fsync on every
   write, which layout and drawing autosaves make frequent; NORMAL is the chosen tradeoff.
 - **One file.** esbuild bundles the desktop main process and the whole server into a single minified
-  `dist/main.cjs` (~2.5 MB). The package holds only that file, the web build and the icon, in an asar archive with
-  maximum compression and English locales only. It has no `node_modules`.
+  `dist/main.cjs` (~2.5 MB). The package holds only `package.json`, that file and its third-party license
+  comments (`dist/main.cjs.LEGAL.txt`), the web build, the icon and, in signed builds only, the updater bundle
+  (`dist/updater.cjs`, plus its `.LEGAL.txt` when it has license comments), in an asar archive with maximum compression and English locales
+  only. It has no `node_modules`.
 - **Frameless window.** The web top bar is the title bar. On macOS the native traffic lights sit on it; on
   Windows the native caption buttons (minimize, maximize, close, snap layouts) are drawn over its right end in
   the top bar's colors, following the theme through the page's `<meta name="theme-color">` (no IPC). Linux
