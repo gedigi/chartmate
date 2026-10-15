@@ -122,7 +122,8 @@ app, the Docker image and the release tag share one version number.
 
 - A watchlist you emptied is no longer refilled with the default symbols when you open Chartmate in another
   browser or on another device: the server now says whether a list was ever saved, and only a server that
-  never had one gets the defaults.
+  never had one gets the defaults. A list emptied before this version stays empty in the browsers that already
+  had it (the first one to open records it on the server); a brand-new browser gets the defaults once until then.
 - Indicator settings store only the colors you change: the other lines (and the untouched up or down bar
   color) keep following the theme instead of freezing to the palette of the theme they were edited in. A
   color equal to that line's default in the other theme counts as a default too, so it follows the theme.

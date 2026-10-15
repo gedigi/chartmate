@@ -11,20 +11,23 @@ import { addSymbol, removeSymbol } from './watchlistModel';
 export const DEFAULT_WATCHLIST: SymbolId[] = ['stock:SPY', 'stock:AAPL', 'crypto:BTC', 'crypto:ETH'];
 /**
  * `chartmate.watchlist.initialized` (state/storage.ts): the per-device "already seeded" flag of earlier versions.
- * No longer written (the server says whether a list was ever stored); only read when an older server does not.
+ * No longer written (the server says whether a list was ever stored); still read, because a device that seeded
+ * with an earlier version knows its list was stored even where the server has no marker yet.
  */
 export const INITIALIZED_KEY = 'watchlist.initialized';
 const SAVE_DELAY_MS = 500;
 const DEFAULT_ENTRIES: WatchlistEntry[] = DEFAULT_WATCHLIST.map((id) => ({ type: 'symbol', id }));
 
 /**
- * Whether to seed the defaults: only into a server that never stored a list. An emptied list is a stored one, so
- * a new device never refills it. An older server does not say: then an empty list seeds unless this device
- * already did (its old flag).
+ * What to do with a loaded list. `seed`: save the defaults, only for an empty list that was never stored as far
+ * as both the server and this device know (`stored` is null from an older server). `mark`: the list was emptied
+ * before the server kept a marker (this device's old flag says it was stored): save it as is once, so the server
+ * records it and no other device seeds over it. `keep` otherwise.
  */
-export function shouldSeed(entries: readonly WatchlistEntry[], stored: boolean | null): boolean {
-  if (stored !== null) return !stored && entries.length === 0;
-  return entries.length === 0 && readStored(INITIALIZED_KEY) === null;
+export function seedAction(entries: readonly WatchlistEntry[], stored: boolean | null): 'seed' | 'mark' | 'keep' {
+  if (entries.length > 0 || stored === true) return 'keep';
+  if (readStored(INITIALIZED_KEY) === null) return 'seed';
+  return stored === false ? 'mark' : 'keep';
 }
 
 /**
@@ -87,11 +90,14 @@ export function useWatchlist(): UseWatchlist {
         ({ entries: list, stored }) => {
           if (canceled) return;
           setLoadStatus(null);
-          if (shouldSeed(list, stored)) {
+          const action = seedAction(list, stored);
+          if (action === 'seed') {
             setEntries(DEFAULT_ENTRIES);
             setLoaded(true);
             saveList(DEFAULT_ENTRIES).catch((err: unknown) => { if (!canceled) setSeedError(errorMessage(err)); });
           } else {
+            // Best effort: a failed marker save only means the next load tries again.
+            if (action === 'mark') api.watchlist.put(list).catch(() => {});
             setEntries(list);
             setLoaded(true);
           }

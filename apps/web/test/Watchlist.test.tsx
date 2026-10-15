@@ -155,12 +155,16 @@ describe('Watchlist', () => {
     expect(put).not.toHaveBeenCalled();
   });
 
-  it('the server says it never stored a list: seeds even where an old per-device flag is set', async () => {
+  it('a list emptied before the upgrade (old per-device flag, no server marker): stays empty, the marker is saved once', async () => {
     localStorage.setItem('chartmate.watchlist.initialized', '1');
     setup([], false);
     render(<Watchlist currentSymbol="stock:SPY" onSelect={() => {}} />);
-    await screen.findByText('SPY');
     await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect(put).toHaveBeenCalledWith([]); // an empty save: the server now records the list as stored
+    await act(async () => { await new Promise((r) => setTimeout(r, 700)); });
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(rows()).toHaveLength(0);
+    expect(screen.getByRole('combobox', { name: 'Search symbol' })).toBeEnabled();
   });
 
   it('an older server (no stored header): falls back to the per-device flag', async () => {
