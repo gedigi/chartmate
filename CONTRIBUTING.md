@@ -299,8 +299,8 @@ A release is a pushed `vX.Y.Z` tag. The tag builds and publishes everything; not
 4. **TODO (after the next release, the first one with the `compose.yaml` asset):** switch the README's
    [Recommended install](README.md#recommended-install-docker-compose) from the `raw.githubusercontent.com/…/main`
    URLs to the release assets (`https://github.com/<repository>/releases/latest/download/compose.yaml` and
-   `…/env.example`), and
-   update `apps/server/test/selfhost-docs.test.ts`, which pins those URLs. Then delete this step.
+   `…/env.example`), and update `apps/server/test/selfhost-docs.test.ts`, which pins those URLs. Then delete
+   this step.
 
 What the tag runs:
 

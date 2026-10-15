@@ -7,6 +7,11 @@ app, the Docker image and the release tag share one version number.
 
 ### Self-hosting
 
+- `compose.yaml` runs the published image by default: download it and `docker compose up -d`, no `.env` needed
+  (create one only to set a password, change the port or use Postgres).
+- A simpler install guide: a one-line quick try, a two-command Compose install, and how to pin the image by
+  version and digest and verify its build provenance.
+- Each GitHub Release now carries its `compose.yaml` and `.env.example` (as `env.example`).
 - Without a password, the server answers only to `localhost`, `127.0.0.1` and `[::1]` (any port) and refuses
   any other `Host` with a 403, so a web page cannot reach it through DNS rebinding; state-changing API requests
   from another site's origin are refused too. Add the names you use to the new `CHARTMATE_ALLOWED_HOSTS`, or set

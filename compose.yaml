@@ -12,11 +12,12 @@ name: chartmate
 
 services:
   chartmate:
-    # The published image. CHARTMATE_IMAGE overrides it (a pinned version, or your own build).
+    # The published image. CHARTMATE_IMAGE overrides it (a pinned version or digest, or your own build).
     image: ${CHARTMATE_IMAGE:-ghcr.io/gedigi/chartmate:latest}
     restart: unless-stopped
     ports:
-      # Loopback only by default: put a reverse proxy in front, or set CHARTMATE_BIND=0.0.0.0 (with a password).
+      # Loopback only by default: put a reverse proxy in front, or set a password first and then
+      # CHARTMATE_BIND=0.0.0.0.
       # Ports Docker publishes bypass host firewalls such as ufw.
       - "${CHARTMATE_BIND:-127.0.0.1}:${CHARTMATE_PORT:-8787}:8787"
     environment:
