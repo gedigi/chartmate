@@ -1,6 +1,7 @@
 // Bundles the Electron main process (desktop shell + the whole Chartmate server) into one minified CommonJS file and
 // copies the built web UI next to it:
 //   dist/main.cjs, dist/web/**, dist/icon.png   (+ dist/*.LEGAL.txt with third-party license comments)
+//   __RELEASES_URL__ — the GitHub releases page of GITHUB_REPOSITORY (owner/name), validated by build/repository.cjs.
 //   dist/updater.cjs — ONLY when the build is code-signed for the target platform (build/signing.cjs); unsigned
 //   builds do not contain the auto-updater at all (and main.cjs has the updater code path compiled out).
 //
@@ -17,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const { signingFor } = require('../build/signing.cjs');
+const { releasesPageUrl } = require('../build/repository.cjs');
 
 const arg = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split('=')[1];
 const dev = process.argv.includes('--dev');
@@ -76,6 +78,8 @@ const common = {
   define: {
     __WEB_ROOT_REL__: JSON.stringify('web'),
     __BUILD_SIGNED__: JSON.stringify(signed),
+    // The releases page offered by "Check for updates" in builds that cannot update themselves ('' = none).
+    __RELEASES_URL__: JSON.stringify(releasesPageUrl(process.env.GITHUB_REPOSITORY) ?? ''),
     __TEST_INSPECTABLE__: JSON.stringify(testInspectable),
     'process.env.NODE_ENV': JSON.stringify(dev ? 'development' : 'production'),
   },

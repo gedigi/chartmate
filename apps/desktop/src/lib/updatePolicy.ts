@@ -1,3 +1,6 @@
+/** The session partition electron-updater downloads through (its NET_SESSION_NAME; pinned by a test). */
+export const UPDATE_PARTITION = 'electron-updater';
+
 /** Hosts electron-updater needs for the GitHub provider (release metadata + asset downloads). */
 export const UPDATE_HOSTS: readonly string[] = Object.freeze([
   'github.com',
@@ -5,6 +8,19 @@ export const UPDATE_HOSTS: readonly string[] = Object.freeze([
   'objects.githubusercontent.com',
   'release-assets.githubusercontent.com',
 ]);
+
+/**
+ * Request filter of the updater's partition: HTTPS only, default port, no URL credentials, exact GitHub hosts. Every
+ * redirect hop goes through it again.
+ */
+export function isUpdateRequestAllowed(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.port === '' && u.username === '' && u.password === '' && UPDATE_HOSTS.includes(u.hostname);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * True when electron-builder's app-update.yml pins the Windows publisher. electron-updater then refuses an
@@ -29,17 +45,10 @@ export function allowsPrereleaseUpdates(version: string): boolean {
   return version.includes('-');
 }
 
-/**
- * Auto-update is opt-in and off by default. It only runs when ALL hold:
- * - the build is code-signed for THIS platform (decided at bundle time by build/signing.cjs; unsigned bundles do
- *   not even contain the updater);
- * - packaged build (never from a dev checkout), on macOS or Windows;
- * - product.json `autoUpdate: true`;
- * - electron-builder generated `app-update.yml` (publish provider configured at build time);
- * - on Windows, app-update.yml pins `publisherName` (Authenticode publisher check);
- * - the user has not disabled it with CHARTMATE_DISABLE_UPDATES=1.
- */
-export function shouldEnableAutoUpdate(i: {
+/** Why updates do or do not run in this build. */
+export type UpdateAvailability = 'enabled' | 'disabled-by-env' | 'unsigned' | 'unavailable';
+
+export interface UpdatePolicyInput {
   isPackaged: boolean;
   productAutoUpdate: boolean;
   isSigned: boolean;
@@ -47,10 +56,28 @@ export function shouldEnableAutoUpdate(i: {
   /** Contents of resources/app-update.yml, or null when absent. */
   updateConfig: string | null;
   env: Record<string, string | undefined>;
-}): boolean {
-  if (i.env.CHARTMATE_DISABLE_UPDATES === '1') return false;
-  if (!i.isSigned || !i.isPackaged || !i.productAutoUpdate || i.updateConfig === null) return false;
-  if (i.platform === 'darwin') return true;
-  if (i.platform === 'win32') return hasWindowsPublisher(i.updateConfig);
-  return false;
+}
+
+/**
+ * Auto-update runs (`enabled`) only when ALL hold:
+ * - the user has not turned it off with CHARTMATE_DISABLE_UPDATES=1 (else `disabled-by-env`, whatever the build);
+ * - the build is code-signed for THIS platform (decided at bundle time by build/signing.cjs; unsigned bundles do
+ *   not even contain the updater), else `unsigned`;
+ * - packaged build (never from a dev checkout), on macOS or Windows;
+ * - product.json `autoUpdate: true`;
+ * - electron-builder generated `app-update.yml` (publish provider configured at build time);
+ * - on Windows, app-update.yml pins `publisherName` (Authenticode publisher check).
+ * The last four fail as `unavailable`.
+ */
+export function updateAvailability(i: UpdatePolicyInput): UpdateAvailability {
+  if (i.env.CHARTMATE_DISABLE_UPDATES === '1') return 'disabled-by-env';
+  if (!i.isSigned) return 'unsigned';
+  if (!i.isPackaged || !i.productAutoUpdate || i.updateConfig === null) return 'unavailable';
+  if (i.platform === 'darwin') return 'enabled';
+  if (i.platform === 'win32' && hasWindowsPublisher(i.updateConfig)) return 'enabled';
+  return 'unavailable';
+}
+
+export function shouldEnableAutoUpdate(i: UpdatePolicyInput): boolean {
+  return updateAvailability(i) === 'enabled';
 }

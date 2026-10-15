@@ -71,6 +71,17 @@ test('loads the UI from app://chartmate with the product title', async () => {
   console.log(`[smoke] launch → chart canvas visible: ${launchMs} ms (packaged=${!!packaged}, providers=${providers})`);
 });
 
+test('the menu has "Check for updates" (an unpackaged run cannot update itself, so no updater state is written)', async () => {
+  test.skip(!app, 'needs the main process (unpackaged run)');
+  const labels = await app!.evaluate(({ Menu }) => {
+    const walk = (items: Electron.MenuItem[]): string[] => items.flatMap((i) => [i.label, ...(i.submenu ? walk(i.submenu.items) : [])]);
+    return walk(Menu.getApplicationMenu()!.items);
+  });
+  expect(labels).toContain(process.platform === 'darwin' ? 'Check for Updates…' : 'Check for updates…');
+  expect(labels.join('|')).not.toMatch(/automatically/i);
+  expect(() => statSync(join(userData, 'update-settings.json'))).toThrow();
+});
+
 test('frameless window: the top bar is the title bar (drag region, room for the window controls)', async () => {
   const shell = process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'windows' : null;
   const r = await page.evaluate(() => {
