@@ -138,6 +138,16 @@ describe('dependabot.yml', () => {
     const days = Object.fromEntries(cfg.updates.map((u) => [u['package-ecosystem'], u.cooldown?.['default-days']]));
     expect(days).toEqual({ npm: 7, 'github-actions': 3, docker: 3, 'docker-compose': 3 });
   });
+  it('never proposes a major Node or Postgres upgrade: those are deliberate changes, not routine bumps', () => {
+    type Ignore = { 'dependency-name': string; 'update-types'?: string[] };
+    const ignored = (eco: string) =>
+      ((cfg.updates.find((u) => u['package-ecosystem'] === eco) as { ignore?: Ignore[] }).ignore ?? [])
+        .filter((i) => i['update-types']?.includes('version-update:semver-major'))
+        .map((i) => i['dependency-name']);
+    expect(ignored('npm')).toContain('@types/node');
+    expect(ignored('docker')).toContain('node');
+    expect(ignored('docker-compose')).toContain('postgres');
+  });
 });
 
 describe('desktop.yml secret scoping and release', () => {

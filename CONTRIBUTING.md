@@ -335,4 +335,6 @@ then typecheck and the indicator tests), the web build, e2e and a Docker build. 
 read-only token, pins each action to a commit SHA, gets pnpm through corepack (hash-checked) and installs with
 `--ignore-scripts`; only `ci.yml` caches dependencies. The macOS signing secrets reach only jobs that run no
 dependency code; the Certum login runs first in the Windows job, before any dependency code. Dependabot opens weekly
-update pull requests for npm packages, the pinned actions, the Docker base image and the Compose Postgres image.
+update pull requests for npm packages, the pinned actions, the Docker base image and the Compose Postgres image, but
+never for a new Node or Postgres major: move to the next Node LTS (`.nvmrc`, the Docker image, `@types/node`) or
+Postgres major by hand.

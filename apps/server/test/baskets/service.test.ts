@@ -143,8 +143,15 @@ describe('BasketService', () => {
       expect(a.versions.map((x) => x.effectiveFrom)).toEqual(['2026-09-14', '2026-09-21']);
       await expectAppError(svc.appendVersion(b.id, v('2026-09-20', { 'stock:AAA': 1 })), 400, 'invalid_basket', /strictly after/);
       await svc.delete(b.id);
-      for (const p of [svc.get(b.id), svc.update(b.id, { name: 'x' }), svc.appendVersion(b.id, v('2026-10-01', { 'stock:AAA': 1 })), svc.delete(b.id)]) {
-        const err = await p.then(() => null, (e: unknown) => e);
+      // One call at a time: promises created up front could reject before the loop attaches a handler (unhandled).
+      const calls = [
+        () => svc.get(b.id),
+        () => svc.update(b.id, { name: 'x' }),
+        () => svc.appendVersion(b.id, v('2026-10-01', { 'stock:AAA': 1 })),
+        () => svc.delete(b.id),
+      ];
+      for (const call of calls) {
+        const err = await call().then(() => null, (e: unknown) => e);
         expect(err).toBeInstanceOf(NotFoundError);
         expect((err as Error).message).toBe(`Basket ${b.id} not found`);
       }

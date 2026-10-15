@@ -23,6 +23,8 @@ export class FakeProvider implements MarketDataProvider {
   noDataBefore = -Infinity;
   searchFail: Error | null = null;
   delayMs = 0;
+  /** Optional gate awaited inside fetchBars (holds fetches in flight until the test releases it). */
+  fetchGate: Promise<void> | null = null;
   firstTs: number | null = Date.UTC(2000, 0, 1);
   /** Optional deterministic prices (default: a function of the grid index). */
   price: PriceFn | null = null;
@@ -58,6 +60,7 @@ export class FakeProvider implements MarketDataProvider {
 
   async fetchBars(code: string, tf: NativeTimeframe, from: number, to: number): Promise<FetchBarsResult> {
     this.calls.push({ code, tf, from, to });
+    if (this.fetchGate) await this.fetchGate;
     if (this.delayMs) await new Promise((r) => setTimeout(r, this.delayMs));
     if (this.fail) throw this.fail;
     if (to <= this.noDataBefore) throw new NotFoundError('No data found, symbol may be delisted');
