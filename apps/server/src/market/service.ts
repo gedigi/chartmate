@@ -8,6 +8,7 @@ import { AppError, NotFoundError, ProviderError } from '../errors.js';
 import { RequestQueue } from '../providers/queue.js';
 import type { ProviderRegistry } from '../providers/registry.js';
 import type { MarketDataProvider } from '../providers/types.js';
+import { bucketEnd } from './buckets.js';
 import { mergeRanges, missingRanges, splitRange } from './coverage.js';
 
 const DAY = 86_400_000;
@@ -41,16 +42,6 @@ type MarketClass = 'stock' | 'crypto';
 export function calendarFor(symbol: SymbolId, session: SessionMode): Calendar {
   if (symbol.startsWith('crypto:')) return 'utc';
   return session === 'rth' ? 'nyse-rth' : 'nyse-eth';
-}
-
-/** Exclusive end of the `tf` bucket that contains `ts`. */
-function bucketEnd(ts: number, tf: Timeframe, cal: Calendar): number {
-  const start = bucketStart(ts, tf, cal);
-  if (tf === '1M') {
-    const d = new Date(start);
-    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
-  }
-  return start + tfMs(tf);
 }
 
 /**

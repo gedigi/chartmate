@@ -7,6 +7,7 @@ import {
 } from '@chartmate/shared';
 import type { Repos } from '../db/repos.js';
 import { AppError, NotFoundError } from '../errors.js';
+import { bucketEnd } from '../market/buckets.js';
 import type { MarketDataService } from '../market/service.js';
 
 const DAY = 86_400_000;
@@ -47,16 +48,6 @@ function cleanName(name: unknown): string {
   const n = typeof name === 'string' ? name.trim() : '';
   if (n.length < 1 || n.length > MAX_NAME) throw invalid(`Basket name must be 1–${MAX_NAME} characters`);
   return n;
-}
-
-/** Exclusive end of the `tf` bucket containing `ts`. */
-function bucketEnd(ts: number, tf: Timeframe, cal: Calendar): number {
-  const start = bucketStart(ts, tf, cal);
-  if (tf === '1M') {
-    const d = new Date(start);
-    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
-  }
-  return start + tfMs(tf);
 }
 
 export class BasketService {

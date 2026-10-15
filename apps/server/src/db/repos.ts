@@ -137,11 +137,6 @@ export class BarRepo {
     return r !== undefined;
   }
 
-  /** Deletes every cached bar of `symbol` (all timeframes). */
-  async deleteSymbol(symbol: string): Promise<void> {
-    await this.db.deleteFrom('bars').where('symbol', '=', symbol).execute();
-  }
-
   async lastBefore(symbol: string, tf: NativeTimeframe, ts: number): Promise<Bar | null> {
     const row = await this.db.selectFrom('bars').selectAll()
       .where('symbol', '=', symbol).where('tf', '=', tf).where('ts', '<', ts)
@@ -163,11 +158,6 @@ export class CoverageRepo {
     const rows = await this.db.selectFrom('coverage').select(['from_ts', 'to_ts'])
       .where('symbol', '=', symbol).where('tf', '=', tf).orderBy('from_ts', 'asc').execute();
     return rows.map(r => [Number(r.from_ts), Number(r.to_ts)]);
-  }
-
-  /** Forgets every covered range of `symbol` (all timeframes). */
-  async deleteSymbol(symbol: string): Promise<void> {
-    await this.db.deleteFrom('coverage').where('symbol', '=', symbol).execute();
   }
 
   /** Merges [from, to) into the covered ranges. Empty/inverted ranges are a no-op; non-finite bounds throw. */
@@ -231,7 +221,7 @@ export class SymbolRepo {
 }
 
 export class BasketRepo {
-  constructor(private db: Kysely<Database>) {}
+  constructor(private db: Kysely<Database>, private now: () => number = () => Date.now()) {}
 
   /** All baskets (created_at, id order) with their versions, read in a single joined query (atomic snapshot). */
   async list(): Promise<Basket[]> {
@@ -259,7 +249,7 @@ export class BasketRepo {
   }
 
   async create(b: Omit<Basket, 'createdAt' | 'updatedAt'>): Promise<Basket> {
-    const now = Date.now();
+    const now = this.now();
     await this.db.transaction().execute(async trx => {
       await trx.insertInto('baskets').values({ id: b.id, name: b.name, base_value: b.baseValue, created_at: now, updated_at: now }).execute();
       await insertVersions(trx, b.id, b.versions);
@@ -271,7 +261,7 @@ export class BasketRepo {
     return this.db.transaction().execute(async trx => {
       const exists = await trx.selectFrom('baskets').select('id').where('id', '=', id).executeTakeFirst();
       if (!exists) return null;
-      const set: { updated_at: number; name?: string } = { updated_at: Date.now() };
+      const set: { updated_at: number; name?: string } = { updated_at: this.now() };
       if (patch.name !== undefined) set.name = patch.name;
       await trx.updateTable('baskets').set(set).where('id', '=', id).execute();
       if (patch.versions) {
@@ -294,7 +284,7 @@ export class BasketRepo {
       await trx.insertInto('basket_versions')
         .values({ basket_id: id, idx: current.versions.length, effective_from: v.effectiveFrom, weights_json: JSON.stringify(v.weights) })
         .execute();
-      await trx.updateTable('baskets').set({ updated_at: Date.now() }).where('id', '=', id).execute();
+      await trx.updateTable('baskets').set({ updated_at: this.now() }).where('id', '=', id).execute();
       return getBasket(trx, id);
     });
   }
@@ -438,13 +428,14 @@ export interface Repos {
   settings: SettingsRepo;
 }
 
-export function createRepos(db: Kysely<Database>, dialect?: Dialect): Repos {
+/** `opts.now`: clock for the baskets' created / updated stamps (tests). */
+export function createRepos(db: Kysely<Database>, dialect?: Dialect, opts: { now?: () => number } = {}): Repos {
   const d: Dialect = dialect ?? (db.getExecutor().adapter instanceof PostgresAdapter ? 'postgres' : 'sqlite');
   return {
     bars: new BarRepo(db, d),
     coverage: new CoverageRepo(db, d),
     symbols: new SymbolRepo(db),
-    baskets: new BasketRepo(db),
+    baskets: new BasketRepo(db, opts.now),
     watchlist: new WatchlistRepo(db),
     layouts: new LayoutRepo(db),
     drawings: new DrawingRepo(db),

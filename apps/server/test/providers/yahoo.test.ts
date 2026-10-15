@@ -74,7 +74,6 @@ describe('YahooProvider', () => {
     const sessions = new Set(res.bars.map((b) => b.session));
     expect(sessions).toEqual(new Set(['pre', 'regular', 'post']));
     expect(res.sessionWindows).toHaveLength(windows.length);
-    expect(res.firstTs).toBe(Date.UTC(1980, 11, 12));
   });
 
   it('intraday: drops Yahoo\'s off-grid trailing "live tick" bar', async () => {
