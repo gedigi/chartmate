@@ -214,8 +214,8 @@ importers:
         specifier: 0.29.6
         version: 0.29.6
       undici:
-        specifier: 7.29.1
-        version: 7.29.1
+        specifier: 8.12.1
+        version: 8.12.1
 
   apps/server:
     dependencies:
@@ -4875,7 +4875,8 @@ snapshots:
 
   undici@6.29.0: {}
 
-  undici@7.29.1: {}
+  undici@7.29.1:
+    optional: true
 
   undici@8.12.1: {}
 

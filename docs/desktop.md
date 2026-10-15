@@ -162,7 +162,8 @@ Independently of that, provider requests never use Node's global dispatcher. The
 `Agent` (`src/lib/directFetch.ts`) that connects directly, ignoring `HTTP(S)_PROXY`, and trusts only Node's
 bundled root store (`tls.rootCertificates`). This restricts trust to that root store; it is not certificate
 pinning, so any certificate chaining to a bundled root is accepted. Real Node and Electron child processes prove
-this (`test/directFetch.test.ts`).
+this (`test/directFetch.test.ts`). The Agent speaks HTTP/1.1 only (`allowH2: false`; undici 8 would otherwise
+negotiate HTTP/2), and undici 8 needs Node 22.19 or later, which Electron 44's Node 24 satisfies.
 
 Provider traffic is therefore **direct-only**. Corporate HTTP proxies are not supported, and neither are
 TLS-inspecting middleboxes, which need their own root certificate. On such networks the desktop app cannot reach

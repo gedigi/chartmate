@@ -5,6 +5,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { createServer as createHttpsServer } from 'node:https';
 import net from 'node:net';
+import { createServer as createTlsServer } from 'node:tls';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -119,4 +120,29 @@ describe.each(runtimes)('provider fetch in a real %s child process', (_name, bin
     expect(await run(bin, { NODE_EXTRA_CA_CERTS: certFile }, ['global', url])).toBe('ok 200');
     expect(await run(bin, { NODE_EXTRA_CA_CERTS: certFile }, ['direct', url])).toMatch(/^err (SELF_SIGNED_CERT|DEPTH_ZERO_SELF_SIGNED_CERT|UNABLE_TO_VERIFY)/);
   }, 30_000);
+});
+
+describe('the pinned fetch speaks HTTP/1.1 only', () => {
+  it('offers only http/1.1 in the TLS ALPN extension, even to a server that prefers h2', async (ctx) => {
+    if (!tlsServer) ctx.skip();
+    const { createDirectFetch } = await import('../src/lib/directFetch.js');
+    const offered: string[][] = [];
+    const server = createTlsServer({
+      key: readFileSync(join(work, 'key.pem')),
+      cert: readFileSync(certFile),
+      ALPNCallback: ({ protocols }) => {
+        offered.push(protocols);
+        return protocols.includes('h2') ? 'h2' : protocols[0];
+      },
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    try {
+      const port = (server.address() as net.AddressInfo).port;
+      // The self-signed certificate is not in the bundled root store, so the request fails after the hello.
+      await expect(createDirectFetch()(`https://localhost:${port}/`, { signal: AbortSignal.timeout(5000) })).rejects.toThrow();
+      expect(offered).toEqual([['http/1.1']]);
+    } finally {
+      server.close();
+    }
+  });
 });
