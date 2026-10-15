@@ -93,8 +93,9 @@ jobs:
           load: true
           push: false
           tags: chartmate:smoke
+          build-args: GITHUB_REPOSITORY=${{ github.repository }}
       - name: Smoke test (linux/amd64)
-        run: scripts/docker-smoke.sh chartmate:smoke
+        run: scripts/docker-smoke.sh chartmate:smoke --expect-repository "$GITHUB_REPOSITORY"
       - name: Validate compose.yaml
         env:
           CHARTMATE_IMAGE: chartmate:smoke
@@ -109,9 +110,10 @@ jobs:
           load: true
           push: false
           tags: chartmate:smoke-arm64
+          build-args: GITHUB_REPOSITORY=${{ github.repository }}
       # Runs under QEMU: proves the arm64 better-sqlite3 binary loads and the server works on that platform.
       - name: Smoke test (linux/arm64)
-        run: scripts/docker-smoke.sh chartmate:smoke-arm64 --platform linux/arm64
+        run: scripts/docker-smoke.sh chartmate:smoke-arm64 --platform linux/arm64 --expect-repository "$GITHUB_REPOSITORY"
 
   publish:
     needs: [test, image]
@@ -194,6 +196,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          build-args: GITHUB_REPOSITORY=${{ github.repository }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
           # BuildKit attestations stored with the image: SLSA provenance and an SPDX SBOM per platform.

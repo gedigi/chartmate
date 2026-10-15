@@ -67,3 +67,14 @@ describe('CHANGELOG.md', () => {
     expect(text).not.toMatch(/tradingview|thinkorswim|metatrader|tradestation|ninjatrader/i);
   });
 });
+
+describe('one product version', () => {
+  const version = (rel: string) =>
+    (JSON.parse(readFileSync(new URL(rel, import.meta.url), 'utf8')) as { version: string }).version;
+
+  it('the web UI and the server report the desktop app\'s version (their About dialog shows it)', () => {
+    const product = version('../package.json');
+    expect(version('../../web/package.json')).toBe(product);
+    expect(version('../../server/package.json')).toBe(product);
+  });
+});

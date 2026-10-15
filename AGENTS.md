@@ -85,7 +85,7 @@ or an unpackaged smoke run, fetch it once with `node apps/desktop/node_modules/e
 | Server DB suites on Postgres (as CI's `postgres` job; e.g. `docker run` the digest-pinned image from `compose.yaml` on a free port) | `TEST_PG_URL=postgres://… CHARTMATE_TEST_DB=postgres pnpm --filter @chartmate/server exec vitest run --no-file-parallelism test/db test/market test/baskets test/routes test/http` |
 | End-to-end | `pnpm e2e` (first time: `pnpm exec playwright install chromium`); `E2E_PORT=8873 pnpm e2e` for another port |
 | Docker image | `docker build -t chartmate .` |
-| Docker image smoke test (read-only rootfs + tmpfs, healthcheck, API, UI, SQLite temp files, SIGTERM) | `scripts/docker-smoke.sh chartmate` (another arch: `--platform linux/arm64`) |
+| Docker image smoke test (read-only rootfs + tmpfs, healthcheck, API, UI, SQLite temp files, SIGTERM) | `scripts/docker-smoke.sh chartmate` (another arch: `--platform linux/arm64`; an image built with `--build-arg GITHUB_REPOSITORY=owner/name`: add `--expect-repository owner/name` to check its source link) |
 | Re-record provider fixtures (network) | `pnpm --filter @chartmate/server exec tsx scripts/record-fixtures.ts` |
 | Scaffold a custom indicator + its test (see `CONTRIBUTING.md`) | `pnpm new:indicator <Name> [--pane main]` |
 
@@ -149,12 +149,13 @@ and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by defa
   a shipped dependency outside the allowlist or without a license text. A new license goes on the allowlist only
   after checking its AGPL-3.0 compatibility.
 - Never hardcode the GitHub repository URL or owner: use relative links in docs and
-  `github.repository` / `GITHUB_REPOSITORY` in workflows and build config. One exception: the user-facing
-  self-host docs (README, `compose.yaml`, `.env.example`) name the published image `ghcr.io/gedigi/chartmate`
-  and the `compose.yaml` / `.env.example` download URLs (raw `main` today, `releases/latest/download` once a
-  release carries them), so a copy-paste install works. `apps/server/test/selfhost-docs.test.ts` pins the
-  image name and both URL bases in constants and asserts every reference in those files against them, so a
-  move is a change to those constants plus a search and replace.
+  `github.repository` / `GITHUB_REPOSITORY` in workflows and build config. One exception: the docs (README,
+  CONTRIBUTING, AGENTS, `docs/*.md`, `compose.yaml`, `.env.example`) may name the published image
+  `ghcr.io/gedigi/chartmate`, the `compose.yaml` / `.env.example` download URLs (raw `main` today,
+  `releases/latest/download` once a release carries them) and the attestation check's `--repo gedigi/chartmate`,
+  so a copy-paste install or verification works. `apps/server/test/selfhost-docs.test.ts` pins the image name,
+  the repository slug and both URL bases in constants and fails on any other mention of the owner in those
+  files, so a move is a change to those constants plus a search and replace.
 - Custom indicators: one file in `apps/web/src/chart/indicators/custom/` (start from `pnpm new:indicator`), colors
   only through palette slots (`lineSlots`) or `activeIndicatorColors()`; a test rejects color literals there.
 - Commits: small and logical, conventional style as in `git log`: `feat(web): …`, `fix(desktop): …`,
@@ -200,7 +201,8 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
 ## Releases
 
 - Before tagging: add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md` and set `"version"` in
-  `apps/desktop/package.json` (the product version; a test requires a changelog entry for it). The step-by-step
+  `apps/desktop/package.json` (the product version; a test requires a changelog entry for it), and the same
+  version in `apps/web/package.json` and `apps/server/package.json` (a test keeps the three equal). The step-by-step
   list is in `CONTRIBUTING.md`, "Releases".
 - Push a tag `vX.Y.Z` (the tagged commit must be on `main`, or both release workflows stop):
   `.github/workflows/desktop.yml` tests, then builds macOS arm64/x64 (dmg + zip) and Windows x64/arm64 (NSIS +

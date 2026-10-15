@@ -135,6 +135,8 @@ async function start(): Promise<void> {
   const baskets = new BasketService({ repos, market });
   const server = await buildApp({
     config, repos, market, baskets,
+    // The embedded server is the app: GET /api/about reports the app's version.
+    version: app.getVersion(),
     // Warnings and errors only; no stacks, headers, query strings or absolute paths (see serverLog.ts).
     logger: serverLoggerOptions((line) => log.write(line)) as unknown as NonNullable<Parameters<typeof buildApp>[0]['logger']>,
   });

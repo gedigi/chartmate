@@ -143,6 +143,15 @@ describe('api client', () => {
     expect(await api.watchlist.get()).toEqual([section, { type: 'symbol', id: 'stock:AAPL' }]);
   });
 
+  it('watchlist.load reads whether a list was ever stored from the header (null from an older server)', async () => {
+    const withHeader = (v: string) => new Response('[]', { status: 200, headers: { 'content-type': 'application/json', 'chartmate-watchlist-stored': v } });
+    mockFetch(withHeader('1'), withHeader('0'), jsonResponse(200, ['stock:AAPL']), withHeader('yes'));
+    expect(await api.watchlist.load()).toEqual({ entries: [], stored: true });
+    expect(await api.watchlist.load()).toEqual({ entries: [], stored: false });
+    expect(await api.watchlist.load()).toEqual({ entries: [{ type: 'symbol', id: 'stock:AAPL' }], stored: null });
+    expect(await api.watchlist.load()).toEqual({ entries: [], stored: null });
+  });
+
   it('does not set keepalive on GET requests', async () => {
     const f = mockFetch(jsonResponse(200, []));
     await api.watchlist.get();

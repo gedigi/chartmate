@@ -40,7 +40,9 @@ const overlap = (b: Rect, a: Rect): number =>
  * Restores saved bounds onto the current displays, or returns null (default size) when the window's title bar
  * area is on none of them. The work area chosen is the one the window overlaps most; the size is clamped to it
  * (a window saved on a larger, now missing display would otherwise open bigger than the screen), then the position,
- * so the whole window, edges and title bar included, is inside that work area.
+ * so the whole window, edges and title bar included, is inside that work area. A work area smaller than MIN_SIZE
+ * gets the minimum size: centered across it when too narrow, and at its top when too short (the title bar stays
+ * reachable; the bottom overhangs).
  */
 export function visibleBounds(bounds: Rect | null, workAreas: readonly Rect[]): Rect | null {
   if (!bounds) return null;
@@ -53,10 +55,14 @@ export function visibleBounds(bounds: Rect | null, workAreas: readonly Rect[]): 
     if (titleBarVisible(a) && (area === null || overlap(bounds, a) > overlap(bounds, area))) area = a;
   }
   if (!area) return null;
-  const width = Math.min(bounds.width, area.width);
-  const height = Math.min(bounds.height, area.height);
-  const x = Math.min(Math.max(bounds.x, area.x), area.x + area.width - width);
-  const y = Math.min(Math.max(bounds.y, area.y), area.y + area.height - height);
+  // Never below the window's minimum size (the window could not be that small anyway).
+  const width = Math.max(MIN_SIZE.width, Math.min(bounds.width, area.width));
+  const height = Math.max(MIN_SIZE.height, Math.min(bounds.height, area.height));
+  // Where even that does not fit (a work area smaller than MIN_SIZE): centered horizontally rather than hanging off
+  // one side; vertically pinned to the top, so the title bar is never above the work area.
+  const clamp = (pos: number, size: number, start: number, span: number) => Math.min(Math.max(pos, start), start + span - size);
+  const x = width > area.width ? Math.round(area.x + (area.width - width) / 2) : clamp(bounds.x, width, area.x, area.width);
+  const y = height > area.height ? area.y : clamp(bounds.y, height, area.y, area.height);
   return { x, y, width, height };
 }
 

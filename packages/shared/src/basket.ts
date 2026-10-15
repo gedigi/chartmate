@@ -100,20 +100,25 @@ function lowerBound(bars: Bar[], t: number): number {
 
 /** Most consecutive invalid daily closes skipped to find a valid one to size at. */
 const MAX_INVALID_CLOSES = 5;
+/** How far back (calendar days before the latest invalid close) a valid close to size at may be. */
+const MAX_WALK_BACK_MS = 10 * DAY_MS;
 
 const validClose = (c: number) => Number.isFinite(c) && c > 0;
 
 /**
  * `id`'s close before `ts` for sizing: the last bar's, or, when that close is not a positive finite number (bad
- * provider data would size infinite, negative or NaN units), the last valid one up to MAX_INVALID_CLOSES bars
- * further back, with a notice. Throws when there is no bar (`missing` message) or no valid close in reach.
+ * provider data would size infinite, negative or NaN units), the last valid one up to MAX_INVALID_CLOSES bars and
+ * MAX_WALK_BACK_MS further back, with a notice. Throws when there is no bar (`missing` message) or no valid close in
+ * reach.
  */
 function sizingClose(daily: DailySeries, id: SymbolId, ts: number, missing: string, notices: Set<string>): number {
   const bars = daily[id];
   const i = bars ? lowerBound(bars, ts) : 0;
   if (i === 0) throw new BasketValidationError(missing, id, ts);
+  const oldest = bars![i - 1]!.ts - MAX_WALK_BACK_MS;
   for (let j = i - 1; j >= Math.max(0, i - 1 - MAX_INVALID_CLOSES); j--) {
     const b = bars![j]!;
+    if (b.ts < oldest) break;
     if (!validClose(b.close)) continue;
     if (j < i - 1) {
       const skipped = bars!.slice(j + 1, i).map((x) => utcDateString(x.ts)).join(', ');
@@ -197,6 +202,8 @@ export function alignUnitsToNySessions(units: UnitsResult): UnitsResult {
 
 export interface ConstituentSeries { id: SymbolId; bars: Bar[] }
 
+const validBar = (b: Bar) => validClose(b.open) && validClose(b.high) && validClose(b.low) && validClose(b.close);
+
 /**
  * Basket bars from the constituents' bars (each series ascending). From the basket start S on, bars follow the
  * active version's units. With `simulate`, timestamps before S are emitted too, as `simulated` bars valued with
@@ -204,6 +211,8 @@ export interface ConstituentSeries { id: SymbolId; bars: Bar[] }
  * reach the base value at S's prior close, so the series is continuous. A bar is only emitted when at least one
  * active constituent has a real bar at that timestamp; the others are forward-filled (timestamps where an active
  * constituent has no value yet, e.g. a later version's constituent before its first bar, are skipped).
+ * A constituent bar whose open, high, low or close is not a positive finite number (bad provider data) counts as
+ * no bar at its timestamp: the constituent is forward-filled there instead of drawing a NaN or a spike.
  * Every constituent of a version that is active at some timeline timestamp must have an entry in `series`
  * (possibly with no bars); an absent entry is a caller bug and throws an Error.
  */
@@ -233,7 +242,7 @@ export function buildBasketBars(units: UnitsResult, series: ConstituentSeries[],
       let b: Bar | undefined;
       let i = idx[j]!;
       while (i < bars.length && bars[i]!.ts <= t) {
-        if (bars[i]!.ts === t) b = bars[i];
+        if (bars[i]!.ts === t && validBar(bars[i]!)) b = bars[i];
         i++;
       }
       idx[j] = i;

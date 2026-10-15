@@ -144,6 +144,25 @@ describe('computeVersionUnits + buildBasketBars', () => {
     expect(out[2]).toMatchObject({ open: 5 * 21 + 0.5 * 80, high: 5 * 23 + 0.5 * 80, low: 5 * 20 + 0.5 * 80, close: 5 * 22 + 0.5 * 80, volume: 0 });
   });
 
+  it('forward-fills over a constituent bar with a non-positive or non-finite price instead of drawing it', () => {
+    const u = computeVersionUnits([v0], daily, 100);
+    const t = day('2024-01-03');
+    const H = 3_600_000;
+    for (const bad of [0, -3, NaN, Infinity]) {
+      const stock = [bar(t, 20), bar(t + H, bad), bar(t + 2 * H, 21, 21, 21, bad)];
+      const crypto = [bar(t, 100), bar(t + H, 90), bar(t + 2 * H, 80)];
+      const out = buildBasketBars(u, [{ id: 'stock:A', bars: stock }, { id: 'crypto:B', bars: crypto }]);
+      expect(out.map(b => b.ts), String(bad)).toEqual([t, t + H, t + 2 * H]);
+      // stock:A keeps its last valid close (20) through both bad bars.
+      expect(out[1]).toMatchObject({ open: 5 * 20 + 0.5 * 90, high: 5 * 20 + 0.5 * 90, low: 5 * 20 + 0.5 * 90, close: 5 * 20 + 0.5 * 90 });
+      expect(out[2]!.close).toBeCloseTo(5 * 20 + 0.5 * 80);
+      for (const b of out) for (const v of [b.open, b.high, b.low, b.close]) expect(Number.isFinite(v) && v > 0).toBe(true);
+    }
+    // A bad bar alone at a timestamp emits nothing there.
+    const lone = buildBasketBars(u, [{ id: 'stock:A', bars: [bar(t, 20), bar(t + H, NaN)] }, { id: 'crypto:B', bars: [bar(t, 100)] }]);
+    expect(lone.map(b => b.ts)).toEqual([t]);
+  });
+
   it('skips timestamps until every constituent has a value', () => {
     const u = computeVersionUnits([v0], daily, 100);
     const t = day('2024-01-03');
@@ -245,6 +264,18 @@ describe('computeVersionUnits + buildBasketBars', () => {
       expect(u2.versions[1]!.levelAtStart).toBe(5 * 20 + 0.5 * 50);
       expect(u2.notices).toEqual(['stock:A: invalid close on 2024-01-03; sized at the close of 2024-01-02.']);
     }
+  });
+
+  it('walks back over invalid closes at most 10 calendar days before the latest one', () => {
+    const v1 = { effectiveFrom: '2024-01-15', weights: { 'stock:C': 1 } };
+    const on = (date: string, c: number) => bar(day(date), c);
+    // A data gap: the only valid close is 12 days before the invalid one, too stale to size at.
+    const stale = { ...daily, 'stock:C': [on('2024-01-02', 5), on('2024-01-14', NaN)] };
+    expect(() => computeVersionUnits([v0, v1], stale, 100)).toThrow('stock:C has no valid close before 2024-01-15');
+    // Ten days back is still in reach.
+    const recent = { ...daily, 'stock:C': [on('2024-01-04', 5), on('2024-01-14', NaN)] };
+    const u = computeVersionUnits([v0, v1], recent, 100);
+    expect(u.notices).toEqual(['stock:C: invalid close on 2024-01-14; sized at the close of 2024-01-04.']);
   });
 
   it('normalizes weights so each version starts exactly at its level (weights within the 1e-6 tolerance)', () => {

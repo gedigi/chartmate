@@ -5,6 +5,13 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+### Everywhere
+
+- **About Chartmate**: click the Chartmate mark in the top bar to see the version (self-hosted: also the
+  server's, when it differs) and get the source code of that version and the license, as the AGPL-3.0 asks of
+  software used over a network. The desktop app shows the source address as text to copy, since it opens no
+  links. The Docker image is built with its repository, so its dialog links the source too.
+
 ### Desktop app
 
 - Automatic updates for signed builds: the app checks 15 seconds after it starts and every 6 hours, downloads
@@ -30,9 +37,10 @@ app, the Docker image and the release tag share one version number.
   `api.binance.us`); any other value is ignored with a warning in the log instead of being allowed through.
 - An invalid `CHARTMATE_PROVIDERS` or `CRYPTO_PROVIDER` now shows a short error naming the variable instead of
   crashing at startup.
-- The window reopens no larger than the screen it lands on (after a larger display is disconnected), keeps the
-  light theme's background when the page is slow to answer at close, and launching the app again on macOS with
-  no window open now opens one.
+- The window reopens no larger than the screen it lands on (after a larger display is disconnected), centered on
+  a screen narrower than its minimum size and with its title bar on screen when the screen is too short, keeps
+  the light theme's background when the page is slow to answer at close, and launching the app again on macOS
+  with no window open now opens one.
 - The app now includes the AGPL-3.0 license and the licenses of the third-party software it contains
   (`LICENSE` and `THIRD_PARTY_NOTICES.txt` next to the app's resources); on macOS also Electron's license and the
   Chromium credits (`LICENSE.electron.txt`, `LICENSES.chromium.html`), which Windows already had.
@@ -60,10 +68,11 @@ app, the Docker image and the release tag share one version number.
 
 ### Data and security
 
-- Symbol ids are validated and normalized: `crypto:btc` and `crypto:BTC` are one symbol with one cache, and a
-  ticker that does not look like one is refused before any request goes to the data provider. Saved watchlists,
-  layouts, drawings and baskets are rewritten to the normalized ids on upgrade (case variants merged). A basket
-  version holding an id that is not valid loses that constituent and is reweighted (the server logs which).
+- Symbol ids are validated and normalized: `crypto:btc` and `crypto:BTC` are one symbol with one cache
+  (surrounding whitespace, tabs and line breaks included, is trimmed), and a ticker that does not look like one
+  is refused before any request goes to the data provider. Saved watchlists, layouts, drawings and baskets are
+  rewritten to the normalized ids on upgrade (case variants merged). A basket version holding an id that is not
+  valid loses that constituent and is reweighted (the server logs which).
 - The self-hosted web app is served with a strict Content Security Policy and the usual hardening headers
   (no framing, no MIME sniffing, no referrer). Hashed bundles are cached for a year, `index.html` is always
   revalidated, dotfiles are never served, and a missing asset is a 404 instead of the app page.
@@ -106,11 +115,17 @@ app, the Docker image and the release tag share one version number.
   mix two versions, and the version markers move to that time. Daily charts are unchanged.
 - A basket version dated tomorrow is no longer sized for hours at a price from the middle of today's
   session: its holdings are re-sized every few minutes until today closes, then fixed at the final close.
-- A basket no longer fails to load when a constituent's daily close is zero, negative or missing where a version
-  is sized: the last valid close up to 5 bars earlier is used, and a notice names the dates skipped.
+- A basket no longer fails to load when a constituent's daily close is zero or negative where a version is
+  sized: the last valid close up to 5 bars and 10 days earlier is used, and a notice names the dates skipped.
+- A single bad constituent bar from the data provider (a zero, negative or non-numeric price) no longer draws a
+  gap or a spike in a basket: the constituent keeps its previous close for that bar.
 
 ### Fixes
 
+- A watchlist you emptied is no longer refilled with the default symbols when you open Chartmate in another
+  browser or on another device: the server now says whether a list was ever saved, and only a server that
+  never had one gets the defaults. A list emptied before this version stays empty in the browsers that already
+  had it (the first one to open records it on the server); a brand-new browser gets the defaults once until then.
 - Indicator settings store only the colors you change: the other lines (and the untouched up or down bar
   color) keep following the theme instead of freezing to the palette of the theme they were edited in. A
   color equal to that line's default in the other theme counts as a default too, so it follows the theme.

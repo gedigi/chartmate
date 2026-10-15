@@ -21,4 +21,14 @@ describe('CONTRIBUTING.md', () => {
     expect(existsSync(file), path).toBe(true);
     expect(readFileSync(file, 'utf8')).toContain(code);
   });
+
+  it('names every helper calc.ts exports, and nothing it does not', () => {
+    const doc = readFileSync(resolve(REPO, 'CONTRIBUTING.md'), 'utf8');
+    const line = /Shared helpers \(([^)]*)\)/.exec(doc);
+    expect(line, 'the "Shared helpers (...)" sentence').not.toBeNull();
+    const named = [...line![1]!.matchAll(/`(\w+)`/g)].map((m) => m[1]).sort();
+    const calc = readFileSync(resolve(REPO, 'apps/web/src/chart/indicators/calc.ts'), 'utf8');
+    const exported = [...calc.matchAll(/^export function (\w+)/gm)].map((m) => m[1]).sort();
+    expect(named).toEqual(exported);
+  });
 });

@@ -137,8 +137,9 @@ Run just your test while you work:
 pnpm --filter @chartmate/web exec vitest run test/indicators/ppo.test.ts
 ```
 
-Shared helpers (moving averages, ATR, session keys) live in `apps/web/src/chart/indicators/calc.ts`. Keep the
-module's top-level code free of side effects: indicators are bundled eagerly, so a module that throws while being
+Shared helpers (`vwap`, `atr`, and the `nyDayKey` / `utcDayKey` session day keys) live in
+`apps/web/src/chart/indicators/calc.ts`; the `ema` above is exported from `custom/ppo.ts`. Keep the module's
+top-level code free of side effects: indicators are bundled eagerly, so a module that throws while being
 imported stops the app from starting (a module with the wrong shape is only skipped, with a console warning).
 
 ### 3. The chart template
@@ -293,8 +294,9 @@ A release is a pushed `vX.Y.Z` tag. The tag builds and publishes everything; not
 1. On `main`, rename the `## Unreleased` section at the top of [CHANGELOG.md](CHANGELOG.md) to
    `## [X.Y.Z] - YYYY-MM-DD` (pull requests record user-visible changes there in plain language as they land; add
    anything missing), and set `"version": "X.Y.Z"` in `apps/desktop/package.json`, the product version the
-   desktop app reports. A test fails while the desktop version has no changelog section. Start a new empty
-   `## Unreleased` section after the release.
+   desktop app reports, and the same version in `apps/web/package.json` and `apps/server/package.json` (About
+   Chartmate shows them). Tests fail while the desktop version has no changelog section or the three differ.
+   Start a new empty `## Unreleased` section after the release.
 2. Run the full checks (`pnpm audit`, `pnpm typecheck`, `pnpm test`, `pnpm e2e`) and merge.
 3. Tag the merge commit on `main` and push `main` together with the tag:
    `git tag vX.Y.Z && git push origin main vX.Y.Z`. Both release workflows stop if the tagged commit is not on

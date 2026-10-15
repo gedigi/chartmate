@@ -1,5 +1,5 @@
 import {
-  normalizeWatchlist,
+  normalizeWatchlist, WATCHLIST_STORED_HEADER,
   type BarsResponse, type Basket, type BasketVersion, type DrawingState, type LatestResponse, type Layout, type Quote,
   type SessionMode, type SymbolId, type SymbolInfo, type Timeframe, type WatchlistEntry,
 } from '@chartmate/shared';
@@ -58,6 +58,13 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
 }
 
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  return (await requestWithHeaders<T>(method, path, body, signal)).data;
+}
+
+/** `request`, plus the response headers. */
+async function requestWithHeaders<T>(
+  method: string, path: string, body?: unknown, signal?: AbortSignal,
+): Promise<{ data: T; headers: Headers }> {
   const init: RequestInit = { method, credentials: 'same-origin', signal };
   if (body !== undefined) {
     init.headers = { 'content-type': 'application/json' };
@@ -96,9 +103,9 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     if (res.status === 401 && code === 'unauthorized' && path !== '/login' && path !== '/session') unauthorizedHandler?.();
     throw new ApiError(res.status, code, message);
   }
-  if (res.status === 204) return undefined as T;
+  if (res.status === 204) return { data: undefined as T, headers: res.headers };
   const text = await res.text();
-  return (text ? JSON.parse(text) : undefined) as T;
+  return { data: (text ? JSON.parse(text) : undefined) as T, headers: res.headers };
 }
 
 const get = <T>(path: string, signal?: AbortSignal) => request<T>('GET', path, undefined, signal);
@@ -118,6 +125,8 @@ export interface LatestParams { symbol: SymbolId; tf: Timeframe; session: Sessio
 
 export const api = {
   session: () => get<{ authRequired: boolean; authenticated: boolean }>('/session'),
+  /** The server's version (null when it does not know it). */
+  about: () => get<{ version: string | null }>('/about'),
   login: async (password: string): Promise<void> => { await request<void>('POST', '/login', { password }); },
   logout: async (): Promise<void> => { await request<void>('POST', '/logout'); },
 
@@ -141,6 +150,15 @@ export const api = {
   watchlist: {
     /** Entries in order; a server still returning the legacy symbol id array is read as symbol entries. */
     get: async (): Promise<WatchlistEntry[]> => normalizeWatchlist(await get<unknown>('/watchlist')),
+    /**
+     * `get`, plus whether a watchlist was ever saved on the server (an emptied list is still a stored one); null
+     * when the server does not say (an older one).
+     */
+    load: async (): Promise<{ entries: WatchlistEntry[]; stored: boolean | null }> => {
+      const { data, headers } = await requestWithHeaders<unknown>('GET', '/watchlist');
+      const h = headers.get(WATCHLIST_STORED_HEADER);
+      return { entries: normalizeWatchlist(data), stored: h === '1' ? true : h === '0' ? false : null };
+    },
     put: async (entries: readonly WatchlistEntry[]): Promise<void> => { await request<unknown>('PUT', '/watchlist', entries); },
   },
   layouts: {

@@ -1,5 +1,6 @@
 import type { ChartAppearance, Layout, SymbolId, SymbolInfo, ThemedAppearance } from '@chartmate/shared';
 import { useState, type JSX } from 'react';
+import { AboutDialog } from './AboutDialog';
 import { ChartAppearanceDialog } from './ChartAppearanceDialog';
 import { IndicatorButton } from './IndicatorButton';
 import { SymbolSearch } from './SymbolSearch';
@@ -39,9 +40,13 @@ export interface TopBarProps {
 export function TopBar(p: TopBarProps): JSX.Element {
   const { layout, setLayout, symbolInfo } = p;
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   return (
     <header className="top-bar">
-      <span className="brand"><img src="/favicon.svg" alt="" width={20} height={20} />Chartmate</span>
+      {/* The brand opens About Chartmate (version, source code, license). */}
+      <button type="button" className="brand" onClick={() => setAboutOpen(true)} aria-label="About Chartmate" title="About Chartmate">
+        <img src="/favicon.svg" alt="" width={20} height={20} /><span className="brand-name">Chartmate</span>
+      </button>
       {/* Page navigation (not tabs): each button switches the whole view; aria-current marks the open one. */}
       <nav className="tabs" aria-label="View">
         {(['chart', 'baskets'] as const).map((v) => (
@@ -110,6 +115,7 @@ export function TopBar(p: TopBarProps): JSX.Element {
         )}
         {p.onLogout && <button type="button" onClick={p.onLogout}>Log out</button>}
       </div>
+      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
       {appearanceOpen && (
         <ChartAppearanceDialog
           appearance={layout.appearance?.[p.theme]}

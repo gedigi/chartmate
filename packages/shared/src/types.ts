@@ -190,9 +190,12 @@ export const MAX_SYMBOL_ID_LENGTH = 100;
  */
 export function parseSymbolId(id: string): { assetClass: AssetClass; code: string } {
   const bad = () => new Error(`invalid symbol: ${String(id).slice(0, MAX_SYMBOL_ID_LENGTH)}`);
-  // ASCII only, checked before case folding: 'ß'.toUpperCase() is 'SS', which would alias another ticker.
-  if (typeof id !== 'string' || id.length > MAX_SYMBOL_ID_LENGTH || !/^[\x20-\x7e]*$/.test(id)) throw bad();
+  // Surrounding whitespace (any kind: tabs, newlines, no-break spaces) is trimmed, not refused; a padded id is
+  // still bounded before the trim does any work.
+  if (typeof id !== 'string' || id.length > 10 * MAX_SYMBOL_ID_LENGTH) throw bad();
   const s = id.trim();
+  // ASCII only, checked before case folding: 'ß'.toUpperCase() is 'SS', which would alias another ticker.
+  if (s.length > MAX_SYMBOL_ID_LENGTH || !/^[\x20-\x7e]*$/.test(s)) throw bad();
   const i = s.indexOf(':');
   const prefix = i < 0 ? '' : s.slice(0, i);
   const raw = i < 0 ? '' : s.slice(i + 1).trim();

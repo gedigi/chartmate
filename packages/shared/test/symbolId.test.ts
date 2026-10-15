@@ -12,6 +12,14 @@ describe('symbol ids', () => {
     expect(normalizeSymbolId(`basket:${UUID.toUpperCase()}`)).toBe(`basket:${UUID}`);
   });
 
+  it('trims leading and trailing whitespace of any kind before the ASCII check', () => {
+    expect(normalizeSymbolId('\tstock:aapl\n')).toBe('stock:AAPL');
+    expect(normalizeSymbolId('\r\n crypto:btc \u00a0')).toBe('crypto:BTC');
+    expect(normalizeSymbolId(` basket:${UUID}${' '.repeat(120)}`)).toBe(`basket:${UUID}`);
+    // Inside the id, only plain ASCII is accepted.
+    for (const bad of ['stock:\taapl', 'stock\n:AAPL', 'crypto:\u00a0btc']) expect(tryNormalizeSymbolId(bad), JSON.stringify(bad)).toBeNull();
+  });
+
   it('accepts the real stock shapes: share classes, indices, futures, numeric tickers', () => {
     for (const code of ['AAPL', 'BRK-B', 'BRK.B', '^GSPC', 'ES=F', 'EURUSD=X', '0700.HK', 'A']) {
       expect(normalizeSymbolId(`stock:${code}`)).toBe(`stock:${code}`);

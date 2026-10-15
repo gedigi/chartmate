@@ -42,6 +42,8 @@ export interface AppDeps {
   logger?: FastifyServerOptions['logger'];
   /** Clock for session expiry and login rate limiting. */
   now?: () => number;
+  /** The version `GET /api/about` reports (the server's own, or the desktop app's); null/absent = unknown. */
+  version?: string | null;
 }
 
 function zodMessage(err: ZodError): string {
@@ -147,6 +149,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await registerAuth(app, authOpts);
 
   app.get('/api/health', { config: { public: true } }, async () => ({ ok: true }));
+  // Behind the login like the rest of the API: the About dialog shows it, nobody else needs it.
+  app.get('/api/about', async () => ({ version: deps.version ?? null }));
   await app.register(authRoutes, authOpts);
   await app.register(marketRoutes, { market, baskets, ...(deps.now ? { now: deps.now } : {}) });
   await app.register(basketRoutes, { baskets });

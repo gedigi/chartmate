@@ -566,3 +566,25 @@ describe('docker.yml publish', () => {
     expect(meta.with!.flavor).toBe('latest=false');
   });
 });
+
+describe('Docker image builds pass the repository (the About dialog links to its source code)', () => {
+  it('every docker/build-push-action step in docker.yml passes GITHUB_REPOSITORY', () => {
+    const wf = yaml.load(read('docker.yml'));
+    const builds = Object.values(wf.jobs as Record<string, Job>).flatMap((j) => j.steps)
+      .filter((s) => s.uses?.startsWith('docker/build-push-action@'));
+    expect(builds.length).toBeGreaterThanOrEqual(3);
+    for (const s of builds) expect(String(s.with?.['build-args']).trim(), s.name).toBe('GITHUB_REPOSITORY=${{ github.repository }}');
+  });
+
+  it('ci.yml\'s docker build passes it too, and the smoke tests check it', () => {
+    const ci = yaml.load(read('ci.yml'));
+    const runs = Object.values(ci.jobs as Record<string, Job>).flatMap((j) => j.steps).map((s) => s.run ?? '');
+    const builds = runs.filter((r) => /\bdocker build\b/.test(r));
+    expect(builds.length).toBeGreaterThan(0);
+    for (const r of builds) expect(r).toContain('--build-arg GITHUB_REPOSITORY="$GITHUB_REPOSITORY"');
+    expect(root('Dockerfile')).toMatch(/^ARG GITHUB_REPOSITORY=""$/m);
+    const smoke = (yaml.load(read('docker.yml')).jobs.image.steps as Step[]).map((s) => s.run ?? '').filter((r) => r.includes('docker-smoke.sh'));
+    expect(smoke.length).toBe(2);
+    for (const r of smoke) expect(r).toContain('--expect-repository "$GITHUB_REPOSITORY"');
+  });
+});

@@ -1,10 +1,12 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 // The published image name and the download URLs are pinned here: a move to another owner is a change to these
 // constants plus a search and replace in the files this test reads.
 const IMAGE = 'ghcr.io/gedigi/chartmate';
+// The repository the image is built from, as `gh attestation verify --repo` takes it.
+const REPO_SLUG = 'gedigi/chartmate';
 // Until a release carries compose.yaml / env.example as assets (desktop.yml attaches them from the next release
 // on), the README downloads them from main. CONTRIBUTING's release checklist tracks switching to RELEASE_DOWNLOAD.
 const RAW_MAIN = 'https://raw.githubusercontent.com/gedigi/chartmate/main';
@@ -40,7 +42,7 @@ describe('self-hosting docs use the published image', () => {
 
   it('the README verifies the attestation of a digest, not a tag', () => {
     const readme = read('README.md');
-    expect(readme).toContain(`gh attestation verify oci://${IMAGE}@sha256:<digest> --repo gedigi/chartmate`);
+    expect(readme).toContain(`gh attestation verify oci://${IMAGE}@sha256:<digest> --repo ${REPO_SLUG}`);
     expect(readme).not.toMatch(/gh attestation verify oci:\/\/\S+:[\w.-]+ /);
   });
 
@@ -65,6 +67,20 @@ describe('self-hosting docs use the published image', () => {
     expect(IMAGE_REF.test(`${IMAGE}:1.0.0@sha256:${'a'.repeat(64)}`)).toBe(true);
     for (const bad of [`${IMAGE}x`, `${IMAGE}/other`, 'ghcr.io/someone/chartmate', `${IMAGE}@sha256:abc`]) {
       expect(IMAGE_REF.test(bad), bad).toBe(false);
+    }
+  });
+
+  it('names the owner only in the image, the two download bases and the attestation --repo, in every doc', () => {
+    const docs = ['README.md', 'CONTRIBUTING.md', 'AGENTS.md', 'SECURITY.md', 'CHANGELOG.md', 'compose.yaml', '.env.example',
+      ...readdirSync(fileURLToPath(new URL('../../../docs', import.meta.url))).filter((f) => f.endsWith('.md')).map((f) => `docs/${f}`)];
+    const owner = REPO_SLUG.split('/')[0]!;
+    for (const f of docs) {
+      const rest = read(f)
+        .replaceAll(`--repo ${REPO_SLUG}`, '')
+        .replaceAll(`${RAW_MAIN}/`, '')
+        .replaceAll(`${RELEASE_DOWNLOAD}/`, '')
+        .replace(/ghcr\.io\/[\w./:@<>-]*[\w>]/g, (ref) => (IMAGE_REF.test(ref.replace('@sha256:<digest>', `@sha256:${'0'.repeat(64)}`)) ? '' : ref));
+      expect(rest.includes(owner), `${f} names ${owner} outside the pinned forms`).toBe(false);
     }
   });
 });

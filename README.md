@@ -123,7 +123,8 @@ curl -fsSL -o .env.example https://raw.githubusercontent.com/gedigi/chartmate/ma
 ```
 
 - Data lives in the `chartmate-data` volume (SQLite at `/data/chartmate.db`).
-- The port is published on `127.0.0.1` only. To reach it from other machines, prefer a
+- The port is published on `127.0.0.1` only, so other machines cannot reach it, but other containers on the
+  same Docker network still can. To reach it from other machines, prefer a
   [reverse proxy](#behind-a-reverse-proxy-https) on the same host. Otherwise set a password first (see
   [Security](#security)), then `CHARTMATE_BIND=0.0.0.0` in `.env`. Ports Docker publishes bypass host firewalls
   such as ufw, so `0.0.0.0` really is every interface. `CHARTMATE_PORT` changes the host port.
@@ -226,7 +227,8 @@ location / {
   instance over HTTPS only. A password of only whitespace is refused at startup rather than read as "no
   password"; the server also warns when it is reachable beyond loopback without a password (judged on
   `CHARTMATE_PUBLISHED_BIND`, which `compose.yaml` sets from `CHARTMATE_BIND`, or else on `HOST`; the default
-  Compose setup publishes on 127.0.0.1 and does not warn).
+  Compose setup publishes on 127.0.0.1 and does not warn, although containers on the same Docker network can
+  still reach it).
 - Session cookies are signed with `CHARTMATE_SESSION_SECRET` when set (min 16 characters; `openssl rand -hex
   32`). When unset, a random secret is generated on first start and kept in the database (`settings` table),
   so it survives restarts; it is never derived from the password, so a leaked cookie gives nothing to guess the
@@ -390,6 +392,13 @@ Where to read next:
 
 ### Charts
 
+- **About Chartmate**: click the Chartmate mark at the left of the top bar for the version and the source code
+  and license links (see [License](#license)).
+- **Theme**: the sun / moon button in the top bar switches between the dark theme (the default) and the light
+  one. The choice is stored per browser (localStorage `chartmate.theme`) and applied before the page paints;
+  each theme keeps its own chart appearance (see below).
+- **Toggle watchlist**: the button at the right end of the top bar shows or hides the watchlist sidebar, giving
+  the chart the full width.
 - **Timeframes** 1m … 1M, chart types candles / bars / line / area, light and dark themes. The look is flat:
   the chart sits on its own rounded sheet, chrome is solid panels with hairline edges (no glass, glow or drop
   shadows), and every font is the system sans-serif (no web fonts). The time axis labels read with context
@@ -666,8 +675,11 @@ line ("Pre 231.40 +0.82%") shows the extended price and its change vs the last r
 otherwise the name. A small gauge under the price places the price in its 30-day closing range (the sparkline's daily
 closes and the live price).
 
-The list is loaded from the server when the app opens. Until it arrives, quiet placeholder rows show and the add
-field, adding, removing and reordering are off, so nothing you do is replaced by the loaded list. If the server
+The list is loaded from the server when the app opens. A server that has never stored a watchlist starts
+with SPY, AAPL, BTC and ETH; a list you emptied stays empty, in every browser and on every device. (A list
+emptied before this was tracked stays empty on the browsers that already had it, and is then recorded; a
+brand-new browser gets the defaults once in that case, until the first save.) Until it arrives, quiet
+placeholder rows show and the add field, adding, removing and reordering are off, so nothing you do is replaced by the loaded list. If the server
 cannot be reached, a muted "Can't reach the server. Retrying…" line shows (the error itself in its tooltip) and
 the load is retried with backoff (2 s, 5 s, 10 s, then every 30 s); a load the server refuses for good (a 4xx
 error) is not retried and the list stays read-only. Changes are saved about half a second after each edit; a
@@ -716,6 +728,21 @@ form an untitled top group.
 
 A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
 
+**Managing baskets.** The **Baskets** button in the top bar (next to **Chart**) opens the Baskets page: each
+basket with its constituents, versions, start date, current weights and live value, and **Open chart**, **Edit**
+and **Delete** buttons. **New basket** opens the editor:
+
+- **Name**, then the **constituents**: search a stock or crypto symbol in each row, give it a weight in percent,
+  **Add constituent** for more rows, and **Normalize to 100%** to scale the weights so they add up to 100.
+- **Start date (UTC)**: the basket is worth 100 on that date, sized at the prior close.
+- A live **preview** chart on the right shows the basket's daily history (with the simulated part before the
+  start, see below) as you edit; **Create basket** saves it.
+
+Editing an existing basket renames it, moves its start date (while it has a single version), lists its
+**Version history** and, with **Change weights**, adds a new version: new weights and an effective date after
+the latest version's. Earlier versions are never rewritten. A basket's chart is opened like any symbol: from the
+Baskets page, the symbol search or the watchlist.
+
 - A basket has one or more **versions**; each has weights and an `effective from` calendar date.
   A version applies from 00:00 UTC of that date on daily and longer timeframes, and on intraday charts of
   baskets holding crypto. On intraday charts and live quotes of a **stock-only** basket it applies from the
@@ -723,8 +750,9 @@ A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
   post-market (which runs past midnight UTC in winter) stays on the old holdings; the `Start` and version
   markers sit at that time too.
 - When a version starts, each constituent is sized in units at the **prior trading close**, so the
-  basket value is continuous across a rebalance (no jump). If that daily close is invalid (zero, negative
-  or missing in the provider's data), the last valid close up to 5 bars earlier is used and a notice says so.
+  basket value is continuous across a rebalance (no jump). If that daily close is invalid (zero or
+  negative in the provider's data), the last valid close up to 5 bars and 10 days earlier is used and a notice
+  says so. A constituent bar with an invalid price keeps that constituent at its previous close for the bar.
 - Versions are **chained**: the series continues from the previous version's last value, giving one
   continuous index.
 - On intraday timeframes, the basket bar's high/low is an **approximation** (derived from
@@ -903,6 +931,7 @@ JSON over `/api` (the web client uses nothing else). With `CHARTMATE_PASSWORD` s
 | Route | Purpose |
 | --- | --- |
 | `GET /api/health` | Liveness (`{ ok: true }`), used by the Docker healthcheck. |
+| `GET /api/about` | The server's version (`{ version }`, `null` when unknown), shown in About Chartmate. |
 | `GET /api/session`, `POST /api/login`, `POST /api/logout` | Auth state, login (`{ password }`), logout. |
 | `GET /api/symbols/search?q=` | Symbol search (stocks, crypto and your baskets). |
 | `GET /api/symbols/:id` | Symbol info (name, exchange, price precision). |
@@ -929,7 +958,10 @@ collapsed }`, read and replaced as a whole. `PUT /api/watchlist` still accepts t
 (e.g. from a tab opened before an upgrade): it is merged into the stored list, so sections are kept — removed
 symbols are dropped, the rest follow the array's order, new ones are appended (an empty array still empties the
 list). Migration 003 copied an existing watchlist, in order, into the `watchlist_entries` table; the old
-`watchlist` table is kept and mirrored with the symbols.
+`watchlist` table is kept and mirrored with the symbols. `GET /api/watchlist` also answers with the header
+`chartmate-watchlist-stored: 1` once a watchlist was ever saved (even if it is empty now; a database from an
+earlier version counts when it holds any entry) and `0` before; the web app seeds its default list only on `0`,
+and not in a browser that seeded it with an earlier version (there it saves the empty list once instead).
 
 ## Custom indicators
 
@@ -967,9 +999,9 @@ listed in the picker; no other file needs editing. `custom/vwap.ts` and `custom/
 examples; `custom/ppo.ts` (the percentage price oscillator: params, two lines, a histogram and a level) is the
 annotated example that CONTRIBUTING.md walks through. Restart `pnpm dev` (or rebuild) after adding a file.
 
-`custom/wyckoff.ts` (with its calculation in `wyckoffCalc.ts`) is a port of the Pine Script indicator
-'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colors in a `draw`
-callback. Indicator code never hardcodes a color: lines take palette slots (`lineSlots`), and an indicator that
+`custom/wyckoff.ts` (with its calculation in `apps/web/src/chart/indicators/wyckoffCalc.ts`) is a port of the
+Pine Script indicator 'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colors
+in a `draw` callback. Indicator code never hardcodes a color: lines take palette slots (`lineSlots`), and an indicator that
 paints on the canvas itself takes its colors from `indicators/colors.ts` (`activeIndicatorColors()`, read at draw
 time); a test rejects color literals in `src/chart/indicators/`. **License:** these two files (and their tests)
 are covered by the [Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/), not by the project's AGPL-3.0;
@@ -1032,3 +1064,15 @@ them under the same license.
 
 Exceptions: the Wyckoff indicator files keep their own MPL-2.0 license (see [Custom indicators](#custom-indicators)),
 and third-party dependencies keep their own licenses.
+
+**Source code offer.** Click the Chartmate mark at the left of the top bar to open **About Chartmate**: it shows
+the version (self-hosted, also the server's version when it differs from the page's) and links to the source code
+of that version (its release tag; a development build links the repository) and to the license. The repository
+comes from `GITHUB_REPOSITORY` (`owner/name`) at build time: the release workflows build the desktop app with it
+in the environment and pass it to the Docker image build as `--build-arg GITHUB_REPOSITORY=...`. A build made
+without it tells the people using it to ask whoever runs the server for the source, and links the license text
+at gnu.org. In the desktop app, which opens no links, the address is shown as text to copy into a browser. If you
+run a modified version for other people, build it with `GITHUB_REPOSITORY` naming your own repository (for the
+Docker image: `docker build --build-arg GITHUB_REPOSITORY=your-account/your-fork .`), so the dialog offers your
+source.
+

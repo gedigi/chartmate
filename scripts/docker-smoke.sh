@@ -4,12 +4,24 @@
 # checks the API, the web UI and SQLite (including temp-file spills), then stops it and checks that it shut down
 # cleanly. Removes everything it created. Works under emulation (e.g. an arm64 image on an amd64 runner).
 #
-#   scripts/docker-smoke.sh <image> [--platform <os/arch>]
+#   scripts/docker-smoke.sh <image> [--platform <os/arch>] [--expect-repository <owner/name>]
+#
+# --expect-repository: the image was built with --build-arg GITHUB_REPOSITORY=<owner/name>; its web UI must link
+# to https://github.com/<owner/name> (About Chartmate's source code link).
 set -euo pipefail
 
-image="${1:?usage: scripts/docker-smoke.sh <image> [--platform <os/arch>]}"
+usage="usage: scripts/docker-smoke.sh <image> [--platform <os/arch>] [--expect-repository <owner/name>]"
+image="${1:?$usage}"
 shift
-platform_args=("$@")
+platform_args=()
+expect_repository=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --platform) platform_args=(--platform "${2:?$usage}"); shift 2 ;;
+    --expect-repository) expect_repository="${2:?$usage}"; shift 2 ;;
+    *) echo "$usage" >&2; exit 2 ;;
+  esac
+done
 name="chartmate-smoke-$$"
 volume="chartmate-smoke-$$"
 
@@ -56,6 +68,13 @@ done
 docker exec "$name" grep -q 'GNU AFFERO GENERAL PUBLIC LICENSE' /app/LICENSE || fail "/app/LICENSE missing"
 docker exec "$name" grep -q '^klinecharts ' /app/THIRD_PARTY_NOTICES.txt \
   || fail "/app/THIRD_PARTY_NOTICES.txt missing or incomplete"
+if [ -n "$expect_repository" ]; then
+  # The About dialog's source code link is baked into the web bundle at build time (apps/web/vite.config.ts).
+  # The whole URL as a string literal (any quote the minifier picks), not a longer name that starts the same.
+  repo_re="$(printf '%s' "$expect_repository" | sed 's/[.]/\\./g')"
+  docker exec "$name" grep -rqE "[\"'\`]https://github\.com/${repo_re}[\"'\`]" /app/web/assets \
+    || fail "web UI does not link to https://github.com/${expect_repository} (build-arg GITHUB_REPOSITORY missing?)"
+fi
 echo "platform: $(docker exec "$name" node -p 'process.platform + "/" + process.arch')"
 
 hostport="$(docker port "$name" 8787/tcp | head -n 1)"
