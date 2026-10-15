@@ -913,10 +913,12 @@ Environment overrides the desktop app honors:
   `https://api.binance.us`; any other value is ignored (and logged);
 - `CHARTMATE_DISABLE_UPDATES=1` (no update checks or downloads at all, see [Updates](#updates)).
 
-A released (hardened) build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE` or
-`NODE_EXTRA_CA_CERTS` is set. Node applies the first during pre-execution, before any app code runs, so the app
-cannot undo it; the second would let TLS session keys be logged; the third would add trusted root certificates
-(Electron normally drops it already). `NODE_USE_SYSTEM_CA` is allowed: provider requests ignore it (see below).
+A released (hardened) build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE`,
+`NODE_EXTRA_CA_CERTS`, `UNDICI_USE_MILO` or `UNDICI_NO_WASM_SIMD` is set. Node applies the first during
+pre-execution, before any app code runs, so the app cannot undo it; the second would let TLS session keys be logged;
+the third would add trusted root certificates (Electron normally drops it already); the last two would swap the
+HTTP/1.1 parser of the provider requests for another implementation. `NODE_USE_SYSTEM_CA` is allowed: provider
+requests ignore it (see below).
 
 Provider requests connect **directly**: they ignore `HTTP(S)_PROXY` and trust only Node's bundled root
 certificates. Corporate HTTP proxies are not supported, and neither are TLS-inspecting middleboxes, which need

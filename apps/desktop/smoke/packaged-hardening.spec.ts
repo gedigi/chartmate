@@ -28,7 +28,10 @@ test.afterAll(() => {
   restore?.();
 });
 
-const FORBIDDEN_ENV = ['NODE_USE_ENV_PROXY', 'NODE_USE_SYSTEM_CA', 'NODE_EXTRA_CA_CERTS', 'SSLKEYLOGFILE', 'ELECTRON_RUN_AS_NODE', 'NODE_OPTIONS'];
+const FORBIDDEN_ENV = [
+  'NODE_USE_ENV_PROXY', 'NODE_USE_SYSTEM_CA', 'NODE_EXTRA_CA_CERTS', 'SSLKEYLOGFILE', 'UNDICI_USE_MILO', 'UNDICI_NO_WASM_SIMD',
+  'ELECTRON_RUN_AS_NODE', 'NODE_OPTIONS',
+];
 
 let logStart = 0;
 const fullLog = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8') : '');

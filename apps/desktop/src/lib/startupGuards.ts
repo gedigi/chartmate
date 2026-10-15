@@ -70,8 +70,12 @@ export function findForbiddenSwitches(argv: readonly string[], platform: NodeJS.
  * NODE_EXTRA_CA_CERTS is normally removed by Electron already (the EnableNodeOptionsEnvironmentVariable fuse covers
  * it), and stays listed as defense in depth. The provider fetch also ignores proxies and trusts only the bundled
  * root store regardless (directFetch.ts).
+ * UNDICI_USE_MILO and UNDICI_NO_WASM_SIMD would swap the HTTP/1.1 response parser of the bundled undici that
+ * carries provider traffic (directFetch.ts) for another implementation.
  */
-export const FORBIDDEN_ENV_VARS: readonly string[] = Object.freeze(['NODE_USE_ENV_PROXY', 'NODE_EXTRA_CA_CERTS', 'SSLKEYLOGFILE']);
+export const FORBIDDEN_ENV_VARS: readonly string[] = Object.freeze([
+  'NODE_USE_ENV_PROXY', 'NODE_EXTRA_CA_CERTS', 'SSLKEYLOGFILE', 'UNDICI_USE_MILO', 'UNDICI_NO_WASM_SIMD',
+]);
 
 /** Forbidden variables that are set to a non-empty value. */
 export function findForbiddenEnv(env: Record<string, string | undefined>): string[] {
