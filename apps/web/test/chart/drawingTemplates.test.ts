@@ -304,25 +304,34 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     // rgba() of the strong color.
     const { zoneTint } = await import('../../src/chart/color');
     const { THEME_TOKENS } = await import('../../src/chart/theme');
-    expect(fill.styles).toMatchObject({ style: 'fill', color: zoneTint('#ff0000', THEME_TOKENS.dark.bg, T.CHANNEL_FILL_WEIGHT, T.CHANNEL_FILL_ALPHA) });
+    expect(fill.styles).toMatchObject({ style: 'fill', color: zoneTint('#ff0000', THEME_TOKENS.dark.bg, T.CHANNEL_FILL_WEIGHT.dark, T.CHANNEL_FILL_ALPHA) });
     expect(fill.styles.color).not.toBe('rgba(255, 0, 0, 0.08)');
     expect(fill.ignoreEvent).toEqual(['onRightClick']); // left click selects / drags; right click (remove) is ignored
     // Default (theme) line color when the channel has none of its own.
     const plain = t.createPointFigures({ chart: chart(), overlay: { name: 'parallelChannel', styles: null }, coordinates: coords, bounding });
-    expect(plain[0].styles.color).toBe(zoneTint('rgba(41, 98, 255, 1)', THEME_TOKENS.dark.bg, T.CHANNEL_FILL_WEIGHT, T.CHANNEL_FILL_ALPHA));
+    expect(plain[0].styles.color).toBe(zoneTint('rgba(41, 98, 255, 1)', THEME_TOKENS.dark.bg, T.CHANNEL_FILL_WEIGHT.dark, T.CHANNEL_FILL_ALPHA));
     // The tint follows the theme's chart background (set by the adapter).
+    T.drawingContext.theme = 'light';
     T.drawingContext.bg = THEME_TOKENS.light.bg;
     T.drawingContext.accent = THEME_TOKENS.light.accent;
     try {
       const light = t.createPointFigures({ chart: chart(), overlay: { name: 'parallelChannel', styles: { line: { color: '#ff0000', size: 1, style: 'solid' } } }, coordinates: coords, bounding });
-      expect(light[0].styles.color).toBe(zoneTint('#ff0000', THEME_TOKENS.light.bg, T.CHANNEL_FILL_WEIGHT, T.CHANNEL_FILL_ALPHA));
+      expect(light[0].styles.color).toBe(zoneTint('#ff0000', THEME_TOKENS.light.bg, T.CHANNEL_FILL_WEIGHT.light, T.CHANNEL_FILL_ALPHA));
       // An unreadable line color falls back to the accent's tint, never an opaque fill.
       const odd = t.createPointFigures({ chart: chart(), overlay: { name: 'parallelChannel', styles: { line: { color: 'nonsense', size: 1, style: 'solid' } } }, coordinates: coords, bounding });
-      expect(odd[0].styles.color).toBe(zoneTint(THEME_TOKENS.light.accent, THEME_TOKENS.light.bg, T.CHANNEL_FILL_WEIGHT, T.CHANNEL_FILL_ALPHA));
+      expect(odd[0].styles.color).toBe(zoneTint(THEME_TOKENS.light.accent, THEME_TOKENS.light.bg, T.CHANNEL_FILL_WEIGHT.light, T.CHANNEL_FILL_ALPHA));
     } finally {
+      T.drawingContext.theme = 'dark';
       T.drawingContext.bg = THEME_TOKENS.dark.bg;
       T.drawingContext.accent = THEME_TOKENS.dark.accent;
     }
+  });
+
+  it('channel fill weight is per theme (balanced: the dark ground needs more), always lighter than position zones', async () => {
+    const { ZONE_WEIGHT } = await import('../../src/chart/positionOverlay');
+    expect(T.CHANNEL_FILL_WEIGHT.dark).toBeGreaterThan(T.CHANNEL_FILL_WEIGHT.light);
+    expect(T.CHANNEL_FILL_WEIGHT.dark).toBeLessThan(ZONE_WEIGHT);
+    expect(T.CHANNEL_FILL_ALPHA).toBeLessThanOrEqual(0.14);
   });
 
   it('new channel: extend toggles (styles) extend the lines, the midline and the fill', () => {

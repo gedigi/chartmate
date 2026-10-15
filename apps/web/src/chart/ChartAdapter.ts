@@ -330,6 +330,7 @@ export class ChartAdapter {
     const a = resolveAppearance(this.theme, this.appearance);
     const t = themeTokens(this.theme);
     positionContext.colors = { up: a.upColor, down: a.downColor, neutral: t.muted, bg: t.bg };
+    drawingContext.theme = this.theme;
     drawingContext.bg = t.bg;
     drawingContext.accent = t.accent;
   }

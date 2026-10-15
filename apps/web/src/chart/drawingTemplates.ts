@@ -121,23 +121,25 @@ export function channelGeometry(
 
 /**
  * A channel's fill: the hue-locked tint of its line color on the chart background (color.ts zoneTint, like position
- * and measure zones) at a light perceived weight, never above CHANNEL_FILL_ALPHA so the candles stay visible.
+ * and measure zones), never above CHANNEL_FILL_ALPHA so the candles stay visible. The perceived weight is per theme:
+ * the same OKLab distance reads much fainter on the dark ground (and must stay visible inside the extended-hours
+ * shade) than on the light one. Both stay below ZONE_WEIGHT, so position zones read stronger.
  */
-export const CHANNEL_FILL_WEIGHT = 0.035;
-export const CHANNEL_FILL_ALPHA = 0.1;
+export const CHANNEL_FILL_WEIGHT = { dark: 0.045, light: 0.028 } as const;
+export const CHANNEL_FILL_ALPHA = 0.14;
 
 /**
- * Theme colors the drawing templates read at draw time: the chart background (fills are tinted onto it) and the
+ * Theme the drawing templates read at draw time: its name, the chart background (fills are tinted onto it) and the
  * accent (fallback of an unreadable line color). Set by the ChartAdapter on init and theme / appearance changes.
  */
-// Empty until set: the dark theme's (THEME_TOKENS is not read at module load, theme.ts imports this module indirectly).
-export const drawingContext: { bg: string; accent: string } = { bg: '', accent: '' };
+// bg / accent empty until set: the dark theme's (THEME_TOKENS is not read at module load, theme.ts imports this module indirectly).
+export const drawingContext: { theme: 'dark' | 'light'; bg: string; accent: string } = { theme: 'dark', bg: '', accent: '' };
 
 /** Fill of a channel drawn with line color `color`. */
 export function channelFill(color: unknown): string {
   const accent = drawingContext.accent || THEME_TOKENS.dark.accent;
   const strong = typeof color === 'string' && parseColor(color) ? color : accent;
-  return zoneTint(strong, drawingContext.bg || THEME_TOKENS.dark.bg, CHANNEL_FILL_WEIGHT, CHANNEL_FILL_ALPHA);
+  return zoneTint(strong, drawingContext.bg || THEME_TOKENS.dark.bg, CHANNEL_FILL_WEIGHT[drawingContext.theme], CHANNEL_FILL_ALPHA);
 }
 
 /** Dash pattern of a channel midline: always dashed, longer when the channel itself is dashed / dotted. */

@@ -482,8 +482,9 @@ Where to read next:
   the channel's width. Both lines span exactly from the first to the second point's time, with a dashed midline
   halfway between them (in the channel's color and width, longer dashes when the channel itself is dashed or
   dotted; not a stored point) and a subtle fill: a light tint of the channel's own hue on the chart background,
-  as for position zones, so it reads the same weight on both themes and never turns pink or brown (at most 10%
-  opacity, so the candles stay visible). Clicking a line, the
+  as for position zones, never pink or brown. Its weight is tuned per theme (a touch stronger on dark, so it stays
+  visible inside the extended-hours shade; calm on light), always lighter than position zones, and at most 14%
+  opacity, so the candles stay visible. Clicking a line, the
   midline or the fill selects (and drags) the channel; clicking beyond its ends does not. A right click inside
   the fill is ignored (a right click on a line removes the channel, as for other unlocked drawings).
   - **Extend left / Extend right** (style bar) extend the lines, midline and fill to the
