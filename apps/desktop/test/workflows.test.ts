@@ -257,6 +257,10 @@ describe('desktop.yml secret scoping and release', () => {
     expect(create).toMatch(/gh release create[\s\S]*dist\/\*\.zip dist\/\*\.exe dist\/\*\.blockmap dist\/latest\*\.yml/);
     expect(create).not.toMatch(/--draft/); // electron-updater only sees published releases
   });
+  it('Windows packaging gets the publisher DN pin (a repository variable) for the update signature check', () => {
+    const s = (wf.jobs['package-win'].steps as Step[]).find((x) => x.name === 'Bundle, package, sign (Windows)')!;
+    expect(s.env?.CHARTMATE_WIN_PUBLISHER_DN).toBe('${{ vars.CHARTMATE_WIN_PUBLISHER_DN }}');
+  });
 });
 
 describe('docker.yml publish', () => {

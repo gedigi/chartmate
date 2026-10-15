@@ -59,6 +59,9 @@ if (!existsSync(`${webDist}/index.html`)) {
 }
 
 const { signed, method } = signingFor(process.env, platform);
+if (signed && platform === 'win32' && !String(process.env.CHARTMATE_WIN_PUBLISHER_DN ?? '').trim()) {
+  console.warn('CHARTMATE_WIN_PUBLISHER_DN is not set: this signed Windows build will not update itself (docs/desktop.md)');
+}
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
@@ -80,6 +83,9 @@ const common = {
     __BUILD_SIGNED__: JSON.stringify(signed),
     // The releases page offered by "Check for updates" in builds that cannot update themselves ('' = none).
     __RELEASES_URL__: JSON.stringify(releasesPageUrl(process.env.GITHUB_REPOSITORY) ?? ''),
+    // Windows: the publisher DN (at least CN, O, C) the update installer's signature must match; '' = no Windows
+    // updates (src/lib/winSignature.ts, updatePolicy.ts).
+    __WIN_PUBLISHER_DN__: JSON.stringify(String(process.env.CHARTMATE_WIN_PUBLISHER_DN ?? '').trim()),
     __TEST_INSPECTABLE__: JSON.stringify(testInspectable),
     'process.env.NODE_ENV': JSON.stringify(dev ? 'development' : 'production'),
   },
