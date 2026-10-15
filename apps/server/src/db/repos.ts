@@ -105,7 +105,7 @@ export class BarRepo {
    * symbol's `splits_checked_at` is set to `checkedAt` in the same transaction, so a split can never be applied
    * (rescaled) twice: either everything commits, including the stamp, or nothing does.
    */
-  async applySplit(symbol: string, ops: SplitOp[], checkedAt: number): Promise<void> {
+  async applySplit(symbol: string, ops: SplitOp[], checkedAt: number, splitTs: number[] = []): Promise<void> {
     await this.db.transaction().execute(async trx => {
       await lockSymbol(trx, this.dialect, symbol); // never interleaved with a fill of the same symbol (store)
       for (const op of ops) {
@@ -123,6 +123,10 @@ export class BarRepo {
         }
       }
       await trx.updateTable('symbols').set({ splits_checked_at: checkedAt }).where('id', '=', symbol).execute();
+      if (splitTs.length > 0) {
+        await trx.insertInto('applied_splits').values([...new Set(splitTs)].map(ts => ({ symbol, ts })))
+          .onConflict(oc => oc.columns(['symbol', 'ts']).doNothing()).execute();
+      }
     });
   }
 
@@ -182,6 +186,8 @@ export interface SymbolInfoRow {
   ticker?: string | null;
   /** Last stock-split check (read-only here; written by `markSplitsChecked`). */
   splitsCheckedAt?: number | null;
+  /** Start of the applied-split record (read-only here; set on insert). */
+  splitsTrackedFrom?: number | null;
 }
 
 export class SymbolRepo {
@@ -194,6 +200,7 @@ export class SymbolRepo {
       id: r.id, name: r.name, exchange: r.exchange, pricePrecision: r.price_precision,
       firstTs: r.first_ts == null ? null : Number(r.first_ts), updatedAt: Number(r.updated_at),
       ticker: r.ticker ?? null, splitsCheckedAt: r.splits_checked_at == null ? null : Number(r.splits_checked_at),
+      splitsTrackedFrom: r.splits_tracked_from == null ? null : Number(r.splits_tracked_from),
     };
   }
 
@@ -204,11 +211,17 @@ export class SymbolRepo {
       updated_at: row.updatedAt, ticker: row.ticker ?? null,
     };
     // A new row starts as "splits checked as of now": its bars are fetched after this point (updates keep the stamp).
-    await this.db.insertInto('symbols').values({ ...v, splits_checked_at: row.updatedAt })
+    await this.db.insertInto('symbols').values({ ...v, splits_checked_at: row.updatedAt, splits_tracked_from: row.updatedAt })
       .onConflict(oc => oc.column('id').doUpdateSet({
         name: v.name, exchange: v.exchange, price_precision: v.price_precision, first_ts: v.first_ts, updated_at: v.updated_at, ticker: v.ticker,
       }))
       .execute();
+  }
+
+  /** Timestamps of the splits already applied to `id`'s cached bars. */
+  async appliedSplits(id: string): Promise<Set<number>> {
+    const rows = await this.db.selectFrom('applied_splits').select('ts').where('symbol', '=', id).execute();
+    return new Set(rows.map(r => Number(r.ts)));
   }
 
   async markSplitsChecked(id: string, ts: number): Promise<void> {

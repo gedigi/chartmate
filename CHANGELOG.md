@@ -31,6 +31,8 @@ app, the Docker image and the release tag share one version number.
 - A recent range the data provider briefly answered with no bars is asked again later instead of staying empty
   for good; cached bars and their coverage are written together, so a split check can no longer slip between
   them.
+- A stock split the data provider reports a few days late is now still applied to cached history (and never
+  twice).
 
 ## [1.0.0] - 2026-10-14
 

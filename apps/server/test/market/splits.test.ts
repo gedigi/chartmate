@@ -172,6 +172,79 @@ describe('MarketDataService stock split check', () => {
     expect(svc.cacheEpoch).toBe(epoch + 1);
   });
 
+  it('a split reported only after a check that postdates it is still applied, exactly once', async () => {
+    await h.db.updateTable('symbols').set({ splits_checked_at: NOW - 10 * DAY, splits_tracked_from: NOW - 30 * DAY })
+      .where('id', '=', 'stock:AAPL').execute();
+    const old = bar(NOW - 800 * DAY);
+    await repos.bars.upsert('stock:AAPL', '1h', [old]);
+    const X = NOW - 2 * DAY;
+    now = NOW; // check 1: the provider does not know the split yet
+    await svc.ensureSplitsChecked('stock:AAPL');
+    expect(stock.splitsCalls.at(-1)).toEqual({ code: 'AAPL', since: NOW - 17 * DAY });
+    expect((await repos.symbols.get('stock:AAPL'))?.splitsCheckedAt).toBe(NOW);
+    const epoch = svc.cacheEpoch;
+    stock.splits.AAPL = [X]; // reported late, dated before the last check
+    now = NOW + DAY;
+    await svc.ensureSplitsChecked('stock:AAPL');
+    expect(stock.splitsCalls.at(-1)).toEqual({ code: 'AAPL', since: NOW - 7 * DAY });
+    expect(svc.cacheEpoch).toBe(epoch + 1);
+    const halved = { ...old, open: 50, high: 51, low: 49, close: 50.5, volume: 20 };
+    expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([halved]);
+    expect(await repos.symbols.appliedSplits('stock:AAPL')).toEqual(new Set([X]));
+    now = NOW + 2 * DAY; // still inside the look-back window: not applied again
+    await svc.ensureSplitsChecked('stock:AAPL');
+    expect(svc.cacheEpoch).toBe(epoch + 1);
+    expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([halved]);
+  });
+
+  it('the look-back never reaches before tracking began (splits an earlier version may have applied)', async () => {
+    // Upgraded row: tracking starts at its last check (migration 005), so a split just before it is left alone.
+    await h.db.updateTable('symbols').set({ splits_checked_at: NOW - 2 * DAY, splits_tracked_from: NOW - 2 * DAY })
+      .where('id', '=', 'stock:AAPL').execute();
+    const old = bar(NOW - 800 * DAY);
+    await repos.bars.upsert('stock:AAPL', '1h', [old]);
+    stock.splits.AAPL = [NOW - 4 * DAY];
+    const epoch = svc.cacheEpoch;
+    await svc.ensureSplitsChecked('stock:AAPL');
+    expect(stock.splitsCalls.at(-1)).toEqual({ code: 'AAPL', since: NOW - 2 * DAY });
+    expect(svc.cacheEpoch).toBe(epoch);
+    expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([old]);
+  });
+
+  it('migration 005 starts tracking existing rows at their last check', async () => {
+    await h.db.updateTable('symbols').set({ splits_checked_at: 123, splits_tracked_from: null }).execute();
+    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '=', '005_applied_splits').execute();
+    await h.db.schema.alterTable('symbols').dropColumn('splits_tracked_from').execute();
+    await migrate(h.db);
+    expect((await repos.symbols.get('stock:AAPL'))?.splitsTrackedFrom).toBe(123);
+  });
+
+  it('a row inserted after its bars were cached drops the refetchable bars, keeps older intraday as is', async () => {
+    await h.db.deleteFrom('symbols').execute();
+    const L1h = 729 * DAY;
+    const oldIntraday = bar(NOW - L1h - DAY);
+    await repos.bars.upsert('stock:AAPL', '1h', [oldIntraday, bar(NOW - 10 * DAY)]);
+    await repos.bars.upsert('stock:AAPL', '1D', [bar(NOW - 10 * DAY)]);
+    await repos.coverage.add('stock:AAPL', '1D', NOW - 20 * DAY, NOW - 5 * DAY);
+    const fresh = make();
+    const epoch = fresh.cacheEpoch;
+    await fresh.symbolInfo('stock:AAPL');
+    expect(fresh.cacheEpoch).toBe(epoch + 1);
+    expect(await repos.bars.range('stock:AAPL', '1D', 0, NOW)).toEqual([]);
+    expect(await repos.coverage.list('stock:AAPL', '1D')).toEqual([]);
+    expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([oldIntraday]);
+  });
+
+  it('a new symbol whose first bars this process fetched is not purged when its row arrives', async () => {
+    await h.db.deleteFrom('symbols').execute();
+    const fresh = make();
+    await fresh.getNativeBars('stock:AAPL', '1D', NOW - 30 * DAY, NOW); // no row yet: seen with nothing cached
+    const epoch = fresh.cacheEpoch;
+    await fresh.symbolInfo('stock:AAPL');
+    expect(fresh.cacheEpoch).toBe(epoch);
+    expect((await repos.bars.range('stock:AAPL', '1D', 0, NOW)).length).toBeGreaterThan(0);
+  });
+
   it('reverse split (factor < 1) rescales old intraday bars up and volume down', async () => {
     await h.db.updateTable('symbols').set({ splits_checked_at: NOW - 3 * DAY }).where('id', '=', 'stock:AAPL').execute();
     await repos.bars.upsert('stock:AAPL', '1h', [bar(NOW - 800 * DAY)]);

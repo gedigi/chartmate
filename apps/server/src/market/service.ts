@@ -19,6 +19,8 @@ const SYMBOL_RETRY_MS = 60 * 60_000;
 const NEGATIVE_TTL_MS = 10 * 60_000;
 /** Most unknown ids remembered at once. */
 const MAX_UNKNOWN = 1000;
+/** Most symbols tracked at once by the in-memory split bookkeeping (oldest dropped first). */
+const MAX_TRACKED = 10_000;
 /** A provider "no data" answer for a chunk ending longer ago than this is trusted (cached as empty). */
 const NO_DATA_TRUST_MS = 7 * DAY;
 /** Stock splits are checked at most this often per symbol. */
@@ -27,6 +29,8 @@ const SPLIT_CHECK_MS = DAY;
 const SPLIT_RETRY_MS = 60 * 60_000;
 /** Never-checked rows (pre-migration): splits older than updated_at - this are assumed reflected in the cache. */
 const SPLIT_BASELINE_SLACK_MS = 7 * DAY;
+/** How far before the last check a split may be dated and still be reported for the first time. */
+const SPLIT_LATE_REPORT_MS = 7 * DAY;
 const INTRADAY_NATIVE: NativeTimeframe[] = ['1m', '5m', '15m', '30m', '1h'];
 
 export interface GetBarsArgs { symbol: SymbolId; tf: Timeframe; session: SessionMode; from: number; to: number }
@@ -102,6 +106,8 @@ export class MarketDataService {
   /** Earliest time the next split check may run, per symbol (in-memory; the DB stamp survives restarts). */
   private readonly splitNextCheck = new Map<SymbolId, number>();
   private readonly splitChecks = new Map<SymbolId, Promise<void>>();
+  /** Stocks seen by this process with neither a symbols row nor cached bars: their bars are fetched from then on. */
+  private readonly freshSymbols = new Set<SymbolId>();
 
   constructor(deps: { repos: Repos; registry: ProviderRegistry; now?: () => number; queues?: { stock: RequestQueue; crypto: RequestQueue } }) {
     this.repos = deps.repos;
@@ -180,6 +186,7 @@ export class MarketDataService {
         // Nothing cached -> nothing to invalidate: remember "checked now" (the row insert stamps the DB later).
         // Cached bars without a row: try again later (the row normally appears with the first symbolInfo).
         const cached = await this.repos.bars.hasAny(symbol);
+        if (!cached) this.rememberFresh(symbol);
         this.splitNextCheck.set(symbol, now + (cached ? SPLIT_RETRY_MS : SPLIT_CHECK_MS));
         return;
       }
@@ -191,11 +198,20 @@ export class MarketDataService {
       // Rows from before split checks existed: splits older than the row's refresh (minus slack) are already
       // reflected in what was cached.
       const since = last ?? row.updatedAt - SPLIT_BASELINE_SLACK_MS;
-      const splits = await this.queues.stock.run(`splits|${code}|${since}`, () => provider.splitsSince!(code, since));
-      // Only splits that already happened: a future-dated (announced) event is applied once it has occurred.
-      const relevant = splits.filter((sp) => sp.ts > since && sp.ts <= now).sort((x, y) => x.ts - y.ts);
+      // Look back past the last check too: a split may be reported a few days after its date. Never past the start
+      // of the applied-split record, since an earlier version may have applied older splits without recording them.
+      const trackedFrom = row.splitsTrackedFrom ?? null;
+      const lookFrom = trackedFrom === null ? since : Math.max(since - SPLIT_LATE_REPORT_MS, Math.min(trackedFrom, since));
+      const [splits, applied] = await Promise.all([
+        this.queues.stock.run(`splits|${code}|${lookFrom}`, () => provider.splitsSince!(code, lookFrom)),
+        this.repos.symbols.appliedSplits(symbol),
+      ]);
+      // Only splits that already happened (a future-dated, announced event is applied once it has occurred), and
+      // each one once.
+      const relevant = splits.filter((sp) => sp.ts > lookFrom && sp.ts <= now && !applied.has(sp.ts)).sort((x, y) => x.ts - y.ts);
       if (relevant.length > 0) {
-        await this.repos.bars.applySplit(symbol, this.splitOps(relevant), now); // stamps in the same transaction
+        // Stamps and records the splits in the same transaction.
+        await this.repos.bars.applySplit(symbol, this.splitOps(relevant), now, relevant.map((sp) => sp.ts));
         this.epoch++;
       } else {
         await this.repos.symbols.markSplitsChecked(symbol, now);
@@ -409,6 +425,11 @@ export class MarketDataService {
     }
   }
 
+  private rememberFresh(id: SymbolId): void {
+    if (this.freshSymbols.size >= MAX_TRACKED) this.freshSymbols.delete(this.freshSymbols.values().next().value!);
+    this.freshSymbols.add(id);
+  }
+
   /** Negative-caches an unknown id; the map is capped (expired entries first, then the oldest). */
   private rememberUnknown(id: SymbolId): void {
     const now = this.now();
@@ -480,7 +501,28 @@ export class MarketDataService {
       updatedAt: lookupFailed && firstTs === null ? now - SYMBOL_TTL_MS + SYMBOL_RETRY_MS : now,
     };
     await this.repos.symbols.upsert(row);
+    // Bars cached before the row existed, and not by this process after it saw the symbol with nothing cached.
+    if (prev === null && assetClass === 'stock' && !this.freshSymbols.has(id) && (await this.repos.bars.hasAny(id))) {
+      await this.purgeUntracked(id, now);
+    }
     return toInfo(row, assetClass, code);
+  }
+
+  /**
+   * A stock whose bars were cached before its symbols row existed (e.g. the metadata lookup failed then) was never
+   * checked for splits, and when its bars were fetched is unknown. The new row starts split tracking now, so
+   * everything still refetchable (daily bars, intraday bars inside the provider lookback) is dropped and fetched
+   * again adjusted as of today; older intraday bars cannot be refetched and are kept as they are.
+   */
+  private async purgeUntracked(id: SymbolId, now: number): Promise<void> {
+    const limits = this.provider('stock').limits.maxLookbackMs;
+    const ops: SplitOp[] = [{ tf: '1D', cut: Number.MIN_SAFE_INTEGER }];
+    for (const tf of INTRADAY_NATIVE) {
+      const L = limits[tf];
+      ops.push({ tf, cut: L === undefined ? Number.MIN_SAFE_INTEGER : now - L });
+    }
+    await this.repos.bars.applySplit(id, ops, now);
+    this.epoch++;
   }
 
   private searchClass(cls: MarketClass, q: string): Promise<SymbolInfo[]> {

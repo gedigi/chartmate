@@ -1,9 +1,22 @@
-import { sql, type Kysely } from 'kysely';
+import { PostgresAdapter, sql, type Kysely } from 'kysely';
 import { tryNormalizeSymbolId } from '@chartmate/shared';
 import { Migrator, type Migration, type MigrationProvider } from 'kysely/migration';
 import type { Database } from './schema.js';
 
 const dbl = sql`double precision`;
+
+/**
+ * Column names of `table` in the current schema (on Postgres a same-named table in another schema on the
+ * search_path, e.g. a leftover `public.symbols`, must not be mistaken for ours).
+ */
+async function columnsOf(db: Kysely<any>, table: string): Promise<Set<string>> {
+  let schema: string | undefined;
+  if (db.getExecutor().adapter instanceof PostgresAdapter) {
+    schema = (await sql<{ s: string }>`select current_schema() as s`.execute(db)).rows[0]?.s;
+  }
+  const t = (await db.introspection.getTables()).find(x => x.name === table && (schema === undefined || x.schema === schema));
+  return new Set(t?.columns.map(c => c.name) ?? []);
+}
 
 const m001: Migration = {
   async up(db: Kysely<any>) {
@@ -69,8 +82,7 @@ const m001: Migration = {
 const m002: Migration = {
   async up(db: Kysely<any>) {
     // Idempotent: a column that already exists (e.g. a partially applied run) is not added again.
-    const symbols = (await db.introspection.getTables()).find(t => t.name === 'symbols');
-    const have = new Set(symbols?.columns.map(c => c.name) ?? []);
+    const have = await columnsOf(db, 'symbols');
     if (!have.has('ticker')) await db.schema.alterTable('symbols').addColumn('ticker', 'text').execute();
     if (!have.has('splits_checked_at')) await db.schema.alterTable('symbols').addColumn('splits_checked_at', 'bigint').execute();
   },
@@ -261,8 +273,29 @@ const m004: Migration = {
   },
 };
 
+/**
+ * Split bookkeeping: `applied_splits` records each split applied to a symbol's cache, so a split reported late
+ * (dated before the last check) is still applied, and exactly once. `symbols.splits_tracked_from` is when that
+ * record starts: splits at or before it may have been applied by an earlier version without being recorded, so the
+ * late-report look-back never reaches past it. Existing rows start tracking at their last check. Idempotent.
+ */
+const m005: Migration = {
+  async up(db: Kysely<any>) {
+    await db.schema.createTable('applied_splits').ifNotExists()
+      .addColumn('symbol', 'text', c => c.notNull())
+      .addColumn('ts', 'bigint', c => c.notNull())
+      .addPrimaryKeyConstraint('applied_splits_pk', ['symbol', 'ts'])
+      .execute();
+    if (!(await columnsOf(db, 'symbols')).has('splits_tracked_from')) {
+      await db.schema.alterTable('symbols').addColumn('splits_tracked_from', 'bigint').execute();
+      await db.updateTable('symbols').set({ splits_tracked_from: sql`splits_checked_at` }).execute();
+    }
+  },
+};
+
 const migrations: Record<string, Migration> = {
   '001_init': m001, '002_symbol_splits': m002, '003_watchlist_sections': m003, '004_symbol_ids': m004,
+  '005_applied_splits': m005,
 };
 const provider: MigrationProvider = {
   async getMigrations() { return migrations; },

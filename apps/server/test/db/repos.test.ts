@@ -10,7 +10,7 @@ const SEC_A = '0b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f60';
 const SEC_B = '1b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f61';
 const SEC_C = '2b6f7c1e-3f1a-4c1e-9a7b-2a1d3c4e5f62';
 
-const TABLES = ['basket_versions','baskets','bars','coverage','symbols','watchlist','watchlist_entries','layouts','drawings','kysely_migration','kysely_migration_lock'];
+const TABLES = ['applied_splits','basket_versions','baskets','bars','coverage','symbols','watchlist','watchlist_entries','layouts','drawings','kysely_migration','kysely_migration_lock'];
 const urls = ['sqlite::memory:', ...(process.env.TEST_PG_URL ? [process.env.TEST_PG_URL] : [])];
 describe.each(urls)('repos on %s', (url) => {
   const h = createDb(url);
@@ -109,9 +109,9 @@ describe.each(urls)('repos on %s', (url) => {
     expect(await r.symbols.get('stock:A')).toBeNull();
     const row = { id: 'stock:A', name: 'A Inc', exchange: 'NYSE', pricePrecision: 2, firstTs: Date.UTC(1999, 0, 1), updatedAt: Date.UTC(2030, 0, 1) };
     await r.symbols.upsert(row);
-    expect(await r.symbols.get('stock:A')).toEqual({ ...row, ticker: null, splitsCheckedAt: row.updatedAt }); // insert stamps the split check
+    expect(await r.symbols.get('stock:A')).toEqual({ ...row, ticker: null, splitsCheckedAt: row.updatedAt, splitsTrackedFrom: row.updatedAt }); // insert stamps the split check
     await r.symbols.upsert({ ...row, name: 'B', exchange: null, firstTs: null, ticker: 'A.X' });
-    expect(await r.symbols.get('stock:A')).toEqual({ ...row, name: 'B', exchange: null, firstTs: null, ticker: 'A.X', splitsCheckedAt: row.updatedAt });
+    expect(await r.symbols.get('stock:A')).toEqual({ ...row, name: 'B', exchange: null, firstTs: null, ticker: 'A.X', splitsCheckedAt: row.updatedAt, splitsTrackedFrom: row.updatedAt });
   });
   it('symbols splits_checked_at is set separately and survives upserts; bars/coverage deleteSymbol', async () => {
     const row = { id: 'stock:S', name: 'S', exchange: null, pricePrecision: 2, firstTs: null, updatedAt: 1 };
@@ -292,6 +292,6 @@ describe.each(urls)('repos on %s', (url) => {
     await expect(migrate(h.db)).resolves.toBeUndefined();
     const row = { id: 'stock:M', name: 'M', exchange: null, pricePrecision: 2, firstTs: null, updatedAt: 5, ticker: 'M' };
     await r.symbols.upsert(row);
-    expect(await r.symbols.get('stock:M')).toEqual({ ...row, splitsCheckedAt: 5 });
+    expect(await r.symbols.get('stock:M')).toEqual({ ...row, splitsCheckedAt: 5, splitsTrackedFrom: 5 });
   });
 });
