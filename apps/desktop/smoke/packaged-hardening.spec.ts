@@ -199,7 +199,7 @@ test('NodeOptions fuse: NODE_EXTRA_CA_CERTS is dropped before the app runs', asy
 test('auto-updater presence matches the build signing (SMOKE_EXPECT_UNSIGNED)', async () => {
   const expect_ = process.env.SMOKE_EXPECT_UNSIGNED;
   test.skip(expect_ !== '1' && expect_ !== '0', 'set SMOKE_EXPECT_UNSIGNED=1 (unsigned build) or 0 (signed build)');
-  const asar = (await import('@electron/asar')).default;
+  const asar = await import('@electron/asar');
   const archive = appPath!.endsWith('.app') ? join(appPath!, 'Contents', 'Resources', 'app.asar') : join(dirname(exe()), 'resources', 'app.asar');
   const files = asar.listPackage(archive, { isPack: false });
   const main = asar.extractFile(archive, 'dist/main.cjs').toString('utf8');
