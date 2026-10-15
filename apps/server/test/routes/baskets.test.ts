@@ -26,6 +26,42 @@ describe('basket routes', () => {
     expect(j.json()).toMatchObject({ code: 'invalid_request' });
   });
 
+  it('caps a basket at 100 versions and 100 distinct symbols across versions', async () => {
+    const date = (i: number) => isoDate(Date.UTC(2020, 0, 1) + i * DAY);
+    const tooMany = { name: 'x', versions: Array.from({ length: 101 }, (_, i) => ({ effectiveFrom: date(i), weights: { 'stock:AAPL': 1 } })) };
+    const r = await t.app.inject({ method: 'POST', url: '/api/baskets', payload: tooMany });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().message).toMatch(/at most 100 versions/);
+    const wide = {
+      name: 'x',
+      versions: Array.from({ length: 3 }, (_, i) => ({
+        effectiveFrom: date(i), weights: Object.fromEntries(Array.from({ length: 40 }, (_, k) => [`stock:S${i * 40 + k}`, 1 / 40])),
+      })),
+    };
+    const w = await t.app.inject({ method: 'PUT', url: '/api/baskets/00000000-0000-4000-8000-000000000000', payload: { versions: wide.versions } });
+    expect(w.statusCode).toBe(400);
+    expect(w.json().message).toMatch(/at most 100 different symbols/);
+  });
+
+  it('constituent ids are normalized on save', async () => {
+    const body = basketBody();
+    body.versions[0]!.weights = { 'stock:aapl': 0.25, 'stock:AAPL': 0.25, 'crypto:btc': 0.5 };
+    const r = await t.app.inject({ method: 'POST', url: '/api/baskets', payload: body });
+    expect(r.statusCode).toBe(201);
+    expect(r.json<Basket>().versions[0]!.weights).toEqual({ 'stock:AAPL': 0.5, 'crypto:BTC': 0.5 });
+  });
+
+  it('concurrent version appends never overwrite each other', async () => {
+    const b = (await t.app.inject({ method: 'POST', url: '/api/baskets', payload: basketBody() })).json<Basket>();
+    const v = (days: number) => ({ effectiveFrom: isoDate(Date.now() - days * DAY), weights: { 'stock:AAPL': 0.25, 'crypto:BTC': 0.75 } });
+    const results = await Promise.all([30, 20, 10].map((d) => t.app.inject({ method: 'POST', url: `/api/baskets/${b.id}/versions`, payload: v(d) })));
+    const ok = results.filter((r) => r.statusCode === 200).length;
+    for (const r of results) expect([200, 400, 409]).toContain(r.statusCode); // a later-dated one may land first
+    const got = (await t.app.inject({ method: 'GET', url: `/api/baskets/${b.id}` })).json<Basket>();
+    expect(got.versions).toHaveLength(1 + ok);
+    expect(ok).toBeGreaterThan(0);
+  });
+
   it('caps a version at 50 constituents (zod shape check)', async () => {
     const body = basketBody();
     const weights: Record<string, number> = Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`stock:S${i}`, 1 / 51]));

@@ -1,4 +1,4 @@
-import { MAX_CONSTITUENTS, type Basket } from '@chartmate/shared';
+import { MAX_BASKET_SYMBOLS, MAX_BASKET_VERSIONS, MAX_CONSTITUENTS, tryNormalizeSymbolId, type Basket } from '@chartmate/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { BasketService } from '../baskets/service.js';
@@ -9,14 +9,31 @@ const VersionSchema = z.object({
   effectiveFrom: z.string().max(10),
   weights: z.record(z.string().max(100), z.number()).refine((w) => Object.keys(w).length <= MAX_CONSTITUENTS, {
     message: `A version may have at most ${MAX_CONSTITUENTS} constituents`,
-  }),
+  }).transform(normalizeWeightKeys),
 });
+
+/**
+ * Constituent ids normalized (`stock:aapl` → `stock:AAPL`; case variants of one symbol are summed). An invalid id is
+ * kept as sent, so the service reports it as an invalid constituent.
+ */
+function normalizeWeightKeys(w: Record<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(w)) {
+    const id = tryNormalizeSymbolId(k) ?? k;
+    out[id] = id in out ? out[id]! + v : v;
+  }
+  return out;
+}
+const Versions = z.array(VersionSchema).max(MAX_BASKET_VERSIONS, { message: `A basket may have at most ${MAX_BASKET_VERSIONS} versions` })
+  .refine((vs) => new Set(vs.flatMap((v) => Object.keys(v.weights))).size <= MAX_BASKET_SYMBOLS, {
+    message: `A basket may hold at most ${MAX_BASKET_SYMBOLS} different symbols across its versions`,
+  });
 const CreateBody = z.object({
   name: z.string().max(200),
   baseValue: z.number().optional(),
-  versions: z.array(VersionSchema).max(200),
+  versions: Versions,
 });
-const UpdateBody = z.object({ name: z.string().max(200).optional(), versions: z.array(VersionSchema).max(200).optional() });
+const UpdateBody = z.object({ name: z.string().max(200).optional(), versions: Versions.optional() });
 const IdParams = z.object({ id: z.string().min(1).max(100) });
 
 export async function basketRoutes(app: FastifyInstance, deps: { baskets: BasketService }): Promise<void> {

@@ -668,7 +668,7 @@ A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
   as soon as any version holds crypto. Appending a crypto version to a stock-only basket therefore
   re-grids its **whole** intraday history to UTC buckets (daily and above are unaffected).
 - A version holds at most 50 constituents, and its effective date must lie between 1970-01-01 and
-  tomorrow (UTC).
+  tomorrow (UTC). A basket holds at most 100 versions and 100 different symbols across all of them.
 
 ## Data sources and caveats
 
@@ -808,7 +808,7 @@ JSON over `/api` (the web client uses nothing else). With `CHARTMATE_PASSWORD` s
 | `GET /api/bars?symbol=&tf=&session=rth\|eth&from=&to=` | Bars in a range (ms timestamps), with `stale`, notices and markers. |
 | `GET /api/latest?symbol=&tf=&session=` | The latest bar. |
 | `GET /api/quotes?symbols=` / `GET /api/sparklines?symbols=` | Watchlist quotes / sparklines (comma-separated ids, at most 50). |
-| `GET`, `POST /api/baskets`; `GET`, `PUT`, `DELETE /api/baskets/:id`; `POST /api/baskets/:id/versions` | Baskets and their versions. |
+| `GET`, `POST /api/baskets`; `GET`, `PUT`, `DELETE /api/baskets/:id`; `POST /api/baskets/:id/versions` | Baskets and their versions (at most 50 constituents per version, 100 versions and 100 distinct symbols per basket). Appending a version is atomic; one that loses a race with another edit three times gets a 409. |
 | `GET`, `PUT /api/watchlist` | The watchlist (see [Watchlist and sections](#watchlist-and-sections)). |
 | `GET`, `PUT /api/layouts/:key` | Chart layout; `default` is the one the app uses. |
 | `GET`, `PUT /api/drawings/:symbol` | Drawings of a symbol. |

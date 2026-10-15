@@ -282,6 +282,23 @@ export class BasketRepo {
     });
   }
 
+  /**
+   * Appends `v` as the last version, in one transaction, provided the stored versions still equal `expected` (what
+   * the caller validated the new list against): null = no such basket, 'conflict' = the versions changed meanwhile.
+   */
+  async appendVersion(id: string, v: BasketVersion, expected: BasketVersion[]): Promise<Basket | null | 'conflict'> {
+    return this.db.transaction().execute(async trx => {
+      const current = await getBasket(trx, id);
+      if (!current) return null;
+      if (JSON.stringify(current.versions) !== JSON.stringify(expected)) return 'conflict';
+      await trx.insertInto('basket_versions')
+        .values({ basket_id: id, idx: current.versions.length, effective_from: v.effectiveFrom, weights_json: JSON.stringify(v.weights) })
+        .execute();
+      await trx.updateTable('baskets').set({ updated_at: Date.now() }).where('id', '=', id).execute();
+      return getBasket(trx, id);
+    });
+  }
+
   async delete(id: string): Promise<boolean> {
     const res = await this.db.deleteFrom('baskets').where('id', '=', id).executeTakeFirst();
     return Number(res.numDeletedRows) > 0;

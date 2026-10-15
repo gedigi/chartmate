@@ -40,6 +40,8 @@ app, the Docker image and the release tag share one version number.
 - API requests another site's page triggers (the browser marks them cross-site) are refused, so a web page can
   no longer make an open instance spend its data-provider quota. A symbol the provider just reported unknown is
   not asked for bars again for 10 minutes.
+- A basket may hold at most 100 versions and 100 different symbols across them. Two versions appended at the
+  same time can no longer overwrite each other.
 - A stock split the data provider reports a few days late is now still applied to cached history (and never
   twice).
 

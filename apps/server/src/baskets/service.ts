@@ -121,9 +121,27 @@ export class BasketService {
     return updated;
   }
 
+  /**
+   * Validates the versions with `v` appended, then appends it in one repo transaction that first checks the stored
+   * versions are still the validated ones. A concurrent edit in between is retried (twice) against the new list,
+   * then reported as 409 conflict: two appends can never overwrite each other.
+   */
   async appendVersion(id: string, v: BasketVersion): Promise<Basket> {
-    const current = await this.get(id);
-    return this.update(id, { versions: [...current.versions, v] });
+    for (let attempt = 0; ; attempt++) {
+      const current = await this.get(id);
+      const versions = [...current.versions, v];
+      const dry = await this.validate(versions, current.baseValue);
+      const r = await this.repos.baskets.appendVersion(id, v, current.versions);
+      if (r === null) throw new NotFoundError(`Basket ${id} not found`);
+      if (r !== 'conflict') {
+        this.rev++;
+        this.unitsCache.delete(id);
+        this.dailyCache.delete(id);
+        this.seed(id, r.versions, dry);
+        return r;
+      }
+      if (attempt >= 2) throw new AppError(409, 'conflict', 'The basket changed while saving; try again');
+    }
   }
 
   async delete(id: string): Promise<void> {

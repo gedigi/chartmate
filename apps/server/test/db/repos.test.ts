@@ -86,6 +86,16 @@ describe.each(urls)('repos on %s', (url) => {
     await Promise.all([[40, 50], [45, 60], [100, 110]].map(([a, b]) => r.bars.store('stock:ST', '1D', [{ ...bar, ts: a! }], [a!, b!])));
     expect(await r.coverage.list('stock:ST', '1D')).toEqual([[0, 20], [40, 60], [100, 110]]);
   });
+  it('basket appendVersion appends only while the stored versions are the expected ones', async () => {
+    const v0 = { effectiveFrom: '2024-01-02', weights: { 'stock:A': 1 } };
+    const v1 = { effectiveFrom: '2024-02-01', weights: { 'stock:B': 1 } };
+    await r.baskets.create({ id: 'ap', name: 'A', baseValue: 100, versions: [v0] });
+    expect(await r.baskets.appendVersion('nope', v1, [])).toBeNull();
+    expect(await r.baskets.appendVersion('ap', v1, [])).toBe('conflict');
+    const b = await r.baskets.appendVersion('ap', v1, [v0]);
+    expect(b !== null && b !== 'conflict' && b.versions).toEqual([v0, v1]);
+    expect(await r.baskets.appendVersion('ap', v1, [v0])).toBe('conflict');
+  });
   it('settings: the first generated value wins, also under concurrency', async () => {
     expect(await r.settings.get('k')).toBeNull();
     const values = await Promise.all([1, 2, 3].map((i) => r.settings.getOrCreate('k', () => `v${i}`)));
