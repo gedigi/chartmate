@@ -121,8 +121,10 @@ describe('desktop.yml secret scoping and release', () => {
     const steps = wf.jobs.release.steps as Step[];
     const checkout = steps.find((s) => s.uses?.startsWith('actions/checkout@'))!;
     const sparse = String(checkout.with?.['sparse-checkout'] ?? '');
-    expect(sparse).toContain('compose.yaml');
-    expect(sparse).toContain('.env.example');
+    // Anchored to the repository root (non-cone patterns match at any depth otherwise).
+    const patterns = sparse.split('\n').map((l) => l.trim());
+    expect(patterns).toContain('/compose.yaml');
+    expect(patterns).toContain('/.env.example');
     // GitHub renames assets with a leading dot, so the template ships as env.example.
     const stage = steps.find((s) => s.name === 'Self-hosting files')!;
     expect(stage.run).toContain('cp compose.yaml dist/compose.yaml');
