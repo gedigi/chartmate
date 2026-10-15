@@ -48,6 +48,22 @@ describe('MarketDataService', () => {
     await h.close();
   });
 
+  /**
+   * Holds the crypto provider's bar fetches in flight until `callers` getBars calls have each reached the request
+   * queue with a bar key starting with `keyPrefix`, then lets them go. The returned promise resolves on release.
+   * Without it a slow database (Postgres) can let the first fetch finish and record coverage before a later
+   * "concurrent" caller reads coverage, which then legitimately refetches the recent span: a timing race, not a
+   * dedupe failure.
+   */
+  function holdBarFetches(keyPrefix: string, callers: number): Promise<void> {
+    let open!: () => void;
+    crypto.fetchGate = new Promise<void>((r) => { open = r; });
+    const run = vi.spyOn(queues.crypto, 'run');
+    return vi.waitFor(() => {
+      expect(run.mock.calls.filter(([key]) => key.startsWith(keyPrefix))).toHaveLength(callers);
+    }).then(() => open());
+  }
+
   describe('getNativeBars caching', () => {
     it('first call fetches; identical second call only refetches the recent span', async () => {
       const from = NOW - 10 * DAY;
@@ -101,9 +117,12 @@ describe('MarketDataService', () => {
     });
 
     it('concurrent identical getBars calls trigger one provider fetch per gap (dedupe)', async () => {
-      crypto.delayMs = 5;
+      const release = holdBarFetches('crypto:BTC|1h|', 2);
       const args = { symbol: 'crypto:BTC', tf: '1h' as const, session: 'eth' as const, from: NOW - 5 * DAY, to: NOW };
-      const [a, b] = await Promise.all([svc.getBars(args), svc.getBars(args)]);
+      const pa = svc.getBars(args);
+      const pb = svc.getBars(args);
+      await release;
+      const [a, b] = await Promise.all([pa, pb]);
       expect(crypto.calls).toHaveLength(1);
       expect(a.bars).toEqual(b.bars);
       expect(a.bars.length).toBe(120);
@@ -387,13 +406,14 @@ describe('MarketDataService', () => {
     });
 
     it('dedupe keys are stable when concurrent calls see clocks a few ms apart within one bar', async () => {
-      crypto.delayMs = 5;
+      const release = holdBarFetches('crypto:BTC|1m|', 3);
       const args = { symbol: 'crypto:BTC', tf: '1m' as const, session: 'eth' as const, from: NOW - HOUR, to: NOW + HOUR };
       const pa = svc.getBars(args);
       now = NOW + 7; // same 1m bar
       const pb = svc.getBars(args);
       now = NOW + 12;
       const pc = svc.getBars(args);
+      await release;
       const [a, b, c] = await Promise.all([pa, pb, pc]);
       expect(crypto.calls).toEqual([{ code: 'BTC', tf: '1m', from: NOW - HOUR, to: NOW + MIN }]);
       expect(a.bars).toEqual(b.bars);
