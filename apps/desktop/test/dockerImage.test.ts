@@ -147,15 +147,28 @@ describe('scripts', () => {
   });
 
   describe('scan-image.sh', () => {
+    const GATE = ['--config /dev/null', '--scanners vuln', '--pkg-types os,library', '--severity HIGH,CRITICAL', '--ignore-unfixed', '--exit-code 1', `--ignorefile ${path('.trivyignore')}`];
+    const gate = (calls: string[]) => calls.find((c) => c.startsWith('trivy image') && c.includes('--exit-code 1'))!;
+
     it('fails on HIGH or CRITICAL vulnerabilities that have a fix, in OS packages and node_modules, with the reviewed ignore file', () => {
       stub('trivy', 'exit 0');
       const r = run(SCAN, ['chartmate:smoke']);
       expect(r.status, r.err).toBe(0);
-      const call = r.calls.find((c) => c.startsWith('trivy image'))!;
-      for (const flag of ['--scanners vuln', '--pkg-types os,library', '--severity HIGH,CRITICAL', '--ignore-unfixed', '--exit-code 1', `--ignorefile ${path('.trivyignore')}`]) {
-        expect(call).toContain(flag);
-      }
+      const call = gate(r.calls);
+      for (const flag of [...GATE, '--image-src docker']) expect(call).toContain(flag);
+      expect(call).not.toContain('--platform');
       expect(call.endsWith(' chartmate:smoke')).toBe(true);
+    });
+
+    it('scans a pushed digest in the registry for one platform (the publish jobs)', () => {
+      stub('trivy', 'exit 0');
+      const ref = `ghcr.io/o/r@${DIGEST}`;
+      const r = run(SCAN, [ref, '--platform', 'linux/arm64', '--remote']);
+      expect(r.status, r.err).toBe(0);
+      const call = gate(r.calls);
+      for (const flag of [...GATE, '--image-src remote', '--platform linux/arm64']) expect(call).toContain(flag);
+      expect(call.endsWith(` ${ref}`)).toBe(true);
+      expect(run(SCAN, [ref, '--bogus']).status).toBe(2);
     });
 
     it('passes the scanner\'s failure on', () => {
@@ -164,6 +177,26 @@ describe('scripts', () => {
       const r = run(SCAN, ['chartmate:smoke'], { GITHUB_STEP_SUMMARY: summary });
       expect(r.status).toBe(1);
       expect(readFileSync(summary, 'utf8')).toMatch(/chartmate:smoke.*fixable HIGH\/CRITICAL/);
+    });
+
+    it('lists the unfixed HIGH/CRITICAL findings in the job summary without failing', () => {
+      // The informational run writes a JSON report (--output); the gate passes.
+      stub('trivy', `case "$*" in *"--format json"*)
+  for a in "$@"; do [ "$prev" = --output ] && out="$a"; prev="$a"; done
+  printf '%s' '{"Results":[{"Vulnerabilities":[{"VulnerabilityID":"CVE-2026-1","Severity":"HIGH","PkgName":"libfoo","InstalledVersion":"1.0"},{"VulnerabilityID":"CVE-2026-2","Severity":"CRITICAL","PkgName":"libbar","InstalledVersion":"2.0","FixedVersion":"2.1"}]}]}' > "$out" ;;
+esac
+exit 0`);
+      const summary = join(dir, 'summary');
+      const r = run(SCAN, ['chartmate:smoke'], { GITHUB_STEP_SUMMARY: summary });
+      expect(r.status, r.err).toBe(0);
+      const text = readFileSync(summary, 'utf8');
+      expect(text).toContain('no fixable HIGH/CRITICAL');
+      expect(text).toContain('1 unfixed HIGH/CRITICAL findings');
+      expect(text).toContain('| HIGH | CVE-2026-1 | libfoo 1.0 |');
+      expect(text).not.toContain('CVE-2026-2');
+      const info = r.calls.find((c) => c.includes('--format json'))!;
+      expect(info).toContain('--exit-code 0');
+      expect(info).not.toContain('--ignore-unfixed');
     });
 
     it('needs an image', () => {
@@ -191,13 +224,57 @@ describe('scripts', () => {
   });
 });
 
+/**
+ * Problems with a .trivyignore (empty = fine). The header is everything up to the first blank line. Each entry is
+ * one ID with `exp:YYYY-MM-DD`, a real date from `today` to 90 days after it, directly below its own reason comment
+ * (not a header line).
+ */
+function trivyignoreProblems(text: string, today: Date): string[] {
+  const lines = text.split('\n');
+  const headerEnd = lines.findIndex((l) => l.trim() === '');
+  const day = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const problems: string[] = [];
+  lines.forEach((line, i) => {
+    if (!line.trim() || line.startsWith('#')) return;
+    const m = /^(?:CVE-\d{4}-\d+|GHSA(?:-[0-9a-z]{4}){3}) exp:(\d{4})-(\d{2})-(\d{2})$/.exec(line);
+    if (!m) return void problems.push(`${line}: not "<CVE or GHSA id> exp:YYYY-MM-DD"`);
+    const exp = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+    if (exp.getUTCFullYear() !== Number(m[1]) || exp.getUTCMonth() !== Number(m[2]) - 1 || exp.getUTCDate() !== Number(m[3])) {
+      problems.push(`${line}: not a real date`);
+    } else if (exp.getTime() < day(today)) {
+      problems.push(`${line}: expired (review it again, then remove it or renew it)`);
+    } else if (exp.getTime() > day(today) + 90 * 86_400_000) {
+      problems.push(`${line}: expires more than 90 days out`);
+    }
+    if (headerEnd < 0 || i - 1 <= headerEnd || !/^# \S/.test(lines[i - 1] ?? '')) problems.push(`${line}: no reason comment directly above it`);
+  });
+  return problems;
+}
+
 describe('.trivyignore', () => {
-  it('ignores only reviewed findings, each with a reason above it and an expiry date', () => {
-    const lines = root('.trivyignore').split('\n');
-    lines.forEach((line, i) => {
-      if (!line.trim() || line.startsWith('#')) return;
-      expect(line, line).toMatch(/^(?:CVE-\d{4}-\d+|GHSA(?:-[0-9a-z]{4}){3}) exp:\d{4}-\d{2}-\d{2}$/);
-      expect(lines[i - 1], `${line}: the line above says why`).toMatch(/^# \S/);
-    });
+  const HEADER = '# header\n#   CVE-2026-0 exp:2026-01-01\n\n';
+  const today = new Date(Date.UTC(2026, 9, 15));
+
+  it('the reviewed exceptions in the repository pass the rules', () => {
+    expect(trivyignoreProblems(root('.trivyignore'), new Date())).toEqual([]);
+  });
+
+  it('accepts an entry with its reason, expiring within 90 days', () => {
+    expect(trivyignoreProblems(`${HEADER}# libfoo: never reached. Reviewed by G, 2026-10-15.\nCVE-2026-12345 exp:2027-01-13\n`, today)).toEqual([]);
+  });
+
+  it('refuses a past, too distant or impossible expiry date', () => {
+    const entry = (exp: string) => trivyignoreProblems(`${HEADER}# reason\nCVE-2026-1 exp:${exp}\n`, today);
+    expect(entry('2026-10-14')[0]).toMatch(/expired/);
+    expect(entry('2027-01-14')[0]).toMatch(/more than 90 days/);
+    expect(entry('2026-02-30')[0]).toMatch(/not a real date/);
+    expect(entry('2026-10-15')).toEqual([]);
+  });
+
+  it('refuses an entry without its own reason comment, or with only the header above it', () => {
+    expect(trivyignoreProblems(`${HEADER}CVE-2026-1 exp:2026-11-01\n`, today)[0]).toMatch(/no reason comment/);
+    expect(trivyignoreProblems(`# header\nCVE-2026-1 exp:2026-11-01\n`, today)[0]).toMatch(/no reason comment/);
+    expect(trivyignoreProblems(`${HEADER}# reason\n\nCVE-2026-1 exp:2026-11-01\n`, today)[0]).toMatch(/no reason comment/);
+    expect(trivyignoreProblems(`${HEADER}# reason\nCVE-2026-1\n`, today)[0]).toMatch(/not "/);
   });
 });

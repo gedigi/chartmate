@@ -8,3 +8,7 @@
 #
 #   # libfoo in the base image: only its CLI is affected, which Chartmate never runs. Reviewed by <name>, <date>.
 #   CVE-2026-12345 exp:2026-12-31
+#
+# Entries go below the blank line that ends this header. An expired entry fails the tests until it is reviewed
+# again (removed, or renewed with a new date and reason).
+
