@@ -15,12 +15,12 @@ export const THEME_TOKENS = {
   dark: {
     bg: '#0c0f18', panel: '#07090f', elevated: '#141826', border: '#1c202c', grid: '#121620', text: '#e9ecf4', muted: '#8f97ab', accent: '#7cc4ff',
     up: '#3ccfd0', down: '#e76a88', upSoft: '#009293', downSoft: '#ae3e5c', upFg: '#3ccfd0', downFg: '#e76a88',
-    crossBg: '#e9ecf4', crosshair: '#5b6171', level: '#474e60', lastPrice: '#e9ecf4',
+    crossBg: '#e9ecf4', crosshair: '#5b6171', level: '#474e60', lastPrice: '#e9ecf4', session: '#171a27',
   },
   light: {
     bg: '#fafbfd', panel: '#e7eaf1', elevated: '#ffffff', border: '#e1e4eb', grid: '#eef0f4', text: '#131726', muted: '#545c6f', accent: '#1f6fc8',
     up: '#0b9da0', down: '#c43d68', upSoft: '#4fbec0', downSoft: '#ec6b8e', upFg: '#006c6e', downFg: '#ae2757',
-    crossBg: '#131726', crosshair: '#a6abb8', level: '#b9bdc9', lastPrice: '#131726',
+    crossBg: '#131726', crosshair: '#a6abb8', level: '#b9bdc9', lastPrice: '#131726', session: '#eceef4',
   },
 } as const;
 
@@ -41,7 +41,8 @@ export const THEME_TOKENS = {
  * upSoft / downSoft constants are softTone(up / down, bg) (a test checks it); custom colors get theirs at runtime.
  *
  * Neutral chart tokens: crosshair (thin dashed crosshair lines), level (muted dashed reference lines, e.g. oscillator
- * levels), lastPrice (the neutral last price line and label).
+ * levels), lastPrice (the neutral last price line and label), session (the color extended-hours columns show on the
+ * chart background: drawn as the translucent fill that lands on it, see sessionShade.ts).
  */
 
 /**
@@ -146,7 +147,7 @@ type ThemeTokens = { -readonly [K in keyof typeof THEME_TOKENS.dark]: string };
 export const THEME_CSS_VARS: Readonly<Partial<Record<keyof ThemeTokens, string>>> = {
   bg: '--bg', panel: '--bg-panel', elevated: '--bg-elevated', border: '--border', text: '--text', muted: '--text-muted', accent: '--accent',
   up: '--up', down: '--down', upSoft: '--up-soft', downSoft: '--down-soft', upFg: '--up-fg', downFg: '--down-fg', grid: '--grid',
-  crossBg: '--cross-bg', crosshair: '--crosshair', level: '--level', lastPrice: '--last-price',
+  crossBg: '--cross-bg', crosshair: '--crosshair', level: '--level', lastPrice: '--last-price', session: '--session-shade',
 };
 
 const live: Partial<Record<ThemeName, ThemeTokens>> = {};

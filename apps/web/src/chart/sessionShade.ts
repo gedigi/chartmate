@@ -1,10 +1,20 @@
 import { registerIndicator, type KLineData } from 'klinecharts';
+import { fillOnto } from './color';
+import { indicatorColorContext } from './indicators/colors';
+import { themeTokens } from './theme';
 
 export const SESSION_SHADE = 'SESSION_SHADE';
 /** Background indicators the app manages itself (never listed or overridden as user indicators). */
 export const SHADE_INDICATORS: ReadonlySet<string> = new Set([SESSION_SHADE]);
 
-const SESSION_FILL = 'rgba(120,120,160,0.10)';
+/**
+ * Fill of the extended-hours columns in the active theme (read at draw time, so a theme toggle recolors them): the
+ * translucent rgba that lands exactly on the theme's `session` token over the chart background.
+ */
+export function sessionShadeFill(): string {
+  const t = themeTokens(indicatorColorContext.theme);
+  return fillOnto(t.session, t.bg);
+}
 
 export const isExtendedSession = (d: KLineData | undefined) => d?.session === 'pre' || d?.session === 'post';
 
@@ -30,7 +40,7 @@ const registered = new Set<string>();
  * Registers a figure-less indicator on the candle pane that shades the columns of bars matching `pred`.
  * Adjacent matching bars are filled as one rectangle so translucent fills don't produce seams.
  */
-function registerShade(name: string, fill: string, pred: (d: KLineData | undefined) => boolean): void {
+function registerShade(name: string, fill: () => string, pred: (d: KLineData | undefined) => boolean): void {
   if (registered.has(name)) return;
   registered.add(name);
   registerIndicator<{ s: unknown }>({
@@ -47,7 +57,7 @@ function registerShade(name: string, fill: string, pred: (d: KLineData | undefin
       const from = Math.max(0, Math.floor(realFrom) - 1);
       const to = Math.min(data.length, Math.ceil(realTo) + 1);
       ctx.save();
-      ctx.fillStyle = fill;
+      ctx.fillStyle = fill();
       for (const [s, e] of shadeRuns(data, from, to, pred)) {
         // The data index is known: convert it directly (convertTimestampToPixel would binary-search it again).
         const x0 = xAxis.convertToPixel(s) - halfBar;
@@ -62,5 +72,5 @@ function registerShade(name: string, fill: string, pred: (d: KLineData | undefin
 
 /** Registers SESSION_SHADE (pre-/post-market columns), once. */
 export function registerSessionShade(): void {
-  registerShade(SESSION_SHADE, SESSION_FILL, isExtendedSession);
+  registerShade(SESSION_SHADE, sessionShadeFill, isExtendedSession);
 }

@@ -13,14 +13,14 @@ import {
   type TextStyle,
 } from './drawingStyles';
 import {
-  drawingConstraint, EXTEND_STYLE_KEY, extendOptions, flattenBase, LABEL_STYLE_KEY, labelOptions, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
+  drawingConstraint, drawingContext, EXTEND_STYLE_KEY, extendOptions, flattenBase, LABEL_STYLE_KEY, labelOptions, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
   type ExtendOptions, type LabelOptions,
 } from './drawingTemplates';
 import {
   barIndex, barTime, DEFAULT_WIDTH_BARS, defaultGeometry, endAfterBars, fromPositionPoints, nextBarTime, shiftByBars, sideOf,
   toPositionPoints, validatePrices, type OutcomeBar, type PositionMetrics, type PositionOutcome, type PositionSide,
 } from './position';
-import { positionContext, positionState, registerPositionOverlays } from './positionOverlay';
+import { positionContext, positionState, registerPositionOverlays, releasePositionContext } from './positionOverlay';
 import { drawingClipboard, type DrawingClip } from './drawingClipboard';
 import { DEFAULT_DRAWING_COLOR, drawingSwatches, resolveDrawingColor, type DrawingSwatch } from './drawingColors';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
@@ -226,6 +226,8 @@ export class ChartAdapter {
   private readonly changeListeners = new Set<() => void>();
   private silent = 0;
   private destroyed = false;
+  /** The position placement helper this adapter installs (released on destroy). */
+  private readonly ownEndFor = (start: number): number => this.positionEnd(start);
 
   constructor(el: HTMLElement, opts: { theme: ThemeName }) {
     registerSessionShade();
@@ -240,7 +242,7 @@ export class ChartAdapter {
     this.updatePositionColors();
     this.updateIndicatorColors();
     positionContext.defaults = resolvePositionDefaults(undefined);
-    positionContext.endFor = (start) => this.positionEnd(start);
+    positionContext.endFor = this.ownEndFor;
     positionContext.minEnd = (start) => nextBarTime(this.chart.getDataList(), start, positionContext.barMs);
     positionContext.shiftEnd = (end, from, to) => shiftByBars(this.chart.getDataList(), end, from, to, positionContext.barMs);
     positionContext.historyComplete = () => !this.hasOlderData();
@@ -320,11 +322,16 @@ export class ChartAdapter {
     indicatorColorContext.appearance = this.appearance;
   }
 
-  /** Position zones / labels: the candle up / down colors of the active theme, muted gray for neutral parts. */
+  /**
+   * Position zones / labels: the candle up / down colors of the active theme, muted gray for neutral parts. Also the
+   * drawing templates' theme context (channel fills are tinted onto the chart background).
+   */
   private updatePositionColors(): void {
     const a = resolveAppearance(this.theme, this.appearance);
     const t = themeTokens(this.theme);
     positionContext.colors = { up: a.upColor, down: a.downColor, neutral: t.muted, bg: t.bg };
+    drawingContext.bg = t.bg;
+    drawingContext.accent = t.accent;
   }
 
   // ── data ──────────────────────────────────────────────────────────────────
@@ -1956,6 +1963,7 @@ export class ChartAdapter {
     this.lockListeners.clear();
     this.selectionListeners.clear();
     this.priceEditListeners.clear();
+    releasePositionContext(this.ownEndFor);
     dispose(this.el);
   }
 }

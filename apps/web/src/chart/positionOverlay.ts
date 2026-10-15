@@ -46,13 +46,28 @@ export const positionContext: {
   barMs: 86_400_000,
   defaults: { ...DEFAULT_POSITION_DEFAULTS },
   colors: { up: THEME_TOKENS.dark.up, down: THEME_TOKENS.dark.down, neutral: THEME_TOKENS.dark.muted },
-  endFor: (start) => start + DEFAULT_WIDTH_BARS * positionContext.barMs,
-  minEnd: (start) => start + positionContext.barMs,
-  shiftEnd: (end, from, to) => end + (to - from),
-  historyComplete: () => true,
+  ...defaultPlacement(),
   minGapPrice: 0,
   formatTime: (ts) => new Date(ts).toISOString().slice(0, 10),
 };
+
+/** The chart-independent placement helpers (no loaded data): what a destroyed adapter leaves behind. */
+function defaultPlacement(): Pick<typeof positionContext, 'endFor' | 'minEnd' | 'shiftEnd' | 'historyComplete'> {
+  return {
+    endFor: (start) => start + DEFAULT_WIDTH_BARS * positionContext.barMs,
+    minEnd: (start) => start + positionContext.barMs,
+    shiftEnd: (end, from, to) => end + (to - from),
+    historyComplete: () => true,
+  };
+}
+
+/**
+ * Restores the chart-independent placement helpers, so the context no longer holds closures over a destroyed
+ * adapter (and its chart). Only when `owner` (the adapter's endFor) is still installed: a newer adapter's stay.
+ */
+export function releasePositionContext(owner: (start: number) => number): void {
+  if (positionContext.endFor === owner) Object.assign(positionContext, defaultPlacement());
+}
 
 // ── memoized metrics / outcome ──
 

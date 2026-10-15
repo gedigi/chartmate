@@ -338,7 +338,8 @@ Where to read next:
   ("Sep 21", "22", "13:30"; daily: "Sep", "22"), the crosshair date chip reads "Wed Sep 30 '26 · 12:30".
 - **Symbol search**: the top bar search field (**⌘K** on macOS, **Ctrl+K** elsewhere, focuses it from anywhere).
 - **RTH / ETH toggle** for stocks (and baskets containing a stock): RTH shows regular-hours bars only,
-  ETH adds pre- and post-market bars, shaded on intraday stock charts (basket charts are not shaded).
+  ETH adds pre- and post-market bars, shaded on intraday stock charts (basket charts are not shaded). The shade
+  is a per-theme token (`--session-shade`): a faint cool lift on the dark theme, a faint gray-blue on the light one.
   It is hidden for crypto, which trades around the clock.
 - **Chart appearance** ("Chart appearance" button in the top bar): candle up/down colors, body style (filled,
   hollow, hollow up, hollow down; OHLC bars use the colors only), **last price line** (neutral, the default:
@@ -476,7 +477,9 @@ Where to read next:
 - **Parallel channels** are finite by default: click the start and end of the base line, then a third point for
   the channel's width. Both lines span exactly from the first to the second point's time, with a dashed midline
   halfway between them (in the channel's color and width, longer dashes when the channel itself is dashed or
-  dotted; not a stored point) and a subtle fill (the channel's color at 8% opacity). Clicking a line, the
+  dotted; not a stored point) and a subtle fill: a light tint of the channel's own hue on the chart background,
+  as for position zones, so it reads the same weight on both themes and never turns pink or brown (at most 10%
+  opacity, so the candles stay visible). Clicking a line, the
   midline or the fill selects (and drags) the channel; clicking beyond its ends does not. A right click inside
   the fill is ignored (a right click on a line removes the channel, as for other unlocked drawings).
   - **Extend left / Extend right** (style bar) extend the lines, midline and fill to the

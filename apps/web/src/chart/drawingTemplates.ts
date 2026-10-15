@@ -1,5 +1,6 @@
 import type { LineStyleKind } from '@chartmate/shared';
 import { getOverlayClass, registerOverlay, type OverlayFigure, type OverlayTemplate } from 'klinecharts';
+import { parseColor, zoneTint } from './color';
 import { readableTextOn } from './contrast';
 import { THEME_TOKENS } from './theme';
 
@@ -118,19 +119,25 @@ export function channelGeometry(
   };
 }
 
-/** Opacity of a channel's fill (its line color). */
-export const CHANNEL_FILL_ALPHA = 0.08;
+/**
+ * A channel's fill: the hue-locked tint of its line color on the chart background (color.ts zoneTint, like position
+ * and measure zones) at a light perceived weight, never above CHANNEL_FILL_ALPHA so the candles stay visible.
+ */
+export const CHANNEL_FILL_WEIGHT = 0.035;
+export const CHANNEL_FILL_ALPHA = 0.1;
 
-/** `color` ('#rrggbb' / '#rgb', else the default dark accent) at `alpha`, as an rgba() string. */
-export function translucent(color: unknown, alpha: number): string {
-  let hex = typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color.slice(1) : null;
-  if (!hex && typeof color === 'string' && /^#[0-9a-fA-F]{3}$/.test(color)) hex = [...color.slice(1)].map((c) => c + c).join('');
-  if (!hex) {
-    const m = typeof color === 'string' ? /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(color) : null;
-    return m ? `rgba(${m[1]}, ${m[2]}, ${m[3]}, ${alpha})` : `rgba(124, 196, 255, ${alpha})`;
-  }
-  const n = parseInt(hex, 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+/**
+ * Theme colors the drawing templates read at draw time: the chart background (fills are tinted onto it) and the
+ * accent (fallback of an unreadable line color). Set by the ChartAdapter on init and theme / appearance changes.
+ */
+// Empty until set: the dark theme's (THEME_TOKENS is not read at module load, theme.ts imports this module indirectly).
+export const drawingContext: { bg: string; accent: string } = { bg: '', accent: '' };
+
+/** Fill of a channel drawn with line color `color`. */
+export function channelFill(color: unknown): string {
+  const accent = drawingContext.accent || THEME_TOKENS.dark.accent;
+  const strong = typeof color === 'string' && parseColor(color) ? color : accent;
+  return zoneTint(strong, drawingContext.bg || THEME_TOKENS.dark.bg, CHANNEL_FILL_WEIGHT, CHANNEL_FILL_ALPHA);
 }
 
 /** Dash pattern of a channel midline: always dashed, longer when the channel itself is dashed / dotted. */
@@ -263,7 +270,7 @@ function withChannel(t: Template, fill: boolean): Template {
       if (fill && g.fill) {
         figures.push({
           type: 'polygon', attrs: { coordinates: g.fill }, ignoreEvent: ['onRightClick'],
-          styles: { style: 'fill', color: translucent(line.color, CHANNEL_FILL_ALPHA), borderSize: 0 },
+          styles: { style: 'fill', color: channelFill(line.color), borderSize: 0 },
         } as OverlayFigure);
       }
       figures.push({ type: 'line', attrs: g.lines } as unknown as OverlayFigure);

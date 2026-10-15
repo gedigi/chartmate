@@ -30,6 +30,8 @@ app, the Docker image and the release tag share one version number.
 - Deleting a basket removes it from the watchlist, clears its drawings and moves the chart to another symbol.
   A stale reference to a deleted basket shows as "Deleted basket" instead of retrying forever, and symbol
   lookups that fail for good (such as an unknown symbol) are no longer retried every 30 seconds.
+- Parallel channel fills are a tint of the channel's own hue on the chart background (like position zones)
+  instead of a plain translucent color, and the extended-hours shade uses a color tuned for each theme.
 
 ## [1.0.0] - 2026-10-14
 

@@ -10,7 +10,8 @@
  *             MACD / AO bars (softTone() in src/chart/color.ts, hue-locked, never an alpha); --up-fg / --down-fg as small
  *             text (≥ 4.5:1 incl. a tinted pill); --up-tint / --down-tint pill backgrounds
  *   chart     --grid, --crosshair (dashed crosshair), --cross-bg (crosshair chips), --level (muted dashed reference
- *             lines), --last-price (the neutral last price line and capsule)
+ *             lines), --last-price (the neutral last price line and capsule), --session-shade (extended-hours
+ *             columns on the chart: the color they show on --bg)
  *   accent    --accent (sky: drawings, focus, active tool); --iris (the secondary accent)
  */
 :root,
@@ -42,6 +43,7 @@
   --crosshair: #5b6171;
   --level: #474e60;
   --last-price: #e9ecf4;
+  --session-shade: #171a27;
   --field-bg: #0a0d15;
   --field-border: #232838;
   --up: #3ccfd0;
@@ -91,6 +93,7 @@
   --crosshair: #a6abb8;
   --level: #b9bdc9;
   --last-price: #131726;
+  --session-shade: #eceef4;
   --field-bg: #ffffff;
   --field-border: #d3d8e2;
   --up: #0b9da0;

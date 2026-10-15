@@ -1476,6 +1476,31 @@ describe('ChartAdapter', () => {
     a.destroy();
     expect(k.dispose).toHaveBeenCalledWith(el);
   });
+
+  it('destroy releases the position context closures it installed (not a newer adapter\'s)', async () => {
+    const { positionContext } = await import('../../src/chart/positionOverlay');
+    const a = make();
+    const mine = positionContext.endFor;
+    a.destroy();
+    expect(positionContext.endFor).not.toBe(mine);
+    expect(positionContext.endFor(0)).toBeGreaterThan(0); // the module default, without any chart
+    expect(positionContext.historyComplete()).toBe(true);
+    const b = make();
+    const c = make(); // e.g. a remount before the old chart is torn down
+    const cEnd = positionContext.endFor;
+    b.destroy();
+    expect(positionContext.endFor).toBe(cEnd);
+    c.destroy();
+  });
+
+  it('keeps the drawing templates\' theme context (channel fills) on the active theme', async () => {
+    const { drawingContext } = await import('../../src/chart/drawingTemplates');
+    const a = make();
+    expect(drawingContext).toEqual({ bg: THEME_TOKENS.dark.bg, accent: THEME_TOKENS.dark.accent });
+    a.setTheme('light');
+    expect(drawingContext).toEqual({ bg: THEME_TOKENS.light.bg, accent: THEME_TOKENS.light.accent });
+    a.setTheme('dark');
+  });
 });
 
 describe('ChartAdapter quick second click while drawing (KLineChart 500 ms double-click window)', () => {

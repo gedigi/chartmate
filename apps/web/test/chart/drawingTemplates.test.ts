@@ -284,7 +284,7 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     expect(mid.styles).not.toHaveProperty('color'); // color and width come from the channel's line style
   });
 
-  it('new channel: finite by default; lines and midline span the first to the second point, a translucent fill between', () => {
+  it('new channel: finite by default; lines and midline span the first to the second point, a translucent fill between', async () => {
     const t = tpl('parallelChannel');
     const bounding = { width: 400, height: 300, left: 0, top: 0, right: 0, bottom: 0 };
     const coords = [{ x: 100, y: 50 }, { x: 200, y: 100 }, { x: 150, y: 175 }];
@@ -300,11 +300,29 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     expect(midOf(figs)!.attrs.coordinates).toEqual([{ x: 100, y: 100 }, { x: 200, y: 150 }]);
     const fill = figs[0];
     expect(fill.attrs.coordinates).toEqual([{ x: 100, y: 50 }, { x: 200, y: 100 }, { x: 200, y: 200 }, { x: 100, y: 150 }]);
-    expect(fill.styles).toMatchObject({ style: 'fill', color: 'rgba(255, 0, 0, 0.08)' });
+    // A hue-locked tint of the line color on the chart background (like position and measure zones), never a plain
+    // rgba() of the strong color.
+    const { zoneTint } = await import('../../src/chart/color');
+    const { THEME_TOKENS } = await import('../../src/chart/theme');
+    expect(fill.styles).toMatchObject({ style: 'fill', color: zoneTint('#ff0000', THEME_TOKENS.dark.bg, T.CHANNEL_FILL_WEIGHT, T.CHANNEL_FILL_ALPHA) });
+    expect(fill.styles.color).not.toBe('rgba(255, 0, 0, 0.08)');
     expect(fill.ignoreEvent).toEqual(['onRightClick']); // left click selects / drags; right click (remove) is ignored
     // Default (theme) line color when the channel has none of its own.
     const plain = t.createPointFigures({ chart: chart(), overlay: { name: 'parallelChannel', styles: null }, coordinates: coords, bounding });
-    expect(plain[0].styles.color).toBe('rgba(41, 98, 255, 0.08)');
+    expect(plain[0].styles.color).toBe(zoneTint('rgba(41, 98, 255, 1)', THEME_TOKENS.dark.bg, T.CHANNEL_FILL_WEIGHT, T.CHANNEL_FILL_ALPHA));
+    // The tint follows the theme's chart background (set by the adapter).
+    T.drawingContext.bg = THEME_TOKENS.light.bg;
+    T.drawingContext.accent = THEME_TOKENS.light.accent;
+    try {
+      const light = t.createPointFigures({ chart: chart(), overlay: { name: 'parallelChannel', styles: { line: { color: '#ff0000', size: 1, style: 'solid' } } }, coordinates: coords, bounding });
+      expect(light[0].styles.color).toBe(zoneTint('#ff0000', THEME_TOKENS.light.bg, T.CHANNEL_FILL_WEIGHT, T.CHANNEL_FILL_ALPHA));
+      // An unreadable line color falls back to the accent's tint, never an opaque fill.
+      const odd = t.createPointFigures({ chart: chart(), overlay: { name: 'parallelChannel', styles: { line: { color: 'nonsense', size: 1, style: 'solid' } } }, coordinates: coords, bounding });
+      expect(odd[0].styles.color).toBe(zoneTint(THEME_TOKENS.light.accent, THEME_TOKENS.light.bg, T.CHANNEL_FILL_WEIGHT, T.CHANNEL_FILL_ALPHA));
+    } finally {
+      T.drawingContext.bg = THEME_TOKENS.dark.bg;
+      T.drawingContext.accent = THEME_TOKENS.dark.accent;
+    }
   });
 
   it('new channel: extend toggles (styles) extend the lines, the midline and the fill', () => {
