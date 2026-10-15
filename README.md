@@ -581,8 +581,9 @@ Where to read next:
     midpoint to move that edge only, or the inside (or the border) to move the whole box. Dragging a corner past the
     opposite one simply flips the box. On a box narrower or shorter than about three handles, the midpoints along
     that side are hidden, so the corners are easy to grab. The time axis shows the start and end times, the left
-    one ending at its time and the right one starting at its time, kept inside the axis. When they would run into
-    each other they merge into one "start – end" label (naming the day once for a range within one day).
+    one ending at its time and the right one starting at its time, kept inside the axis.
+    On a narrow box, or when they would run into each other, they merge into one "start – end" label (naming the
+    day once for a range within one day).
   - **Look**: a crisp, pixel-aligned border in the drawing's color, width and line style (solid, dashed, dotted),
     and a fill: a light tint of the same hue on the chart background (as for channels and position zones, never
     pink or brown), tuned per theme to read clearly but calmly, a touch firmer than a channel, always lighter than

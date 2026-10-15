@@ -5,13 +5,13 @@ import { drawingContext } from './drawingTemplates';
  * The time-axis labels of a selected drawing spanning a time range (rectangles, long / short positions): a band
  * between its start and end times and a label at each end, the left one ending at its time and the right one
  * starting at its time, so they point away from each other and never cover the range. Both stay inside the axis;
- * when they would still run into each other (a narrow range, or one pushed back from an edge) they merge into one
- * "start – end" label centered on the range. Labels and band take the overlay's text / rect styles, as KLineChart's
- * own axis labels do.
+ * when they would come closer than RANGE_MERGE_GAP (a narrow range, or one pushed back from an edge) they merge
+ * into one "start – end" label centered on the range. Labels and band take the overlay's text / rect styles, as
+ * KLineChart's own axis labels do.
  */
 
-/** Closest the two labels may come (px) before they merge into one. */
-export const RANGE_MERGE_GAP = 12;
+/** Closest the two labels may come (px) before they merge into one: a narrow range reads better as one label. */
+export const RANGE_MERGE_GAP = 48;
 
 export interface RangeLabel { x: number; text: string; align: 'left' | 'right' | 'center' }
 
