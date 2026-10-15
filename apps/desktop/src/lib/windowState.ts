@@ -40,7 +40,8 @@ const overlap = (b: Rect, a: Rect): number =>
  * Restores saved bounds onto the current displays, or returns null (default size) when the window's title bar
  * area is on none of them. The work area chosen is the one the window overlaps most; the size is clamped to it
  * (a window saved on a larger, now missing display would otherwise open bigger than the screen), then the position,
- * so the whole window, edges and title bar included, is inside that work area.
+ * so the whole window, edges and title bar included, is inside that work area. A work area smaller than MIN_SIZE
+ * gets the minimum size, centered on it.
  */
 export function visibleBounds(bounds: Rect | null, workAreas: readonly Rect[]): Rect | null {
   if (!bounds) return null;
@@ -53,11 +54,14 @@ export function visibleBounds(bounds: Rect | null, workAreas: readonly Rect[]): 
     if (titleBarVisible(a) && (area === null || overlap(bounds, a) > overlap(bounds, area))) area = a;
   }
   if (!area) return null;
-  const width = Math.min(bounds.width, area.width);
-  const height = Math.min(bounds.height, area.height);
-  const x = Math.min(Math.max(bounds.x, area.x), area.x + area.width - width);
-  const y = Math.min(Math.max(bounds.y, area.y), area.y + area.height - height);
-  return { x, y, width, height };
+  // Never below the window's minimum size (the window could not be that small anyway).
+  const width = Math.max(MIN_SIZE.width, Math.min(bounds.width, area.width));
+  const height = Math.max(MIN_SIZE.height, Math.min(bounds.height, area.height));
+  // On an axis where even that does not fit (a work area smaller than MIN_SIZE), center instead of overhanging
+  // one edge only.
+  const place = (pos: number, size: number, start: number, span: number) =>
+    size > span ? Math.round(start + (span - size) / 2) : Math.min(Math.max(pos, start), start + span - size);
+  return { x: place(bounds.x, width, area.x, area.width), y: place(bounds.y, height, area.y, area.height), width, height };
 }
 
 /**
