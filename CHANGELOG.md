@@ -27,6 +27,8 @@ app, the Docker image and the release tag share one version number.
   `CHARTMATE_USER_DATA_DIR`.
 - `BINANCE_BASE_URL` accepts only the Binance API hosts (`data-api.binance.vision`, `api.binance.com`,
   `api.binance.us`); any other value is ignored with a warning in the log instead of being allowed through.
+- An invalid `CHARTMATE_PROVIDERS` or `CRYPTO_PROVIDER` now shows a short error naming the variable instead of
+  crashing at startup.
 
 ### Self-hosting
 

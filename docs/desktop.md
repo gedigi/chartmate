@@ -133,6 +133,10 @@ surface or storage is fixed: no listener, no login, SQLite in the per-user data 
 port, credentials, query or fragment). Any other value is ignored with one warning in the log, and the default is
 used. The dev bundle accepts any https URL without credentials, port, query or fragment.
 
+An invalid `CHARTMATE_PROVIDERS`, `CRYPTO_PROVIDER` (or, in the dev bundle, `BINANCE_BASE_URL` or a relative
+`CHARTMATE_USER_DATA_DIR`) stops the app at startup with a short error box naming the variable, with no stack or
+path, and exit code 1. The reason is also logged.
+
 A packaged build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY` or `SSLKEYLOGFILE` is set.
 Node applies the first during pre-execution, before any app code runs, so the app cannot undo it, and the second
 would let TLS session keys be logged. `NODE_USE_SYSTEM_CA` is allowed: provider requests ignore it (see below).

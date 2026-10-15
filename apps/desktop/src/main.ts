@@ -13,7 +13,7 @@ import { migrate } from '../../server/src/db/migrations.js';
 import { createRepos } from '../../server/src/db/repos.js';
 import { MarketDataService } from '../../server/src/market/service.js';
 import { createRegistry } from '../../server/src/providers/registry.js';
-import { DB_FILE_NAME, desktopConfig, resolveUserDataDir } from './lib/desktopConfig.js';
+import { configOrExit, DB_FILE_NAME, desktopConfig, resolveUserDataDir } from './lib/desktopConfig.js';
 import {
   APP_ENTRY_URL, APP_HOST, APP_SCHEME, hardenAllSessions, hardenApp, isAppUrl, PRIVILEGED_SCHEMES, secureWebPreferences,
 } from './lib/hardening.js';
@@ -55,7 +55,17 @@ process.umask(0o077);
 
 app.setName(product.productName);
 // Hardened builds always use the per-user default (only the dev bundle and the TEST-ONLY copy honor CHARTMATE_USER_DATA_DIR).
-const userData = resolveUserDataDir(join(app.getPath('appData'), product.productName), process.env, { allowOverride: !hardened || __TEST_INSPECTABLE__ });
+// An invalid environment variable stops the app with a short error box instead of an uncaught exception.
+const configExit = (logLine: (m: string) => void) => ({
+  productName: product.productName,
+  log: logLine,
+  showError: (title: string, content: string) => dialog.showErrorBox(title, content), // safe before 'ready'
+  exit: (code: number) => process.exit(code),
+});
+const userData = configOrExit(
+  () => resolveUserDataDir(join(app.getPath('appData'), product.productName), process.env, { allowOverride: !hardened || __TEST_INSPECTABLE__ }),
+  configExit((m) => process.stderr.write(`${m}\n`)), // no log directory yet
+);
 app.setPath('userData', userData);
 app.setPath('sessionData', userData);
 app.setAppLogsPath(join(userData, 'logs'));
@@ -70,7 +80,10 @@ protocol.registerSchemesAsPrivileged([...PRIVILEGED_SCHEMES]);
 const hardenOpts = { hardened, onBlocked: (what: string, url: string) => log.warn(`blocked ${what} ${url}`) };
 hardenApp(app, hardenOpts);
 
-const { config } = desktopConfig({ userData, env: process.env, hardened, onIgnored: (m) => log.warn(m) });
+const { config } = configOrExit(
+  () => desktopConfig({ userData, env: process.env, hardened, onIgnored: (m) => log.warn(m) }),
+  configExit((m) => log.error(m)),
+);
 // Outbound network: providers only, HTTPS only, exact hosts, every redirect hop checked.
 const allowed = providerHosts(config);
 // Transport: direct connections (no env proxy) trusting only Node's bundled root CAs, whatever the environment says.

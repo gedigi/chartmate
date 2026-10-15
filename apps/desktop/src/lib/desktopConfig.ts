@@ -8,6 +8,35 @@ export const DEFAULT_BINANCE_BASE_URL = 'https://data-api.binance.vision';
 
 type Env = Record<string, string | undefined>;
 
+/** An invalid environment variable. Its message is short, names the variable, and holds no path or value. */
+export class ConfigError extends Error {
+  override name = 'ConfigError';
+}
+
+export interface ConfigExitDeps {
+  productName: string;
+  log: (msg: string) => void;
+  /** `dialog.showErrorBox` (safe before `ready`). */
+  showError: (title: string, content: string) => void;
+  exit: (code: number) => never;
+}
+
+/**
+ * Runs `build` (configuration from the environment) at startup. On failure the app does not crash with an
+ * uncaught exception: the reason is logged, a short error box names the variable (a ConfigError message; anything
+ * else gets a generic line, so no stack or path is shown), and the process exits with code 1.
+ */
+export function configOrExit<T>(build: () => T, d: ConfigExitDeps): T {
+  try {
+    return build();
+  } catch (err) {
+    const msg = err instanceof ConfigError ? err.message : 'The configuration could not be read.';
+    d.log(`invalid configuration: ${msg}`);
+    d.showError(`${d.productName} cannot start`, `${msg}\n\nCorrect or unset it, then start the app again.`);
+    return d.exit(1);
+  }
+}
+
 const val = (env: Env, key: string): string | undefined => {
   const v = env[key]?.trim();
   return v === undefined || v === '' ? undefined : v;
@@ -44,11 +73,11 @@ function binanceBaseUrl(raw: string | undefined, hardened: boolean, onIgnored?: 
   try {
     u = new URL(raw);
   } catch {
-    throw new Error('Invalid BINANCE_BASE_URL: not a URL');
+    throw new ConfigError('Invalid BINANCE_BASE_URL: not a URL');
   }
-  if (u.protocol !== 'https:') throw new Error('Invalid BINANCE_BASE_URL: must use https');
+  if (u.protocol !== 'https:') throw new ConfigError('Invalid BINANCE_BASE_URL: must use https');
   if (u.username || u.password || u.port || u.search || u.hash) {
-    throw new Error('Invalid BINANCE_BASE_URL: no credentials, port, query or fragment allowed');
+    throw new ConfigError('Invalid BINANCE_BASE_URL: no credentials, port, query or fragment allowed');
   }
   return u.href.replace(/\/+$/, '');
 }
@@ -70,9 +99,9 @@ export function desktopConfig(opts: { userData: string; env: Env; hardened?: boo
   if (!isAbsolute(opts.userData)) throw new Error('userData must be an absolute path');
   const { env } = opts;
   const providers = val(env, 'CHARTMATE_PROVIDERS') ?? 'live';
-  if (providers !== 'live' && providers !== 'fixture') throw new Error('Invalid CHARTMATE_PROVIDERS: expected live or fixture');
+  if (providers !== 'live' && providers !== 'fixture') throw new ConfigError('Invalid CHARTMATE_PROVIDERS: expected live or fixture');
   const crypto = val(env, 'CRYPTO_PROVIDER') ?? 'binance';
-  if (crypto !== 'binance' && crypto !== 'coinbase') throw new Error('Invalid CRYPTO_PROVIDER: expected binance or coinbase');
+  if (crypto !== 'binance' && crypto !== 'coinbase') throw new ConfigError('Invalid CRYPTO_PROVIDER: expected binance or coinbase');
   const dbPath = join(opts.userData, DB_FILE_NAME);
   const config: Config = {
     port: 0,
@@ -99,6 +128,6 @@ export function resolveUserDataDir(platformDefault: string, env: Env, opts: { al
   if (!opts.allowOverride) return platformDefault;
   const override = val(env, 'CHARTMATE_USER_DATA_DIR');
   if (override === undefined) return platformDefault;
-  if (!isAbsolute(override)) throw new Error('CHARTMATE_USER_DATA_DIR must be an absolute path');
+  if (!isAbsolute(override)) throw new ConfigError('CHARTMATE_USER_DATA_DIR must be an absolute path');
   return override;
 }

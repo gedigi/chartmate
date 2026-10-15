@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DB_FILE_NAME, DEFAULT_BINANCE_BASE_URL, desktopConfig, KNOWN_BINANCE_HOSTS, resolveUserDataDir } from '../src/lib/desktopConfig.js';
+import { ConfigError, configOrExit, DB_FILE_NAME, DEFAULT_BINANCE_BASE_URL, desktopConfig, KNOWN_BINANCE_HOSTS, resolveUserDataDir } from '../src/lib/desktopConfig.js';
 
 const UD = '/Users/x/Library/Application Support/Chartmate';
 
@@ -105,5 +105,51 @@ describe('resolveUserDataDir', () => {
     const packaged = { allowOverride: false };
     expect(resolveUserDataDir(UD, { CHARTMATE_USER_DATA_DIR: '/tmp/elsewhere' }, packaged)).toBe(UD);
     expect(resolveUserDataDir(UD, { CHARTMATE_USER_DATA_DIR: 'rel/dir' }, packaged)).toBe(UD);
+  });
+});
+
+describe('configOrExit (invalid environment at startup)', () => {
+  const deps = () => {
+    const calls = { log: [] as string[], errors: [] as [string, string][], exit: [] as number[] };
+    return {
+      calls,
+      d: {
+        productName: 'Chartmate',
+        log: (m: string) => { calls.log.push(m); },
+        showError: (t: string, c: string) => { calls.errors.push([t, c]); },
+        exit: ((code: number) => { calls.exit.push(code); throw new Error(`exit ${code}`); }) as (code: number) => never,
+      },
+    };
+  };
+
+  it('returns the value when the configuration is valid', () => {
+    const { d, calls } = deps();
+    expect(configOrExit(() => desktopConfig({ userData: UD, env: {} }).config.providers, d)).toBe('live');
+    expect(calls.exit).toEqual([]);
+  });
+
+  it('an invalid provider variable: short error box naming it, logged, exit 1', () => {
+    for (const env of [{ CHARTMATE_PROVIDERS: 'mock' }, { CRYPTO_PROVIDER: 'kraken' }]) {
+      const { d, calls } = deps();
+      expect(() => configOrExit(() => desktopConfig({ userData: UD, env }), d)).toThrow('exit 1');
+      const name = Object.keys(env)[0]!;
+      expect(calls.exit).toEqual([1]);
+      expect(calls.errors).toHaveLength(1);
+      expect(calls.errors[0]![0]).toBe('Chartmate cannot start');
+      expect(calls.errors[0]![1]).toContain(name);
+      expect(calls.errors[0]![1]).not.toMatch(/\n\s+at |\/Users\//);
+      expect(calls.log.join('\n')).toContain(name);
+    }
+  });
+
+  it('an unexpected error shows a generic message (no stack, no paths)', () => {
+    const { d, calls } = deps();
+    expect(() => configOrExit(() => { throw new Error('ENOENT: /Users/x/secret'); }, d)).toThrow('exit 1');
+    expect(calls.errors[0]![1]).not.toContain('/Users/');
+    expect(calls.errors[0]![1]).toMatch(/configuration/);
+  });
+
+  it('a relative CHARTMATE_USER_DATA_DIR is a configuration error too', () => {
+    expect(() => resolveUserDataDir(UD, { CHARTMATE_USER_DATA_DIR: 'rel' }, { allowOverride: true })).toThrow(ConfigError);
   });
 });
