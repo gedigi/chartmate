@@ -72,7 +72,7 @@ describe('loadConfig', () => {
   });
 
   it('BINANCE_BASE_URL must be an https URL without credentials, query or fragment', () => {
-    for (const bad of ['http://api.binance.example', 'ftp://x.example', 'https://user:pw@x.example', 'https://x.example/?a=1', 'https://x.example/#f']) {
+    for (const bad of ['http://api.binance.example', 'ftp://x.example', 'https://user:pw@x.example', 'https://x.example/?a=1', 'https://x.example/#f', 'https://x.example/?', 'https://x.example#', 'https://@x.example']) {
       expect(() => loadConfig({ BINANCE_BASE_URL: bad }), bad).toThrow(/BINANCE_BASE_URL/);
     }
     expect(loadConfig({ BINANCE_BASE_URL: 'https://x.example/base/' }).binanceBaseUrl).toBe('https://x.example/base');

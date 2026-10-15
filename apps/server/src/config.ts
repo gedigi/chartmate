@@ -53,6 +53,8 @@ const EnvSchema = z.object({
   CRYPTO_PROVIDER: z.preprocess(blankToUndefined, z.enum(['binance', 'coinbase']).default('binance')),
   // https only: market data must not travel (or be tampered with) in clear text.
   BINANCE_BASE_URL: z.preprocess(blankToUndefined, z.url({ protocol: /^https$/ }).refine((v) => {
+    // An empty `?` or `#` (or `@`) does not show up in the parsed URL: check the raw string too.
+    if (/[?#@]/.test(v)) return false;
     const u = new URL(v);
     return u.username === '' && u.password === '' && u.search === '' && u.hash === '';
   }, { message: 'must be an https URL without credentials, query or fragment' }).default('https://data-api.binance.vision')),
