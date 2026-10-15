@@ -32,14 +32,50 @@ export function parseWindowState(raw: unknown): WindowState {
   };
 }
 
-/** Keeps saved bounds only if their top-left area is visible on one of the current displays' work areas. */
+/**
+ * Keeps saved bounds only if their top-left area is visible on one of the current displays' work areas, with the
+ * size clamped to that work area (a window saved on a larger, now missing display would otherwise open bigger
+ * than the screen, with its bottom and right edges out of reach).
+ */
 export function visibleBounds(bounds: Rect | null, workAreas: readonly Rect[]): Rect | null {
   if (!bounds) return null;
   const grab = 100; // enough of the title bar to drag the window back
-  const ok = workAreas.some((a) =>
+  const area = workAreas.find((a) =>
     bounds.x + grab <= a.x + a.width && bounds.x + bounds.width - grab >= a.x
     && bounds.y >= a.y && bounds.y + grab <= a.y + a.height);
-  return ok ? bounds : null;
+  if (!area) return null;
+  return { ...bounds, width: Math.min(bounds.width, area.width), height: Math.min(bounds.height, area.height) };
+}
+
+/**
+ * The page's theme when the window closes (`read` evaluates `data-theme` in the page), so the next launch paints
+ * the right background. If the page does not answer within `timeoutMs`, fails, or reports anything else, the
+ * previous theme is kept.
+ */
+export async function probeTheme(read: () => Promise<unknown>, previous: WindowState['theme'], timeoutMs = 300): Promise<WindowState['theme']> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<unknown>((r) => { timer = setTimeout(() => r(previous), timeoutMs); });
+  try {
+    const t = await Promise.race([read().catch(() => previous), timeout]);
+    return t === 'light' || t === 'dark' ? t : previous;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+interface FocusableWindow { isDestroyed(): boolean; isMinimized(): boolean; restore(): void; focus(): void }
+
+/**
+ * A second launch of the app: focus (and restore) the window, or open one if there is none (macOS keeps running
+ * with no window). Before startup has finished (`ready` false) it does nothing, since startup opens the window.
+ */
+export function focusOrCreateWindow(win: FocusableWindow | null, o: { ready: boolean; create: () => void }): void {
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+    return;
+  }
+  if (o.ready) o.create();
 }
 
 export function loadWindowState(file: string): WindowState {

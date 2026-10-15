@@ -33,7 +33,7 @@ import type { UpdateController } from './lib/updateController.js';
 import { startUpdatesSafely, unsupportedUpdateMessage, type UpdateMenuState } from './lib/updateMenu.js';
 import { updateAvailability, type UpdateAvailability } from './lib/updatePolicy.js';
 import {
-  BACKGROUND, DEFAULT_SIZE, loadWindowState, MIN_SIZE, saveWindowState, visibleBounds, type WindowState,
+  BACKGROUND, DEFAULT_SIZE, focusOrCreateWindow, loadWindowState, MIN_SIZE, probeTheme, saveWindowState, visibleBounds, type WindowState,
 } from './lib/windowState.js';
 
 declare const __WEB_ROOT_REL__: string;
@@ -92,17 +92,15 @@ const onBlocked = (host: string) => log.warn(`blocked outbound request to ${host
 installFetchAllowlist(globalThis, allowed, { base: directFetch, onBlocked });
 
 let mainWindow: BrowserWindow | null = null;
+/** True once start() has registered the app:// handler and opened the first window. */
+let started = false;
 let shutdown: (() => Promise<void>) | null = null;
 const stateFile = join(userData, 'window-state.json');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (!mainWindow) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  });
+  app.on('second-instance', () => focusOrCreateWindow(mainWindow, { ready: started, create: createWindow }));
   app.whenReady().then(start).catch((err: unknown) => {
     log.error('startup failed', err);
     dialog.showErrorBox(`${product.productName} could not start`, err instanceof Error ? err.message : String(err));
@@ -164,6 +162,7 @@ async function start(): Promise<void> {
   updateState = updatesAvailability();
   setMenu();
   createWindow();
+  started = true;
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -280,9 +279,9 @@ function createWindow(): void {
       // preventDefault above canceled an in-flight quit (⌘Q / app.quit()): resume it.
       if (appQuitRequested) app.quit();
     };
-    const timeout = new Promise<string>((r) => setTimeout(() => r('dark'), 300));
-    Promise.race([win.webContents.executeJavaScript('document.documentElement.dataset.theme', false), timeout])
-      .then((t) => finish(t === 'light' ? 'light' : 'dark'), () => finish(state.theme));
+    // No answer within 300 ms (hung or crashed page): keep the theme it opened with.
+    void probeTheme(() => win.webContents.executeJavaScript('document.documentElement.dataset.theme', false), state.theme, 300)
+      .then(finish);
   });
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;

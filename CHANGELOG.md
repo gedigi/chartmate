@@ -29,6 +29,9 @@ app, the Docker image and the release tag share one version number.
   `api.binance.us`); any other value is ignored with a warning in the log instead of being allowed through.
 - An invalid `CHARTMATE_PROVIDERS` or `CRYPTO_PROVIDER` now shows a short error naming the variable instead of
   crashing at startup.
+- The window reopens no larger than the screen it lands on (after a larger display is disconnected), keeps the
+  light theme's background when the page is slow to answer at close, and launching the app again on macOS with
+  no window open now opens one.
 
 ### Self-hosting
 
