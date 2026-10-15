@@ -12,6 +12,17 @@ const files = ['ci.yml', 'desktop.yml', 'docker.yml'];
 type Step = { uses?: string; with?: Record<string, unknown>; env?: Record<string, string>; name?: string; run?: string; if?: string; id?: string; shell?: string };
 type Job = { steps: Step[]; env?: unknown; permissions?: unknown; environment?: string; needs?: string[]; if?: string; outputs?: Record<string, string>; 'runs-on': string };
 
+const COREPACK_RUN = [
+  'set -euo pipefail',
+  'corepack enable pnpm',
+  `want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"`,
+  'got="$(pnpm --version)"',
+  'if [ "$got" != "$want" ]; then',
+  '  echo "::error title=pnpm version::pnpm $got, but package.json pins $want"',
+  '  exit 1',
+  'fi',
+  '',
+].join('\n');
 const runs = (steps: Step[]) => steps.map((s) => s.run ?? '').join('\n');
 const secretKeys = (s: Step) => Object.entries(s.env ?? {}).filter(([, v]) => String(v).includes('secrets.')).map(([k]) => k);
 
@@ -62,8 +73,11 @@ describe.each(files)('%s', (file) => {
     for (const [name, job] of jobs) {
       const first = job.steps.findIndex((s) => /(^|\n)\s*pnpm /.test(s.run ?? '') && !/corepack enable pnpm/.test(s.run ?? ''));
       if (first < 0) continue;
-      const corepack = job.steps.findIndex((s) => s.run === 'corepack enable pnpm && pnpm --version');
+      const corepack = job.steps.findIndex((s) => s.name === 'pnpm (corepack)');
       expect(corepack, name).toBeGreaterThanOrEqual(0);
+      // The pnpm that runs is exactly the one package.json pins (corepack checks its sha512).
+      expect(job.steps[corepack]!.run, name).toBe(COREPACK_RUN);
+      expect(job.steps[corepack]!.shell, name).toBe('bash');
       expect(corepack, name).toBeLessThan(first);
       expect(job.steps.findIndex((s) => s.uses?.startsWith('actions/setup-node@')), name).toBeLessThan(corepack);
     }
@@ -194,7 +208,7 @@ describe('desktop.yml secret scoping and release', () => {
     expect(run).toContain('.github/scripts/macos-sign.sh sign-app "$app" apps/desktop/build/entitlements.mac.plist apps/desktop/build/entitlements.mac.inherit.plist');
     expect(run.indexOf('macos-sign.sh notarize "$app"')).toBeGreaterThan(run.indexOf('macos-sign.sh sign-app'));
     const script = root('.github/scripts/macos-sign.sh');
-    expect(script).toMatch(/security import "\$p12" -k "\$KEYCHAIN" -f pkcs12 -P "\$CSC_KEY_PASSWORD" -x -T \/usr\/bin\/codesign/);
+    expect(script).toMatch(/security import "\$P12" -k "\$KEYCHAIN" -f pkcs12 -P "\$CSC_KEY_PASSWORD" -x -T \/usr\/bin\/codesign/);
     expect(script).toContain('security set-key-partition-list -S apple-tool:,apple: -s');
     expect(script).toContain('--options runtime');
     expect(script).toContain('--timestamp');
@@ -205,7 +219,7 @@ describe('desktop.yml secret scoping and release', () => {
     expect(script).toContain('spctl -a -t open --context context:primary-signature -v "$target"');
     expect(script).toContain('spctl -a -t exec -vv "$target"');
     // The decoded .p12 never outlives the import, and nothing in the script uses Node.js or npm.
-    expect(script).toContain(`trap 'rm -f "$p12"' EXIT`);
+    expect(script).toContain('trap on_exit EXIT'); // removes the decoded .p12 (tests: macosSign.test.ts)
     const code = script.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
     expect(code).not.toMatch(/\b(node|npm|npx|pnpm)\b/);
   });
@@ -342,7 +356,7 @@ describe('desktop.yml secret scoping and release', () => {
     const login = s.findIndex((x) => x.name === 'Certum SimplySign login');
     // Only pinned setup actions run before it: no package manager, no install, no build.
     for (const step of s.slice(0, login)) expect(step.uses ?? '', step.name).toMatch(/^actions\/(checkout|setup-node)@/);
-    expect(login).toBeLessThan(s.findIndex((x) => x.run === 'corepack enable pnpm && pnpm --version'));
+    expect(login).toBeLessThan(s.findIndex((x) => x.name === 'pnpm (corepack)'));
     const loginRun = s[login]!.run!;
     expect(loginRun).not.toMatch(/\b(pnpm|npm|npx|electron-builder|bundle\.mjs)\b/);
     expect(loginRun).toMatch(/if pwsh [^\n]*apps\/desktop\/scripts\/certum\/login\.ps1[^\n]*; then/);
