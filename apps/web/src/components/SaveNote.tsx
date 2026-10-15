@@ -12,24 +12,34 @@ export interface SaveNoteProps {
   /** Accessible name of the Retry button ("Retry saving the layout"). */
   retryLabel: string;
   onRetry: () => void;
+  /** The sentence without its ending (default "<thing> not saved"), e.g. "Drawings not saved for AAPL and MSFT". */
+  message?: string;
+  /** Shown with a Discard button: explicitly drops what could not be saved (e.g. after a permanent failure). */
+  onDiscard?: () => void;
+  discardLabel?: string;
+  /** Retry is offered for `stalled`; `showRetry` offers it in other states too (e.g. a combined note). */
+  showRetry?: boolean;
   className?: string;
 }
 
 /**
  * The one treatment for a save that has not reached the server (layout pill, watchlist, drawings on the chart): a calm
  * warn pill while it is retried or after the retries gave up ("<Thing> not saved. Retrying…" / "<Thing> not saved."
- * with Retry), the error color only for a permanent failure.
+ * with Retry), the error color only for a permanent failure ("<Thing> not saved.", the reason in the title).
  */
-export function SaveNote({ thing, state, detail, retryLabel, onRetry, className }: SaveNoteProps): JSX.Element {
+export function SaveNote({ thing, state, detail, retryLabel, onRetry, message, onDiscard, discardLabel = 'Discard', showRetry, className }: SaveNoteProps): JSX.Element {
+  const base = message ?? `${thing} not saved`;
   const classes = ['save-note', state === 'failed' ? 'is-error' : 'is-warn'];
   if (className) classes.push(className);
   return (
     <div className={classes.join(' ')} role={state === 'failed' ? 'alert' : 'status'} title={detail}>
       {state === 'retrying' && <span className="save-note-dot" aria-hidden="true" />}
       <span className="save-note-text">
-        {state === 'retrying' ? `${thing} not saved. Retrying…` : state === 'stalled' ? `${thing} not saved.` : `${thing} not saved: ${detail}`}
+        {/* A short fixed sentence; the raw error is in the title. */}
+        {state === 'retrying' ? `${base}. Retrying…` : `${base}.`}
       </span>
-      {state === 'stalled' && <button type="button" className="save-note-retry" aria-label={retryLabel} onClick={onRetry}>Retry</button>}
+      {(state === 'stalled' || showRetry) && <button type="button" className="save-note-retry" aria-label={retryLabel} onClick={onRetry}>Retry</button>}
+      {onDiscard && <button type="button" className="save-note-retry" aria-label={discardLabel} onClick={onDiscard}>Discard</button>}
     </div>
   );
 }

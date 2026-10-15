@@ -266,7 +266,8 @@ describe('Watchlist', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
     expect(put).toHaveBeenCalledTimes(1);
     const err = screen.getByRole('alert');
-    expect(err).toHaveTextContent('Watchlist not saved: Too many symbols');
+    expect(err).toHaveTextContent('Watchlist not saved.');
+    expect(err).toHaveAttribute('title', 'Too many symbols');
     expect(err).toHaveClass('is-error');
     // A newer change clears it as soon as it starts saving.
     fireEvent.click(screen.getByRole('button', { name: 'Remove AAPL' }));

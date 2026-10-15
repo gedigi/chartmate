@@ -22,11 +22,21 @@ describe('SaveNote (one treatment for every save that has not reached the server
     expect(onRetry).toHaveBeenCalled();
   });
 
-  it('failed (permanent): an alert in the error color with the reason, no Retry', () => {
+  it('failed (permanent): an alert in the error color, a short fixed sentence (the reason in the title), no Retry', () => {
     render(<SaveNote thing="Watchlist" state="failed" detail="Too many symbols" retryLabel="Retry saving the watchlist" onRetry={() => {}} />);
     const note = screen.getByRole('alert');
-    expect(note).toHaveTextContent('Watchlist not saved: Too many symbols');
+    expect(note).toHaveTextContent(/^Watchlist not saved\.$/);
+    expect(note).toHaveAttribute('title', 'Too many symbols');
     expect(note).toHaveClass('is-error');
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('a custom message and a Discard action (explicitly drops what could not be saved)', () => {
+    const onDiscard = vi.fn();
+    render(<SaveNote thing="Drawings" message="Drawings not saved for AAPL and MSFT" state="failed" detail="AAPL: too large"
+      retryLabel="Retry" onRetry={() => {}} discardLabel="Discard unsaved drawings" onDiscard={onDiscard} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Drawings not saved for AAPL and MSFT.');
+    fireEvent.click(screen.getByRole('button', { name: 'Discard unsaved drawings' }));
+    expect(onDiscard).toHaveBeenCalled();
   });
 });
