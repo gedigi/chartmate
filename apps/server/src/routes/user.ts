@@ -117,6 +117,12 @@ const DrawingSchema = z.object({
   if (d.name === 'rectangle' && (d.points.length !== 2 || !d.points.every((p) => Number.isFinite(p.timestamp) && Number.isFinite(p.value)))) {
     ctx.addIssue({ code: 'custom', path: ['points'], message: 'a rectangle has exactly two finite corners' });
   }
+}).transform((d) => {
+  // The fill option belongs to rectangles: dropped from any other drawing (with its styles if nothing else is left).
+  if (d.name === 'rectangle' || d.styles?.fill === undefined) return d;
+  const { fill: _fill, ...styles } = d.styles;
+  const { styles: _styles, ...rest } = d;
+  return Object.keys(styles).length > 0 ? { ...rest, styles } : rest;
 }) satisfies z.ZodType<DrawingState>;
 
 const WatchlistEntrySchema = z.discriminatedUnion('type', [

@@ -32,6 +32,16 @@ describe('rectangle drawings', () => {
     expect(await get()).toEqual([old, { name: 'rectangle', points: corners, lock: false, styles: { color: 'accent' } }]);
   });
 
+  it('keeps `fill` only on rectangles: other drawings drop it (and their styles when nothing else remains)', async () => {
+    const seg = { name: 'segment', points: corners, lock: false, styles: { color: 'palette:1', fill: false } };
+    const channel = { name: 'parallelChannel', points: [...corners, corners[0]], lock: false, styles: { fill: true } };
+    expect((await put([seg, channel])).statusCode).toBe(200);
+    expect(await get()).toEqual([
+      { name: 'segment', points: corners, lock: false, styles: { color: 'palette:1' } },
+      { name: 'parallelChannel', points: [...corners, corners[0]], lock: false },
+    ]);
+  });
+
   it('rejects a rectangle without exactly two finite corners', async () => {
     for (const points of [[corners[0]], [...corners, corners[0]], [corners[0], { timestamp: 1, value: 'x' }]]) {
       expect((await put([{ name: 'rectangle', points, lock: false }])).statusCode, JSON.stringify(points)).toBe(400);
