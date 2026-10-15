@@ -441,10 +441,14 @@ Where to read next:
   position; plus magnet, lock all, delete selected (**Delete** / **Backspace**) and clear all. **Escape**
   cancels the active tool and deselects the drawing.
 - **Drawings** are saved per symbol on the server (debounced ~1 s after each change; a failed save is retried
-  with backoff, 2 s, 5 s, 10 s, then every 30 s, while a small amber note reads "AAPL drawings not saved.
-  Retrying…"; after about 4 minutes it stops at "AAPL drawings not saved." with **Retry**). Unsaved drawings stay
-  with their symbol: switching symbols keeps retrying them (the note names the symbol), and coming back restores
-  them from memory. Points are stored in
+  with backoff, 2 s, 5 s, 10 s, then every 30 s, while a small amber note reads "Drawings not saved for AAPL.
+  Retrying…"; after about 4 minutes it stops at "Drawings not saved for AAPL." with **Retry**). Unsaved drawings
+  stay with their symbol in this browser tab: switching symbols or opening the Baskets page keeps retrying them,
+  one note names every symbol still waiting ("Drawings not saved for AAPL, MSFT and 3 more."; its Retry retries
+  them all), and charting the symbol again shows them from memory instead of the server's older copy (the last
+  save wins over changes another tab made meanwhile). A save the server refuses for good (a 4xx error) turns the
+  note red and keeps the drawings until you choose **Discard**. Reloading or closing the tab drops drawings that
+  were never saved. Points are stored in
   time/price coordinates (bar timestamp + price), not pixels, so they stay anchored to the same price and
   time across timeframes, zoom levels and window sizes.
 - **Drawing styles**: selecting a drawing shows a small style bar at the top of the chart (color, width,

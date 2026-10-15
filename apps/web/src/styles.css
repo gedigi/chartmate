@@ -463,7 +463,8 @@ kbd {
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* Where the layout's save note sits: bottom left of the window, out of the way (see .save-note). */
-.save-status { position: fixed; left: 8px; bottom: 8px; z-index: 50; pointer-events: auto; }
+.save-status { position: fixed; left: 8px; bottom: 8px; z-index: 50; display: flex; gap: 6px; pointer-events: auto; }
+.save-status:empty { display: none; }
 
 /*
  * Save note (SaveNote.tsx): the one treatment for a save that has not reached the server — the layout, the watchlist,

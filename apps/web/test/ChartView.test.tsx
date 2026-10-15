@@ -64,6 +64,8 @@ const fake = vi.hoisted(() => {
 vi.mock('../src/chart/ChartAdapter', () => ({ ChartAdapter: fake.FakeAdapter }));
 
 const { ChartView } = await import('../src/components/ChartView');
+const { DrawingsSavers } = await import('../src/components/DrawingsSave');
+const { drawingsStore } = await import('../src/state/drawingsStore');
 
 const AAPL: SymbolInfo = { id: 'stock:AAPL', assetClass: 'stock', ticker: 'AAPL', name: 'Apple', pricePrecision: 2 };
 const BTC: SymbolInfo = { id: 'crypto:BTC', assetClass: 'crypto', ticker: 'BTC', name: 'Bitcoin', pricePrecision: 2 };
@@ -77,11 +79,14 @@ const flush = () => act(async () => { await Promise.resolve(); });
 
 function renderView(layout: Layout = LAYOUT, info: SymbolInfo | null = AAPL, extra: { symbolError?: string | null; symbolDeleted?: boolean; onRetrySymbol?: () => void } = {}) {
   const setLayout = vi.fn();
-  const r = render(<ChartView layout={layout} setLayout={setLayout} symbolInfo={info} theme="dark" {...extra} />);
+  // The drawings savers live in the app shell (above the chart view): mounted next to the view, like App does.
+  const r = render(<><ChartView layout={layout} setLayout={setLayout} symbolInfo={info} theme="dark" {...extra} /><DrawingsSavers /></>);
   return {
     ...r,
     rerenderWith: (l: Layout, i: SymbolInfo | null = info, e: typeof extra = extra) =>
-      r.rerender(<ChartView layout={l} setLayout={setLayout} symbolInfo={i} theme="dark" {...e} />),
+      r.rerender(<><ChartView layout={l} setLayout={setLayout} symbolInfo={i} theme="dark" {...e} /><DrawingsSavers /></>),
+    /** Leaves the chart view (e.g. the Baskets page): the view unmounts, the savers stay. */
+    leaveChart: () => r.rerender(<>{null}<DrawingsSavers /></>),
   };
 }
 
@@ -97,6 +102,7 @@ const meta = (stale = false) => ({ stale, notices: [], markers: [] });
 
 beforeEach(() => {
   fake.instances.length = 0;
+  drawingsStore.reset();
   vi.spyOn(api.drawings, 'get').mockResolvedValue([]);
   vi.spyOn(api.drawings, 'put').mockResolvedValue(undefined);
 });
@@ -229,7 +235,7 @@ describe('ChartView', () => {
     expect(vi.mocked(api.drawings.put).mock.calls[1]![0]).toBe('stock:AAPL');
   });
 
-  it('drawings saves that keep failing stop after the retry limit: an "AAPL drawings not saved." note with Retry', async () => {
+  it('drawings saves that keep failing stop after the retry limit: one "Drawings not saved for AAPL." note with Retry', async () => {
     renderView();
     await flush();
     await flush();
@@ -237,19 +243,20 @@ describe('ChartView', () => {
     vi.mocked(api.drawings.put).mockRejectedValue(new Error('offline'));
     act(() => adapter().changeCb!());
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(screen.getByText('AAPL drawings not saved. Retrying…').closest('.save-note')).toHaveClass('is-warn');
+    expect(screen.getByText('Drawings not saved for AAPL. Retrying…').closest('.save-note')).toHaveClass('is-warn');
     await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60_000); });
-    expect(screen.getByText('AAPL drawings not saved.').closest('.save-note')).toHaveClass('is-warn');
+    const note = screen.getByText('Drawings not saved for AAPL.').closest('.save-note')!;
+    expect(note).toHaveClass('is-warn');
+    expect(note).toHaveAttribute('title', 'AAPL: offline');
     // Placed in the chart's top row (beside the indicator chips, outside the plot), never over the canvas.
-    const note = screen.getByText('AAPL drawings not saved.').closest('.save-note')!;
     expect(note.closest('.chart-save-notes')).not.toBeNull();
     expect(note.closest('.chart-stage')).toBeNull();
     vi.mocked(api.drawings.put).mockResolvedValue(undefined);
-    await act(async () => { screen.getByRole('button', { name: 'Retry saving the AAPL drawings' }).click(); await vi.advanceTimersByTimeAsync(0); });
-    expect(screen.queryByText('AAPL drawings not saved.')).not.toBeInTheDocument();
+    await act(async () => { screen.getByRole('button', { name: 'Retry saving the drawings' }).click(); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.queryByText(/Drawings not saved/)).not.toBeInTheDocument();
   });
 
-  it('a stalled drawings save belongs to its symbol: kept (named) across a switch, not dropped by edits on the new symbol, restored on return', async () => {
+  it('a stalled drawings save belongs to its symbol: kept across a switch, not dropped by edits on the new symbol, restored on return', async () => {
     const { rerenderWith } = renderView();
     await flush();
     await flush();
@@ -258,7 +265,7 @@ describe('ChartView', () => {
     vi.mocked(api.drawings.put).mockRejectedValue(new Error('offline'));
     act(() => adapter().changeCb!());
     await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60_000); });
-    expect(screen.getByText('AAPL drawings not saved.')).toBeInTheDocument();
+    expect(screen.getByText('Drawings not saved for AAPL.')).toBeInTheDocument();
     // Switch to BTC and edit there: BTC is saved; AAPL's unsaved drawings stay pending (and named).
     vi.mocked(api.drawings.put).mockImplementation(async (sym) => { if (sym === 'stock:AAPL') throw new Error('offline'); });
     rerenderWith({ ...LAYOUT, symbol: 'crypto:BTC' }, BTC);
@@ -266,19 +273,75 @@ describe('ChartView', () => {
     act(() => adapter().changeCb!());
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(api.drawings.put).toHaveBeenLastCalledWith('crypto:BTC', aaplDrawings);
-    expect(screen.getByText('AAPL drawings not saved.')).toBeInTheDocument();
-    expect(screen.queryByText('BTC drawings not saved.')).not.toBeInTheDocument();
+    expect(screen.getByText('Drawings not saved for AAPL.')).toBeInTheDocument();
     // Back on AAPL: its unsaved drawings are restored from memory (not the server's older copy).
     vi.mocked(api.drawings.get).mockClear();
     rerenderWith(LAYOUT, AAPL);
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(api.drawings.get).not.toHaveBeenCalled();
     expect(adapter().restoreDrawings).toHaveBeenLastCalledWith(aaplDrawings, 'stock:AAPL');
-    // Retry now succeeds: the note goes away.
     vi.mocked(api.drawings.put).mockResolvedValue(undefined);
-    await act(async () => { screen.getByRole('button', { name: 'Retry saving the AAPL drawings' }).click(); await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => { screen.getByRole('button', { name: 'Retry saving the drawings' }).click(); await vi.advanceTimersByTimeAsync(0); });
     expect(api.drawings.put).toHaveBeenLastCalledWith('stock:AAPL', aaplDrawings);
-    expect(screen.queryByText('AAPL drawings not saved.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Drawings not saved/)).not.toBeInTheDocument();
+  });
+
+  it('several symbols with unsaved drawings share ONE note ("…for AAPL, BTC and 1 more."); Retry retries them all', async () => {
+    const MSFT: SymbolInfo = { id: 'stock:MSFT', assetClass: 'stock', ticker: 'MSFT', name: 'Microsoft', pricePrecision: 2 };
+    const { rerenderWith } = renderView();
+    await flush();
+    await flush();
+    vi.useFakeTimers();
+    vi.mocked(api.drawings.put).mockRejectedValue(new Error('offline'));
+    for (const [l, i] of [[LAYOUT, AAPL], [{ ...LAYOUT, symbol: 'crypto:BTC' }, BTC], [{ ...LAYOUT, symbol: 'stock:MSFT' }, MSFT]] as const) {
+      rerenderWith(l, i);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      act(() => adapter().changeCb!());
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    }
+    await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60_000); });
+    expect(document.querySelectorAll('.chart-save-notes .save-note')).toHaveLength(1);
+    expect(screen.getByText('Drawings not saved for AAPL, BTC and 1 more.')).toBeInTheDocument();
+    vi.mocked(api.drawings.put).mockClear();
+    vi.mocked(api.drawings.put).mockResolvedValue(undefined);
+    await act(async () => { screen.getByRole('button', { name: 'Retry saving the drawings' }).click(); await vi.advanceTimersByTimeAsync(0); });
+    expect(vi.mocked(api.drawings.put).mock.calls.map((c) => c[0]).sort()).toEqual(['crypto:BTC', 'stock:AAPL', 'stock:MSFT']);
+    expect(screen.queryByText(/Drawings not saved/)).not.toBeInTheDocument();
+  });
+
+  it('a permanent failure after leaving the symbol keeps the drawings (red note) until explicitly discarded', async () => {
+    const { ApiError } = await import('../src/api/client');
+    const { rerenderWith } = renderView();
+    await flush();
+    await flush();
+    vi.useFakeTimers();
+    vi.mocked(api.drawings.put).mockImplementation(async (sym) => { if (sym === 'stock:AAPL') throw new ApiError(400, 'invalid', 'too large'); });
+    act(() => adapter().changeCb!());
+    rerenderWith({ ...LAYOUT, symbol: 'crypto:BTC' }, BTC); // flushes AAPL at once: it fails for good
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    const note = screen.getByRole('alert');
+    expect(note).toHaveTextContent('Drawings not saved for AAPL.');
+    expect(note).toHaveClass('is-error');
+    expect(drawingsStore.getSnapshot().values.has('stock:AAPL')).toBe(true);
+    act(() => screen.getByRole('button', { name: 'Discard the drawings that could not be saved' }).click());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(drawingsStore.getSnapshot().values.has('stock:AAPL')).toBe(false);
+  });
+
+  it('leaving the chart view keeps retrying unsaved drawings (the savers live above the view)', async () => {
+    const { leaveChart } = renderView();
+    await flush();
+    await flush();
+    vi.useFakeTimers();
+    vi.mocked(api.drawings.put).mockRejectedValueOnce(new Error('offline'));
+    act(() => adapter().changeCb!());
+    leaveChart(); // flushed at once (fails), then retried while the chart view is gone
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(api.drawings.put).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(api.drawings.put).toHaveBeenCalledTimes(2);
+    expect(api.drawings.put).toHaveBeenLastCalledWith('stock:AAPL', [{ name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false }]);
+    expect(drawingsStore.getSnapshot().values.has('stock:AAPL')).toBe(false); // saved: dropped
   });
 
   it('flushes the pending drawings save for the previous symbol immediately on a symbol switch', async () => {

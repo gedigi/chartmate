@@ -63,8 +63,9 @@ app, the Docker image and the release tag share one version number.
 - Layout, drawing and watchlist saves stop retrying after about 4 minutes and say "not saved" with a Retry
   button, so a tab left open offline cannot keep writing old data over changes made in another tab. All three
   use the same small amber note ("Layout not saved. Retrying…"); red is kept for saves refused for good.
-- Unsaved drawings stay with their symbol: switching symbols keeps retrying them, the note names the symbol,
-  and an edit on the new symbol no longer drops them.
+- Unsaved drawings stay with their symbol: switching symbols or opening the Baskets page keeps retrying them,
+  one note names every symbol still waiting, and an edit on another symbol no longer drops them. A save refused
+  for good keeps them until you discard them.
 - Deleting a basket removes it from the watchlist, clears its drawings and moves the chart to another symbol.
   A stale reference to a deleted basket shows as "Deleted basket" instead of retrying forever, and symbol
   lookups that fail for good (such as an unknown symbol) are no longer retried every 30 seconds.

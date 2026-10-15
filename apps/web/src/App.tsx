@@ -4,6 +4,7 @@ import { api, ApiError, errorMessage, isPermanentError, setUnauthorizedHandler }
 import { BasketsPage } from './components/BasketsPage';
 import { ChartView } from './components/ChartView';
 import { Login } from './components/Login';
+import { DrawingsNote, DrawingsSavers } from './components/DrawingsSave';
 import { SaveNote, type SaveNoteState } from './components/SaveNote';
 import { TopBar, type Theme, type View } from './components/TopBar';
 import { SidebarResizer } from './components/SidebarResizer';
@@ -182,12 +183,17 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
       />
       {/* Retried with backoff; once the retries give up (a tab left open must not keep writing an old layout over
           newer changes) a manual Retry. In the chart view the note sits in the chart's note stack; elsewhere here. */}
-      {layoutSaveError !== null && view !== 'chart' && (
+      {view !== 'chart' && (
         <div className="save-status">
-          <SaveNote thing="Layout" state={layoutSavePermanent ? 'failed' : layoutSaveStalled ? 'stalled' : 'retrying'}
-            detail={layoutSaveError} retryLabel="Retry saving the layout" onRetry={retryLayoutSave} />
+          {layoutSaveError !== null && (
+            <SaveNote thing="Layout" state={layoutSavePermanent ? 'failed' : layoutSaveStalled ? 'stalled' : 'retrying'}
+              detail={layoutSaveError} retryLabel="Retry saving the layout" onRetry={retryLayoutSave} />
+          )}
+          <DrawingsNote />
         </div>
       )}
+      {/* Drawings savers live here, above the view switch: unsaved drawings keep being retried on the Baskets page. */}
+      <DrawingsSavers />
       {view === 'chart' ? (
         <>
           <main className="chart-main">

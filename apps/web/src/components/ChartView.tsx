@@ -6,7 +6,8 @@ import { migrateCalcParams } from '../chart/indicators/catalog';
 import type { LoaderMeta } from '../chart/dataLoader';
 import { pollIntervalMs } from '../chart/periods';
 import { onBasketChanged } from '../state/useBaskets';
-import { DrawingsSave } from './DrawingsSave';
+import { drawingsStore } from '../state/drawingsStore';
+import { DrawingsNote } from './DrawingsSave';
 import { SaveNote, type SaveNoteState } from './SaveNote';
 import { retryDelayMs } from '../state/retry';
 import { DrawingStyleBar } from './DrawingStyleBar';
@@ -33,7 +34,6 @@ export interface ChartViewProps {
 
 const EMPTY_META: LoaderMeta = { stale: false, notices: [], markers: [] };
 const TOAST_MS = 6000;
-const DRAWINGS_SAVE_MS = 1000;
 
 /**
  * Polling interval for a symbol; baskets poll fast only if they contain crypto (re-checked when the basket is
@@ -236,20 +236,13 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
 
   // Drawings: restore per symbol; save debounced after user edits (only once the symbol's drawings loaded).
   const [drawingsFor, setDrawingsFor] = useState<SymbolId | null>(null);
-  /** Latest serialized drawings per symbol with a saver mounted (see DrawingsSave); dropped once that symbol saved. */
-  const [drawingsValues, setDrawingsValues] = useState<Partial<Record<SymbolId, DrawingState[]>>>({});
-  const drawingsValuesRef = useRef(drawingsValues);
-  drawingsValuesRef.current = drawingsValues;
-  /** Symbols with a saver: the charted one, plus any earlier one whose drawings have not reached the server yet. */
-  const [savers, setSavers] = useState<SymbolId[]>([symbol]);
-  useEffect(() => { setSavers((list) => (list.includes(symbol) ? list : [...list, symbol])); }, [symbol]);
-  const tickers = useRef(new Map<SymbolId, string>());
-  if (info) tickers.current.set(info.id, info.ticker);
-  const settleSaver = useCallback((s: SymbolId) => {
-    if (s === symbolRef.current) return;
-    setSavers((list) => list.filter((x) => x !== s));
-    setDrawingsValues(({ [s]: _saved, ...rest }) => rest as Partial<Record<SymbolId, DrawingState[]>>);
-  }, []);
+  // Saving goes through the drawings store (savers mounted by the app shell, see DrawingsSave): this symbol takes new
+  // values only while its drawings are loaded. A symbol switch (or leaving the chart view) makes it inactive in the
+  // same commit, which flushes its pending save at once and keeps retrying it.
+  const activeDrawings = drawingsFor === symbol ? symbol : null;
+  useEffect(() => { drawingsStore.setActive(activeDrawings); }, [activeDrawings]);
+  useEffect(() => () => drawingsStore.setActive(null), []);
+  useEffect(() => { if (info) drawingsStore.setTicker(info.id, info.ticker); }, [info]);
   const symbolRef = useRef(symbol);
   symbolRef.current = symbol;
   const drawingsForRef = useRef(drawingsFor);
@@ -261,9 +254,10 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
     let timer: ReturnType<typeof setTimeout> | undefined;
     setDrawingsFor(null);
     adapter.restoreDrawings([]);
-    // Drawings of this symbol that have not reached the server yet (a save still retrying or stalled) are newer than
-    // the server's copy: restored from memory.
-    const local = drawingsValuesRef.current[symbol];
+    // Drawings of this symbol that have not reached the server yet (a save still retrying, stalled or failed) are
+    // restored from memory instead of the server's copy. Last writer wins: this tab's unsaved drawings replace whatever
+    // another tab saved meanwhile once they are saved (drawings are stored as one list per symbol, no merge).
+    const local = drawingsStore.getSnapshot().values.get(symbol);
     if (local) {
       adapter.restoreDrawings(local, symbol);
       setDrawingsFor(symbol);
@@ -301,8 +295,7 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
   useEffect(() => adapter?.onDrawingsChange(() => {
     const s = symbolRef.current;
     if (drawingsForRef.current !== s) return; // never overwrite drawings we have not loaded
-    const drawings = adapter.serializeDrawings();
-    setDrawingsValues((v) => ({ ...v, [s]: drawings }));
+    drawingsStore.setValue(s, adapter.serializeDrawings());
   }), [adapter]);
 
 
@@ -333,13 +326,7 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
               <SaveNote thing="Layout" state={layoutSaveNote.state} detail={layoutSaveNote.detail} retryLabel="Retry saving the layout"
                 onRetry={layoutSaveNote.onRetry} />
             )}
-            {/* One saver per symbol, enabled only while that symbol is charted and its drawings are loaded: a symbol
-                switch disables the old one in the same render, which flushes its pending save at once (and keeps
-                retrying it) instead of losing it. Each shows its own note while its save has not reached the server. */}
-            {savers.map((s) => (
-              <DrawingsSave key={s} symbol={s} ticker={tickers.current.get(s) ?? s.slice(s.indexOf(':') + 1)}
-                value={drawingsValues[s]} enabled={s === symbol && drawingsFor === symbol} delayMs={DRAWINGS_SAVE_MS} onSettled={settleSaver} />
-            ))}
+            <DrawingsNote />
           </div>
         </div>
         <div className="chart-stage">
