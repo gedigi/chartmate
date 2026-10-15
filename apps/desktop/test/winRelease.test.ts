@@ -84,6 +84,9 @@ describe('verify-win-signatures: tools and updater config', () => {
     expect(appUpdateProblems('win-unpacked', 'provider: github\npublisherName: Jane Doe\n', 'Jane Doe')).toEqual([]);
     expect(appUpdateProblems('win-unpacked', 'provider: github\n', 'Jane Doe')).toHaveLength(1);
     expect(appUpdateProblems('win-unpacked', 'publisherName:\n  - Someone\n', 'Jane Doe')).toHaveLength(1);
+    // An empty or comment-only file is a reported problem, not a crash.
+    expect(appUpdateProblems('win-unpacked', '', 'Jane Doe')).toHaveLength(1);
+    expect(appUpdateProblems('win-unpacked', '# nothing\n', 'Jane Doe')).toHaveLength(1);
     expect(appUpdateProblems('win-unpacked', null, 'Jane Doe')).toHaveLength(1);
   });
 });
