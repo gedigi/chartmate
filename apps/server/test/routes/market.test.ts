@@ -83,7 +83,10 @@ describe('market routes', () => {
     const to = Date.now();
     const r = await get(`/api/bars?symbol=stock:NOPE&tf=1h&session=rth&from=${to - DAY}&to=${to}`);
     expect(r.statusCode).toBe(404);
-    expect(r.json()).toMatchObject({ code: 'not_found' });
+    expect(r.json()).toEqual({ code: 'not_found', message: 'Unknown symbol stock:NOPE' }); // no provider text
+    // Remembered: the second request answers the same without asking the provider.
+    const again = await get(`/api/bars?symbol=stock:NOPE&tf=1h&session=rth&from=${to - DAY}&to=${to}`);
+    expect(again.json()).toEqual({ code: 'not_found', message: 'Unknown symbol stock:NOPE' });
   });
 
   it('GET /api/bars and /api/latest for a basket', async () => {

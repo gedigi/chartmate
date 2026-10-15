@@ -253,7 +253,7 @@ export class MarketDataService {
   async getNativeBars(symbol: SymbolId, tf: NativeTimeframe, from: number, to: number): Promise<{ bars: Bar[]; stale: boolean }> {
     const { assetClass, code } = parseMarketSymbol(symbol);
     // A symbol the provider just said it does not know is not asked for bars again until the entry expires.
-    if (this.isRememberedUnknown(symbol)) throw new NotFoundError('Unknown symbol');
+    if (this.isRememberedUnknown(symbol)) throw new NotFoundError(`Unknown symbol ${symbol}`);
     if (assetClass === 'stock') await this.ensureSplitsChecked(symbol);
     const provider = this.provider(assetClass);
     const queue = this.queues[assetClass];
@@ -323,7 +323,8 @@ export class MarketDataService {
       // Providers report "no data" as NotFound for valid symbols too (e.g. a pre-listing window).
       // For a known symbol such a chunk is simply empty; only an unknown symbol is a 404.
       const known = await this.isKnown(symbol, tf);
-      if (known === false) throw firstNotFound;
+      // The provider's own wording stays server-side (logged by the app's error handler from `cause`).
+      if (known === false) throw new NotFoundError(`Unknown symbol ${symbol}`, { cause: firstNotFound });
       if (known === null) {
         stale = true; // couldn't tell (lookup outage): serve the DB, don't mark coverage
       } else {

@@ -117,6 +117,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     }
     if (error instanceof AppError) {
       if (error.status >= 500) request.log.warn({ err: error }, 'request failed');
+      else if (error.cause !== undefined) request.log.info({ err: error.cause }, error.message);
       return reply.code(error.status).send({ code: error.code, message: error.message });
     }
     if (error instanceof ProviderError) {

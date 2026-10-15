@@ -45,6 +45,8 @@ app, the Docker image and the release tag share one version number.
 - Watchlist quotes go easier on the data providers: a crypto pair Binance does not know is left out of quote
   requests for 10 minutes (it used to turn every poll into one request per symbol), and a rate limit or outage
   pauses quote requests for 30 seconds.
+- An unknown symbol is answered with a plain "Unknown symbol" message; the data provider's own error text is only
+  logged by the server.
 - A stock split the data provider reports a few days late is now still applied to cached history (and never
   twice).
 
