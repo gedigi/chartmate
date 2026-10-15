@@ -40,7 +40,11 @@ describe('Dockerfile', () => {
     expect(manifests).toBeLessThan(install);
     expect(text).toContain(`require('./package.json').packageManager.split('@')[1].split('+')[0]`);
     expect(text).toMatch(/\[ "\$got" = "\$want" \]/);
-    expect(install).toBeLessThan(text.indexOf('RUN pnpm install'));
+    // No pnpm (or corepack) command runs before it: otherwise the wrapper would download pnpm's native binary,
+    // checked only against npm's signature.
+    const runs = [...text.matchAll(/^RUN [^\n]*(?:\\\n[^\n]*)*/gm)];
+    expect(runs.find((r) => /\b(pnpm|corepack)\b/.test(r[0]))!.index).toBe(install);
+    expect(text).not.toMatch(/corepack enable/);
   });
 
   it('applies the OS security updates in the runtime stage and leaves no package lists behind', () => {
