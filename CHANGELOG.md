@@ -20,6 +20,11 @@ app, the Docker image and the release tag share one version number.
 - State-changing API requests (with or without a password) are refused when their `Origin` is not the page's
   own origin.
 
+### Fixes
+
+- Indicator settings store only the colors you change: the other lines (and the untouched up or down bar
+  color) keep following the theme instead of freezing to the palette of the theme they were edited in.
+
 ## [1.0.0] - 2026-10-14
 
 The first stable release: a charting app for US stocks and ETFs, crypto and your own baskets, as a desktop app

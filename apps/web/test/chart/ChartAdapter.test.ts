@@ -943,11 +943,32 @@ describe('ChartAdapter', () => {
       const w = calls.find((c) => c.id === wide)!;
       expect(lineColors(w)).toEqual(MA_LIGHT.slice(0, 3));
       expect(w.styles!.lines![0]!.size).toBe(3); // width override survives
-      expect(calls.find((c) => c.id === user)).toBeUndefined();
+      expect(lineColors(calls.find((c) => c.id === user))).toEqual(['#111111', '#222222', '#333333']);
       expect(a.listIndicators().find((i) => i.id === user)!.lineColors).toEqual(['#111111', '#222222', '#333333']);
       chart().overrideIndicator.mockClear();
       a.setTheme('dark');
       expect(lineColors(chart().overrideIndicator.mock.calls.map((c) => c[0] as { id: string } & LineStyles).find((c) => c.id === plain))).toEqual(MA_DARK);
+    });
+
+    it('a theme toggle re-applies the palette to the lines a user did not edit (sparse or old dense colors)', () => {
+      const a = make();
+      const sparse = a.addIndicator({ name: 'MA', pane: 'main', lineColors: ['', '#123456'] });
+      expect(lineColors(chart().createIndicator.mock.calls.at(-1)![0])).toEqual([MA_DARK[0], '#123456', MA_DARK[2], MA_DARK[3]]);
+      const dense = a.addIndicator({ name: 'EMA', pane: 'main', lineColors: [MA_DARK[0]!, '#654321', MA_DARK[2]!] });
+      chart().overrideIndicator.mockClear();
+      a.setTheme('light');
+      const calls = chart().overrideIndicator.mock.calls.map((c) => c[0] as { id: string } & LineStyles);
+      expect(lineColors(calls.find((c) => c.id === sparse && c.styles?.lines))).toEqual([MA_LIGHT[0], '#123456', MA_LIGHT[2], MA_LIGHT[3]]);
+      expect(lineColors(calls.find((c) => c.id === dense && c.styles?.lines))).toEqual([MA_LIGHT[0], '#654321', MA_LIGHT[2]]);
+    });
+
+    it('a theme toggle re-applies the default side of partial bar colors', () => {
+      const a = make();
+      const id = a.addIndicator({ name: 'VOL', pane: 'sub', barColors: { up: '#00ff00', down: THEME_TOKENS.dark.down } });
+      chart().overrideIndicator.mockClear();
+      a.setTheme('light');
+      const o = chart().overrideIndicator.mock.calls.map((c) => c[0] as { id: string; styles?: { bars?: unknown[] } }).find((c) => c.id === id && c.styles?.bars);
+      expect(o!.styles!.bars).toEqual([expect.objectContaining({ upColor: '#00ff00', downColor: THEME_TOKENS.light.down })]);
     });
 
     it('removing a user color override (Reset) writes the current theme palette', () => {

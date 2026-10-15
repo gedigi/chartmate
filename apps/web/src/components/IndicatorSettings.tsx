@@ -1,7 +1,7 @@
 import { MAX_LINE_WIDTH, MIN_LINE_WIDTH, type IndicatorState, type LineStyleKind, type ThemedAppearance } from '@chartmate/shared';
 import { useId, useState, type FormEvent, type JSX } from 'react';
-import { catalogEntry, defaultLineColor, migrateCalcParams, validateParam } from '../chart/indicators/catalog';
-import { defaultBarColors, type ThemeName } from '../chart/theme';
+import { catalogEntry, defaultLineColor, effectiveLineColor, migrateCalcParams, sparseLineColors, validateParam } from '../chart/indicators/catalog';
+import { defaultBarColors, effectiveBarColors, type ThemeName } from '../chart/theme';
 import { LINE_STYLES, parseLineStyle } from '../chart/drawingStyles';
 import { formatLevels, parseLevels } from '../chart/indicators/levels';
 import { Modal } from './Modal';
@@ -41,11 +41,11 @@ export function IndicatorSettings({ state, onSave, onClose, theme = 'dark', appe
     const params = entry ? migrateCalcParams(state.name, state.calcParams) : state.calcParams;
     return labels.map((_, i) => String(params[i] ?? ''));
   });
-  const [colors, setColors] = useState(() => lines.map((_, i) => state.lineColors?.[i] ?? defaultLineColor(i, state.name, theme)));
+  const [colors, setColors] = useState(() => lines.map((_, i) => effectiveLineColor(state, i, theme)));
   const [widths, setWidths] = useState(() => lines.map((_, i) => state.lineWidths?.[i] ?? 1));
   const [styles, setStyles] = useState<LineStyleKind[]>(() => lines.map((_, i) => state.lineStyles?.[i] ?? 'solid'));
   const hasBars = entry?.bars === true;
-  const [bars, setBars] = useState(() => ({ ...DEFAULT_BAR_COLORS, ...state.barColors }));
+  const [bars, setBars] = useState(() => effectiveBarColors(theme, appearance, state.barColors));
   const defaultLevels = entry?.levels;
   const [showLevels, setShowLevels] = useState(state.showLevels !== false);
   const [levelsText, setLevelsText] = useState(() => formatLevels(state.levels ?? defaultLevels ?? []));
@@ -62,8 +62,10 @@ export function IndicatorSettings({ state, onSave, onClose, theme = 'dark', appe
     if (!valid) return;
     const next: IndicatorState = { name: state.name, pane: state.pane, calcParams: values.map(Number), visible: state.visible };
     // Style overrides are only saved while they differ from the defaults (clean shape; the adapter writes the
-    // defaults back when an override goes away).
-    if (lines.length > 0 && colors.some((c, i) => c !== defaultColors[i])) next.lineColors = colors;
+    // defaults back when an override goes away). Colors are per line: only the edited lines are stored ('' = the
+    // theme default), so the others keep following the active theme.
+    const lineColors = lines.length > 0 ? sparseLineColors(state.name, colors) : undefined;
+    if (lineColors) next.lineColors = lineColors;
     if (lines.length > 0 && widths.some((w) => w !== 1)) next.lineWidths = widths;
     if (lines.length > 0 && styles.some((s) => s !== 'solid')) next.lineStyles = styles;
     if (hasBars && (bars.up !== DEFAULT_BAR_COLORS.up || bars.down !== DEFAULT_BAR_COLORS.down)) next.barColors = { ...bars };

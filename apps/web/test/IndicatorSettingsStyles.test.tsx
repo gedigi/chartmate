@@ -110,3 +110,31 @@ describe('IndicatorSettings default line colors follow the theme palette', () =>
     expect(onSave.mock.calls[0]![0]).not.toHaveProperty('lineColors');
   });
 });
+
+describe('IndicatorSettings stores only the edited colors (the rest keep following the theme)', () => {
+  it('editing one line saves that line only; the others stay empty (theme default)', async () => {
+    const onSave = vi.fn();
+    render(<IndicatorSettings state={RSI} theme="dark" onSave={onSave} onClose={() => {}} />);
+    fireEvent.input(screen.getByLabelText('RSI2 color'), { target: { value: '#123456' } });
+    await userEvent.click(save());
+    expect(onSave.mock.calls[0]![0].lineColors).toEqual(['', '#123456']);
+  });
+
+  it('an old dense payload: entries equal to either theme default are shown as the active theme default and saved as defaults', async () => {
+    const onSave = vi.fn();
+    // Saved in dark with only RSI2 edited: RSI1 / RSI3 hold the dark palette.
+    const old = { ...RSI, lineColors: ['#f2b861', '#123456', '#3fc8e4'] };
+    render(<IndicatorSettings state={old} theme="light" onSave={onSave} onClose={() => {}} />);
+    expect(screen.getByLabelText('RSI1 color')).toHaveValue('#c98512');
+    expect(screen.getByLabelText('RSI2 color')).toHaveValue('#123456');
+    expect(screen.getByLabelText('RSI3 color')).toHaveValue('#0a8ea6');
+    await userEvent.click(save());
+    expect(onSave.mock.calls[0]![0].lineColors).toEqual(['', '#123456']);
+  });
+
+  it('bar colors: a stored side equal to a theme default follows the active theme', () => {
+    render(<IndicatorSettings state={{ ...VOL, barColors: { up: '#00ff00', down: DEFAULT_BAR_COLORS.down } }} theme="light" onSave={() => {}} onClose={() => {}} />);
+    expect(screen.getByLabelText('Up bar color')).toHaveValue('#00ff00');
+    expect(screen.getByLabelText('Down bar color')).toHaveValue(defaultBarColors('light').down);
+  });
+});

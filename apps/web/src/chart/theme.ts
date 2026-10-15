@@ -199,6 +199,22 @@ export function defaultBarColors(theme: ThemeName, appearance?: ThemedAppearance
 }
 
 /**
+ * Bar colors drawn for an indicator's stored `barColors` in `theme`, per side. The stored pair always holds both
+ * sides (the settings dialog writes the shown default next to the edited side), so a side equal to a default bar
+ * color of EITHER theme (the theme's own or the custom candle color) is read as "default" and follows `theme`.
+ */
+export function effectiveBarColors(theme: ThemeName, appearance: ThemedAppearance | undefined, stored?: { up: string; down: string }): { up: string; down: string } {
+  const d = defaultBarColors(theme, appearance);
+  if (!stored) return d;
+  const pick = (dir: 'up' | 'down'): string => {
+    const c = stored[dir].toLowerCase();
+    const isDefault = (['dark', 'light'] as const).some((t) => c === THEME_TOKENS[t][dir] || c === defaultBarColors(t, appearance)[dir].toLowerCase());
+    return isDefault ? d[dir] : stored[dir];
+  };
+  return { up: pick('up'), down: pick('down') };
+}
+
+/**
  * Chart default histogram bar colors: the (resolved) candle up / down, OPAQUE — the exact candle colors (an rgba()
  * of them would read pink on white / brown on dark next to the candles).
  */

@@ -24,7 +24,7 @@ import { positionContext, positionState, registerPositionOverlays } from './posi
 import { drawingClipboard, type DrawingClip } from './drawingClipboard';
 import { DEFAULT_DRAWING_COLOR, drawingSwatches, resolveDrawingColor, type DrawingSwatch } from './drawingColors';
 import { createDataLoader, type DataLoaderImpl, type LoaderEvents } from './dataLoader';
-import { catalogEntry, defaultLineColor, effectiveLevels } from './indicators/catalog';
+import { catalogEntry, defaultLineColor, effectiveLevels, lineColorOverride } from './indicators/catalog';
 import { indicatorColorContext } from './indicators/colors';
 import { CUSTOM_INDICATORS, PRICE_PRECISION_INDICATORS } from './indicators/extensions';
 import { levelsDraw, levelsRange } from './indicators/levels';
@@ -41,7 +41,7 @@ import { textColoredLegends } from './barLegends';
 import { solidBarFigures } from './solidBars';
 import { axisTickLabels, countdownText, crosshairDate, hasCountdown } from './timeLabels';
 import {
-  candleStyles, CHART_FONT, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, defaultIndicatorCircles, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeSoftTone, themeTokens,
+  candleStyles, CHART_FONT, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, defaultIndicatorCircles, effectiveBarColors, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeSoftTone, themeTokens,
   type ThemeName,
 } from './theme';
 
@@ -437,10 +437,9 @@ export class ChartAdapter {
     this.refreshLockedLook();
     this.refreshColorRefs();
     // Indicator lines without a color override carry the palette of the theme they were written in: rewrite
-    // them (width / style overrides kept; user colors are never touched).
+    // them, per line (width / style overrides kept; the lines a user colored keep that color exactly).
     for (const i of this.chart.getIndicators()) {
       const o = this.overrides.get(i.id) ?? {};
-      if (o.lineColors) continue;
       const styles = this.indicatorStyles(i.name, o, undefined, 'all-lines');
       if (styles?.lines) this.chart.overrideIndicator({ id: i.id, name: i.name, styles: { lines: styles.lines } });
     }
@@ -454,10 +453,15 @@ export class ChartAdapter {
    * (their defaults were written explicitly): give them the current default bars (theme / candle colors).
    */
   private refreshThemedBars(): void {
-    if (this.themedBars.size === 0) return;
+    if (this.themedBars.size === 0 && ![...this.overrides.values()].some((o) => o.barColors)) return;
     const d = this.chart.getStyles().indicator.bars[0]!;
     for (const i of this.chart.getIndicators()) {
       if (this.themedBars.has(i.id)) this.chart.overrideIndicator({ id: i.id, name: i.name, styles: { bars: [{ ...d, ...defaultIndicatorBars(this.theme, this.appearance) }] } });
+      // A bar-color override may leave one side at its default (stored as the default color): that side follows.
+      const stored = this.overrides.get(i.id)?.barColors;
+      if (!stored) continue;
+      const { up, down } = effectiveBarColors(this.theme, this.appearance, stored);
+      if (up !== stored.up || down !== stored.down) this.chart.overrideIndicator({ id: i.id, name: i.name, styles: { bars: [{ ...d, upColor: up, downColor: down }] } });
     }
   }
 
@@ -580,7 +584,7 @@ export class ChartAdapter {
         const line = klineLine(style, size, INDICATOR_DASH);
         return {
           ...d,
-          color: o.lineColors?.[i] ?? d.color,
+          color: lineColorOverride(name, i, o.lineColors?.[i]) ?? d.color,
           size,
           ...line,
           dashedValue: style === 'solid' ? d.dashedValue : line.dashedValue,
@@ -589,7 +593,8 @@ export class ChartAdapter {
     }
     if (o.barColors || reset?.barColors) {
       const d = this.chart.getStyles().indicator.bars[0]!;
-      styles.bars = [o.barColors ? { ...d, upColor: o.barColors.up, downColor: o.barColors.down } : { ...d, ...defaultIndicatorBars(this.theme, this.appearance) }];
+      const b = o.barColors ? effectiveBarColors(this.theme, this.appearance, o.barColors) : null;
+      styles.bars = [b ? { ...d, upColor: b.up, downColor: b.down } : { ...d, ...defaultIndicatorBars(this.theme, this.appearance) }];
     }
     return styles.lines || styles.bars ? styles : undefined;
   }

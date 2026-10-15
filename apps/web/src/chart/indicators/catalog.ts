@@ -71,6 +71,33 @@ export function defaultLineColor(i: number, name: string | undefined, theme: The
   return indicatorPaletteColor(theme, slot);
 }
 
+/**
+ * The user's own color for line `i` of indicator `name`, or undefined when that line follows the theme palette.
+ * `lineColors` is sparse: an empty entry (or a missing one) is the theme default. An entry equal to that line's
+ * default in EITHER theme is read as a default too: older versions saved the whole list when one line changed,
+ * freezing the untouched lines to the palette of the theme they were edited in.
+ */
+export function lineColorOverride(name: string, i: number, stored: string | undefined): string | undefined {
+  if (!stored) return undefined;
+  const c = stored.toLowerCase();
+  return c === defaultLineColor(i, name, 'dark') || c === defaultLineColor(i, name, 'light') ? undefined : stored;
+}
+
+/** The color drawn for line `i` of indicator state `s` in `theme`: its override, else the theme default. */
+export function effectiveLineColor(s: { name: string; lineColors?: readonly string[] }, i: number, theme: ThemeName): string {
+  return lineColorOverride(s.name, i, s.lineColors?.[i]) ?? defaultLineColor(i, s.name, theme);
+}
+
+/**
+ * Sparse `lineColors` to store for the edited `colors` (one per line): '' for every line left at a default, trailing
+ * defaults trimmed; undefined when no line has a color of its own.
+ */
+export function sparseLineColors(name: string, colors: readonly string[]): string[] | undefined {
+  const out = colors.map((c, i) => lineColorOverride(name, i, c) ?? '');
+  while (out.length > 0 && out[out.length - 1] === '') out.pop();
+  return out.length > 0 ? out : undefined;
+}
+
 /** Default colors of all lines of indicator `name` in `theme`, in line order. */
 export function defaultLineColors(name: string, theme: ThemeName): string[] {
   return (catalogEntry(name)?.lines ?? []).map((_, i) => defaultLineColor(i, name, theme));
