@@ -94,7 +94,8 @@ const SESSIONS: Partial<Record<RangePreset, number>> = { '1D': 1, '5D': 5 };
  * First bar time of preset `preset` over bars at `times` (ascending) of interval `tf`: bars at or after it are the
  * range. The range ends at the latest bar:
  * - 1D / 5D: stocks the last 1 / 5 sessions (dates with bars, so weekends and holidays are skipped; extended hours
- *   included when loaded); crypto the last 24 h / 5 × 24 h, the forming bar included.
+ *   included when loaded; 1D adds the previous session while the latest has fewer than MIN_SESSION_BARS bars);
+ *   crypto the last 24 h / 5 × 24 h, the forming bar included.
  * - 1M / 3M / 6M / 1Y: from the day after the same date that many months earlier.
  * - YTD: from January 1 of the latest bar's year (so on the January 1 holiday it shows the year that just ended).
  * Dates are New York dates for intraday stock bars, UTC dates otherwise.
@@ -107,19 +108,30 @@ export function rangeStart(preset: RangePreset, times: readonly number[], tf: Ti
   const sessions = SESSIONS[preset];
   if (sessions !== undefined) {
     if (calendar === 'crypto') return latest + tfMs(tf) - sessions * 24 * HOUR;
-    let count = 0;
-    let dayStart = Infinity;
-    for (let i = times.length - 1; i >= 0; i--) {
-      if (times[i]! >= dayStart) continue;
-      dayStart = startOf(dateOf(times[i]!, ny), ny);
-      if (++count === sessions) return dayStart;
-    }
-    return -Infinity;
+    const start = sessionsStart(times, sessions, ny);
+    // A session that just opened (a few pre-market bars) would show a few very wide candles: add the one before.
+    if (preset === '1D' && visibleBarCount(times, start) < MIN_SESSION_BARS) return sessionsStart(times, 2, ny);
+    return start;
   }
   const last = dateOf(latest, ny);
   if (preset === 'YTD') return startOf({ y: last.y, m: 1, d: 1 }, ny);
   const back = minusMonths(last, MONTHS[preset]!);
   return startOf({ ...back, d: back.d + 1 }, ny);
+}
+
+/** 1D on stocks shows the session before too while the latest one has fewer bars than this (e.g. early pre-market). */
+export const MIN_SESSION_BARS = 12;
+
+/** Start of the earliest of the last `sessions` dates with bars; -Infinity when fewer are loaded. */
+function sessionsStart(times: readonly number[], sessions: number, ny: boolean): number {
+  let count = 0;
+  let dayStart = Infinity;
+  for (let i = times.length - 1; i >= 0; i--) {
+    if (times[i]! >= dayStart) continue;
+    dayStart = startOf(dateOf(times[i]!, ny), ny);
+    if (++count === sessions) return dayStart;
+  }
+  return -Infinity;
 }
 
 /** Number of bars (times ascending) at or after `start`. */

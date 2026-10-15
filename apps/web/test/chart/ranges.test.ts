@@ -2,7 +2,7 @@ import { nyToUtc, tfMs, type Timeframe } from '@chartmate/shared';
 import { describe, expect, it } from 'vitest';
 import { initialWindowMs } from '../../src/chart/periods';
 import {
-  allTimeframe, fitBarSpace, MAX_BAR_SPACE, MIN_ALL_BAR_PX, MIN_BAR_SPACE, RANGE_PRESETS, rangeLabel, rangeLookbackMs, rangeStart,
+  allTimeframe, fitBarSpace, MAX_BAR_SPACE, MIN_ALL_BAR_PX, MIN_BAR_SPACE, MIN_SESSION_BARS, RANGE_PRESETS, rangeLabel, rangeLookbackMs, rangeStart,
   rangeTimeframe, visibleBarCount,
 } from '../../src/chart/ranges';
 
@@ -86,6 +86,18 @@ describe('rangeStart: stocks', () => {
     const start = rangeStart('1D', times, '5m', 'stock');
     expect(visibleBarCount(times, start)).toBe(192);
     expect(times.find((t) => t >= start)).toBe(nyToUtc(2026, 10, 15, 4, 0));
+  });
+
+  it('1D early in a session (fewer than MIN_SESSION_BARS bars): the previous session too', () => {
+    const prev = stockBars(['2026-10-14'], '5m', [4, 0], [20, 0]);
+    const early = stockBars(['2026-10-15'], '5m', [4, 0], [4, 45]); // 9 pre-market bars
+    expect(early).toHaveLength(9);
+    expect(rangeStart('1D', [...prev, ...early], '5m', 'stock')).toBe(nyToUtc(2026, 10, 14, 0, 0));
+    const enough = stockBars(['2026-10-15'], '5m', [4, 0], [5, 0]);
+    expect(enough).toHaveLength(MIN_SESSION_BARS);
+    expect(rangeStart('1D', [...prev, ...enough], '5m', 'stock')).toBe(nyToUtc(2026, 10, 15, 0, 0));
+    // Only the young session loaded: older bars are needed first.
+    expect(rangeStart('1D', early, '5m', 'stock')).toBe(-Infinity);
   });
 
   it('1D on a weekend: the latest bar is Friday\'s, so Friday\'s session', () => {

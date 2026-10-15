@@ -418,7 +418,7 @@ Where to read next:
 
   | Range | Interval | Shows |
   | --- | --- | --- |
-  | 1D | 5m | Stocks: the latest session (with pre- and post-market on ETH). Crypto: the last 24 hours. |
+  | 1D | 5m | Stocks: the latest session (with pre- and post-market on ETH); while it has fewer than 12 bars (early pre-market), the session before it too. Crypto: the last 24 hours. |
   | 5D | 15m | Stocks: the last five sessions (weekends and holidays skipped). Crypto: the last 5 × 24 hours. |
   | 1M | 1h | From the day after the same date one month earlier. |
   | 3M, 6M, 1Y | 1D | From the day after the same date 3, 6 or 12 months earlier. |
