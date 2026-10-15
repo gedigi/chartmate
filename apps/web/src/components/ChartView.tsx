@@ -282,7 +282,7 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
 
   // Enabled only while the current symbol's drawings are loaded: a symbol switch disables it in the same
   // render, which flushes the previous symbol's pending save immediately instead of losing it.
-  const { error: saveError } = useDebouncedSave(
+  const { error: saveError, stalled: saveStalled, retryNow: retrySave } = useDebouncedSave(
     drawingsValue,
     (v) => (v ? api.drawings.put(v.symbol, v.drawings) : Promise.resolve()),
     DRAWINGS_SAVE_MS,
@@ -342,6 +342,12 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
             <div className="chart-loading" data-testid="chart-loading" aria-live="polite">Loading…</div>
           )}
           <div className="chart-overlay-bottom-left">
+            {saveError !== null && saveStalled && (
+              <div className="chart-banner" role="status" title={saveError}>
+                Drawings not saved
+                <button type="button" className="chart-banner-action" aria-label="Retry saving the drawings" onClick={retrySave}>Retry</button>
+              </div>
+            )}
             {connectionLost !== null && (
               <div className="chart-banner" role="status" title={connectionLost}>Connection lost — retrying…</div>
             )}

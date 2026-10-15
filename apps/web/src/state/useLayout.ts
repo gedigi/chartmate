@@ -120,6 +120,9 @@ export interface UseLayout {
   retry: () => void;
   /** Set while the latest layout change could not be saved (it is retried with backoff). */
   saveError: string | null;
+  /** Saving gave up after its retries (see useDebouncedSave); `retrySave` tries again. */
+  saveStalled: boolean;
+  retrySave: () => void;
 }
 
 /**
@@ -185,7 +188,7 @@ export function useLayout(): UseLayout {
   }, [loaded]);
 
   const saveDefault = useCallback((l: Layout) => api.layouts.put('default', l), []);
-  const { error: saveError } = useDebouncedSave(layout, saveDefault, 1000, loaded, { retry: true });
+  const { error: saveError, stalled: saveStalled, retryNow: retrySave } = useDebouncedSave(layout, saveDefault, 1000, loaded, { retry: true });
 
   const setLayout = useCallback((fn: (l: Layout) => Layout) => setLayoutState((cur) => {
     if (!loadedRef.current) return cur; // the default load would overwrite it (and saves are off): ignore
@@ -199,5 +202,5 @@ export function useLayout(): UseLayout {
     setLayout((l) => (l.symbol === id ? l : { ...l, symbol: id }));
   }, [setLayout]);
 
-  return { layout, setLayout, selectSymbol, loaded, loadError, retry, saveError };
+  return { layout, setLayout, selectSymbol, loaded, loadError, retry, saveError, saveStalled, retrySave };
 }

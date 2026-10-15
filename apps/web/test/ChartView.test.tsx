@@ -229,6 +229,20 @@ describe('ChartView', () => {
     expect(vi.mocked(api.drawings.put).mock.calls[1]![0]).toBe('stock:AAPL');
   });
 
+  it('drawings saves that keep failing stop after the retry limit: a "Drawings not saved" banner with Retry', async () => {
+    renderView();
+    await flush();
+    await flush();
+    vi.useFakeTimers();
+    vi.mocked(api.drawings.put).mockRejectedValue(new Error('offline'));
+    act(() => adapter().changeCb!());
+    await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60_000); });
+    expect(screen.getByText('Drawings not saved')).toBeInTheDocument();
+    vi.mocked(api.drawings.put).mockResolvedValue(undefined);
+    await act(async () => { screen.getByRole('button', { name: 'Retry saving the drawings' }).click(); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.queryByText('Drawings not saved')).not.toBeInTheDocument();
+  });
+
   it('flushes the pending drawings save for the previous symbol immediately on a symbol switch', async () => {
     const { rerenderWith } = renderView();
     await flush();

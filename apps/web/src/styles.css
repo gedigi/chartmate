@@ -467,6 +467,11 @@ kbd {
   position: fixed; left: 8px; bottom: 8px; z-index: 50; padding: 4px 10px; border-radius: 999px;
   background: var(--warn-bg); color: var(--warn-text); font-size: 11px; font-weight: 500; pointer-events: auto;
 }
+.save-status.is-stalled { display: flex; align-items: center; gap: 8px; padding-right: 4px; }
+.save-status.is-stalled button {
+  min-height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; color: var(--warn-text); border-color: currentColor;
+  background: transparent;
+}
 
 /* Sparklines (watchlist, baskets): a dotted baseline at the first value, the series, a dot on the last value. */
 .sparkline { display: block; overflow: visible; }

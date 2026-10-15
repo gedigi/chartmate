@@ -27,7 +27,10 @@ app, the Docker image and the release tag share one version number.
   color equal to that line's default in the other theme counts as a default too, so it follows the theme.
 - Failed drawing and watchlist saves are retried with backoff instead of being dropped, and a failed watchlist
   load is retried too. Until the watchlist has loaded it shows placeholder rows and cannot be edited, so an
-  early edit is no longer lost.
+  early edit is no longer lost. Watchlist trouble shows as one quiet line ("Can't reach the server.
+  Retrying…"); a load refused for good is not retried.
+- Layout, drawing and watchlist saves stop retrying after about 4 minutes and say "not saved" with a Retry
+  button, so a tab left open offline cannot keep writing old data over changes made in another tab.
 - Deleting a basket removes it from the watchlist, clears its drawings and moves the chart to another symbol.
   A stale reference to a deleted basket shows as "Deleted basket" instead of retrying forever, and symbol
   lookups that fail for good (such as an unknown symbol) are no longer retried every 30 seconds.

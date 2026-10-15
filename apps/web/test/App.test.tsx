@@ -299,6 +299,24 @@ describe('App', () => {
       vi.useRealTimers();
     }
   });
+  it('layout saves that keep failing stop after the retry limit: "Layout not saved" with Retry', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+      render(<App />);
+      await screen.findByTestId('chart-view');
+      vi.mocked(api.layouts.put).mockRejectedValue(new ApiError(503, 'unavailable', 'down'));
+      await userEvent.click(screen.getByRole('button', { name: '1h' }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60_000); });
+      expect(await screen.findByText('Layout not saved')).toBeInTheDocument();
+      vi.mocked(api.layouts.put).mockResolvedValue(undefined);
+      await userEvent.click(screen.getByRole('button', { name: 'Retry saving the layout' }));
+      await waitFor(() => expect(screen.queryByText('Layout not saved')).not.toBeInTheDocument());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('resizes the watchlist sidebar with its separator and keeps the width when it is hidden and shown again', async () => {
     vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
     const { container } = render(<App />);
