@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 
@@ -106,5 +106,25 @@ describe('electron-builder config', () => {
       const keys = [...plist.matchAll(/<key>([^<]+)<\/key>/g)].map((m) => m[1]);
       expect(keys, file).toEqual(['com.apple.security.cs.allow-jit']);
     }
+  });
+
+  it('ships the AGPL LICENSE and the third-party notices next to the app (Resources/ on macOS, resources/ on Windows)', () => {
+    expect(cfg.extraResources).toEqual([
+      { from: '../../LICENSE', to: 'LICENSE' },
+      { from: '.bundle-meta/THIRD_PARTY_NOTICES.txt', to: 'THIRD_PARTY_NOTICES.txt' },
+    ]);
+    expect(readFileSync(new URL('../../../LICENSE', import.meta.url), 'utf8')).toContain('GNU AFFERO GENERAL PUBLIC LICENSE');
+  });
+
+  it('generates the notices before every pack, failing the build on a disallowed license', async () => {
+    const out = new URL('../.bundle-meta/THIRD_PARTY_NOTICES.txt', import.meta.url);
+    rmSync(out, { force: true });
+    expect(typeof cfg.beforePack).toBe('function');
+    await cfg.beforePack();
+    expect(existsSync(out)).toBe(true);
+    const text = readFileSync(out, 'utf8');
+    expect(text).toContain('This desktop app also contains');
+    expect(text).toMatch(/^electron-updater \d/m);
+    expect(text).not.toMatch(/^better-sqlite3 /m);
   });
 });

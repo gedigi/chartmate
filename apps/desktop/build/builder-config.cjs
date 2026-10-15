@@ -1,8 +1,26 @@
 // electron-builder configuration factory (used by ../electron-builder.config.cjs and the tests). Product identity comes from product.json (the single place to rename the app).
 // Signing / notarization are driven purely by environment variables (CI secrets, see build/signing.cjs); without
 // them the build is unsigned. electron-builder never uploads anything (the CI publish job does).
+const { mkdirSync, writeFileSync } = require('node:fs');
+const { join } = require('node:path');
+const { pathToFileURL } = require('node:url');
 const product = require('../product.json');
 const { signingFor, CERTUM_TIMESTAMP_URL } = require('./signing.cjs');
+
+/**
+ * beforePack hook: writes .bundle-meta/THIRD_PARTY_NOTICES.txt (shipped as an extra resource) from the installed
+ * dependency graph (scripts/third-party-notices.mjs, profile `desktop`). A dependency with a license outside the
+ * AGPL-3.0-compatible allowlist, or without a license text, fails the build.
+ */
+async function writeThirdPartyNotices() {
+  const notices = await import(pathToFileURL(join(__dirname, '..', '..', '..', 'scripts', 'third-party-notices.mjs')).href);
+  const packages = notices.collect('desktop');
+  const problems = notices.problems(packages);
+  if (problems.length > 0) throw new Error(`third-party notices: ${problems.join('; ')}`);
+  const dir = join(__dirname, '..', '.bundle-meta');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'THIRD_PARTY_NOTICES.txt'), notices.render('desktop', packages));
+}
 
 /**
  * GitHub publish settings (only for app-update.yml; artifacts are uploaded by the CI publish job, electron-builder
@@ -41,7 +59,14 @@ function buildConfig(env = process.env) {
     includePdb: false,
     removePackageScripts: true,
     removePackageKeywords: true,
+    beforePack: writeThirdPartyNotices,
     afterPack: './build/after-pack.cjs',
+    // The AGPL-3.0 text and the third-party notices, as plain files next to app.asar (Contents/Resources on
+    // macOS, resources on Windows).
+    extraResources: [
+      { from: '../../LICENSE', to: 'LICENSE' },
+      { from: '.bundle-meta/THIRD_PARTY_NOTICES.txt', to: 'THIRD_PARTY_NOTICES.txt' },
+    ],
     publish,
     mac: {
       category: 'public.app-category.finance',
