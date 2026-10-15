@@ -255,7 +255,7 @@ describe('BasketEditor — edit', () => {
   it('the create form explains when the basket starts', () => {
     render(<BasketEditor onSaved={() => {}} onCancel={() => {}} />);
     expect(screen.getByText(
-      'The basket starts at 100 on this date (00:00 UTC, or the New York session start on intraday charts of stock-only baskets), sized at the prior close.',
+      'The basket starts at 100 on this date (00:00 UTC, or 04:00 New York on intraday charts of stock-only baskets), sized at the prior close.',
     )).toBeInTheDocument();
   });
 
