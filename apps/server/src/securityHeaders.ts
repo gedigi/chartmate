@@ -29,6 +29,9 @@ const COMMON_HEADERS: Readonly<Record<string, string>> = {
   'referrer-policy': 'no-referrer',
 };
 
+/** API responses: also never stored by the browser or a proxy (user data, session state). */
+const API_HEADERS: Readonly<Record<string, string>> = { ...COMMON_HEADERS, 'cache-control': 'no-store' };
+
 /** Pages, static files and their 404s (everything outside /api). */
 const PAGE_HEADERS: Readonly<Record<string, string>> = {
   ...COMMON_HEADERS,
@@ -40,7 +43,7 @@ const PAGE_HEADERS: Readonly<Record<string, string>> = {
 /** Adds the security headers to every response (including errors and the host guard's refusals). */
 export function registerSecurityHeaders(app: FastifyInstance): void {
   app.addHook('onSend', async (request, reply, payload) => {
-    reply.headers(isApiPath(request.url) ? COMMON_HEADERS : PAGE_HEADERS);
+    reply.headers(isApiPath(request.url) ? API_HEADERS : PAGE_HEADERS);
     return payload;
   });
 }

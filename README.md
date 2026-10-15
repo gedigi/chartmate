@@ -222,7 +222,7 @@ location / {
 - **Response headers.** The web app is served with a strict Content Security Policy (same-origin scripts,
   styles, fonts and API calls only, no inline code, Trusted Types required, no framing), `X-Frame-Options:
   DENY`, `Cross-Origin-Opener-Policy: same-origin`, `X-Content-Type-Options: nosniff` and `Referrer-Policy:
-  no-referrer`; API responses carry the last two. Hashed bundles under `/assets/` are cached for a year
+  no-referrer`; API responses carry the last two plus `Cache-Control: no-store`. Hashed bundles under `/assets/` are cached for a year
   (`immutable`), `index.html` and the other files are revalidated on every load. Files whose name starts with a
   dot are never served, and a missing file (a path under `/assets/` or with a file extension) is a 404 rather
   than the app page. If you add your own CSP at a reverse proxy, keep it at least this strict.

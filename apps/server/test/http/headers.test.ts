@@ -81,12 +81,13 @@ describe('security headers and static caching', () => {
     }
   });
 
-  it('API responses get nosniff and no-referrer, but no page policy', async () => {
+  it('API responses get nosniff, no-referrer and no-store, but no page policy', async () => {
     for (const url of ['/api/health', '/api/nope']) {
       const r = await get(url);
       expect(r.headers['x-content-type-options'], url).toBe('nosniff');
       expect(r.headers['referrer-policy'], url).toBe('no-referrer');
       expect(r.headers['content-security-policy'], url).toBeUndefined();
+      expect(r.headers['cache-control'], url).toBe('no-store'); // market data and user data are never cached
     }
   });
 });
