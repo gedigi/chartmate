@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createRotatingLog, scrub } from '../src/lib/logger.js';
+import { createRateLimiter, createRotatingLog, scrub } from '../src/lib/logger.js';
 import { menuTemplate } from '../src/lib/menu.js';
 import { allowsPrereleaseUpdates, hasWindowsPublisher, shouldEnableAutoUpdate } from '../src/lib/updatePolicy.js';
 import { BACKGROUND, loadWindowState, parseWindowState, saveWindowState, visibleBounds } from '../src/lib/windowState.js';
@@ -84,6 +84,32 @@ describe('rotating log', () => {
   it('never throws when the directory is unusable', () => {
     const log = createRotatingLog({ dir: '/dev/null/nope' });
     expect(() => log.error('x', new Error('y'))).not.toThrow();
+  });
+  it('rotates on the tracked size (the file is stat-ed once, not on every line)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'chartmate-log-'));
+    writeFileSync(join(dir, 'main.log'), 'x'.repeat(150));
+    const log = createRotatingLog({ dir, maxBytes: 200, keep: 1 });
+    log.write('a'.repeat(60)); // 150 + 61 ≥ 200 only after this line: no rotation yet
+    expect(readdirSync(dir).sort()).toEqual(['main.log']);
+    log.write('b'); // the tracked size is over the limit: rotates before writing
+    expect(readdirSync(dir).sort()).toEqual(['main.log', 'main.log.1']);
+    expect(readFileSync(join(dir, 'main.log'), 'utf8')).toBe('b\n');
+  });
+});
+
+describe('rate-limited log lines (blocked requests)', () => {
+  it('writes at most `max` lines per window, then one summary of what was suppressed', () => {
+    let t = 0;
+    const out: string[] = [];
+    const limited = createRateLimiter((m) => out.push(m), { max: 3, windowMs: 60_000, now: () => t, what: 'blocked' });
+    for (let i = 0; i < 10; i++) limited(`blocked request ${i}`);
+    expect(out).toEqual(['blocked request 0', 'blocked request 1', 'blocked request 2']);
+    t = 60_000;
+    limited('blocked request 10');
+    expect(out.slice(3)).toEqual(['7 more blocked lines suppressed in the last minute', 'blocked request 10']);
+    t = 120_000;
+    limited('blocked request 11'); // nothing was suppressed in the previous window: no summary
+    expect(out.slice(5)).toEqual(['blocked request 11']);
   });
 });
 

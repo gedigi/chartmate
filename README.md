@@ -771,7 +771,8 @@ The directory holds:
 What gets logged:
 
 - **Main process**: lifecycle lines (start, window shown, quit) at INFO, plus warnings (blocked navigations,
-  requests and listeners) and errors.
+  requests and listeners) and errors. Blocked navigations and requests are logged at most 20 times a minute;
+  beyond that, one line says how many were left out.
 - **Embedded server**: warnings and errors only. Error objects are reduced to type, message and code, with no
   stack, request URLs drop their query strings, and headers are never logged.
 - **Before writing any line**: absolute paths, URL credentials and secret-looking values are scrubbed.

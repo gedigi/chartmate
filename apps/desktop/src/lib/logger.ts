@@ -29,6 +29,39 @@ export function scrub(text: string): string {
 }
 
 /**
+ * Wraps `write` so that at most `max` lines get through per `windowMs` (default 20 a minute). Lines over the limit
+ * are counted, and the first line of a later window is preceded by one summary. For lines the renderer or the
+ * network can trigger at will (blocked requests and navigations): each is a synchronous file append.
+ */
+export function createRateLimiter(
+  write: (line: string) => void,
+  opts: { max?: number; windowMs?: number; now?: () => number; what?: string } = {},
+): (line: string) => void {
+  const max = opts.max ?? 20;
+  const windowMs = opts.windowMs ?? 60_000;
+  const now = opts.now ?? Date.now;
+  const what = opts.what ?? 'log';
+  let windowStart = -Infinity;
+  let count = 0;
+  let suppressed = 0;
+  return (line) => {
+    const t = now();
+    if (t - windowStart >= windowMs) {
+      if (suppressed > 0) write(`${suppressed} more ${what} lines suppressed in the last minute`);
+      windowStart = t;
+      count = 0;
+      suppressed = 0;
+    }
+    if (count < max) {
+      count++;
+      write(line);
+    } else {
+      suppressed++;
+    }
+  };
+}
+
+/**
  * Tiny size-rotated log: `<dir>/<name>.log`, rotated to `.1` … `.<keep>` once it exceeds `maxBytes`. Synchronous
  * appends (low volume: warnings, errors, lifecycle), owner-only files. Never throws.
  */
@@ -38,7 +71,8 @@ export function createRotatingLog(opts: { dir: string; name?: string; maxBytes?:
   const keep = opts.keep ?? 2;
   const now = opts.now ?? (() => new Date());
   const file = join(opts.dir, `${name}.log`);
-  let ready = false;
+  /** Current size of `file`, read once and then tracked in memory (no stat per line). */
+  let size: number | null = null;
 
   const rotate = () => {
     for (let i = keep; i >= 1; i--) {
@@ -51,12 +85,17 @@ export function createRotatingLog(opts: { dir: string; name?: string; maxBytes?:
 
   const write = (line: string) => {
     try {
-      if (!ready) {
+      if (size === null) {
         mkdirSync(opts.dir, { recursive: true, mode: 0o700 });
-        ready = true;
+        size = existsSync(file) ? statSync(file).size : 0;
       }
-      if (existsSync(file) && statSync(file).size >= maxBytes) rotate();
-      appendFileSync(file, scrub(line.endsWith('\n') ? line : `${line}\n`), { mode: 0o600 });
+      if (size >= maxBytes) {
+        rotate();
+        size = 0;
+      }
+      const text = scrub(line.endsWith('\n') ? line : `${line}\n`);
+      appendFileSync(file, text, { mode: 0o600 });
+      size += Buffer.byteLength(text);
     } catch {
       /* logging must never take the app down */
     }

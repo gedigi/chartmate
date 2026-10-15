@@ -20,7 +20,7 @@ import {
 import { createCrashPolicy } from './lib/crashLimiter.js';
 import { installListenGuard } from './lib/listenGuard.js';
 import { serverLoggerOptions } from './lib/serverLog.js';
-import { createRotatingLog } from './lib/logger.js';
+import { createRateLimiter, createRotatingLog } from './lib/logger.js';
 import { menuTemplate } from './lib/menu.js';
 import { createDirectFetch } from './lib/directFetch.js';
 import { createGuardedFetch, installFetchAllowlist, providerHosts } from './lib/netAllowlist.js';
@@ -77,7 +77,9 @@ const listenGuard = installListenGuard(net.Server.prototype, { audit: (m) => log
 
 app.enableSandbox();
 protocol.registerSchemesAsPrivileged([...PRIVILEGED_SCHEMES]);
-const hardenOpts = { hardened, onBlocked: (what: string, url: string) => log.warn(`blocked ${what} ${url}`) };
+// Blocked requests and navigations are page- or network-triggered: at most 20 lines a minute, then a summary.
+const logBlocked = createRateLimiter((m) => log.warn(m), { what: 'blocked' });
+const hardenOpts = { hardened, onBlocked: (what: string, url: string) => logBlocked(`blocked ${what} ${url}`) };
 hardenApp(app, hardenOpts);
 
 const { config } = configOrExit(
@@ -88,7 +90,7 @@ const { config } = configOrExit(
 const allowed = providerHosts(config);
 // Transport: direct connections (no env proxy) trusting only Node's bundled root CAs, whatever the environment says.
 const directFetch = createDirectFetch();
-const onBlocked = (host: string) => log.warn(`blocked outbound request to ${host}`);
+const onBlocked = (host: string) => logBlocked(`blocked outbound request to ${host}`);
 installFetchAllowlist(globalThis, allowed, { base: directFetch, onBlocked });
 
 let mainWindow: BrowserWindow | null = null;
