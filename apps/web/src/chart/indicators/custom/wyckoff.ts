@@ -300,10 +300,10 @@ const indicator: CustomIndicator = {
   },
   catalog: {
     name: 'WYCKOFF',
-    label: 'Wyckoff Accumulation and Distribution',
+    label: 'Wyckoff accumulation and distribution',
     pane: 'main',
     defaultParams: [14, 20, 5],
-    paramLabels: ['RSI Length', 'Trend Sensitivity', 'Pivot Length'],
+    paramLabels: ['RSI length', 'Trend sensitivity', 'Pivot length'],
     paramMin: [1, 0, 1],
     paramMax: [1000, 50, 1000],
     lines: [],

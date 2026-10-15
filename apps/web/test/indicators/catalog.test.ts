@@ -14,12 +14,12 @@ describe('CATALOG', () => {
   });
 
   it('contains the built-ins and the custom VWAP/ATR with the agreed labels and defaults', () => {
-    expect(catalogEntry('MA')).toMatchObject({ label: 'Moving Average (SMA)', pane: 'main', defaultParams: [5, 10, 30, 60] });
+    expect(catalogEntry('MA')).toMatchObject({ label: 'Moving average (SMA)', pane: 'main', defaultParams: [5, 10, 30, 60] });
     expect(catalogEntry('SMA')).toMatchObject({ label: 'SMA (weighted, KLine)', pane: 'sub', defaultParams: [12, 2] });
     expect(catalogEntry('BOLL')).toMatchObject({ pane: 'main', defaultParams: [20, 2] });
     expect(catalogEntry('VWAP')).toMatchObject({ label: 'VWAP (session, intraday)', pane: 'main', defaultParams: [] });
     expect(catalogEntry('VWAP')!.description).toMatch(/1D and longer/);
-    expect(catalogEntry('ATR')).toMatchObject({ label: 'Average True Range', pane: 'sub', defaultParams: [14] });
+    expect(catalogEntry('ATR')).toMatchObject({ label: 'Average true range', pane: 'sub', defaultParams: [14] });
     expect(catalogEntry('RSI')).toMatchObject({ pane: 'sub', defaultParams: [6, 12, 24] });
     expect(catalogEntry('NOPE')).toBeUndefined();
     const expected = ['MA', 'EMA', 'BOLL', 'SAR', 'VWAP', 'BBI', 'VOL', 'MACD', 'RSI', 'KDJ', 'CCI', 'ATR', 'OBV', 'WR', 'DMI', 'ROC', 'MTM', 'TRIX', 'AO', 'SMA'];
@@ -128,8 +128,8 @@ describe('validateParam', () => {
 describe('WYCKOFF catalog entry', () => {
   it('is an overlay with the agreed label, params and labels', () => {
     expect(catalogEntry('WYCKOFF')).toMatchObject({
-      label: 'Wyckoff Accumulation and Distribution', pane: 'main', defaultParams: [14, 20, 5],
-      paramLabels: ['RSI Length', 'Trend Sensitivity', 'Pivot Length'], lines: [],
+      label: 'Wyckoff accumulation and distribution', pane: 'main', defaultParams: [14, 20, 5],
+      paramLabels: ['RSI length', 'Trend sensitivity', 'Pivot length'], lines: [],
       paramMin: [1, 0, 1], paramMax: [1000, 50, 1000],
     });
   });

@@ -43,6 +43,7 @@ app, the Docker image and the release tag share one version number.
 - VWAP on a basket holding crypto resets at midnight UTC, like its bars, instead of midnight New York time.
 - Stored indicator settings are checked when the layout loads: a period or other param outside its allowed
   range falls back to its default, and an invalid line color follows the theme again.
+- Indicator names and settings labels are in sentence case ("Relative strength index", "RSI length").
 
 ## [1.0.0] - 2026-10-14
 

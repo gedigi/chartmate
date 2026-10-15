@@ -20,25 +20,25 @@ const numbered = (prefix: string, n: number) => Array.from({ length: n }, (_, i)
  */
 const BUILTIN: CatalogEntry[] = [
   // overlays (candle pane)
-  { name: 'MA', label: 'Moving Average (SMA)', pane: 'main', defaultParams: [5, 10, 30, 60], paramLabels: periods('MA', 4), lines: numbered('MA', 4) },
-  { name: 'EMA', label: 'Exponential MA', pane: 'main', defaultParams: [6, 12, 20], paramLabels: periods('EMA', 3), lines: numbered('EMA', 3) },
+  { name: 'MA', label: 'Moving average (SMA)', pane: 'main', defaultParams: [5, 10, 30, 60], paramLabels: periods('MA', 4), lines: numbered('MA', 4) },
+  { name: 'EMA', label: 'Exponential moving average', pane: 'main', defaultParams: [6, 12, 20], paramLabels: periods('EMA', 3), lines: numbered('EMA', 3) },
   { name: 'BOLL', label: 'Bollinger Bands', pane: 'main', defaultParams: [20, 2], paramLabels: ['Period', 'Std dev'], lines: ['Upper', 'Middle', 'Lower'], lineSlots: [1, 0, 2], decimalParams: [1] },
   // SAR params are percentages (KLineChart divides by 100); it draws circles, so there are no line colors.
   { name: 'SAR', label: 'Parabolic SAR', pane: 'main', defaultParams: [2, 2, 20], paramLabels: ['Start AF (%)', 'Step (%)', 'Max AF (%)'], lines: [], decimalParams: [0, 1, 2] },
-  { name: 'BBI', label: 'Bull and Bear Index', pane: 'main', defaultParams: [3, 6, 12, 24], paramLabels: periods('MA', 4), lines: ['BBI'] },
+  { name: 'BBI', label: 'Bull and bear index', pane: 'main', defaultParams: [3, 6, 12, 24], paramLabels: periods('MA', 4), lines: ['BBI'] },
   // oscillators (own pane)
   { name: 'VOL', label: 'Volume', pane: 'sub', defaultParams: [5, 10, 20], paramLabels: periods('MA', 3), lines: numbered('MA', 3), bars: true },
   { name: 'MACD', label: 'MACD', pane: 'sub', defaultParams: [12, 26, 9], paramLabels: ['Fast period', 'Slow period', 'Signal period'], lines: ['DIF', 'DEA'], bars: true, levels: [0] },
-  { name: 'RSI', label: 'Relative Strength Index', pane: 'sub', defaultParams: [6, 12, 24], paramLabels: periods('RSI', 3), lines: numbered('RSI', 3), levels: [70, 30] },
+  { name: 'RSI', label: 'Relative strength index', pane: 'sub', defaultParams: [6, 12, 24], paramLabels: periods('RSI', 3), lines: numbered('RSI', 3), levels: [70, 30] },
   { name: 'KDJ', label: 'Stochastic (KDJ)', pane: 'sub', defaultParams: [9, 3, 3], paramLabels: ['Period', 'K smoothing', 'D smoothing'], lines: ['K', 'D', 'J'], levels: [80, 20] },
-  { name: 'CCI', label: 'Commodity Channel Index', pane: 'sub', defaultParams: [13], paramLabels: ['Period'], lines: ['CCI'], levels: [100, -100] },
-  { name: 'OBV', label: 'On-Balance Volume', pane: 'sub', defaultParams: [30], paramLabels: ['MA period'], lines: ['OBV', 'MAOBV'] },
+  { name: 'CCI', label: 'Commodity channel index', pane: 'sub', defaultParams: [13], paramLabels: ['Period'], lines: ['CCI'], levels: [100, -100] },
+  { name: 'OBV', label: 'On-balance volume', pane: 'sub', defaultParams: [30], paramLabels: ['MA period'], lines: ['OBV', 'MAOBV'] },
   { name: 'WR', label: 'Williams %R', pane: 'sub', defaultParams: [6, 10, 14], paramLabels: periods('WR', 3), lines: numbered('WR', 3), levels: [-20, -80] },
-  { name: 'DMI', label: 'Directional Movement Index', pane: 'sub', defaultParams: [14, 6], paramLabels: ['DI period', 'ADX period'], lines: ['PDI', 'MDI', 'ADX', 'ADXR'], levels: [25] },
-  { name: 'ROC', label: 'Rate of Change', pane: 'sub', defaultParams: [12, 6], paramLabels: ['Period', 'MA period'], lines: ['ROC', 'MAROC'], levels: [0] },
+  { name: 'DMI', label: 'Directional movement index', pane: 'sub', defaultParams: [14, 6], paramLabels: ['DI period', 'ADX period'], lines: ['PDI', 'MDI', 'ADX', 'ADXR'], levels: [25] },
+  { name: 'ROC', label: 'Rate of change', pane: 'sub', defaultParams: [12, 6], paramLabels: ['Period', 'MA period'], lines: ['ROC', 'MAROC'], levels: [0] },
   { name: 'MTM', label: 'Momentum', pane: 'sub', defaultParams: [12, 6], paramLabels: ['Period', 'MA period'], lines: ['MTM', 'MAMTM'], levels: [0] },
   { name: 'TRIX', label: 'TRIX', pane: 'sub', defaultParams: [12, 9], paramLabels: ['Period', 'MA period'], lines: ['TRIX', 'MATRIX'], levels: [0] },
-  { name: 'AO', label: 'Awesome Oscillator', pane: 'sub', defaultParams: [5, 34], paramLabels: ['Short period', 'Long period'], lines: [], bars: true, levels: [0] },
+  { name: 'AO', label: 'Awesome oscillator', pane: 'sub', defaultParams: [5, 34], paramLabels: ['Short period', 'Long period'], lines: [], bars: true, levels: [0] },
   { name: 'SMA', label: 'SMA (weighted, KLine)', pane: 'sub', defaultParams: [12, 2], paramLabels: ['Period', 'Weight'], lines: ['SMA'] },
 ];
 
