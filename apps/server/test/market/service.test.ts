@@ -6,7 +6,7 @@ import { createRepos, type Repos } from '../../src/db/repos.js';
 import { AppError, NotFoundError, ProviderError } from '../../src/errors.js';
 import { RequestQueue } from '../../src/providers/queue.js';
 import { FakeProvider } from '../helpers/fakeProvider.js';
-import { MarketDataService, calendarFor } from '../../src/market/service.js';
+import { MarketDataService, calendarFor, holdsSession } from '../../src/market/service.js';
 
 const MIN = 60_000;
 const HOUR = 3_600_000;
@@ -509,6 +509,39 @@ describe('MarketDataService', () => {
       expect(await repos.coverage.list('stock:AAPL', '1D')).toEqual([[from, to]]);
     });
 
+    it('an empty successful chunk with a recent weekday session is not covered (asked again), not stale', async () => {
+      await svc.symbolInfo('stock:AAPL');
+      stock.listedFrom.AAPL = NOW + 10 * DAY; // the provider answers with no bars, no error
+      const from = Math.floor((NOW - 6 * DAY) / DAY) * DAY;
+      const to = Math.floor((NOW - 4 * DAY) / DAY) * DAY; // Thu + Fri
+      const r = await svc.getNativeBars('stock:AAPL', '1D', from, to);
+      expect(r).toEqual({ bars: [], stale: false });
+      expect(await repos.coverage.list('stock:AAPL', '1D')).toEqual([]);
+      delete stock.listedFrom.AAPL;
+      stock.calls = [];
+      const again = await svc.getNativeBars('stock:AAPL', '1D', from, to);
+      expect(stock.calls).toHaveLength(1);
+      expect(again.bars.length).toBe(2);
+    });
+
+    it('empty successful chunks are covered when older than 7 days, pre-listing, or holding no session', async () => {
+      stock.firstTs = Math.floor((NOW - 2 * DAY) / DAY) * DAY;
+      await svc.symbolInfo('stock:AAPL');
+      stock.listedFrom.AAPL = NOW + 10 * DAY;
+      const old: [number, number] = [Math.floor((NOW - 20 * DAY) / DAY) * DAY, Math.floor((NOW - 8 * DAY) / DAY) * DAY];
+      await svc.getNativeBars('stock:AAPL', '1D', old[0], old[1]);
+      expect(await repos.coverage.list('stock:AAPL', '1D')).toEqual([old]);
+      const preListing: [number, number] = [Math.floor((NOW - 6 * DAY) / DAY) * DAY, Math.floor((NOW - 4 * DAY) / DAY) * DAY];
+      await svc.getNativeBars('stock:AAPL', '1D', preListing[0], preListing[1]);
+      expect(await repos.coverage.list('stock:AAPL', '1D')).toEqual([old, preListing]);
+      // MSFT (no listing date in the window): a weekend is no session, so its emptiness is trusted.
+      stock.firstTs = null;
+      stock.listedFrom.MSFT = NOW + 10 * DAY;
+      const sat = Date.UTC(2026, 9, 31); // Sat 2026-10-31
+      await svc.getNativeBars('stock:MSFT', '1D', sat, sat + DAY); // recentEdge is Sun 11-01
+      expect(await repos.coverage.list('stock:MSFT', '1D')).toEqual([[sat, sat + DAY]]);
+    });
+
     it('NotFound chunk ending before the known listing date (pre-listing) is covered even if recent', async () => {
       stock.firstTs = Math.floor((NOW - 2 * DAY) / DAY) * DAY; // listed two days ago
       await svc.symbolInfo('stock:AAPL');
@@ -519,6 +552,17 @@ describe('MarketDataService', () => {
       expect(r).toEqual({ bars: [], stale: false });
       expect(await repos.coverage.list('stock:AAPL', '1D')).toEqual([[from, to]]);
     });
+  });
+
+  it('holdsSession: crypto always; stocks on weekdays (daily) or a weekday 04:00–20:00 NY (intraday)', () => {
+    const sat = Date.UTC(2026, 9, 31);
+    const mon = Date.UTC(2026, 10, 2);
+    expect(holdsSession('crypto', '1h', sat, sat + HOUR)).toBe(true);
+    expect(holdsSession('stock', '1D', sat, mon)).toBe(false);
+    expect(holdsSession('stock', '1D', sat, mon + DAY)).toBe(true);
+    expect(holdsSession('stock', '1h', mon + 2 * HOUR, mon + 8 * HOUR)).toBe(false); // Sun 21:00 – Mon 03:00 NY
+    expect(holdsSession('stock', '1h', mon + 2 * HOUR, mon + 10 * HOUR)).toBe(true); // reaches Mon 04:00 NY
+    expect(holdsSession('stock', '1m', mon, mon)).toBe(false);
   });
 
   it('calendarFor', () => {

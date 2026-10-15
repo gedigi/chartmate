@@ -28,6 +28,9 @@ app, the Docker image and the release tag share one version number.
 - The self-hosted web app is served with a strict Content Security Policy and the usual hardening headers
   (no framing, no MIME sniffing, no referrer). Hashed bundles are cached for a year, `index.html` is always
   revalidated, dotfiles are never served, and a missing asset is a 404 instead of the app page.
+- A recent range the data provider briefly answered with no bars is asked again later instead of staying empty
+  for good; cached bars and their coverage are written together, so a split check can no longer slip between
+  them.
 
 ## [1.0.0] - 2026-10-14
 

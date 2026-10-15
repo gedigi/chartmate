@@ -1,5 +1,5 @@
 import {
-  baseTimeframe, bucketStart, filterSession, isIntraday, parseSymbolId, resample, tfMs,
+  baseTimeframe, bucketStart, filterSession, isIntraday, nyParts, nyToUtc, parseSymbolId, resample, tfMs,
   type AssetClass, type Bar, type Calendar, type NativeTimeframe, type Quote, type SessionMode,
   type SymbolId, type SymbolInfo, type Timeframe,
 } from '@chartmate/shared';
@@ -47,6 +47,30 @@ function bucketEnd(ts: number, tf: Timeframe, cal: Calendar): number {
     return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
   }
   return start + tfMs(tf);
+}
+
+/**
+ * Whether [from, to) overlaps a trading session: always for crypto (it trades around the clock); for stocks, a
+ * weekday (Mon–Fri) daily bar, or intraday a weekday's 04:00–20:00 New York extended session. Holidays count as
+ * sessions (no calendar here), so an empty holiday is simply asked again until it is a week old.
+ */
+export function holdsSession(assetClass: MarketClass, tf: NativeTimeframe, from: number, to: number): boolean {
+  if (from >= to) return false;
+  if (assetClass === 'crypto') return true;
+  if (to - from > 5 * DAY) return true;
+  if (tf === '1D') {
+    for (let d = Math.ceil(from / DAY) * DAY; d < to; d += DAY) {
+      const dow = new Date(d).getUTCDay();
+      if (dow !== 0 && dow !== 6) return true;
+    }
+    return false;
+  }
+  for (let t = from - DAY; t < to + DAY; t += DAY) {
+    const { y, m, d, dow } = nyParts(t);
+    if (dow === 0 || dow === 6) continue;
+    if (nyToUtc(y, m, d, 4, 0) < to && nyToUtc(y, m, d, 20, 0) > from) return true;
+  }
+  return false;
 }
 
 function parseMarketSymbol(id: SymbolId): { assetClass: MarketClass; code: string } {
@@ -247,8 +271,11 @@ export class MarketDataService {
           if (e instanceof ProviderError && e.retryable && e.provider !== 'queue') queue.backoff(BACKOFF_MS);
           throw e;
         }
-        await this.repos.bars.upsert(symbol, tf, fetched.bars);
-        await markCovered(gapFrom, gapTo);
+        const coveredTo = Math.min(gapTo, recentEdge);
+        // An empty answer is only trusted when it cannot be an upstream hiccup (see trustEmpty): otherwise the gap
+        // stays uncovered and is asked again next time.
+        const cover = fetched.bars.length > 0 || await this.trustEmpty(symbol, assetClass, tf, gapFrom, coveredTo, now);
+        await this.repos.bars.store(symbol, tf, fetched.bars, cover ? [gapFrom, coveredTo] : null);
       })));
 
     let stale = false;
@@ -393,6 +420,20 @@ export class MarketDataService {
       m.delete(k);
     }
     m.set(id, now + NEGATIVE_TTL_MS);
+  }
+
+  /**
+   * Whether a successful but empty provider answer for [from, to) may be cached as "no bars here": the range ends
+   * more than 7 days ago (a late-arriving fix is unlikely), or at/before the symbol's known listing date, or it
+   * holds no trading session at all (a stock's weekend or overnight gap). Anything else may be a transient upstream
+   * glitch and must not become permanent coverage.
+   */
+  private async trustEmpty(symbol: SymbolId, assetClass: MarketClass, tf: NativeTimeframe, from: number, to: number, now: number): Promise<boolean> {
+    if (from >= to) return false;
+    if (to < now - NO_DATA_TRUST_MS) return true;
+    if (!holdsSession(assetClass, tf, from, to)) return true;
+    const firstTs = (await this.repos.symbols.get(symbol))?.firstTs ?? null;
+    return firstTs !== null && to <= firstTs;
   }
 
   /** true = known symbol, false = unknown (NotFound), null = undetermined (lookup failed). */

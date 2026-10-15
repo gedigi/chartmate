@@ -22,24 +22,74 @@ export interface SplitOp {
   factor?: number;
 }
 
+/**
+ * Serializes writers of one symbol's cached market data (bar fills, coverage merges, split invalidations) on
+ * Postgres with a transaction-scoped advisory lock. SQLite needs none: it has a single writer, and Kysely runs one
+ * transaction at a time on its single connection.
+ */
+async function lockSymbol(trx: Kysely<Database>, dialect: Dialect, symbol: string): Promise<void> {
+  if (dialect === 'postgres') await sql`select pg_advisory_xact_lock(hashtext(${'bars:' + symbol}))`.execute(trx);
+}
+
+async function upsertBars(db: Kysely<Database>, symbol: string, tf: NativeTimeframe, bars: Bar[]): Promise<void> {
+  const byTs = new Map<number, Bar>();
+  for (const b of bars) byTs.set(b.ts, b); // last wins; Postgres rejects duplicate keys within one statement
+  const unique = [...byTs.values()];
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const rows = unique.slice(i, i + CHUNK).map(b => ({
+      symbol, tf, ts: b.ts, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume, session: b.session ?? null,
+    }));
+    await db.insertInto('bars').values(rows)
+      .onConflict(oc => oc.columns(['symbol', 'tf', 'ts']).doUpdateSet(eb => ({
+        open: eb.ref('excluded.open'), high: eb.ref('excluded.high'), low: eb.ref('excluded.low'),
+        close: eb.ref('excluded.close'), volume: eb.ref('excluded.volume'), session: eb.ref('excluded.session'),
+      })))
+      .execute();
+  }
+}
+
+function checkRange(from: number, to: number): void {
+  if (!Number.isFinite(from) || !Number.isFinite(to)) throw new RangeError(`coverage.add: non-finite range [${from}, ${to})`);
+}
+
+/** Merges [from, to) into the covered ranges of (symbol, tf), inside the caller's transaction. */
+async function mergeCoverage(trx: Kysely<Database>, symbol: string, tf: NativeTimeframe, from: number, to: number): Promise<void> {
+  const overlap = await trx.selectFrom('coverage').select(['from_ts', 'to_ts'])
+    .where('symbol', '=', symbol).where('tf', '=', tf)
+    .where('from_ts', '<=', to).where('to_ts', '>=', from).execute();
+  let lo = from;
+  let hi = to;
+  for (const r of overlap) {
+    lo = Math.min(lo, Number(r.from_ts));
+    hi = Math.max(hi, Number(r.to_ts));
+  }
+  if (overlap.length > 0) {
+    await trx.deleteFrom('coverage').where('symbol', '=', symbol).where('tf', '=', tf)
+      .where('from_ts', 'in', overlap.map(r => r.from_ts)).execute();
+  }
+  await trx.insertInto('coverage').values({ symbol, tf, from_ts: lo, to_ts: hi }).execute();
+}
+
 export class BarRepo {
-  constructor(private db: Kysely<Database>) {}
+  constructor(private db: Kysely<Database>, private dialect: Dialect = 'sqlite') {}
 
   async upsert(symbol: string, tf: NativeTimeframe, bars: Bar[]): Promise<void> {
-    const byTs = new Map<number, Bar>();
-    for (const b of bars) byTs.set(b.ts, b); // last wins; Postgres rejects duplicate keys within one statement
-    const unique = [...byTs.values()];
-    for (let i = 0; i < unique.length; i += CHUNK) {
-      const rows = unique.slice(i, i + CHUNK).map(b => ({
-        symbol, tf, ts: b.ts, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume, session: b.session ?? null,
-      }));
-      await this.db.insertInto('bars').values(rows)
-        .onConflict(oc => oc.columns(['symbol', 'tf', 'ts']).doUpdateSet(eb => ({
-          open: eb.ref('excluded.open'), high: eb.ref('excluded.high'), low: eb.ref('excluded.low'),
-          close: eb.ref('excluded.close'), volume: eb.ref('excluded.volume'), session: eb.ref('excluded.session'),
-        })))
-        .execute();
-    }
+    await upsertBars(this.db, symbol, tf, bars);
+  }
+
+  /**
+   * Stores a fetched chunk: the bars and, when given, the covered range [from, to) in ONE transaction under the
+   * symbol's lock, so a split invalidation (applySplit, same lock) can never land between them and leave
+   * pre-split bars marked covered. An empty or inverted cover range is skipped.
+   */
+  async store(symbol: string, tf: NativeTimeframe, bars: Bar[], cover: [number, number] | null): Promise<void> {
+    if (cover) checkRange(cover[0], cover[1]);
+    if (bars.length === 0 && (!cover || cover[0] >= cover[1])) return;
+    await this.db.transaction().execute(async trx => {
+      await lockSymbol(trx, this.dialect, symbol);
+      await upsertBars(trx, symbol, tf, bars);
+      if (cover && cover[0] < cover[1]) await mergeCoverage(trx, symbol, tf, cover[0], cover[1]);
+    });
   }
 
   async range(symbol: string, tf: NativeTimeframe, from: number, to: number): Promise<Bar[]> {
@@ -57,6 +107,7 @@ export class BarRepo {
    */
   async applySplit(symbol: string, ops: SplitOp[], checkedAt: number): Promise<void> {
     await this.db.transaction().execute(async trx => {
+      await lockSymbol(trx, this.dialect, symbol); // never interleaved with a fill of the same symbol (store)
       for (const op of ops) {
         await trx.deleteFrom('coverage').where('symbol', '=', symbol).where('tf', '=', op.tf).where('from_ts', '>=', op.cut).execute();
         await trx.updateTable('coverage').set({ to_ts: op.cut })
@@ -116,27 +167,11 @@ export class CoverageRepo {
 
   /** Merges [from, to) into the covered ranges. Empty/inverted ranges are a no-op; non-finite bounds throw. */
   async add(symbol: string, tf: NativeTimeframe, from: number, to: number): Promise<void> {
-    if (!Number.isFinite(from) || !Number.isFinite(to)) throw new RangeError(`coverage.add: non-finite range [${from}, ${to})`);
+    checkRange(from, to);
     if (from >= to) return;
     await this.db.transaction().execute(async trx => {
-      if (this.dialect === 'postgres') {
-        // serialize concurrent merges for the same series
-        await sql`select pg_advisory_xact_lock(hashtext(${symbol + ':' + tf}))`.execute(trx);
-      }
-      const overlap = await trx.selectFrom('coverage').select(['from_ts', 'to_ts'])
-        .where('symbol', '=', symbol).where('tf', '=', tf)
-        .where('from_ts', '<=', to).where('to_ts', '>=', from).execute();
-      let lo = from;
-      let hi = to;
-      for (const r of overlap) {
-        lo = Math.min(lo, Number(r.from_ts));
-        hi = Math.max(hi, Number(r.to_ts));
-      }
-      if (overlap.length > 0) {
-        await trx.deleteFrom('coverage').where('symbol', '=', symbol).where('tf', '=', tf)
-          .where('from_ts', 'in', overlap.map(r => r.from_ts)).execute();
-      }
-      await trx.insertInto('coverage').values({ symbol, tf, from_ts: lo, to_ts: hi }).execute();
+      await lockSymbol(trx, this.dialect, symbol); // serialize concurrent merges (and splits) of the same symbol
+      await mergeCoverage(trx, symbol, tf, from, to);
     });
   }
 }
@@ -352,7 +387,7 @@ export interface Repos {
 export function createRepos(db: Kysely<Database>, dialect?: Dialect): Repos {
   const d: Dialect = dialect ?? (db.getExecutor().adapter instanceof PostgresAdapter ? 'postgres' : 'sqlite');
   return {
-    bars: new BarRepo(db),
+    bars: new BarRepo(db, d),
     coverage: new CoverageRepo(db, d),
     symbols: new SymbolRepo(db),
     baskets: new BasketRepo(db),

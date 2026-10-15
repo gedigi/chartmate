@@ -679,7 +679,11 @@ blocks some regions (e.g. the US): set `CRYPTO_PROVIDER=coinbase`, or point `BIN
 endpoint reachable from your host. Switching providers does not invalidate saved baskets, watchlists
 or drawings. If a provider is down or rate limiting, cached bars are served marked `stale`.
 
-Fetched history is cached in the database and not re-downloaded. Yahoo's bars are split- and
+Fetched history is cached in the database and not re-downloaded. An empty answer from a provider is only
+remembered as "no bars here" when it cannot be a passing glitch: the range ended more than 7 days ago, lies
+before the symbol's listing date, or holds no trading session (a stock's weekend or night); otherwise it is
+asked again on the next load. Bars and the record of the range they cover are written in one transaction.
+Yahoo's bars are split- and
 dividend-adjusted *as of the day they were fetched*, so the server checks each stock for splits at most
 once a day when serving its bars (a lightweight Yahoo chart call with split events since the last check,
 stamped in `symbols.splits_checked_at`). When a split occurred since the last check, that symbol's daily

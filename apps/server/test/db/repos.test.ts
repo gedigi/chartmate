@@ -71,6 +71,21 @@ describe.each(urls)('repos on %s', (url) => {
     await r.drawings.put('stock:A', [{ name: 'segment', points: [{ timestamp: 1, value: 2 }], lock: false }]);
     expect((await r.drawings.get('stock:A'))[0]!.name).toBe('segment');
   });
+  it('bars store writes the bars and their coverage together; nothing to store is a no-op', async () => {
+    const bar = { ts: 5, open: 1, high: 1, low: 1, close: 1, volume: 1 };
+    await r.bars.store('stock:ST', '1D', [bar], [0, 10]);
+    expect(await r.bars.range('stock:ST', '1D', 0, 10)).toEqual([bar]);
+    expect(await r.coverage.list('stock:ST', '1D')).toEqual([[0, 10]]);
+    await r.bars.store('stock:ST', '1D', [], null);
+    await r.bars.store('stock:ST', '1D', [], [20, 20]);
+    await r.bars.store('stock:ST', '1D', [], [10, 20]); // empty but trusted: covered
+    expect(await r.coverage.list('stock:ST', '1D')).toEqual([[0, 20]]);
+    await r.bars.store('stock:ST', '1D', [{ ...bar, ts: 30 }], null); // bars without coverage
+    expect(await r.coverage.list('stock:ST', '1D')).toEqual([[0, 20]]);
+    expect(await r.bars.range('stock:ST', '1D', 0, 40)).toHaveLength(2);
+    await Promise.all([[40, 50], [45, 60], [100, 110]].map(([a, b]) => r.bars.store('stock:ST', '1D', [{ ...bar, ts: a! }], [a!, b!])));
+    expect(await r.coverage.list('stock:ST', '1D')).toEqual([[0, 20], [40, 60], [100, 110]]);
+  });
   it('coverage add is safe under concurrency', async () => {
     await Promise.all([[0, 10], [5, 15], [12, 20], [20, 30], [28, 40], [100, 110]].map(([a, b]) => r.coverage.add('c', '1D', a!, b!)));
     expect(await r.coverage.list('c', '1D')).toEqual([[0, 40], [100, 110]]);
