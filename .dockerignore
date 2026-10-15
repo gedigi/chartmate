@@ -9,7 +9,9 @@
 .superpowers
 test-results
 playwright-report
-.env
+# Environment files hold secrets: never in the build context, at any depth.
+**/.env
+**/.env.*
 *.md
 !README.md
 .task-*
@@ -24,5 +26,6 @@ playwright-report
 # ...except the indicator scaffold (and its types): the web build typechecks its test, which imports it.
 !/scripts/new-indicator.mjs
 !/scripts/new-indicator.d.mts
+# ...and the third-party notices generator (the image ships its output).
+!/scripts/third-party-notices.mjs
 compose.yaml
-.env.*

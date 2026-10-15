@@ -11,7 +11,7 @@ function inContext(path: string): boolean {
   for (const rule of rules) {
     const negated = rule.startsWith('!');
     const pattern = (negated ? rule.slice(1) : rule).replace(/^\//, '');
-    const re = new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*\//g, '(.*/)?').replace(/\*/g, '[^/]*')}(/.*)?$`);
+    const re = new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*\//g, '\0').replace(/\*/g, '[^/]*').replace(/\0/g, '(.*/)?')}(/.*)?$`);
     if (re.test(path)) kept = negated;
   }
   return kept;
@@ -23,6 +23,17 @@ describe('Docker build context', () => {
     expect(inContext('scripts/new-indicator.mjs')).toBe(true);
     expect(inContext('scripts/new-indicator.d.mts')).toBe(true);
     expect(inContext('apps/web/test/scaffold/newIndicator.test.ts')).toBe(true);
+  });
+
+  it('keeps what the image ships besides the build: the license and the notices generator', () => {
+    expect(inContext('LICENSE')).toBe(true);
+    expect(inContext('scripts/third-party-notices.mjs')).toBe(true);
+  });
+
+  it('never sends environment files, at any depth (the template is not needed either)', () => {
+    for (const f of ['.env', '.env.local', 'apps/server/.env', 'apps/server/.env.production', 'e2e/.env', 'apps/web/.env.local', '.env.example']) {
+      expect(inContext(f), f).toBe(false);
+    }
   });
 
   it('still leaves out what the image does not need', () => {

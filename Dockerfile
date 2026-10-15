@@ -15,6 +15,9 @@ COPY apps/web/package.json apps/web/
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY . .
 RUN pnpm build
+# THIRD_PARTY_NOTICES.txt for what the image ships (server runtime + web UI); fails on a license outside the
+# AGPL-3.0-compatible allowlist.
+RUN node scripts/third-party-notices.mjs --profile=server --out=/repo/THIRD_PARTY_NOTICES.txt
 # Self-contained, prod-only copy of the server package (node_modules incl. the
 # workspace dep @chartmate/shared with its dist, plus apps/server/dist).
 RUN pnpm deploy --filter @chartmate/server --prod --ignore-scripts /out
@@ -37,7 +40,8 @@ LABEL org.opencontainers.image.title="Chartmate" \
 # TMPDIR. With a read-only root filesystem, mount a tmpfs on /tmp (compose.yaml does).
 RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
            /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-* \
- && mkdir -p /data && chown node:node /data
+ && test "$(id -u node):$(id -g node)" = 1000:1000 \
+ && mkdir -p /data && chown 1000:1000 /data
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8787 \
@@ -45,12 +49,14 @@ ENV NODE_ENV=production \
     CHARTMATE_WEB_DIST=/app/web \
     TMPDIR=/tmp
 WORKDIR /app
-# App files stay root-owned (read-only for the node user).
+# App files stay root-owned (read-only for the app user).
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /out/package.json ./package.json
 COPY --from=build /out/dist ./dist
 COPY --from=build /repo/apps/web/dist ./web
-USER node
+COPY --from=build /repo/LICENSE /repo/THIRD_PARTY_NOTICES.txt ./
+# The base image's `node` user, numerically (checked above), so runAsNonRoot can verify it.
+USER 1000:1000
 VOLUME /data
 EXPOSE 8787
 # No curl in the slim image: Node's fetch does the check. Honors PORT.
