@@ -52,6 +52,15 @@ describe('useDebouncedSave', () => {
     expect(save).toHaveBeenCalledTimes(1);
   });
 
+  it('flushes a pending save on pagehide too (fires where beforeunload does not, e.g. mobile and bfcache)', () => {
+    const { save, rerender } = setup(1);
+    rerender({ v: 5, en: true });
+    act(() => { window.dispatchEvent(new Event('pagehide')); });
+    expect(save).toHaveBeenCalledWith(5);
+    act(() => { window.dispatchEvent(new Event('beforeunload')); });
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
   it('reports save errors', async () => {
     const save = vi.fn<(v: number) => Promise<void>>().mockRejectedValue(new Error('disk full'));
     const { rerender, result } = renderHook(({ v }) => useDebouncedSave(v, save, 1000), { initialProps: { v: 1 } });

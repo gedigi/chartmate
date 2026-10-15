@@ -7,7 +7,9 @@ import { retryDelayMs } from './retry';
  *
  * - The value present on mount, or at the moment `enabled` turns true, is the baseline and is not saved.
  * - While disabled, changes are ignored; disabling first flushes any pending save.
- * - A pending save is flushed (best-effort, not awaited) on unmount and on `beforeunload`.
+ * - A pending save is flushed (best-effort, not awaited) on unmount, `beforeunload` and `pagehide`. Only bodies up to
+ *   KEEPALIVE_MAX_BODY (api/client.ts) outlive the page: a larger layout or drawing list flushed while the page
+ *   closes may not reach the server (it was saved ~1 s after its last change unless that change came just before).
  * - With `retry`, a failed save of the latest value is retried with backoff (2 s, 5 s, 10 s, then every 30 s)
  *   until it succeeds or a newer value replaces it; `error` stays set meanwhile.
  * Values are compared by reference (`Object.is`), so pass immutable values.
@@ -103,8 +105,10 @@ export function useDebouncedSave<T>(
     mounted.current = true;
     const onUnload = () => flush();
     window.addEventListener('beforeunload', onUnload);
+    window.addEventListener('pagehide', onUnload); // also fires where beforeunload does not (mobile, bfcache)
     return () => {
       window.removeEventListener('beforeunload', onUnload);
+      window.removeEventListener('pagehide', onUnload);
       mounted.current = false;
       flush();
     };
