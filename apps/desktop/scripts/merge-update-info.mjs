@@ -23,14 +23,17 @@ export function mergeUpdateInfo(texts) {
     if (info.version !== version) throw new Error(`version mismatch: ${version} vs ${info.version}`);
     if (!Array.isArray(info.files) || info.files.length === 0) throw new Error('an update info file lists no files');
     for (const f of info.files) {
-      if (typeof f.url !== 'string' || typeof f.sha512 !== 'string') throw new Error('a file entry has no url or sha512');
+      if (typeof f.url !== 'string' || typeof f.sha512 !== 'string') {
+        throw new Error('a file entry has no url or sha512');
+      }
       if (files.some((g) => g.url === f.url)) throw new Error(`listed twice: ${f.url}`);
       files.push(f);
     }
   }
   files.sort((a, b) => rank(a.url) - rank(b.url));
   const first = files[0];
-  return yaml.dump({ version, files, path: first.url, sha512: first.sha512, releaseDate: infos[0].releaseDate }, { lineWidth: -1, noRefs: true });
+  const merged = { version, files, path: first.url, sha512: first.sha512, releaseDate: infos[0].releaseDate };
+  return yaml.dump(merged, { lineWidth: -1, noRefs: true });
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

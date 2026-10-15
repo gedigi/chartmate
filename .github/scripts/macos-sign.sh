@@ -91,7 +91,8 @@ expected_code() {
   local name="$1" h f
   printf '%s\n' "Contents/MacOS/$name"
   for h in "" " (GPU)" " (Renderer)" " (Plugin)"; do
-    printf '%s\n' "Contents/Frameworks/$name Helper$h.app" "Contents/Frameworks/$name Helper$h.app/Contents/MacOS/$name Helper$h"
+    printf '%s\n' "Contents/Frameworks/$name Helper$h.app" \
+      "Contents/Frameworks/$name Helper$h.app/Contents/MacOS/$name Helper$h"
   done
   for f in "Electron Framework" Squirrel Mantle ReactiveObjC; do
     printf '%s\n' "Contents/Frameworks/$f.framework" "Contents/Frameworks/$f.framework/Versions/A/$f"

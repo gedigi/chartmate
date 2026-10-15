@@ -54,7 +54,8 @@ done
 [ "$(docker exec "$name" id -u):$(docker exec "$name" id -g)" = 1000:1000 ] || fail "process does not run as 1000:1000"
 # AGPL-3.0 text and the third-party notices ship in the image.
 docker exec "$name" grep -q 'GNU AFFERO GENERAL PUBLIC LICENSE' /app/LICENSE || fail "/app/LICENSE missing"
-docker exec "$name" grep -q '^klinecharts ' /app/THIRD_PARTY_NOTICES.txt || fail "/app/THIRD_PARTY_NOTICES.txt missing or incomplete"
+docker exec "$name" grep -q '^klinecharts ' /app/THIRD_PARTY_NOTICES.txt \
+  || fail "/app/THIRD_PARTY_NOTICES.txt missing or incomplete"
 echo "platform: $(docker exec "$name" node -p 'process.platform + "/" + process.arch')"
 
 hostport="$(docker port "$name" 8787/tcp | head -n 1)"

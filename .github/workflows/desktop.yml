@@ -64,9 +64,11 @@ jobs:
           if [ -n "$IDENTITY" ]; then
             echo "macOS: signed as $IDENTITY"
           elif [ "$ALLOW_UNSIGNED" = true ]; then
-            echo "::warning title=macOS unsigned::CHARTMATE_MAC_SIGN_IDENTITY is not set; building macOS unsigned (no updater) as CHARTMATE_ALLOW_UNSIGNED_MAC allows"
+            msg="CHARTMATE_MAC_SIGN_IDENTITY is not set: macOS ships unsigned, without the updater"
+            echo "::warning title=macOS unsigned::$msg (CHARTMATE_ALLOW_UNSIGNED_MAC=true)"
           else
-            echo "::error title=macOS would ship unsigned::set the CHARTMATE_MAC_SIGN_IDENTITY repository variable, or CHARTMATE_ALLOW_UNSIGNED_MAC=true to release macOS unsigned"
+            msg="set the CHARTMATE_MAC_SIGN_IDENTITY repository variable"
+            echo "::error title=macOS would ship unsigned::$msg, or CHARTMATE_ALLOW_UNSIGNED_MAC=true to release it unsigned"
             exit 1
           fi
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -223,7 +225,9 @@ jobs:
         env:
           NOTARIZE: ${{ steps.notary.outputs.notarize }}
         run: |
-          if [ "$NOTARIZE" = true ]; then echo "method=Developer ID + notarized"; else echo "method=Developer ID"; fi >> "$GITHUB_OUTPUT"
+          method="Developer ID"
+          if [ "$NOTARIZE" = true ]; then method="Developer ID + notarized"; fi
+          echo "method=$method" >> "$GITHUB_OUTPUT"
       - name: Record the code directory hashes
         id: cdhash
         run: |
@@ -245,7 +249,10 @@ jobs:
   dist-mac:
     needs: [package-mac, sign-mac]
     # Runs after sign-mac, or without it for an unsigned build; never after a failed signing run.
-    if: ${{ !cancelled() && needs.package-mac.result == 'success' && (needs.sign-mac.result == 'success' || (needs.sign-mac.result == 'skipped' && !(startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != ''))) }}
+    if: >-
+      ${{ !cancelled() && needs.package-mac.result == 'success' && (needs.sign-mac.result == 'success' ||
+      (needs.sign-mac.result == 'skipped' && !(startsWith(github.ref, 'refs/tags/v') &&
+      vars.CHARTMATE_MAC_SIGN_IDENTITY != ''))) }}
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
@@ -271,7 +278,9 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: ${{ (startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != '') && 'mac-apps-signed' || 'mac-apps' }}
+          name: >-
+            ${{ (startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != '') && 'mac-apps-signed'
+            || 'mac-apps' }}
           path: ${{ runner.temp }}/in
       - name: Package dmg and zip from the apps (prepackaged, signs nothing)
         working-directory: apps/desktop
@@ -319,7 +328,9 @@ jobs:
       # Unsigned: the dmgs ship as they are. Signed: notarize-mac-dmg signs and notarizes them first.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ (startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != '') && 'mac-dmg-unsigned' || 'desktop-macos-dmg' }}
+          name: >-
+            ${{ (startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != '') &&
+            'mac-dmg-unsigned' || 'desktop-macos-dmg' }}
           path: apps/desktop/release/*.dmg
           if-no-files-found: error
           retention-days: 14
@@ -555,7 +566,10 @@ jobs:
   release:
     needs: [package-mac, sign-mac, dist-mac, notarize-mac-dmg, package-win]
     # Every platform built; a signed macOS build also needs its notarized dmgs.
-    if: ${{ startsWith(github.ref, 'refs/tags/v') && !cancelled() && needs.dist-mac.result == 'success' && needs.package-win.result == 'success' && (!(startsWith(github.ref, 'refs/tags/v') && vars.CHARTMATE_MAC_SIGN_IDENTITY != '') || needs.notarize-mac-dmg.result == 'success') }}
+    if: >-
+      ${{ startsWith(github.ref, 'refs/tags/v') && !cancelled() && needs.dist-mac.result == 'success' &&
+      needs.package-win.result == 'success' && (!(startsWith(github.ref, 'refs/tags/v') &&
+      vars.CHARTMATE_MAC_SIGN_IDENTITY != '') || needs.notarize-mac-dmg.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

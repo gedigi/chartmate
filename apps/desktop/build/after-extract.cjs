@@ -11,7 +11,8 @@ async function afterExtract({ appOutDir, electronPlatformName }) {
   const app = readdirSync(appOutDir).find((f) => f.endsWith('.app'));
   if (!app) throw new Error(`after-extract: no .app in ${appOutDir}`);
   const resources = join(appOutDir, app, 'Contents', 'Resources');
-  for (const [from, to] of [['LICENSE', 'LICENSE.electron.txt'], ['LICENSES.chromium.html', 'LICENSES.chromium.html']]) {
+  const files = [['LICENSE', 'LICENSE.electron.txt'], ['LICENSES.chromium.html', 'LICENSES.chromium.html']];
+  for (const [from, to] of files) {
     const src = join(appOutDir, from);
     if (!existsSync(src)) throw new Error(`after-extract: ${from} is missing from the Electron distribution`);
     copyFileSync(src, join(resources, to));

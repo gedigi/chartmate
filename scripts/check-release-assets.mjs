@@ -64,7 +64,9 @@ export function checkReleaseAssets(dir, version) {
       const data = readFileSync(join(dir, f.url));
       const sha512 = createHash('sha512').update(data).digest('base64');
       if (f.sha512 !== sha512) problems.push(`${yml}: sha512 of ${f.url} does not match the file`);
-      if (f.size !== undefined && f.size !== statSync(join(dir, f.url)).size) problems.push(`${yml}: size of ${f.url} does not match the file`);
+      if (f.size !== undefined && f.size !== statSync(join(dir, f.url)).size) {
+        problems.push(`${yml}: size of ${f.url} does not match the file`);
+      }
     }
   }
   return problems;

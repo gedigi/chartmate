@@ -33,7 +33,11 @@ export const ALLOWED_LICENSES = new Set([
 export const PROFILES = {
   server: { roots: [['apps/server', 'dependencies'], ['apps/web', 'dependencies']], exclude: [], leaves: [] },
   desktop: {
-    roots: [['apps/server', 'dependencies'], ['apps/web', 'dependencies'], ['apps/desktop', ['electron', 'electron-updater', 'kysely', 'undici', 'js-yaml']]],
+    roots: [
+      ['apps/server', 'dependencies'],
+      ['apps/web', 'dependencies'],
+      ['apps/desktop', ['electron', 'electron-updater', 'kysely', 'undici', 'js-yaml']],
+    ],
     exclude: ['better-sqlite3', 'pg'],
     leaves: ['electron'],
   },
@@ -182,7 +186,8 @@ const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
 
 /**
  * Third-party packages reachable through `dependencies`, `optionalDependencies` and peer dependencies (installed
- * ones only) from the profile's roots. Workspace packages are walked through but not listed (they are Chartmate itself).
+ * ones only) from the profile's roots. Workspace packages are walked through but not listed (they are Chartmate
+ * itself).
  * @returns {{ name: string, version: string, license: string, dir: string, pkg: any }[]}
  */
 export function collect(profileName, repo = REPO) {
@@ -199,7 +204,8 @@ export function collect(profileName, repo = REPO) {
     seen.add(dir);
     const pkg = readJson(join(dir, 'package.json'));
     if (!isWorkspace(dir)) {
-      found.set(`${pkg.name}@${pkg.version}`, { name: pkg.name, version: pkg.version, license: declaredLicense(pkg), dir, pkg });
+      const entry = { name: pkg.name, version: pkg.version, license: declaredLicense(pkg), dir, pkg };
+      found.set(`${pkg.name}@${pkg.version}`, entry);
     }
     if (leaves.has(pkg.name)) return;
     // Installed (optional) peer dependencies count too: a bundler picks them up when they resolve, as debug's
@@ -238,7 +244,9 @@ export function problems(packages) {
   const out = [];
   for (const p of packages) {
     if (!p.license) out.push(`${p.name}@${p.version}: declares no license`);
-    else if (!licenseAllowed(p.license)) out.push(`${p.name}@${p.version}: license "${p.license}" is not on the AGPL-3.0-compatible allowlist`);
+    else if (!licenseAllowed(p.license)) {
+      out.push(`${p.name}@${p.version}: license "${p.license}" is not on the AGPL-3.0-compatible allowlist`);
+    }
     if (licenseTexts(p).length === 0) out.push(`${p.name}@${p.version}: ships no LICENSE/NOTICE file to reproduce`);
   }
   return out;
@@ -251,8 +259,8 @@ export function render(profileName, packages) {
     'Chartmate third-party notices',
     '',
     'Chartmate is licensed under the GNU Affero General Public License, version 3 only (see LICENSE).',
-    `This ${profileName === 'desktop' ? 'desktop app' : 'server image'} also contains the following third-party software, under`,
-    'the licenses reproduced below.',
+    `This ${profileName === 'desktop' ? 'desktop app' : 'server image'} also contains the following third-party`,
+    'software, under the licenses reproduced below.',
     '',
     ...packages.map((p) => `  ${p.name} ${p.version} (${p.license})`),
     '',
@@ -288,4 +296,6 @@ function main(argv) {
   return 0;
 }
 
-if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = main(process.argv.slice(2));
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exitCode = main(process.argv.slice(2));
+}

@@ -3,7 +3,8 @@
 // :X.Y and :X. A tag moves one only when no other full release outranks it there, so a backport (v1.2.5 after
 // v1.3.0) never pulls `latest` or :1 backward. Pre-releases (vX.Y.Z-suffix) move none.
 //
-//   git tag --list 'v*' | node scripts/release-tags.mjs vX.Y.Z    # prints latest=…, minor=…, major=… (true/false)
+//   git tag --list 'v*' | node scripts/release-tags.mjs vX.Y.Z
+//   (prints latest=…, minor=…, major=…, each true or false)
 //
 // Pure semver over the tag names (SemVer 2.0.0 precedence); names that are not vMAJOR.MINOR.PATCH[-PRE] are ignored.
 import { readFileSync, realpathSync } from 'node:fs';
@@ -24,7 +25,8 @@ export function compareTags(a, b) {
   const y = typeof b === 'string' ? parseTag(b) : b;
   if (!x || !y) throw new Error(`not a release tag: ${!x ? a : b}`);
   for (const k of ['major', 'minor', 'patch']) if (x[k] !== y[k]) return x[k] - y[k];
-  if (x.pre.length === 0 || y.pre.length === 0) return y.pre.length - x.pre.length; // a release outranks its pre-releases
+  // A release outranks its pre-releases.
+  if (x.pre.length === 0 || y.pre.length === 0) return y.pre.length - x.pre.length;
   for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
     const p = x.pre[i];
     const q = y.pre[i];
