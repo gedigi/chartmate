@@ -217,6 +217,25 @@ describe('BinanceProvider', () => {
     expect(td).toEqual([null, 'WALUSDT', 'NOPEUSDT', 'SUIUSDT']);
   });
 
+  it('quotes: an unknown pair is remembered for 10 minutes, so later polls make one batched request', async () => {
+    const tick = fixture<any[]>('binance/ticker-tradingday.json');
+    let now = NOW;
+    const { p, calls } = make(tradingDayHandler(tick), () => now);
+    await p.quotes(['WAL', 'NOPE', 'SUI']);
+    calls.length = 0;
+    const res = await p.quotes(['WAL', 'NOPE', 'SUI']);
+    expect(res.map((q) => q.id)).toEqual(['crypto:WAL', 'crypto:SUI']);
+    const td = calls.filter((c) => c.pathname === '/api/v3/ticker/tradingDay');
+    expect(td.map((c) => JSON.parse(c.searchParams.get('symbols')!))).toEqual([['WALUSDT', 'SUIUSDT']]);
+    calls.length = 0;
+    now = NOW + 10 * 60_000; // expired: asked again (and found unknown again via the per-symbol fallback)
+    await p.quotes(['WAL', 'NOPE', 'SUI']);
+    expect(calls.filter((c) => c.pathname === '/api/v3/ticker/tradingDay')).toHaveLength(4);
+    calls.length = 0;
+    expect(await p.quotes(['NOPE'])).toEqual([]); // only unknown pairs: no request at all
+    expect(calls).toEqual([]);
+  });
+
   it('quotes: a failing previous-close kline falls back to openPrice for that symbol only, negative-cached for 60 s', async () => {
     const tick = fixture<any[]>('binance/ticker-tradingday.json');
     const h = tradingDayHandler(tick);

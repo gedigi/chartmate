@@ -688,7 +688,8 @@ from 1h.
 Crypto symbols are `crypto:<BASE>` priced in USD (Binance `BTCUSDT`, Coinbase `BTC-USD`). Binance
 blocks some regions (e.g. the US): set `CRYPTO_PROVIDER=coinbase`, or point `BINANCE_BASE_URL` at an
 endpoint reachable from your host. Switching providers does not invalidate saved baskets, watchlists
-or drawings. If a provider is down or rate limiting, cached bars are served marked `stale`.
+or drawings. If a provider is down or rate limiting, cached bars are served marked `stale`, and requests to it
+pause for 30 seconds. A crypto symbol Binance does not list is left out of quote requests for 10 minutes.
 
 Fetched history is cached in the database and not re-downloaded. An empty answer from a provider is only
 remembered as "no bars here" when it cannot be a passing glitch: the range ended more than 7 days ago, lies

@@ -396,7 +396,10 @@ export class MarketDataService {
       if (list.length === 0) return [];
       try {
         return await this.queues[cls].run(`quotes|${list.join(',')}`, () => this.provider(cls).quotes(list));
-      } catch {
+      } catch (err) {
+        // Quotes are polled: a rate limit or outage cools the queue down instead of being retried every poll.
+        const e = asProviderError(this.provider(cls).id, err);
+        if (e instanceof ProviderError && e.retryable && e.provider !== 'queue') this.queues[cls].backoff(BACKOFF_MS);
         return [];
       }
     };

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { nyParts } from '@chartmate/shared';
 import { createDb } from '../../src/db/connect.js';
 import { migrate } from '../../src/db/migrations.js';
@@ -327,6 +327,17 @@ describe('MarketDataService', () => {
       expect(crypto.quoteCalls).toEqual([['BTC', 'ETH']]);
       stock.fail = new ProviderError('yahoo', 'down', true);
       expect((await svc.quotes(['stock:AAPL', 'crypto:BTC'])).map((x) => x.id)).toEqual(['crypto:BTC']);
+    });
+
+    it('a retryable quote failure backs the class queue off (polls stop hammering upstream); others do not', async () => {
+      const spy = vi.spyOn(queues.stock, 'backoff');
+      stock.fail = new ProviderError('yahoo', '429', true, 429);
+      await svc.quotes(['stock:AAPL']);
+      expect(spy).toHaveBeenCalledTimes(1);
+      stock.fail = new ProviderError('yahoo', 'bad request', false, 400);
+      now += 60_000;
+      await svc.quotes(['stock:AAPL']);
+      expect(spy).toHaveBeenCalledTimes(1);
     });
   });
 

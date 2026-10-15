@@ -42,6 +42,9 @@ app, the Docker image and the release tag share one version number.
   not asked for bars again for 10 minutes.
 - A basket may hold at most 100 versions and 100 different symbols across them. Two versions appended at the
   same time can no longer overwrite each other.
+- Watchlist quotes go easier on the data providers: a crypto pair Binance does not know is left out of quote
+  requests for 10 minutes (it used to turn every poll into one request per symbol), and a rate limit or outage
+  pauses quote requests for 30 seconds.
 - A stock split the data provider reports a few days late is now still applied to cached history (and never
   twice).
 
