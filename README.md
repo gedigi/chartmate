@@ -123,7 +123,8 @@ curl -fsSL -o .env.example https://raw.githubusercontent.com/gedigi/chartmate/ma
 ```
 
 - Data lives in the `chartmate-data` volume (SQLite at `/data/chartmate.db`).
-- The port is published on `127.0.0.1` only. To reach it from other machines, prefer a
+- The port is published on `127.0.0.1` only, so other machines cannot reach it, but other containers on the
+  same Docker network still can. To reach it from other machines, prefer a
   [reverse proxy](#behind-a-reverse-proxy-https) on the same host. Otherwise set a password first (see
   [Security](#security)), then `CHARTMATE_BIND=0.0.0.0` in `.env`. Ports Docker publishes bypass host firewalls
   such as ufw, so `0.0.0.0` really is every interface. `CHARTMATE_PORT` changes the host port.
@@ -226,7 +227,8 @@ location / {
   instance over HTTPS only. A password of only whitespace is refused at startup rather than read as "no
   password"; the server also warns when it is reachable beyond loopback without a password (judged on
   `CHARTMATE_PUBLISHED_BIND`, which `compose.yaml` sets from `CHARTMATE_BIND`, or else on `HOST`; the default
-  Compose setup publishes on 127.0.0.1 and does not warn).
+  Compose setup publishes on 127.0.0.1 and does not warn, although containers on the same Docker network can
+  still reach it).
 - Session cookies are signed with `CHARTMATE_SESSION_SECRET` when set (min 16 characters; `openssl rand -hex
   32`). When unset, a random secret is generated on first start and kept in the database (`settings` table),
   so it survives restarts; it is never derived from the password, so a leaked cookie gives nothing to guess the
