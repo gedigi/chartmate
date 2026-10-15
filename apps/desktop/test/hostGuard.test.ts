@@ -50,8 +50,10 @@ describe('desktop app:// requests pass the server Host and Origin guard', () => 
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('allows the renderer origin as a host', () => {
-    expect(desktopConfig({ userData: dir, env: { CHARTMATE_ALLOWED_HOSTS: 'evil.example' } }).config.allowedHosts).toEqual([APP_HOST]);
+  it('allows no extra host and only the renderer origin; the environment cannot widen either', () => {
+    const { config } = desktopConfig({ userData: dir, env: { CHARTMATE_ALLOWED_HOSTS: 'evil.example' } });
+    expect(config.allowedHosts).toEqual([]);
+    expect(config.allowedOrigins).toEqual([APP_ORIGIN]);
   });
 
   it('GET and a state-changing request from app://chartmate succeed', async () => {

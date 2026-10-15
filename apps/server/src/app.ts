@@ -117,7 +117,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
 
   // First hook: a request for a host that is not allowed never reaches auth, the API or the static files.
-  registerHostGuard(app, { password: config.password, allowedHosts: config.allowedHosts });
+  registerHostGuard(app, {
+    password: config.password, allowedHosts: config.allowedHosts, allowedOrigins: config.allowedOrigins,
+    trustProxy: config.trustProxy !== false,
+  });
 
   const authOpts = { password: config.password, sessionSecret: config.sessionSecret, now: deps.now ?? Date.now };
   await registerAuth(app, authOpts);

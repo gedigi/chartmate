@@ -38,6 +38,8 @@ describe('loadConfig', () => {
     expect(loadConfig({}).allowedHosts).toEqual([]);
     expect(loadConfig({ CHARTMATE_ALLOWED_HOSTS: 'NAS.local, 192.168.1.10' }).allowedHosts).toEqual(['nas.local', '192.168.1.10']);
     expect(() => loadConfig({ CHARTMATE_ALLOWED_HOSTS: 'nas.local:8787' })).toThrow(/CHARTMATE_ALLOWED_HOSTS/);
+    expect(loadConfig({ CHARTMATE_ALLOWED_HOSTS: 'chartmate_web' }).allowedHosts).toEqual(['chartmate_web']);
+    expect(loadConfig({}).allowedOrigins).toEqual([]);
   });
 
   it('parses HOST (default 127.0.0.1; blank → default)', () => {

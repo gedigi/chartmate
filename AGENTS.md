@@ -48,6 +48,11 @@ uses it), Node 22 (`.nvmrc`), TypeScript 5.9, Vitest everywhere.
 - Desktop: the window loads `app://chartmate/`; `/api/*` goes to `fastify.inject`, everything else is a static
   file of the web build (`apps/desktop/src/lib/protocol.ts`). There is no network listener
   (`listenGuard.ts`), no preload and no IPC.
+- Every request first passes the Host / Origin guard (`apps/server/src/hostGuard.ts`, the first `onRequest`
+  hook): without a password (or with `CHARTMATE_ALLOWED_HOSTS` set) the Host, and behind a trusted proxy every
+  X-Forwarded-Host, must be loopback or listed; state-changing `/api` requests with an `Origin` must come from
+  the request's own origin, password or not. The desktop app builds the server with no extra host and
+  `allowedOrigins: ['app://chartmate']`; the environment cannot override either.
 
 ## Commands
 

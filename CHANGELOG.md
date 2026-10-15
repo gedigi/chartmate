@@ -13,9 +13,12 @@ app, the Docker image and the release tag share one version number.
   version and digest and verify its build provenance.
 - Each GitHub Release now carries its `compose.yaml` and `.env.example` (as `env.example`).
 - Without a password, the server answers only to `localhost`, `127.0.0.1` and `[::1]` (any port) and refuses
-  any other `Host` with a 403, so a web page cannot reach it through DNS rebinding; state-changing API requests
-  from another site's origin are refused too. Add the names you use to the new `CHARTMATE_ALLOWED_HOSTS`, or set
-  a password. Behind a trusted reverse proxy the forwarded host is checked.
+  any other `Host` with a 403, so a web page cannot reach it through DNS rebinding. Add the names you use to the
+  new `CHARTMATE_ALLOWED_HOSTS`, or set a password. Behind a trusted reverse proxy the `Host` header and every
+  `X-Forwarded-Host` must be allowed; the proxy must pass the real host, and an exposed instance still needs a
+  password.
+- State-changing API requests (with or without a password) are refused when their `Origin` is not the page's
+  own origin.
 
 ## [1.0.0] - 2026-10-14
 

@@ -23,6 +23,11 @@ export interface Config {
    * password, and with one when non-empty (hostGuard.ts).
    */
   allowedHosts: string[];
+  /**
+   * Exact origins (`scheme://host`) accepted on state-changing API requests besides the request's own. Not
+   * configurable from the environment; the desktop app sets its renderer origin.
+   */
+  allowedOrigins: string[];
 }
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -82,6 +87,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     providers: e.CHARTMATE_PROVIDERS,
     trustProxy: parseTrustProxy(e.CHARTMATE_TRUST_PROXY),
     allowedHosts: parseAllowedHosts(e.CHARTMATE_ALLOWED_HOSTS),
+    allowedOrigins: [],
     webDist: existsSync(join(webDistCandidate, 'index.html')) ? webDistCandidate : null,
   };
 }

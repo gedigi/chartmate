@@ -158,13 +158,30 @@ points Chartmate at it. Data is not copied over from SQLite. Any other Postgres 
 Terminate HTTPS in a reverse proxy (Caddy, nginx, Traefik, …) on the same host, forwarding to
 `127.0.0.1:8787`, and set `CHARTMATE_TRUST_PROXY=1` (the number of proxy hops, or `true`, or the proxy's
 IP/CIDR). Chartmate then takes the client IP, the `https` scheme and the host from the `X-Forwarded-*` headers,
-so the login rate limits apply per client and the session cookie is marked `Secure`. Set a password, and list
-the public name in `CHARTMATE_ALLOWED_HOSTS` (`chartmate.example.com`): without a password that is required,
-otherwise every request is refused with a 403. With Caddy, for example:
+so the login rate limits apply per client and the session cookie is marked `Secure`. Set a password (an
+exposed instance always needs one), and list the public name in `CHARTMATE_ALLOWED_HOSTS`
+(`chartmate.example.com`): without a password that is required, otherwise every request is refused with a 403.
+
+The proxy must pass the real host: the `Host` header and every `X-Forwarded-Host` entry must be allowed names
+(the `Host` may also be `127.0.0.1:8787`, which some proxies send by default). Serve Chartmate only from a
+site block for its own name, never from a catch-all or default server block, which would forward requests for
+any name an attacker points at your server. With Caddy, for example (it passes the host by default):
 
 ```
 chartmate.example.com {
   reverse_proxy 127.0.0.1:8787
+}
+```
+
+With nginx, inside the `server` block whose `server_name` is `chartmate.example.com`:
+
+```
+location / {
+  proxy_pass http://127.0.0.1:8787;
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-Host $host;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 }
 ```
 
@@ -180,12 +197,18 @@ chartmate.example.com {
   any port), plus the names in `CHARTMATE_ALLOWED_HOSTS` (comma-separated hostnames or IP addresses, no scheme
   or port, e.g. `chartmate.example.com,192.168.1.10`). A request for any other `Host` gets a 403 before it
   reaches the API or the web app, so a malicious page cannot reach your instance by pointing its own domain at
-  your machine (DNS rebinding). State-changing API requests (anything but `GET`) that carry an `Origin` from
-  another host are refused too. Behind a trusted proxy (`CHARTMATE_TRUST_PROXY`) the `X-Forwarded-Host` the
-  proxy sets is checked instead of `Host`. With a password the login protects the instance and any host is
+  your machine (DNS rebinding). Only these exact spellings count as loopback: `0.0.0.0`, `127.1`, other
+  `127.x.x.x` addresses and other IPv6 forms are refused, so open `http://localhost:8787` or
+  `http://127.0.0.1:8787`. Behind a trusted proxy (`CHARTMATE_TRUST_PROXY`) the `Host` header and every
+  `X-Forwarded-Host` entry must be allowed. With a password the login protects the instance and any host is
   served, unless `CHARTMATE_ALLOWED_HOSTS` is set, which is then enforced as well. Opening Chartmate by a LAN
   address or name without a password therefore needs that name in `CHARTMATE_ALLOWED_HOSTS`; for anything
   beyond your own machine, set a password.
+- **Same-origin writes.** With or without a password, a state-changing API request (anything but `GET`) that
+  carries an `Origin` is refused unless that is the request's own origin: same hostname and port as the host
+  it was sent to, or the browser marks it `Sec-Fetch-Site: same-origin`. For a loopback host, a loopback
+  `Origin` on any port is accepted too, which is what `pnpm dev` needs (the page on port 5173, the API on 8787).
+  Requests without an `Origin` (curl, scripts) are not affected.
 - Behind a reverse proxy set `CHARTMATE_TRUST_PROXY`, otherwise every client appears to come from the
   proxy's IP and they all share one rate-limit budget, and the session cookie is not marked `Secure`.
 - The session cookie lasts 30 days. Changing `CHARTMATE_SESSION_SECRET` (or the password, if the secret

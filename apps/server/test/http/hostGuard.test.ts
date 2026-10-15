@@ -14,6 +14,7 @@ describe('hostnameOf', () => {
     expect(hostnameOf('[::1]:8787')).toBe('[::1]');
     expect(hostnameOf('[::1]')).toBe('[::1]');
     expect(hostnameOf('chartmate.example.com.')).toBe('chartmate.example.com');
+    expect(hostnameOf('chartmate_web:8787')).toBe('chartmate_web'); // Compose service names may contain _
   });
 
   it('returns null for anything that is not a plain host[:port]', () => {
@@ -30,6 +31,7 @@ describe('parseAllowedHosts', () => {
     expect(parseAllowedHosts('Chartmate.Example.com, 192.168.1.10 ,[fd00::1],,nas.local.')).toEqual([
       'chartmate.example.com', '192.168.1.10', '[fd00::1]', 'nas.local',
     ]);
+    expect(parseAllowedHosts('chartmate_web,my_app.internal')).toEqual(['chartmate_web', 'my_app.internal']);
   });
 
   it('rejects ports, schemes, paths, wildcards and other junk', () => {
@@ -43,7 +45,8 @@ describe('isAllowedHostname', () => {
   it('always allows the loopback names, plus the configured ones', () => {
     for (const h of ['localhost', '127.0.0.1', '[::1]']) expect(isAllowedHostname(h, [])).toBe(true);
     expect(isAllowedHostname('evil.example', [])).toBe(false);
-    expect(isAllowedHostname('127.0.0.2', [])).toBe(false);
+    // Only the canonical loopback spellings: 0.0.0.0, 127.1 and other 127/8 addresses are refused.
+    for (const h of ['127.0.0.2', '0.0.0.0', '127.1', '[::ffff:127.0.0.1]', '[0:0:0:0:0:0:0:1]']) expect(isAllowedHostname(h, []), h).toBe(false);
     expect(isAllowedHostname('nas.local', ['nas.local'])).toBe(true);
     expect(isAllowedHostname('sub.nas.local', ['nas.local'])).toBe(false);
   });
@@ -107,30 +110,95 @@ describe('Host and Origin guard', () => {
     expect((await app.inject({ url: '/', headers: { host: 'evil.example' } })).statusCode).toBe(403);
   });
 
-  it('checks Origin on state-changing API requests when present', async () => {
+  it('state-changing API requests need an Origin equal to the request origin (POST, PUT, DELETE)', async () => {
     const app = await withWeb({ allowedHosts: ['nas.local'] });
-    const put = (origin?: string) => app.inject({
-      method: 'PUT', url: '/api/watchlist', payload: [],
-      headers: { host: 'localhost:8787', ...(origin !== undefined ? { origin } : {}) },
+    const send = (method: 'POST' | 'PUT' | 'DELETE', host: string, origin?: string, extra: Record<string, string> = {}) => app.inject({
+      method, url: method === 'PUT' ? '/api/watchlist' : method === 'POST' ? '/api/baskets' : '/api/baskets/nope',
+      ...(method === 'PUT' ? { payload: [] } : method === 'POST' ? { payload: {} } : {}),
+      headers: { host, ...(origin !== undefined ? { origin } : {}), ...extra },
     });
-    expect((await put()).statusCode).toBeLessThan(300);
-    expect((await put('http://localhost:5173')).statusCode).toBeLessThan(300); // Vite dev server
-    expect((await put('https://nas.local')).statusCode).toBeLessThan(300);
-    const bad = await put('https://evil.example');
-    expect(bad.statusCode).toBe(403);
-    expect(bad.json()).toMatchObject({ code: 'origin_not_allowed' });
-    expect((await put('null')).statusCode).toBe(403);
-    expect((await put('not a url')).statusCode).toBe(403);
-    // GETs are not state-changing: a cross-origin GET is left to the browser's same-origin policy.
+    const denied = async (res: Awaited<ReturnType<typeof send>>) => {
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ code: 'origin_not_allowed' });
+    };
+    for (const m of ['POST', 'PUT', 'DELETE'] as const) {
+      // No Origin (curl, the healthcheck): only the Host check applies.
+      expect((await send(m, 'localhost:8787')).statusCode, m).not.toBe(403);
+      // Same origin: scheme-default or explicit port matches the Host header.
+      expect((await send(m, 'nas.local:8787', 'http://nas.local:8787')).statusCode, m).not.toBe(403);
+      expect((await send(m, 'nas.local', 'http://nas.local')).statusCode, m).not.toBe(403);
+      // Another allowed host or another port of the same host is a different origin.
+      await denied(await send(m, 'localhost:8787', 'https://nas.local'));
+      await denied(await send(m, 'nas.local:8787', 'http://nas.local:9999'));
+      await denied(await send(m, 'nas.local', 'http://nas.local:8080'));
+      await denied(await send(m, 'localhost:8787', 'https://evil.example'));
+      await denied(await send(m, 'localhost:8787', 'null'));
+      await denied(await send(m, 'localhost:8787', 'not a url'));
+      // A browser-set Sec-Fetch-Site: same-origin (pages cannot forge it) is accepted.
+      expect((await send(m, 'nas.local:8787', 'http://nas.local:1', { 'sec-fetch-site': 'same-origin' })).statusCode, m).not.toBe(403);
+      await denied(await send(m, 'nas.local:8787', 'https://evil.example', { 'sec-fetch-site': 'cross-site' }));
+    }
+  });
+
+  it('a loopback Origin on any port is accepted only for a loopback Host (the Vite dev proxy)', async () => {
+    const app = await withWeb({ allowedHosts: ['nas.local'] });
+    const put = (host: string, origin: string) => app.inject({ method: 'PUT', url: '/api/watchlist', payload: [], headers: { host, origin } });
+    // pnpm dev: the page is on localhost:5173, Vite proxies to 8787 with changeOrigin (Host localhost:8787).
+    expect((await put('localhost:8787', 'http://localhost:5173')).statusCode).toBeLessThan(300);
+    expect((await put('127.0.0.1:8787', 'http://[::1]:5173')).statusCode).toBeLessThan(300);
+    expect((await put('nas.local:8787', 'http://localhost:5173')).statusCode).toBe(403);
+  });
+
+  it('GETs are not checked for Origin (left to the same-origin policy)', async () => {
+    const app = await withWeb();
     const get = await app.inject({ url: '/api/health', headers: { host: 'localhost', origin: 'https://evil.example' } });
     expect(get.statusCode).toBe(200);
   });
 
-  it('behind a trusted proxy, checks X-Forwarded-Host instead of the Host header', async () => {
+  it('checks Origin with a password too, with or without a host list', async () => {
+    for (const allowedHosts of [[], ['chartmate.example.com']]) {
+      const t2 = await makeApp({ password: 'pw', allowedHosts });
+      try {
+        const res = await t2.app.inject({
+          method: 'POST', url: '/api/login', payload: { password: 'pw' },
+          headers: { host: 'chartmate.example.com', origin: 'https://evil.example' },
+        });
+        expect(res.statusCode).toBe(403);
+        expect(res.json()).toMatchObject({ code: 'origin_not_allowed' });
+        const ok = await t2.app.inject({
+          method: 'POST', url: '/api/login', payload: { password: 'pw' },
+          headers: { host: 'chartmate.example.com', origin: 'https://chartmate.example.com', 'x-forwarded-proto': 'https' },
+        });
+        expect(ok.statusCode).not.toBe(403);
+      } finally {
+        await t2.close();
+      }
+    }
+  });
+
+  it('an extra exact origin from the config (the desktop app://chartmate) is accepted', async () => {
+    const app = await withWeb({ allowedOrigins: ['app://chartmate'] });
+    const put = (origin: string) => app.inject({ method: 'PUT', url: '/api/watchlist', payload: [], headers: { origin } });
+    expect((await put('app://chartmate')).statusCode).toBeLessThan(300);
+    expect((await put('app://evil')).statusCode).toBe(403);
+  });
+
+  it('behind a trusted proxy, checks X-Forwarded-Host as well as the Host header', async () => {
     const app = await withWeb({ trustProxy: true, allowedHosts: ['chartmate.example.com'] });
     const fwd = (xfh: string) => app.inject({ url: '/api/health', headers: { host: '127.0.0.1:8787', 'x-forwarded-host': xfh } });
     expect((await fwd('chartmate.example.com')).statusCode).toBe(200);
     expect((await fwd('evil.example')).statusCode).toBe(403);
+    expect((await fwd('chartmate.example.com, evil.example')).statusCode).toBe(403);
+    expect((await fwd('evil.example, chartmate.example.com')).statusCode).toBe(403);
+  });
+
+  it.each([true, 1] as const)('with trustProxy %s, a forged X-Forwarded-Host cannot hide a foreign Host (rebinding)', async (trustProxy) => {
+    const app = await withWeb({ trustProxy, allowedHosts: ['chartmate.example.com'] });
+    const req = (host: string, xfh: string) => app.inject({ url: '/api/health', headers: { host, 'x-forwarded-host': xfh } });
+    expect((await req('evil.example', 'localhost')).statusCode).toBe(403);
+    expect((await req('evil.example:8787', 'chartmate.example.com')).statusCode).toBe(403);
+    expect((await req('chartmate.example.com', 'chartmate.example.com')).statusCode).toBe(200);
+    expect((await req('127.0.0.1:8787', 'chartmate.example.com')).statusCode).toBe(200);
   });
 
   it('without a trusted proxy, ignores X-Forwarded-Host', async () => {
