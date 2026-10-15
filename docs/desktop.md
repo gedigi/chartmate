@@ -623,18 +623,21 @@ pnpm --filter @chartmate/desktop sign:win
    - there are no changed or untracked files, and no ignored `.env` files;
    - the release exists.
 2. It reinstalls `node_modules` from the lockfile, then rebuilds the Windows app for the tag. CI's installers
-   cannot be re-signed in place, because the app and the uninstaller are inside them.
+   cannot be re-signed in place, because the app and the uninstaller are inside them. The About dialog of that
+   build links the source at the tag (with `--no-upload`, at the checked-out commit).
 3. Right before packaging, it asks for the card PIN, if your setup has one (or takes `CHARTMATE_WIN_PKCS11_PIN`
    from its own environment, removing it there first thing so `git`, `gh` and `pnpm` never inherit it). The PIN
    is never put in electron-builder's environment, which every tool it starts would inherit: it is written to an
    owner-only file (0600) in a fresh private temporary directory (0700), and electron-builder gets only that
    file's path as `CHARTMATE_WIN_PKCS11_PIN_FILE`. The sign hook (`build/win-sign.cjs`) reads and deletes the file
    on its first call, keeps the PIN in memory for the other files, and gives it to `osslsigncode` only (as
-   `PKCS11_PIN`). The directory is removed when packaging ends, whatever the outcome. On Ctrl-C or SIGTERM, the
-   signal is forwarded to electron-builder and everything it started (its process group on macOS and Linux,
-   `taskkill /T` on Windows), since a builder left running would keep signing with the PIN in memory; once it has
-   exited (SIGKILL after 10 seconds), the directory is removed and the signal is re-raised. The first rejected PIN
-   stops all further signing attempts.
+   `PKCS11_PIN`). The directory is removed when packaging ends, whatever the outcome, and whatever is left of
+   electron-builder's process group is killed. On Ctrl-C, SIGTERM or SIGHUP (the terminal closing), the signal is
+   forwarded to electron-builder and everything it started (its process group on macOS and Linux, `taskkill /T` on
+   Windows), since a builder left running would keep signing with the PIN in memory; once it has exited (SIGKILL
+   after 10 seconds), the directory is removed and the signal is re-raised. Any other exit of `sign:win` kills the
+   group and removes the directory too; only a SIGKILL of `sign:win` itself cannot. The first rejected PIN stops
+   all further signing attempts.
 4. It signs, then verifies everything.
 5. It shows the files and asks before replacing them on the GitHub Release with `gh release upload --clobber`.
    The repository comes from `gh` or `GITHUB_REPOSITORY`.

@@ -1,12 +1,12 @@
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, win32 } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 // @ts-expect-error plain ESM script without types
 import * as verifyScript from '../scripts/verify-win-signatures.mjs';
 // @ts-expect-error plain ESM script without types
-import { buildAffectingIgnored, builderEnv, rewriteReleaseNotes, stopChild, takePin, windowsAssets, withSignalCleanup, writePinFile } from '../scripts/sign-win-release.mjs';
+import { buildAffectingIgnored, builderEnv, rewriteReleaseNotes, sourceRefEnv, stopChild, takePin, taskkillPath, windowsAssets, withSignalCleanup, writePinFile } from '../scripts/sign-win-release.mjs';
 
 const {
   appUpdateProblems, commonName, latestYmlProblems, parseOsslVerify, parseSigntoolVerify, signatureProblems, signLogProblems, zipExtractCommand,
@@ -131,6 +131,20 @@ describe('sign-win-release', () => {
   });
 });
 
+describe('sign:win web build: the About dialog\'s source ref', () => {
+  const HEAD = '0123456789abcdef0123456789abcdef01234567';
+
+  it('publishing (HEAD checked to be the tag): the tag, as a build of that tag in CI', () => {
+    expect(sourceRefEnv({ PATH: '/bin' }, { upload: true, tag: 'v1.2.3', head: HEAD }))
+      .toEqual({ PATH: '/bin', GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v1.2.3', GITHUB_SHA: HEAD });
+  });
+
+  it('--no-upload (any commit): only the commit, whatever ref variables the shell had', () => {
+    expect(sourceRefEnv({ PATH: '/bin', GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v1.2.3', GITHUB_SHA: 'stale' }, { upload: false, tag: 'v1.2.3', head: HEAD }))
+      .toEqual({ PATH: '/bin', GITHUB_SHA: HEAD });
+  });
+});
+
 describe('sign:win PIN hand-off', () => {
   it('electron-builder and its children never get the PIN in their environment, only the path of a private file', () => {
     const env = builderEnv({ PATH: '/bin', CHARTMATE_WIN_PKCS11_PIN: '123456' }, '/private/x/pin');
@@ -162,9 +176,43 @@ describe('sign:win PIN hand-off', () => {
   };
   const fakeProc = () => Object.assign(new EventEmitter(), { pid: 4242, kill: vi.fn() });
   const tick = () => new Promise((r) => setTimeout(r, 0));
+  const handlerCount = (p: EventEmitter) => ['SIGINT', 'SIGTERM', 'SIGHUP', 'exit'].reduce((n, e) => n + p.listenerCount(e), 0);
+
+  it('the parent exiting any other way (process.exit, an uncaught error): kills the builder\'s group, removes the PIN file', async () => {
+    const proc = fakeProc();
+    const child = fakeChild();
+    const cleanup = vi.fn();
+    const reapGroup = vi.fn();
+    void withSignalCleanup(cleanup, (track: (c: unknown) => void) => {
+      track(child);
+      return new Promise<void>(() => {});
+    }, proc, { stopChild: vi.fn(), reapGroup });
+    await Promise.resolve();
+    proc.emit('exit', 1);
+    expect(reapGroup).toHaveBeenCalledWith(child);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('once electron-builder ends normally, its group is killed too (no grandchild lingers) and nothing is left armed', async () => {
+    const proc = fakeProc();
+    const child = fakeChild();
+    const cleanup = vi.fn();
+    const reapGroup = vi.fn();
+    await withSignalCleanup(cleanup, async (track: (c: unknown) => void) => { track(child); }, proc, { reapGroup });
+    expect(reapGroup).toHaveBeenCalledWith(child);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(handlerCount(proc)).toBe(0);
+    proc.emit('exit', 0);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('taskkill is run from System32 by absolute path, never looked up on PATH', () => {
+    expect(taskkillPath({ SystemRoot: 'D:\\Win' })).toBe(win32.join('D:\\Win', 'System32', 'taskkill.exe'));
+    expect(taskkillPath({})).toBe(win32.join('C:\\Windows', 'System32', 'taskkill.exe'));
+  });
 
   it('SIGINT / SIGTERM before electron-builder starts: removes the PIN file, then re-raises the signal', async () => {
-    for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
       const proc = fakeProc();
       const cleanup = vi.fn();
       void withSignalCleanup(cleanup, () => new Promise<void>(() => {}), proc);
@@ -173,12 +221,12 @@ describe('sign:win PIN hand-off', () => {
       await tick();
       expect(cleanup).toHaveBeenCalledTimes(1);
       expect(proc.kill).toHaveBeenCalledWith(4242, sig);
-      expect(proc.listenerCount('SIGINT') + proc.listenerCount('SIGTERM')).toBe(0);
+      expect(handlerCount(proc)).toBe(0);
     }
   });
 
   it('SIGINT / SIGTERM while electron-builder runs: forwards it, waits for the child to exit, then cleans up and re-raises', async () => {
-    for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
       const proc = fakeProc();
       const child = fakeChild();
       const cleanup = vi.fn();
@@ -187,7 +235,7 @@ describe('sign:win PIN hand-off', () => {
       void withSignalCleanup(cleanup, (track: (c: unknown) => void) => {
         track(child);
         return new Promise<void>((_, reject) => { child.once('exit', () => reject(new Error('electron-builder failed (SIGTERM)'))); });
-      }, proc, { stopChild: stop }).finally(() => { settled = true; });
+      }, proc, { stopChild: stop, reapGroup: vi.fn() }).finally(() => { settled = true; });
       await Promise.resolve();
       proc.emit(sig);
       await tick();
@@ -203,7 +251,7 @@ describe('sign:win PIN hand-off', () => {
       await tick();
       expect(cleanup).toHaveBeenCalledTimes(1);
       expect(proc.kill).toHaveBeenCalledWith(4242, sig);
-      expect(proc.listenerCount('SIGINT') + proc.listenerCount('SIGTERM')).toBe(0);
+      expect(handlerCount(proc)).toBe(0);
       // The step's own failure never reaches the caller (which would exit 1 and race the re-raised signal).
       expect(settled).toBe(false);
     }
@@ -225,6 +273,9 @@ describe('sign:win PIN hand-off', () => {
       child.exit('SIGKILL');
       await done;
       expect(stopped).toBe(true);
+      // Once the leader has exited, the group is SIGKILLed again, so no grandchild lingers.
+      expect(killGroup).toHaveBeenCalledTimes(3);
+      expect(killGroup).toHaveBeenLastCalledWith(777, 'SIGKILL');
     } finally {
       vi.useRealTimers();
     }
@@ -236,13 +287,14 @@ describe('sign:win PIN hand-off', () => {
     const done = stopChild(child, 'SIGINT', { platform: 'linux', killGroup, timeoutMs: 5000 });
     expect(child.kill).toHaveBeenCalledWith('SIGINT');
     child.exit('SIGINT');
-    await done;
+    await done; // the group SIGKILL after exit fails too (ESRCH): ignored
+    expect(killGroup).toHaveBeenCalledTimes(2);
 
     const gone = fakeChild();
     gone.exitCode = 0;
     await stopChild(gone, 'SIGINT', { platform: 'linux', killGroup });
     expect(gone.kill).not.toHaveBeenCalled();
-    expect(killGroup).toHaveBeenCalledTimes(1);
+    expect(killGroup).toHaveBeenCalledTimes(2);
   });
 
   it.runIf(process.platform !== 'win32')('stopChild: a real child group that ignores SIGTERM is SIGKILLed after the timeout', async () => {
@@ -250,6 +302,24 @@ describe('sign:win PIN hand-off', () => {
     await new Promise((r) => setTimeout(r, 200));
     await stopChild(child, 'SIGTERM', { timeoutMs: 300 });
     expect(child.signalCode).toBe('SIGKILL');
+  });
+
+  it.runIf(process.platform !== 'win32')('stopChild: a real grandchild that outlives its parent is killed with the group', async () => {
+    // The leader exits on SIGTERM; its child ignores SIGTERM and would otherwise keep running.
+    const script = [
+      'const { spawn } = require("node:child_process");',
+      'const g = spawn(process.execPath, ["-e", "process.on(\\"SIGTERM\\", () => {}); setInterval(() => {}, 1000)"], { stdio: "ignore" });',
+      'console.log(g.pid);',
+      'setInterval(() => {}, 1000);',
+    ].join('\n');
+    const child = spawn(process.execPath, ['-e', script], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const grandchild = await new Promise<number>((r) => child.stdout!.once('data', (d) => r(Number(String(d).trim()))));
+    await new Promise((r) => setTimeout(r, 200));
+    await stopChild(child, 'SIGTERM', { timeoutMs: 5000 });
+    expect(child.signalCode).toBe('SIGTERM');
+    const alive = () => { try { process.kill(grandchild, 0); return true; } catch { return false; } };
+    for (let i = 0; i < 20 && alive(); i++) await new Promise((r) => setTimeout(r, 50)); // reaped by init
+    expect(alive()).toBe(false);
   });
 
   it('stopChild (Windows): kills the whole tree with taskkill /T, or the child alone if taskkill fails', async () => {
@@ -275,7 +345,7 @@ describe('sign:win PIN hand-off', () => {
     await expect(withSignalCleanup(cleanup, async () => { throw new Error('builder failed'); }, proc)).rejects.toThrow('builder failed');
     expect(cleanup).toHaveBeenCalledTimes(2);
     expect(proc.kill).not.toHaveBeenCalled();
-    expect(proc.listenerCount('SIGINT') + proc.listenerCount('SIGTERM')).toBe(0);
+    expect(handlerCount(proc)).toBe(0);
   });
 
   it.runIf(process.platform !== 'win32')('writes the PIN to an owner-only file in a fresh owner-only directory, removed by cleanup', () => {
