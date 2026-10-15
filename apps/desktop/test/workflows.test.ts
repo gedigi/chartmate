@@ -75,7 +75,7 @@ describe.each(files)('%s', (file) => {
   it('gets pnpm from corepack (sha512-checked against packageManager) before any job runs pnpm', () => {
     expect(text).not.toContain('pnpm/action-setup');
     for (const [name, job] of jobs) {
-      const first = job.steps.findIndex((s) => /(^|\n)\s*pnpm /.test(s.run ?? '') && !/corepack enable pnpm/.test(s.run ?? ''));
+      const first = job.steps.findIndex((s) => /(^|\n)\s*pnpm /.test(s.run ?? ''));
       if (first < 0) continue;
       const corepack = job.steps.findIndex((s) => s.name === 'pnpm (corepack)');
       expect(corepack, name).toBeGreaterThanOrEqual(0);
@@ -114,6 +114,17 @@ describe('toolchain pins', () => {
   it('pins pnpm by version and sha512 (corepack verifies it in CI and in the Docker build)', () => {
     const pkg = JSON.parse(root('package.json')) as { packageManager: string };
     expect(pkg.packageManager).toMatch(/^pnpm@\d+\.\d+\.\d+\+sha512\.[0-9a-f]{128}$/);
+  });
+  it('supply-chain policy exceptions do not outlive their remove-after date by 30 days', () => {
+    const text = root('pnpm-workspace.yaml');
+    const dates = [...text.matchAll(/remove after (\d{4}-\d{2}-\d{2})/gi)].map((m) => m[1]!);
+    for (const d of dates) {
+      const overdue = (Date.now() - Date.parse(`${d}T00:00:00Z`)) / 86_400_000;
+      expect(overdue, `pnpm-workspace.yaml: an exception marked "remove after ${d}" is ${Math.floor(overdue)} days overdue`).toBeLessThan(30);
+    }
+    // Exceptions to minimumReleaseAge are temporary, so they say when they go.
+    const excl = /^minimumReleaseAgeExclude:\n((?:[ \t]+.*\n)*)/m.exec(text);
+    if (excl && /^\s+- /m.test(excl[1]!)) expect(dates.length, 'minimumReleaseAgeExclude needs a "remove after YYYY-MM-DD" comment').toBeGreaterThan(0);
   });
   it('nothing loosens corepack or the pnpm download checks (keys, registry, custom URLs)', () => {
     for (const f of [...files.map((x) => `.github/workflows/${x}`), 'Dockerfile', '.github/scripts/install-pnpm.sh']) {
