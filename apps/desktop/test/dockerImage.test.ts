@@ -90,39 +90,105 @@ describe('scripts', () => {
   const outputs = (file: string) => Object.fromEntries(readFileSync(file, 'utf8').trim().split('\n').map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
 
   describe('resolve-base-image.sh', () => {
+    const OTHER = `sha256:${'cd'.repeat(32)}`;
+    const NOW = Date.UTC(2026, 9, 15) / 1000;
     const dockerfile = (body: string) => {
       writeFileSync(join(dir, 'Dockerfile'), body);
       return join(dir, 'Dockerfile');
     };
-    const manifest = (digest: string) => `cat <<'EOF'\n{\n  "schemaVersion": 2,\n  "digest": "${digest}",\n  "manifests": [{ "digest": "sha256:${'cd'.repeat(32)}" }]\n}\nEOF`;
+    /**
+     * docker: the registry's index digest (REGISTRY) and per-platform `created` dates (CREATED);
+     * gh: repo-info's last commits (c1, c2) whose files record RECORDED1 / RECORDED2.
+     */
+    const stubs = () => {
+      stub('docker', `case "$*" in
+  *"{{json .Manifest}}"*) printf '{"schemaVersion":2,"digest":"%s","manifests":[]}' "$REGISTRY" ;;
+  *"{{json .Image}}"*) printf '{"linux/amd64":{"created":"%s"},"linux/arm64":{"created":"%s"},"unknown/unknown":{}}' "$CREATED" "$CREATED" ;;
+esac`);
+      stub('gh', `case "$*" in
+  *"/commits?"*) [ -n "$GH_FAIL" ] && exit 1; printf '%s\\n%s\\n' ${'a'.repeat(40)} ${'b'.repeat(40)} ;;
+  *"ref=${'a'.repeat(40)}"*) printf '## x\\n\\n\`\`\`console\\n$ docker pull node@%s\\n\`\`\`\\n' "$RECORDED1" ;;
+  *"ref=${'b'.repeat(40)}"*) printf '$ docker pull node@%s\\n' "$RECORDED2" ;;
+esac`);
+    };
+    const env = (over: Record<string, string> = {}) => ({
+      REGISTRY: DIGEST, RECORDED1: DIGEST, RECORDED2: OTHER, CREATED: '2026-10-14T18:29:52.493927888Z', RESOLVE_NOW: String(NOW), ...over,
+    });
+    const TAGGED = 'FROM --platform=$BUILDPLATFORM node:26-trixie-slim AS build\nRUN true\nFROM node:26-trixie-slim AS runtime\n';
 
-    it('resolves the tag once, writes the pinned build context and the digest to the outputs and the summary', () => {
-      stub('docker', manifest(DIGEST));
-      const file = dockerfile('FROM --platform=$BUILDPLATFORM node:26-trixie-slim AS build\nRUN true\nFROM node:26-trixie-slim AS runtime\n');
+    it('resolves the tag once, checks it against docker-library, writes the pinned build context and the digest', () => {
+      stubs();
       const out = join(dir, 'out');
       const summary = join(dir, 'summary');
-      const r = run(RESOLVE, [file], { GITHUB_OUTPUT: out, GITHUB_STEP_SUMMARY: summary });
-      expect(r.status, r.err).toBe(0);
-      expect(r.calls).toEqual([`docker buildx imagetools inspect node:26-trixie-slim --format {{json .Manifest}}`]);
+      const r = run(RESOLVE, [dockerfile(TAGGED)], env({ GITHUB_OUTPUT: out, GITHUB_STEP_SUMMARY: summary }));
+      expect(r.status, r.out + r.err).toBe(0);
+      expect(r.calls.filter((c) => c.startsWith('docker'))).toEqual([
+        'docker buildx imagetools inspect node:26-trixie-slim --format {{json .Manifest}}',
+        `docker buildx imagetools inspect node:26-trixie-slim@${DIGEST} --format {{json .Image}}`,
+      ]);
+      expect(r.calls).toContain('gh api repos/docker-library/repo-info/commits?path=repos/node/remote/26-trixie-slim.md&per_page=5 --jq .[].sha');
       expect(outputs(out)).toEqual({
         image: 'node:26-trixie-slim',
         digest: DIGEST,
         context: `node:26-trixie-slim=docker-image://node:26-trixie-slim@${DIGEST}`,
       });
-      expect(r.out).toContain(`node:26-trixie-slim@${DIGEST}`);
+      expect(r.out).toContain(`node:26-trixie-slim@${DIGEST} (matches docker-library/repo-info)`);
       expect(readFileSync(summary, 'utf8')).toContain(`\`node:26-trixie-slim@${DIGEST}\``);
     });
 
-    it('defaults to ./Dockerfile and prints without GitHub outputs', () => {
-      stub('docker', manifest(DIGEST));
+    it('accepts a digest from repo-info\'s recent history (a newer one may already be recorded)', () => {
+      stubs();
+      const out = join(dir, 'out');
+      const r = run(RESOLVE, [dockerfile(TAGGED)], env({ GITHUB_OUTPUT: out, RECORDED1: OTHER, RECORDED2: DIGEST }));
+      expect(r.status, r.out + r.err).toBe(0);
+      expect(outputs(out).digest).toBe(DIGEST);
+    });
+
+    it('never builds on a digest docker-library has not recorded: falls back to the newest recorded one, with a warning', () => {
+      stubs();
+      const out = join(dir, 'out');
+      const r = run(RESOLVE, [dockerfile(TAGGED)], env({ GITHUB_OUTPUT: out, REGISTRY: `sha256:${'ee'.repeat(32)}`, RECORDED1: OTHER }));
+      expect(r.status, r.out + r.err).toBe(0);
+      expect(outputs(out).digest).toBe(OTHER);
+      expect(r.out).toContain('::warning title=Base image::');
+    });
+
+    it('fails when repo-info cannot be read or records nothing', () => {
+      stubs();
+      expect(run(RESOLVE, [dockerfile(TAGGED)], env({ GH_FAIL: '1' })).out).toContain('could not read docker-library/repo-info');
+      const r = run(RESOLVE, [dockerfile(TAGGED)], env({ RECORDED1: 'nope', RECORDED2: 'nope' }));
+      expect(r.status).toBe(1);
+      expect(r.out).toContain('records no digest');
+    });
+
+    it('refuses a base built in the future or more than 60 days ago', () => {
+      stubs();
+      for (const created of ['2026-10-16T02:00:00Z', '2026-08-15T00:00:00Z', '']) {
+        const r = run(RESOLVE, [dockerfile(TAGGED)], env({ CREATED: created }));
+        expect(r.status, created).toBe(1);
+        expect(r.out, created).toContain('created date in the future or more than 60 days ago');
+      }
+      expect(run(RESOLVE, [dockerfile(TAGGED)], env({ CREATED: '2026-08-17T00:00:00Z' })).status).toBe(0);
+    });
+
+    it('refuses a base that is not a Docker Official Image tag', () => {
+      stubs();
+      const r = run(RESOLVE, [dockerfile('FROM ghcr.io/someone/node:26 AS runtime\n')], env());
+      expect(r.status).toBe(1);
+      expect(r.out).toContain('not a Docker Official Image tag');
+    });
+
+    it('defaults to ./Dockerfile', () => {
+      stubs();
       dockerfile('FROM node:26-trixie-slim AS runtime\n');
-      const r = run(RESOLVE, []);
-      expect(r.status, r.err).toBe(0);
+      const r = run(RESOLVE, [], env());
+      expect(r.status, r.out + r.err).toBe(0);
       expect(r.out).toContain(`node:26-trixie-slim@${DIGEST}`);
     });
 
     it('leaves an already digest-pinned base as it is (an older release\'s Dockerfile): no context, no lookup', () => {
       stub('docker', 'exit 1');
+      stub('gh', 'exit 1');
       const file = dockerfile(`FROM node:22-bookworm-slim@${DIGEST} AS build\nFROM node:22-bookworm-slim@${DIGEST} AS runtime\n`);
       const out = join(dir, 'out');
       const r = run(RESOLVE, [file], { GITHUB_OUTPUT: out });
@@ -132,15 +198,15 @@ describe('scripts', () => {
     });
 
     it('refuses stages on different base images', () => {
-      stub('docker', manifest(DIGEST));
-      const r = run(RESOLVE, [dockerfile('FROM node:26-trixie-slim AS build\nFROM node:26-bookworm-slim AS runtime\n')]);
+      stubs();
+      const r = run(RESOLVE, [dockerfile('FROM node:26-trixie-slim AS build\nFROM node:26-bookworm-slim AS runtime\n')], env());
       expect(r.status).toBe(1);
       expect(r.out + r.err).toContain('one base image');
     });
 
     it('fails when the registry answer has no digest', () => {
-      stub('docker', manifest('sha256:nope'));
-      const r = run(RESOLVE, [dockerfile('FROM node:26-trixie-slim AS runtime\n')]);
+      stubs();
+      const r = run(RESOLVE, [dockerfile('FROM node:26-trixie-slim AS runtime\n')], env({ REGISTRY: 'sha256:nope' }));
       expect(r.status).toBe(1);
       expect(r.out + r.err).toContain('could not resolve');
     });

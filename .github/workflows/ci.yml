@@ -137,6 +137,8 @@ jobs:
       # The base image tag, resolved once: its digest goes to the log and the job summary, and the build uses it.
       - name: Base image
         id: base
+        env:
+          GH_TOKEN: ${{ github.token }} # reads docker-library/repo-info (public) through the GitHub API
         run: .github/scripts/resolve-base-image.sh
       # --pull: never a stale local copy of the base image.
       - name: Build
