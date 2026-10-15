@@ -252,6 +252,13 @@ describe('BasketEditor — edit', () => {
     expect(screen.getByLabelText('Start date (UTC)')).toHaveValue(new Date().toISOString().slice(0, 10));
   });
 
+  it('the create form explains when the basket starts', () => {
+    render(<BasketEditor onSaved={() => {}} onCancel={() => {}} />);
+    expect(screen.getByText(
+      'The basket starts at 100 on this date (00:00 UTC, or the New York session start on intraday charts of stock-only baskets), sized at the prior close.',
+    )).toBeInTheDocument();
+  });
+
   it('shows the server error when appending fails', async () => {
     vi.mocked(api.baskets.appendVersion).mockRejectedValue(new ApiError(400, 'invalid_basket', 'No data for crypto:BTC before 2024-07-01'));
     render(<BasketEditor basket={BASKET} onSaved={() => {}} onCancel={() => {}} />);
