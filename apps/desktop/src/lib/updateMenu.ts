@@ -41,7 +41,7 @@ export function updateMenuItems(o: UpdateMenuOptions): MenuItemConstructorOption
   }
 }
 
-/** The dialog shown by "Check for Updates…" when this build cannot update itself (macOS). Plain text only. */
+/** The dialog shown by "Check for Updates…" (macOS) when this build cannot update itself. Plain text only. */
 export function unsupportedUpdateMessage(
   kind: 'unsigned' | 'unavailable',
   o: { appName: string; hasReleasesPage: boolean },
@@ -57,15 +57,16 @@ export function unsupportedUpdateMessage(
 }
 
 /**
- * Starts the updater without ever taking the app down with it: a failure (say, updater.cjs cannot load) is reported
- * through `onError`, and the app keeps running with updates `unavailable`.
+ * Starts the updater (sync or async) without ever taking the app down with it: a failure (say, updater.cjs cannot
+ * load, or its session cannot be set up) is reported through `onError`, and the app keeps running with updates
+ * `unavailable`.
  */
-export function startUpdatesSafely<T>(
-  start: () => T | null,
+export async function startUpdatesSafely<T>(
+  start: () => T | null | Promise<T | null>,
   onError: (err: unknown) => void,
-): { controller: T | null; availability: 'enabled' | 'unavailable' } {
+): Promise<{ controller: T | null; availability: 'enabled' | 'unavailable' }> {
   try {
-    const controller = start();
+    const controller = await start();
     return controller ? { controller, availability: 'enabled' } : { controller: null, availability: 'unavailable' };
   } catch (err) {
     onError(err);

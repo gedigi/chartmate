@@ -1,10 +1,12 @@
 import { win32 } from 'node:path';
+import { isNewerVersion, parseSemver } from './semver.js';
 
 /**
  * Windows update signature check, replacing electron-updater's default verifier (which skips the check when
  * PowerShell cannot run, and accepts a CN-only publisher match). This one fails CLOSED: any error, timeout,
- * stderr output, unparsable result, status other than Valid, path mismatch or subject mismatch refuses the
- * installer. The publisher is pinned by its distinguished name (at least CN, O and C), baked in at build time.
+ * stderr output (other than CLIXML progress records), unparsable result, status other than Valid, path mismatch,
+ * subject mismatch, or an installer version that is not the advertised one and newer than the running app refuses
+ * the installer. The publisher is pinned by its distinguished name (at least CN, O and C), baked in at build time.
  * Pure: the process runner is injected.
  */
 
@@ -89,13 +91,34 @@ export type ExecFile = (
   opts: { env: Record<string, string>; timeout: number; windowsHide: boolean; maxBuffer: number; shell: false },
 ) => Promise<{ stdout: string; stderr: string }>;
 
-/** The PowerShell script; the file path arrives in CHARTMATE_VERIFY_FILE, never inside the command text. */
-const SCRIPT = [
+/**
+ * The PowerShell script. The file path arrives in CHARTMATE_VERIFY_FILE, never inside the command text. Progress
+ * output is silenced and every error stops the script (a non-zero exit and stderr: refused). The JSON is made
+ * ASCII-only (non-ASCII characters escaped as \uXXXX), so the console code page cannot garble a subject. Under
+ * Constrained Language Mode the type casts here are not allowed: the script fails, so updates are refused.
+ * electron-builder's NSIS installer carries the app version as its ProductVersion (VIAddVersionKey ProductVersion).
+ */
+export const VERIFY_SCRIPT = [
+  "$ProgressPreference = 'SilentlyContinue'",
   "$ErrorActionPreference = 'Stop'",
-  '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
   '$s = Get-AuthenticodeSignature -LiteralPath $env:CHARTMATE_VERIFY_FILE',
-  '[pscustomobject]@{ Status = $s.Status.ToString(); Path = $s.Path; Subject = $s.SignerCertificate.Subject } | ConvertTo-Json -Compress',
+  '$v = (Get-Item -LiteralPath $env:CHARTMATE_VERIFY_FILE).VersionInfo.ProductVersion',
+  '$j = [pscustomobject]@{ Status = $s.Status.ToString(); Path = $s.Path; Subject = $s.SignerCertificate.Subject; ProductVersion = $v } | ConvertTo-Json -Compress',
+  "[regex]::Replace($j, '[^\\x00-\\x7F]', { param($m) '\\u{0:x4}' -f [int][char]$m.Value })",
 ].join('; ');
+
+/**
+ * PowerShell may write progress records to stderr as CLIXML even with progress silenced (module loading). Such a
+ * stderr is harmless; any other stream (errors, warnings) is not.
+ */
+export function isOnlyProgressClixml(stderr: string): boolean {
+  const t = stderr.trim();
+  if (!t.startsWith('#< CLIXML')) return false;
+  const body = t.slice('#< CLIXML'.length).trim();
+  if (!/^<Objs\b[\s\S]*<\/Objs>$/.test(body)) return false;
+  const streams = [...body.matchAll(/\bS="([^"]*)"/g)].map((m) => m[1]!.toLowerCase());
+  return streams.every((x) => x === 'progress');
+}
 
 export const VERIFY_TIMEOUT_MS = 30_000;
 
@@ -106,6 +129,10 @@ export function createWindowsSignatureVerifier(o: {
   log: (msg: string) => void;
   /** Environment for PowerShell (SystemRoot, TEMP, …); PSModulePath is dropped. */
   baseEnv?: Record<string, string | undefined>;
+  /** The version the release advertised for the download being verified (null when unknown: refused). */
+  expectedVersion: () => string | null;
+  /** The running app's version: the installer must be newer. */
+  currentVersion: string;
 }): (publisherNames: string[], file: string) => Promise<string | null> {
   return async (_publisherNames, file) => {
     const refuse = (why: string) => {
@@ -122,15 +149,15 @@ export function createWindowsSignatureVerifier(o: {
     const powershell = win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
     let stdout: string;
     try {
-      const r = await o.exec(powershell, ['-NoProfile', '-NonInteractive', '-NoLogo', '-InputFormat', 'None', '-Command', SCRIPT], {
+      const r = await o.exec(powershell, ['-NoProfile', '-NonInteractive', '-NoLogo', '-InputFormat', 'None', '-Command', VERIFY_SCRIPT], {
         env, timeout: VERIFY_TIMEOUT_MS, windowsHide: true, maxBuffer: 1 << 20, shell: false,
       });
-      if (r.stderr.trim() !== '') return refuse('PowerShell reported an error');
+      if (r.stderr.trim() !== '' && !isOnlyProgressClixml(r.stderr)) return refuse('PowerShell reported an error');
       stdout = r.stdout;
     } catch (err) {
       return refuse(`PowerShell could not run (${err instanceof Error ? err.message.split('\n')[0]!.slice(0, 200) : 'error'})`);
     }
-    let data: { Status?: unknown; Path?: unknown; Subject?: unknown };
+    let data: { Status?: unknown; Path?: unknown; Subject?: unknown; ProductVersion?: unknown };
     try {
       data = JSON.parse(stdout.trim()) as typeof data;
       if (!data || typeof data !== 'object') throw new Error('not an object');
@@ -142,6 +169,10 @@ export function createWindowsSignatureVerifier(o: {
       return refuse('verified a different file');
     }
     if (!subjectMatches(data.Subject, o.expectedDn)) return refuse('signed by a different publisher');
+    const advertised = o.expectedVersion();
+    const own = typeof data.ProductVersion === 'string' ? data.ProductVersion.trim() : null;
+    if (!advertised || !parseSemver(own) || own !== advertised) return refuse('installer version does not match the release');
+    if (!isNewerVersion(own, o.currentVersion)) return refuse('installer is not newer than the running app');
     return null;
   };
 }

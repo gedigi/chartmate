@@ -3,16 +3,18 @@
 // - Windows: the installer's Authenticode signature is checked by our fail-closed verifier (winSignature.ts) against
 //   the publisher DN pinned at build time (__WIN_PUBLISHER_DN__), replacing electron-updater's default, which skips
 //   the check when PowerShell cannot run.
-// - macOS: before the zip is handed to Squirrel.Mac, its app's Info.plist version must match the release and be newer
-//   (updateBundle.ts); Squirrel.Mac then checks the new app's code signature against the running app's designated
-//   requirement.
+//   The installer's own ProductVersion must also be the advertised version and newer than the running app.
+// - macOS: before the zip is handed to Squirrel.Mac, it is extracted with ditto and its app's version (plutil) must
+//   match the release and be newer (updateBundle.ts); Squirrel.Mac then checks the new app's code signature against
+//   the running app's designated requirement. The restart prompt waits until Squirrel.Mac has the update.
 // The UX is native dialogs and (macOS) menu items only (src/lib/updateController.ts): no IPC, no preload, nothing
 // reaches the renderer.
 import { execFile } from 'node:child_process';
-import { app, BrowserWindow, dialog, session } from 'electron';
+import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, dialog, session } from 'electron';
 import { autoUpdater, type NsisUpdater } from 'electron-updater';
 import type { ListenGuard } from './lib/listenGuard.js';
 import type { RotatingLog } from './lib/logger.js';
+import { safeVersion } from './lib/releaseNotes.js';
 import { isNewerVersion } from './lib/semver.js';
 import { armOnUpdateDownloaded, type MacUpdaterLike } from './lib/updateArming.js';
 import { checkDownloadedBundle } from './lib/updateBundle.js';
@@ -28,7 +30,7 @@ const execFileAsync: ExecFile = (file, args, opts) => new Promise((resolve, reje
   execFile(file, args, opts, (err, stdout, stderr) => (err ? reject(err) : resolve({ stdout: String(stdout), stderr: String(stderr) })));
 });
 
-export function startAutoUpdate(o: {
+export async function startAutoUpdate(o: {
   log: RotatingLog;
   listenGuard: ListenGuard;
   appName: string;
@@ -36,16 +38,16 @@ export function startAutoUpdate(o: {
   settingsDir: string;
   /** Called after "Check for Updates Automatically" was toggled, so the menu shows the new checkbox state. */
   onChange: () => void;
-}): UpdateController {
+}): Promise<UpdateController> {
   const { log } = o;
   const currentVersion = app.getVersion();
   // electron-updater downloads through its own session partition: restrict it to HTTPS GitHub hosts, every redirect
-  // hop included, over direct connections (no system or PAC proxy, like provider traffic). TLS uses Chromium's
-  // certificate verification with the operating system's trust store. (session-created already applied the
-  // permission lockdown; this replaces the app-only request filter for this partition.) Set up before anything can
-  // trigger a check.
+  // hop included, over direct connections (no system or PAC proxy, like provider traffic). TLS is verified by
+  // Chromium's certificate verifier (which also honors locally trusted roots). (session-created already applied the
+  // permission lockdown; this replaces the app-only request filter for this partition.) Set up, and the proxy
+  // setting applied, before anything can trigger a check.
   const s = session.fromPartition(UPDATE_PARTITION, { cache: false });
-  void s.setProxy({ mode: 'direct' });
+  await s.setProxy({ mode: 'direct' });
   s.webRequest.onBeforeRequest((details, callback) => {
     const ok = isUpdateRequestAllowed(details.url);
     if (!ok) log.warn('blocked updater request');
@@ -64,12 +66,19 @@ export function startAutoUpdate(o: {
     },
   });
 
+  // The version the release advertised for the current download (update-available fires before the download).
+  let advertisedVersion: string | null = null;
+  autoUpdater.on('update-available', (info) => {
+    advertisedVersion = safeVersion(info.version);
+  });
   if (process.platform === 'win32') {
     (autoUpdater as NsisUpdater).verifyUpdateCodeSignature = createWindowsSignatureVerifier({
       exec: execFileAsync,
       expectedDn: __WIN_PUBLISHER_DN__,
       log: (m) => log.warn(logLine(m)),
       baseEnv: process.env,
+      expectedVersion: () => advertisedVersion,
+      currentVersion,
     });
   }
 
@@ -84,8 +93,18 @@ export function startAutoUpdate(o: {
   autoUpdater.isUpdateSupported = (info) => isNewerVersion(info.version, currentVersion);
 
   const settings = loadUpdateSettings(o.settingsDir, (p) => log.warn(p));
+  // electron-updater's events, plus `install-ready`: Squirrel.Mac's own update-downloaded (macOS), which comes after
+  // electron-updater's update-downloaded once Squirrel.Mac has fetched and verified the update.
+  const port: UpdaterPort = {
+    on: ((event: string, listener: (...a: unknown[]) => void) => {
+      if (event === 'install-ready') return nativeAutoUpdater.on('update-downloaded', () => listener());
+      return autoUpdater.on(event as 'error', listener as (e: Error) => void);
+    }) as UpdaterPort['on'],
+    checkForUpdates: () => autoUpdater.checkForUpdates(),
+    quitAndInstall: () => autoUpdater.quitAndInstall(),
+  };
   const controller = createUpdateController({
-    updater: autoUpdater as unknown as UpdaterPort,
+    updater: port,
     dialog: {
       show: async (m) => {
         const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
@@ -100,6 +119,7 @@ export function startAutoUpdate(o: {
     timers: { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (h) => clearTimeout(h as NodeJS.Timeout) },
     appName: o.appName,
     isMac: process.platform === 'darwin',
+    waitForInstallReady: process.platform === 'darwin',
     currentVersion,
     automatic: settings.checkAutomatically,
     saveAutomatic: (on) => {
@@ -107,7 +127,7 @@ export function startAutoUpdate(o: {
     },
     onChange: o.onChange,
   });
-  // No background check may start while quitting (Restart now stops the schedule itself).
+  // No background check may start while quitting (Restart Now stops the schedule itself).
   app.on('before-quit', () => controller.stop());
   controller.start();
   return controller;

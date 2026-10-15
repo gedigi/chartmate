@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { compareSemver, isNewerVersion, isPrereleaseVersion, parseSemver } from '../src/lib/semver.js';
 import { type BundleExec, checkDownloadedBundle, DITTO, PLUTIL } from '../src/lib/updateBundle.js';
-import { createWindowsSignatureVerifier, isPinnedPublisherDn, parseDn, subjectMatches } from '../src/lib/winSignature.js';
+import { createWindowsSignatureVerifier, isPinnedPublisherDn, parseDn, subjectMatches, VERIFY_SCRIPT } from '../src/lib/winSignature.js';
 
 describe('semver', () => {
   it('parses strict semver only', () => {
@@ -176,13 +176,15 @@ describe('publisher DN pin', () => {
 
 describe('Windows installer signature verifier (fails closed)', () => {
   const file = 'C:\\Users\\me\\AppData\\Local\\chartmate-updater\\pending\\temp-Chartmate-Setup.exe';
-  const ok = { Status: 0, Path: file, Subject: DN };
-  const run = (out: { stdout?: string; stderr?: string } | Error, pin = DN) => {
+  const ok = { Status: 0, Path: file, Subject: DN, ProductVersion: '1.2.0' };
+  const run = (out: { stdout?: string; stderr?: string } | Error, pin = DN, advertised: string | null = '1.2.0') => {
     const exec = vi.fn(async () => {
       if (out instanceof Error) throw out;
       return { stdout: out.stdout ?? '', stderr: out.stderr ?? '' };
     });
-    const verify = createWindowsSignatureVerifier({ exec, expectedDn: pin, log: () => {} });
+    const verify = createWindowsSignatureVerifier({
+      exec, expectedDn: pin, log: () => {}, expectedVersion: () => advertised, currentVersion: '1.1.0',
+    });
     return { result: verify(['Open Source Developer, Jane Doe'], file), exec };
   };
 
@@ -215,12 +217,30 @@ describe('Windows installer signature verifier (fails closed)', () => {
       run({ stdout: JSON.stringify({ ...ok, Subject: null }) }),
       run({ stdout: JSON.stringify(ok) }, 'CN=Open Source Developer'), // unusable pin (CN only)
       run({ stdout: JSON.stringify(ok) }, ''),
+      // The installer's own version must be the advertised one and newer than the running app.
+      run({ stdout: JSON.stringify({ ...ok, ProductVersion: '1.0.0' }) }),
+      run({ stdout: JSON.stringify({ ...ok, ProductVersion: '1.3.0' }) }),
+      run({ stdout: JSON.stringify({ ...ok, ProductVersion: null }) }),
+      run({ stdout: JSON.stringify({ ...ok, ProductVersion: '1.1.0' }) }, DN, '1.1.0'),
+      run({ stdout: JSON.stringify(ok) }, DN, null),
+      // A CLIXML error record on stderr still refuses.
+      run({ stdout: JSON.stringify(ok), stderr: '#< CLIXML\r\n<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><S S="Error">boom</S></Objs>' }),
     ];
     for (const r of refusals) {
       const res = await r.result;
       expect(typeof res).toBe('string');
       expect(res!.length).toBeGreaterThan(0);
     }
+  });
+  it('tolerates a stderr that only carries CLIXML progress records', async () => {
+    const progress = '#< CLIXML\r\n<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><Obj S="progress" RefId="0"><TN RefId="0"><T>System.Management.Automation.PSCustomObject</T></TN><MS><I64 N="SourceId">1</I64><PR N="Record"><AV>Preparing modules for first use.</AV><AI>0</AI><Nil /><PI>-1</PI><PC>-1</PC><T>Completed</T><SR>-1</SR><SD> </SD></PR></MS></Obj></Objs>';
+    await expect(run({ stdout: JSON.stringify(ok), stderr: progress }).result).resolves.toBeNull();
+  });
+  it('the PowerShell script silences progress, stops on errors, emits ASCII-only JSON and reads the installer version', () => {
+    expect(VERIFY_SCRIPT.startsWith("$ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference = 'Stop'")).toBe(true);
+    expect(VERIFY_SCRIPT).not.toMatch(/OutputEncoding/);
+    expect(VERIFY_SCRIPT).toContain('(Get-Item -LiteralPath $env:CHARTMATE_VERIFY_FILE).VersionInfo.ProductVersion');
+    expect(VERIFY_SCRIPT).toMatch(/\[\^\\x00-\\x7F\]/);
   });
   it('accepts the string form of the Valid status', async () => {
     await expect(run({ stdout: JSON.stringify({ ...ok, Status: 'Valid' }) }).result).resolves.toBeNull();

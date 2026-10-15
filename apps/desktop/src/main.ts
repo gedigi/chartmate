@@ -155,7 +155,7 @@ async function start(): Promise<void> {
   });
   if (updateState === 'enabled') {
     // A broken updater never takes the app down: log it and carry on with updates unavailable.
-    const started = startUpdatesSafely(startUpdater, (err) => log.error('updater failed to start', err));
+    const started = await startUpdatesSafely(startUpdater, (err) => log.error('updater failed to start', err));
     updates = started.controller;
     updateState = started.availability;
     setMenu();
@@ -287,7 +287,7 @@ function updatesAvailability(): UpdateAvailability {
   return updateAvailability({ ...input, isSigned: __BUILD_SIGNED__, updateConfig });
 }
 
-function startUpdater(): UpdateController | null {
+async function startUpdater(): Promise<UpdateController | null> {
   if (!__BUILD_SIGNED__) return null;
   // Loaded only when enabled: electron-updater is a separate bundle that costs nothing otherwise.
   // eslint-disable-next-line @typescript-eslint/no-require-imports

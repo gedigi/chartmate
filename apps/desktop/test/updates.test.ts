@@ -7,7 +7,7 @@ import { menuTemplate } from '../src/lib/menu.js';
 import { releaseNotesText, safeVersion } from '../src/lib/releaseNotes.js';
 import { isAllowedReleasesUrl, releasesPageUrl } from '../src/lib/releasesPage.js';
 import {
-  configureUpdater, createUpdateController, logLine, STARTUP_CHECK_DELAY_MS, UPDATE_CHECK_INTERVAL_MS, type MessageOptions, type UpdaterPort,
+  configureUpdater, createUpdateController, INSTALL_WATCHDOG_MS, logLine, STARTUP_CHECK_DELAY_MS, UPDATE_CHECK_INTERVAL_MS, type MessageOptions, type UpdaterPort,
 } from '../src/lib/updateController.js';
 import { startUpdatesSafely, unsupportedUpdateMessage, updateMenuItems, type UpdateMenuState } from '../src/lib/updateMenu.js';
 import { isUpdateRequestAllowed, UPDATE_HOSTS, UPDATE_PARTITION, updateAvailability } from '../src/lib/updatePolicy.js';
@@ -111,7 +111,7 @@ describe('update policy', () => {
     // The filter is installed before the controller can trigger the first check.
     expect(updater.indexOf('onBeforeRequest')).toBeLessThan(updater.indexOf('controller.start()'));
     // Direct connections only, like provider traffic (no system or PAC proxy), set before the first check.
-    expect(updater).toContain("setProxy({ mode: 'direct' })");
+    expect(updater).toContain("await s.setProxy({ mode: 'direct' })");
     expect(updater.indexOf("setProxy({ mode: 'direct' })")).toBeLessThan(updater.indexOf('controller.start()'));
   });
   it('the public GitHub provider never calls api.github.com (so it is not allowlisted)', () => {
@@ -143,6 +143,16 @@ describe('configureUpdater (signature checks and downgrades stay at safe default
     expect(src).toContain('expectedDn: __WIN_PUBLISHER_DN__');
     expect(src.match(/verifyUpdateCodeSignature\s*=/g)).toHaveLength(1);
   });
+  it('Windows: the verifier gets the version the release advertised (from update-available)', () => {
+    const src = readFileSync(new URL('../src/updater.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/expectedVersion: \(\) => advertisedVersion/);
+    expect(src).toMatch(/autoUpdater\.on\('update-available', \(info\) => \{\s*advertisedVersion = safeVersion\(info\.version\)/);
+  });
+  it('macOS: the restart prompt waits for Squirrel.Mac (native update-downloaded)', () => {
+    const src = readFileSync(new URL('../src/updater.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/waitForInstallReady: process\.platform === 'darwin'/);
+    expect(src).toMatch(/nativeAutoUpdater\.on\('update-downloaded'/);
+  });
   it('macOS: checks the downloaded bundle version before the Squirrel.Mac hand-over', () => {
     const src = readFileSync(new URL('../src/updater.ts', import.meta.url), 'utf8');
     expect(src).toMatch(/beforeHandOver: async \(args\) =>[\s\S]*checkDownloadedBundle\(/);
@@ -154,20 +164,24 @@ describe('logLine', () => {
     expect(logLine('a\r\nb\nc\rd')).toBe('a\\r\\nb\\nc\\rd');
     expect(logLine('x'.repeat(2000)).length).toBeLessThanOrEqual(500);
     expect(logLine(new Error('boom\nfake line'))).toBe('Error: boom\\nfake line');
+    expect(logLine('a\u2028b\u2029c')).toBe('a\\u2028b\\u2029c');
   });
 });
 
 describe('startUpdatesSafely', () => {
-  it('returns the controller when the updater starts', () => {
+  it('returns the controller when the updater starts (sync or async)', async () => {
     const c = { id: 1 };
-    expect(startUpdatesSafely(() => c, () => {})).toEqual({ controller: c, availability: 'enabled' });
+    await expect(startUpdatesSafely(() => c, () => {})).resolves.toEqual({ controller: c, availability: 'enabled' });
+    await expect(startUpdatesSafely(async () => c, () => {})).resolves.toEqual({ controller: c, availability: 'enabled' });
   });
-  it('a failing updater start is logged and leaves the app running with updates unavailable', () => {
+  it('a failing updater start is logged and leaves the app running with updates unavailable', async () => {
     const errors: unknown[] = [];
-    const r = startUpdatesSafely(() => { throw new Error('cannot load updater.cjs'); }, (e) => errors.push(e));
+    const r = await startUpdatesSafely(() => { throw new Error('cannot load updater.cjs'); }, (e) => errors.push(e));
     expect(r).toEqual({ controller: null, availability: 'unavailable' });
-    expect(errors).toHaveLength(1);
-    expect(startUpdatesSafely(() => null, () => {})).toEqual({ controller: null, availability: 'unavailable' });
+    await expect(startUpdatesSafely(async () => { throw new Error('setProxy failed'); }, (e) => errors.push(e)))
+      .resolves.toEqual({ controller: null, availability: 'unavailable' });
+    expect(errors).toHaveLength(2);
+    await expect(startUpdatesSafely(() => null, () => {})).resolves.toEqual({ controller: null, availability: 'unavailable' });
   });
 });
 
@@ -249,7 +263,7 @@ function fakeUpdater() {
   return u;
 }
 
-function harness(opts: { automatic?: boolean; answer?: number } = {}) {
+function harness(opts: { automatic?: boolean; answer?: number; waitForInstallReady?: boolean } = {}) {
   const updater = fakeUpdater();
   const shown: MessageOptions[] = [];
   const saved: boolean[] = [];
@@ -267,6 +281,7 @@ function harness(opts: { automatic?: boolean; answer?: number } = {}) {
     appName: 'Chartmate',
     isMac: true,
     currentVersion: '1.1.0',
+    waitForInstallReady: opts.waitForInstallReady ?? false,
     automatic: opts.automatic ?? true,
     saveAutomatic: (on) => { saved.push(on); },
     onChange: changes,
@@ -501,7 +516,7 @@ describe('update controller', () => {
     r.updater.emit('update-downloaded', { version: '1.2.0' });
     await flush();
     expect(r.updater.installs).toBe(1);
-    expect(r.live()).toHaveLength(0);
+    expect(r.live().filter((t) => t.ms !== INSTALL_WATCHDOG_MS)).toHaveLength(0);
   });
 
   it('Windows dialogs use sentence case', async () => {
@@ -517,6 +532,117 @@ describe('update controller', () => {
     updater.emit('update-downloaded', { version: '1.2.0' });
     await flush();
     expect(shown[0]!.buttons).toEqual(['Restart now', 'Later']);
+  });
+
+  it('a hand-over failure while the restart prompt is open: Restart Now reports it once and does not install', async () => {
+    const updater = fakeUpdater();
+    const shown: MessageOptions[] = [];
+    let answer: (n: number) => void = () => {};
+    const c = createUpdateController({
+      updater: updater as unknown as UpdaterPort,
+      dialog: { show: (o) => { shown.push(o); return o.type === 'error' ? Promise.resolve(0) : new Promise<number>((r) => { answer = r; }); } },
+      log: { info() {}, warn() {}, error() {} },
+      timers: { setTimeout: () => 0, clearTimeout() {} },
+      appName: 'Chartmate', isMac: true, currentVersion: '1.1.0', automatic: false, saveAutomatic() {},
+    });
+    await c.checkNow();
+    updater.emit('update-available', { version: '1.2.0' });
+    updater.emit('update-downloaded', { version: '1.2.0' });
+    await flush();
+    expect(shown.at(-1)!.message).toBe('Chartmate 1.2.0 is ready to install');
+    updater.emit('error', new Error('Squirrel: app is read-only'));
+    await flush();
+    answer(0);
+    await flush();
+    await flush();
+    expect(updater.installs).toBe(0);
+    const errors = shown.filter((m) => m.type === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.message).toBe('Couldn’t install the update');
+  });
+
+  it('a version whose install failed is not offered again in this session', async () => {
+    const h = harness({ answer: 0 });
+    h.updater.installFailsSync = true;
+    h.controller.start();
+    await h.fire();
+    h.updater.emit('update-available', { version: '1.2.0' });
+    h.updater.emit('update-downloaded', { version: '1.2.0' });
+    await flush();
+    await flush();
+    const prompts = () => h.shown.filter((m) => m.message.endsWith('is ready to install'));
+    expect(prompts()).toHaveLength(1);
+    // The next background cycle downloads the same version again: no new prompt.
+    await h.fire((h.live().filter((t) => t.ms === UPDATE_CHECK_INTERVAL_MS)).at(-1));
+    h.updater.emit('update-available', { version: '1.2.0' });
+    h.updater.emit('update-downloaded', { version: '1.2.0' });
+    await flush();
+    expect(prompts()).toHaveLength(1);
+    expect(h.updater.installs).toBe(1);
+    // A newer version is offered normally.
+    await h.fire((h.live().filter((t) => t.ms === UPDATE_CHECK_INTERVAL_MS)).at(-1));
+    h.updater.installFailsSync = false;
+    h.updater.emit('update-available', { version: '1.3.0' });
+    h.updater.emit('update-downloaded', { version: '1.3.0' });
+    await flush();
+    expect(prompts()).toHaveLength(2);
+  });
+
+  it('macOS: the prompt waits for Squirrel.Mac; a failed hand-over before that never shows a dead prompt', async () => {
+    const h = harness({ answer: 1, waitForInstallReady: true });
+    h.controller.start();
+    await h.fire();
+    h.updater.emit('update-available', { version: '1.2.0' });
+    h.updater.emit('update-downloaded', { version: '1.2.0' });
+    await flush();
+    expect(h.shown).toHaveLength(0);
+    h.updater.emit('error', new Error('Squirrel: could not write to /Applications'));
+    await flush();
+    expect(h.shown).toHaveLength(0); // background: logged only
+    expect(h.controller.phase).toBe('idle');
+    // Next cycle: Squirrel succeeds, so the prompt appears.
+    await h.fire((h.live().filter((t) => t.ms === UPDATE_CHECK_INTERVAL_MS)).at(-1));
+    h.updater.emit('update-available', { version: '1.2.0' });
+    h.updater.emit('update-downloaded', { version: '1.2.0' });
+    await flush();
+    expect(h.shown).toHaveLength(0);
+    h.updater.emit('install-ready');
+    await flush();
+    expect(h.shown.map((m) => m.message)).toEqual(['Chartmate 1.2.0 is ready to install']);
+  });
+
+  it('macOS: a hand-over failure after a manual check is reported', async () => {
+    const h = harness({ waitForInstallReady: true });
+    await h.controller.checkNow();
+    h.updater.emit('update-available', { version: '1.2.0' });
+    await flush();
+    h.updater.emit('update-downloaded', { version: '1.2.0' });
+    h.updater.emit('error', new Error('Squirrel failed'));
+    await flush();
+    expect(h.shown.at(-1)).toMatchObject({ type: 'error', message: 'Couldn’t install the update' });
+  });
+
+  it('a download promise that rejects never surfaces as an unhandled rejection (errors arrive as events)', async () => {
+    const h = harness();
+    const downloadPromise = Promise.reject(new Error('download failed'));
+    h.updater.result = Promise.resolve({ downloadPromise });
+    await h.controller.checkNow();
+    await flush();
+    await flush();
+  });
+
+  it('watchdog: "installing" that never quits returns to idle after 60 s', async () => {
+    const h = harness({ answer: 0 });
+    await h.controller.checkNow();
+    h.updater.emit('update-available', { version: '1.2.0' });
+    h.updater.emit('update-downloaded', { version: '1.2.0' });
+    await flush();
+    expect(h.controller.phase).toBe('installing');
+    const watchdog = h.live().find((t) => t.ms === INSTALL_WATCHDOG_MS)!;
+    expect(INSTALL_WATCHDOG_MS).toBe(60_000);
+    await h.fire(watchdog);
+    expect(h.controller.phase).toBe('idle');
+    expect(h.logs.join('\n')).toMatch(/did not quit/);
   });
 
   it('only one restart prompt at a time', async () => {

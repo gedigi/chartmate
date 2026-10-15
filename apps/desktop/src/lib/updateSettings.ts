@@ -3,8 +3,8 @@ import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 
 /**
- * The persisted "Check for updates automatically" choice: `<userData>/update-settings.json`. The file name is fixed
- * (callers pass only the directory), the schema is strict (exactly one boolean), reads refuse anything that is not a
+ * The persisted "Check for Updates Automatically" (macOS menu) choice: `<userData>/update-settings.json`. The file
+ * name is fixed (callers pass only the directory), the schema is strict (exactly one boolean), reads refuse anything that is not a
  * small regular file (no symlinks, no FIFOs), and writes are atomic and owner-only. Anything invalid falls back to the
  * defaults; nothing here ever throws.
  */
