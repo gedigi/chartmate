@@ -95,7 +95,7 @@ The unpackaged run needs the dev bundle: a production bundle is hardened even un
 Playwright's `--inspect`/`--remote-debugging-port` switches (the specs check for the dev bundle's source map and
 say so).
 
-A packaged build refuses to start with a debugging or weakening switch (see [Security model](#security-model)), so no
+A released (hardened) build refuses to start with a debugging or weakening switch (see [Security model](#security-model)), so no
 test harness can attach to it. `smoke/prepare-inspectable.mjs` therefore builds a separate copy for the
 functional tests:
 
@@ -146,7 +146,7 @@ An invalid `CHARTMATE_PROVIDERS`, `CRYPTO_PROVIDER` (or, in the dev bundle, `BIN
 `CHARTMATE_USER_DATA_DIR`) stops the app at startup with a short error box naming the variable, with no stack or
 path, and exit code 1. The reason is also logged.
 
-A packaged build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY` or `SSLKEYLOGFILE` is set.
+A released (hardened) build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY` or `SSLKEYLOGFILE` is set.
 Node applies the first during pre-execution, before any app code runs, so the app cannot undo it, and the second
 would let TLS session keys be logged. `NODE_USE_SYSTEM_CA` is allowed: provider requests ignore it (see below).
 

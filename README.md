@@ -792,7 +792,7 @@ Environment overrides the desktop app honors:
   `https://api.binance.us`; any other value is ignored (and logged);
 - `CHARTMATE_DISABLE_UPDATES=1` (no update checks or downloads at all, see [Updates](#updates)).
 
-A packaged build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE` or
+A released (hardened) build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE` or
 `NODE_EXTRA_CA_CERTS` is set. Node applies the first during pre-execution, before any app code runs, so the app
 cannot undo it; the second would let TLS session keys be logged; the third would add trusted root certificates
 (Electron normally drops it already). `NODE_USE_SYSTEM_CA` is allowed: provider requests ignore it (see below).
