@@ -3,6 +3,7 @@ import { PostgresAdapter, sql, type Kysely } from 'kysely';
 import { tryNormalizeSymbolId, watchlistSymbols, type Bar, type Basket, type BasketVersion, type DrawingState, type Layout, type NativeTimeframe, type SymbolId, type WatchlistEntry } from '@chartmate/shared';
 import type { Database } from './schema.js';
 import type { Dialect } from './connect.js';
+import type { AppliedSplit } from '../market/splitMatch.js';
 
 function parseJson<T>(text: string, what: string): T {
   try {
@@ -111,9 +112,10 @@ export class BarRepo {
    * Applies split ops for `symbol` in ONE transaction: per op, coverage at/after `cut` is removed (ranges straddling
    * it are trimmed) before the bars at/after `cut` are deleted, and older bars are rescaled by `factor`. The
    * symbol's `splits_checked_at` is set to `checkedAt` in the same transaction, so a split can never be applied
-   * (rescaled) twice: either everything commits, including the stamp, or nothing does.
+   * (rescaled) twice: either everything commits, including the stamp, or nothing does. `splits` are recorded in
+   * `applied_splits` in the same transaction.
    */
-  async applySplit(symbol: string, ops: SplitOp[], checkedAt: number, splitDays: number[] = [], trackFrom?: number): Promise<void> {
+  async applySplit(symbol: string, ops: SplitOp[], checkedAt: number, splits: AppliedSplit[] = [], trackFrom?: number): Promise<void> {
     await this.db.transaction().execute(async trx => {
       await lockSymbol(trx, this.dialect, symbol); // never interleaved with a fill of the same symbol (store)
       for (const op of ops) {
@@ -131,8 +133,9 @@ export class BarRepo {
         }
       }
       await trx.updateTable('symbols').set(checkStamp(checkedAt, trackFrom)).where('id', '=', symbol).execute();
-      if (splitDays.length > 0) {
-        await trx.insertInto('applied_splits').values([...new Set(splitDays)].map(ts => ({ symbol, ts })))
+      if (splits.length > 0) {
+        const byDay = new Map(splits.map(sp => [sp.day, sp.factor]));
+        await trx.insertInto('applied_splits').values([...byDay].map(([ts, factor]) => ({ symbol, ts, factor })))
           .onConflict(oc => oc.columns(['symbol', 'ts']).doNothing()).execute();
       }
     });
@@ -216,10 +219,10 @@ export class SymbolRepo {
       .execute();
   }
 
-  /** The splits already applied to `id`'s cached bars, as NY trading dates (UTC midnight of the date). */
-  async appliedSplits(id: string): Promise<Set<number>> {
-    const rows = await this.db.selectFrom('applied_splits').select('ts').where('symbol', '=', id).execute();
-    return new Set(rows.map(r => Number(r.ts)));
+  /** The splits already applied to `id`'s cached bars (NY date as UTC midnight of the date, ratio), oldest first. */
+  async appliedSplits(id: string): Promise<AppliedSplit[]> {
+    const rows = await this.db.selectFrom('applied_splits').select(['ts', 'factor']).where('symbol', '=', id).orderBy('ts').execute();
+    return rows.map(r => ({ day: Number(r.ts), factor: r.factor === null ? null : Number(r.factor) }));
   }
 
   /** Stamps a split check; `trackFrom` starts the applied-split record of a row that has none (pre-migration 005). */

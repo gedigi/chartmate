@@ -44,8 +44,8 @@ otherwise.
 - **One file.** esbuild bundles the desktop main process and the whole server into a single minified
   `dist/main.cjs` (~2.5 MB). The package holds only `package.json`, that file and its third-party license
   comments (`dist/main.cjs.LEGAL.txt`), the web build, the icon and, in signed builds only, the updater bundle
-  (`dist/updater.cjs`, plus its `.LEGAL.txt` when it has license comments), in an asar archive with maximum compression and English locales
-  only. It has no `node_modules`.
+  (`dist/updater.cjs`, plus its `.LEGAL.txt` when it has license comments), in an asar archive with maximum compression
+  and English locales only. It has no `node_modules`.
 - **Frameless window.** The web top bar is the title bar. On macOS the native traffic lights sit on it; on
   Windows the native caption buttons (minimize, maximize, close, snap layouts) are drawn over its right end in
   the top bar's colors, following the theme through the page's `<meta name="theme-color">` (no IPC). Linux
@@ -100,9 +100,9 @@ The unpackaged run needs the dev bundle: a production bundle is hardened even un
 Playwright's `--inspect`/`--remote-debugging-port` switches (the specs check for the dev bundle's source map and
 say so).
 
-A released (hardened) build refuses to start with a debugging or weakening switch (see [Security model](#security-model)), so no
-test harness can attach to it. `smoke/prepare-inspectable.mjs` therefore builds a separate copy for the
-functional tests:
+A released (hardened) build refuses to start with a debugging or weakening switch (see [Security
+model](#security-model)), so no test harness can attach to it. `smoke/prepare-inspectable.mjs` therefore builds a
+separate copy for the functional tests:
 
 - the copy is named `… TEST-ONLY` and carries a `TEST-ONLY-NOT-FOR-DISTRIBUTION.txt` marker;
 - its only code differences: the switch guard is compiled out, and it honors `CHARTMATE_USER_DATA_DIR` so the
@@ -375,11 +375,12 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
       top-level entry, an `.app` directory. Its `CFBundleShortVersionString`, read with `/usr/bin/plutil` (XML or
       binary plist), must equal the version the release advertised and be newer than the running app. The
       temporary directory is always removed: its directories are made owner-writable first (a bundle can hold
-      read-only ones), and a failed removal is only logged, never turning a result into another. Anything unexpected refuses the update, and the loopback listener is
-      then never armed. This compares versions; it does not by itself prove what Squirrel.Mac will install, which
-      is why Squirrel.Mac's own signature check (next) still matters. Squirrel.Mac then checks that the new app's code
-      signature satisfies the running app's designated requirement. The hand-over is the only case that opens a
-      listener (the loopback exception described under [How it works](#how-it-works)), one per hand-over.
+      read-only ones), and a failed removal is only logged, never turning a result into another. Anything unexpected
+      refuses the update, and the loopback listener is then never armed. This compares versions; it does not by itself
+      prove what Squirrel.Mac will install, which is why Squirrel.Mac's own signature check (next) still matters.
+      Squirrel.Mac then checks that the new app's code signature satisfies the running app's designated requirement. The
+      hand-over is the only case that opens a listener (the loopback exception described under [How it
+      works](#how-it-works)), one per hand-over.
   - **Downgrades**: `allowDowngrade` and `forceDevUpdateConfig` are `false`, `channel` is never set (setting it
     would allow downgrades), and `isUpdateSupported` accepts only a valid semver strictly newer than the running
     version. These judge the version **the release metadata advertises**. The downloaded update's own version is
@@ -679,15 +680,21 @@ pnpm --filter @chartmate/desktop sign:win
    - there are no changed or untracked files, and no ignored `.env` files;
    - the release exists.
 2. It reinstalls `node_modules` from the lockfile, then rebuilds the Windows app for the tag. CI's installers
-   cannot be re-signed in place, because the app and the uninstaller are inside them.
+   cannot be re-signed in place, because the app and the uninstaller are inside them. The About dialog of that
+   build links the source at the tag (with `--no-upload`, at the checked-out commit).
 3. Right before packaging, it asks for the card PIN, if your setup has one (or takes `CHARTMATE_WIN_PKCS11_PIN`
    from its own environment, removing it there first thing so `git`, `gh` and `pnpm` never inherit it). The PIN
-   is never put in electron-builder's environment, which every tool it starts
-   would inherit: it is written to an owner-only file (0600) in a fresh private temporary directory (0700), and
-   electron-builder gets only that file's path as `CHARTMATE_WIN_PKCS11_PIN_FILE`. The sign hook
-   (`build/win-sign.cjs`) reads and deletes the file on its first call, keeps the PIN in memory for the other
-   files, and gives it to `osslsigncode` only (as `PKCS11_PIN`). The directory is removed when packaging ends,
-   whatever the outcome, and on Ctrl-C or SIGTERM (the signal is then re-raised). The first rejected PIN stops all further signing attempts.
+   is never put in electron-builder's environment, which every tool it starts would inherit: it is written to an
+   owner-only file (0600) in a fresh private temporary directory (0700), and electron-builder gets only that
+   file's path as `CHARTMATE_WIN_PKCS11_PIN_FILE`. The sign hook (`build/win-sign.cjs`) reads and deletes the file
+   on its first call, keeps the PIN in memory for the other files, and gives it to `osslsigncode` only (as
+   `PKCS11_PIN`). The directory is removed when packaging ends, whatever the outcome, and whatever is left of
+   electron-builder's process group is killed. On Ctrl-C, SIGTERM or SIGHUP (the terminal closing), the signal is
+   forwarded to electron-builder and everything it started (its process group on macOS and Linux, `taskkill /T` on
+   Windows), since a builder left running would keep signing with the PIN in memory; once it has exited (SIGKILL
+   after 10 seconds), the directory is removed and the signal is re-raised. Any other exit of `sign:win` kills the
+   group and removes the directory too; only a SIGKILL of `sign:win` itself cannot. The first rejected PIN stops
+   all further signing attempts.
 4. It signs, then verifies everything.
 5. It shows the files and asks before replacing them on the GitHub Release with `gh release upload --clobber`.
    The repository comes from `gh` or `GITHUB_REPOSITORY`.
@@ -723,8 +730,8 @@ Build-only variables (they affect packaging, never the running app):
   (needs `GITHUB_REPOSITORY`; see [Release assets](#signing-notarization-updates)). CI's packaging steps and
   `sign:win` set it.
 - `CHARTMATE_WIN_SIGN_LOG`: a file the sign hook appends one JSON line to per signed file;
-  `scripts/verify-win-signatures.mjs` checks that every expected file was signed (`--sign-log`). CI's Certum packaging step and
-  `sign:win` set it to a temporary file.
+  `scripts/verify-win-signatures.mjs` checks that every expected file was signed (`--sign-log`). CI's Certum packaging
+  step and `sign:win` set it to a temporary file.
 - `CHARTMATE_WIN_PKCS11_PIN`: the card PIN for `sign:win` (it asks otherwise). In a direct electron-builder run the
   hook also accepts it from the environment, with the exposure described above.
 - `CHARTMATE_WIN_PKCS11_PIN_FILE`: set by `sign:win` only (see step 3); the file must be an owner-only regular file.

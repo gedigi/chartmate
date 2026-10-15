@@ -10,7 +10,8 @@ app, the Docker image and the release tag share one version number.
 - **About Chartmate**: click the Chartmate mark in the top bar to see the version (self-hosted: also the
   server's, when it differs) and get the source code of that version and the license, as the AGPL-3.0 asks of
   software used over a network. The desktop app shows the source address as text to copy, since it opens no
-  links. The Docker image is built with its repository, so its dialog links the source too.
+  links. The Docker image is built with its repository, so its dialog links the source too. A release build links
+  its release tag, and any other build the exact commit it was built from.
 
 ### Desktop app
 
@@ -115,10 +116,10 @@ app, the Docker image and the release tag share one version number.
 - Postgres: the migration bookkeeping and column checks use the connection's current schema only, so another
   schema in the same database (e.g. one with an older copy of the tables) is no longer mistaken for Chartmate's.
   Appending basket versions concurrently on Postgres no longer fails with an internal error.
-- Rolling back to 1.0.0 now means deleting the records of migrations 004–006 first; see Troubleshooting in the
+- Rolling back to 1.0.0 now means deleting the records of migrations 004–007 first; see Troubleshooting in the
   README (migration 004 cannot be undone).
 - A stock split the data provider reports a few days late is now still applied to cached history (and never
-  twice).
+  twice, even when the provider moves its date by a day, e.g. to the evening before in New York time).
 
 ### Charts and baskets
 

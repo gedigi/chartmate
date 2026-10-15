@@ -192,7 +192,7 @@ describe('MarketDataService stock split check', () => {
     expect(svc.cacheEpoch).toBe(epoch + 1);
     const halved = { ...old, open: 50, high: 51, low: 49, close: 50.5, volume: 20 };
     expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([halved]);
-    expect(await repos.symbols.appliedSplits('stock:AAPL')).toEqual(new Set([nyDateUtcMidnight(X)]));
+    expect(await repos.symbols.appliedSplits('stock:AAPL')).toEqual([{ day: nyDateUtcMidnight(X), factor: 2 }]);
     now = NOW + 2 * DAY; // still inside the look-back window: not applied again
     await svc.ensureSplitsChecked('stock:AAPL');
     expect(svc.cacheEpoch).toBe(epoch + 1);
@@ -213,6 +213,89 @@ describe('MarketDataService stock split check', () => {
     now = NOW + DAY;
     await svc.ensureSplitsChecked('stock:AAPL');
     expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([halved]);
+  });
+
+  describe('a restamp across a NY date boundary is the same split', () => {
+    // 2026-11-03 is a Tuesday. 00:00 UTC is still Monday evening in New York; 05:00 UTC is Tuesday.
+    const EVENING_BEFORE = Date.UTC(2026, 10, 3, 0);
+    const THAT_DAY = Date.UTC(2026, 10, 3, 5);
+    const halved = (b: ReturnType<typeof bar>) => ({ ...b, open: 50, high: 51, low: 49, close: 50.5, volume: 20 });
+    const setup = async () => {
+      await h.db.updateTable('symbols').set({ splits_checked_at: NOW - 3 * DAY, splits_tracked_from: NOW - 30 * DAY })
+        .where('id', '=', 'stock:AAPL').execute();
+      const old = bar(NOW - 800 * DAY);
+      await repos.bars.upsert('stock:AAPL', '1h', [old]);
+      return old;
+    };
+
+    for (const [first, second, label] of [
+      [EVENING_BEFORE, THAT_DAY, 'applied as the evening before, restamped to that day'],
+      [THAT_DAY, EVENING_BEFORE, 'applied as that day, restamped to the evening before'],
+    ] as const) {
+      it(label, async () => {
+        expect(nyDateUtcMidnight(EVENING_BEFORE)).not.toBe(nyDateUtcMidnight(THAT_DAY));
+        const old = await setup();
+        stock.splits.AAPL = [first];
+        await svc.ensureSplitsChecked('stock:AAPL');
+        expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([halved(old)]);
+        const epoch = svc.cacheEpoch;
+        stock.splits.AAPL = [second];
+        now = NOW + DAY;
+        await svc.ensureSplitsChecked('stock:AAPL');
+        expect(svc.cacheEpoch).toBe(epoch);
+        expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([halved(old)]);
+      });
+    }
+
+    it('both stamps in one response are applied once', async () => {
+      const old = await setup();
+      stock.splits.AAPL = [EVENING_BEFORE, THAT_DAY];
+      await svc.ensureSplitsChecked('stock:AAPL');
+      expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([halved(old)]);
+    });
+
+    it('a different ratio on the next day, or the same ratio two trading days later, is another split', async () => {
+      const old = await setup();
+      stock.splits.AAPL = [{ ts: Date.UTC(2026, 9, 30, 14), factor: 2 }]; // Friday Oct 30
+      await svc.ensureSplitsChecked('stock:AAPL');
+      expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([halved(old)]);
+      // Tuesday Nov 3 (Monday lies between): not the Friday split.
+      stock.splits.AAPL = [{ ts: Date.UTC(2026, 9, 30, 14), factor: 2 }, { ts: THAT_DAY, factor: 2 }];
+      now = NOW + DAY;
+      await svc.ensureSplitsChecked('stock:AAPL');
+      const [b] = await repos.bars.range('stock:AAPL', '1h', 0, NOW);
+      expect(b!.close).toBeCloseTo(old.close / 4, 9);
+      // Wednesday Nov 4, 3:1: a different ratio, so a different split.
+      stock.splits.AAPL = [{ ts: Date.UTC(2026, 10, 4, 14), factor: 3 }];
+      now = NOW + 2 * DAY;
+      await svc.ensureSplitsChecked('stock:AAPL');
+      const [c] = await repos.bars.range('stock:AAPL', '1h', 0, NOW);
+      expect(c!.close).toBeCloseTo(old.close / 12, 9);
+    });
+
+    it('a split recorded without a ratio (before migration 007) matches any ratio on a nearby day', async () => {
+      const old = await setup();
+      await h.db.insertInto('applied_splits').values({ symbol: 'stock:AAPL', ts: nyDateUtcMidnight(EVENING_BEFORE), factor: null }).execute();
+      stock.splits.AAPL = [{ ts: THAT_DAY, factor: 2 }];
+      await svc.ensureSplitsChecked('stock:AAPL');
+      expect(await repos.bars.range('stock:AAPL', '1h', 0, NOW)).toEqual([old]);
+    });
+
+    it('records the ratio with the date', async () => {
+      await setup();
+      stock.splits.AAPL = [{ ts: THAT_DAY, factor: 4 }];
+      await svc.ensureSplitsChecked('stock:AAPL');
+      expect(await repos.symbols.appliedSplits('stock:AAPL')).toEqual([{ day: nyDateUtcMidnight(THAT_DAY), factor: 4 }]);
+    });
+  });
+
+  it('migration 007 keeps the splits applied before it, with an unknown ratio', async () => {
+    await h.db.deleteFrom('kysely_migration' as any).where('name' as any, '>=', '007_applied_split_factor').execute();
+    await h.db.schema.alterTable('applied_splits').dropColumn('factor').execute();
+    await h.db.insertInto('applied_splits' as any).values({ symbol: 'stock:AAPL', ts: 123 }).execute();
+    await migrate(h.db);
+    await migrate(h.db); // idempotent
+    expect(await repos.symbols.appliedSplits('stock:AAPL')).toEqual([{ day: 123, factor: null }]);
   });
 
   it('a row from before migration 005 (no tracking start) starts tracking at its first check', async () => {

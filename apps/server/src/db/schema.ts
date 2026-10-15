@@ -12,7 +12,8 @@ export interface SymbolsTable {
 /** Server settings (migration 006): `session_secret` = the generated cookie signing secret. */
 export interface SettingsTable { key: string; value: string }
 /** Splits applied to a symbol's cached bars (migration 005). */
-export interface AppliedSplitsTable { symbol: string; ts: number }
+/** `factor`: the split ratio (migration 007; null = unknown, e.g. recorded before it). */
+export interface AppliedSplitsTable { symbol: string; ts: number; factor: number | null }
 export interface BasketsTable { id: string; name: string; base_value: number; created_at: number; updated_at: number }
 export interface BasketVersionsTable { basket_id: string; idx: number; effective_from: string; weights_json: string }
 /** Legacy (pre-sections) watchlist; still mirrored with the symbols for a manual rollback (see README). */
