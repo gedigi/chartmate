@@ -17,7 +17,7 @@ export interface UseBaskets {
   upsert: (b: Basket) => void;
   /**
    * Deletes on the server, then locally; then drops the basket from the watchlist and clears its drawings (best
-   * effort). Rejects with the API error of the delete only.
+   * effort, in the background: never delays or fails the delete). Rejects with the API error of the delete only.
    */
   remove: (id: string) => Promise<void>;
 }
@@ -52,18 +52,23 @@ export function notifyBasketDeleted(id: string): void {
 }
 
 /**
- * Best-effort cleanup of a deleted basket's references: its watchlist row (the stored list; the watchlist is not
- * mounted on the Baskets page and reloads when it is) and its drawings. A failure leaves a stale reference, which
- * the watchlist and the chart show as "Deleted basket".
+ * Best-effort cleanup of a deleted basket's references, in the background: its watchlist row (the stored list; the
+ * watchlist is not mounted on the Baskets page and reloads when it is) and its drawings. A failure is logged and
+ * leaves a stale reference, which the watchlist and the chart show as "Deleted basket". A legacy per-symbol layout
+ * row (`sym:basket:<id>`) cannot be removed: the API has no layout delete, and those rows are never read.
  */
-async function dropBasketReferences(symbol: SymbolId): Promise<void> {
-  await Promise.allSettled([
+function dropBasketReferences(symbol: SymbolId): void {
+  void Promise.allSettled([
     api.watchlist.get().then((list) => {
       const next = list.filter((e) => !(e.type === 'symbol' && e.id === symbol));
       return next.length === list.length ? undefined : api.watchlist.put(next);
     }),
     api.drawings.put(symbol, []),
-  ]);
+  ]).then((results) => {
+    for (const r of results) {
+      if (r.status === 'rejected') console.warn(`Cleanup after deleting ${symbol} failed:`, errorMessage(r.reason));
+    }
+  });
 }
 
 /** Basket list + current values for the Baskets page. Quote failures are non-fatal (values show as "—"). */
@@ -136,7 +141,7 @@ export function useBaskets(): UseBaskets {
     });
     notifyBasketChanged(id);
     notifyBasketDeleted(id);
-    await dropBasketReferences(basketSymbol(id));
+    dropBasketReferences(basketSymbol(id));
   }, []);
 
   return { baskets, quotes, quotesStatus, status, error, reload, upsert, remove };

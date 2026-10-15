@@ -38,9 +38,20 @@ describe('useBaskets remove cleans up references', () => {
     await waitFor(() => expect(result.current.status).toBe('ready'));
     await act(async () => { await result.current.remove('b1'); });
     off();
-    expect(putWl).toHaveBeenCalledWith([{ type: 'symbol', id: 'stock:AAPL' }]);
+    await waitFor(() => expect(putWl).toHaveBeenCalledWith([{ type: 'symbol', id: 'stock:AAPL' }]));
     expect(putDrawings).toHaveBeenCalledWith('basket:b1', []);
     expect(deleted).toEqual(['b1']);
+  });
+
+  it('does not wait for the cleanup: the delete resolves while the watchlist request is still pending', async () => {
+    let release!: (v: never[]) => void;
+    vi.spyOn(api.watchlist, 'get').mockReturnValue(new Promise((r) => { release = r; }));
+    vi.spyOn(api.drawings, 'put').mockResolvedValue(undefined);
+    const { result } = renderHook(() => useBaskets());
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    await act(async () => { await result.current.remove('b1'); });
+    expect(result.current.baskets).toEqual([]);
+    release([]);
   });
 
   it('leaves a watchlist without the basket untouched; cleanup failures do not fail the delete', async () => {
