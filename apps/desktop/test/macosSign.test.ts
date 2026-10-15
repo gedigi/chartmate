@@ -131,3 +131,35 @@ describe('macos-sign.sh sign-app (only the expected Electron code is signed)', (
     });
   }
 });
+
+describe('macos-sign.sh store-notary (a signed release is notarized unless the owner opts out)', () => {
+  it('fails without notarization credentials', () => {
+    const r = run(['store-notary']);
+    expect(r.status).toBe(1);
+    expect(r.err).toContain('CHARTMATE_ALLOW_UNNOTARIZED_MAC=true');
+    expect(r.out).not.toContain('notarize=');
+  });
+
+  it('with ALLOW_UNNOTARIZED=true, goes on without notarizing and warns', () => {
+    const r = run(['store-notary'], { ALLOW_UNNOTARIZED: 'true' });
+    expect(r.status).toBe(0);
+    expect(r.out.trim()).toBe('notarize=false');
+    expect(r.err).toContain('::warning title=macOS not notarized::');
+    for (const v of ['1', 'yes', 'TRUE']) expect(run(['store-notary'], { ALLOW_UNNOTARIZED: v }).status, v).toBe(1);
+  });
+
+  it('with the credentials, stores the notarytool profile in the temporary keychain', () => {
+    stub('xcrun', 'exit 0');
+    writeFileSync(join(tmp, 'chartmate-signing.keychain-db'), '');
+    const r = run(['store-notary'], { APPLE_ID: 'a@b.c', APPLE_APP_SPECIFIC_PASSWORD: 'p', APPLE_TEAM_ID: 'TEAM123456' });
+    expect(r.status).toBe(0);
+    expect(r.out.trim()).toBe('notarize=true');
+    expect(r.calls.find((c) => c.startsWith('xcrun notarytool store-credentials'))).toContain('--team-id TEAM123456');
+  });
+
+  it('half-configured credentials fail even with the opt-out', () => {
+    const r = run(['store-notary'], { APPLE_ID: 'a@b.c', ALLOW_UNNOTARIZED: 'true' });
+    expect(r.status).toBe(1);
+    expect(r.err).toContain('APPLE_APP_SPECIFIC_PASSWORD is not set');
+  });
+});

@@ -221,7 +221,8 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
 - A suffixed tag (`vX.Y.Z-beta.1`) publishes a pre-release instead.
 - Builds are unsigned unless signing is configured; unsigned builds contain no auto-updater.
 - macOS signing (`docs/desktop.md`, "macOS signing in CI"): the repository variable `CHARTMATE_MAC_SIGN_IDENTITY`
-  turns it on for tags; a tag without it fails unless `CHARTMATE_ALLOW_UNSIGNED_MAC` is `true`. Jobs decide from the
+  turns it on for tags; a tag without it fails unless `CHARTMATE_ALLOW_UNSIGNED_MAC` is `true`, and a signed tag
+  without the notarization credentials fails in `sign-mac` unless `CHARTMATE_ALLOW_UNNOTARIZED_MAC` is `true`. Jobs decide from the
   ref and the variable, never from a dependency-running job's output. `package-mac` builds the apps unsigned with no
   secrets; `sign-mac` and `notarize-mac-dmg` run in the `macos-signing` environment on fresh runners with no
   dependency code (only `.github/scripts/macos-sign.sh`, the entitlements and Apple's tools): key imported

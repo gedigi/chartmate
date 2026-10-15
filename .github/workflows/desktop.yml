@@ -205,6 +205,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ALLOW_UNNOTARIZED: ${{ vars.CHARTMATE_ALLOW_UNNOTARIZED_MAC }}
         run: .github/scripts/macos-sign.sh store-notary >> "$GITHUB_OUTPUT"
       - name: Sign the apps
         env:
@@ -381,6 +382,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ALLOW_UNNOTARIZED: ${{ vars.CHARTMATE_ALLOW_UNNOTARIZED_MAC }}
         run: .github/scripts/macos-sign.sh store-notary >> "$GITHUB_OUTPUT"
       # Signed (Developer ID), then notarized and stapled, so Gatekeeper accepts the download itself
       # (spctl -a -t open --context context:primary-signature).

@@ -212,6 +212,10 @@ describe('desktop.yml secret scoping and release', () => {
       // Each secret sits only in the step that needs it, and the keychain is always deleted.
       for (const key of ['CSC_LINK', 'CSC_KEY_PASSWORD']) expect(holders(name, key), key).toEqual(['Import the Developer ID certificate (temporary keychain, key not extractable)']);
       for (const key of ['APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID']) expect(holders(name, key), key).toEqual(['Notarization credentials (keychain profile)']);
+      // No notarization credentials fail the tag unless the owner opted out on purpose (macos-sign.sh store-notary).
+      const notary = s.find((x) => x.name === 'Notarization credentials (keychain profile)')!;
+      expect(notary.env?.ALLOW_UNNOTARIZED, name).toBe('${{ vars.CHARTMATE_ALLOW_UNNOTARIZED_MAC }}');
+      expect(notary.run, name).toBe('.github/scripts/macos-sign.sh store-notary >> "$GITHUB_OUTPUT"');
       for (const step of s) for (const k of secretKeys(step)) expect(APPLE, `${name}: ${k}`).toContain(k);
       const cleanup = s.at(-1)!;
       expect(cleanup).toMatchObject({ name: 'Delete the keychain', if: 'always()', run: '.github/scripts/macos-sign.sh cleanup' });

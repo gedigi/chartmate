@@ -328,7 +328,8 @@ What the tag runs:
   Its notes are the tag's `CHANGELOG.md` section followed by a table saying how each platform was signed. It is
   marked Latest only when no higher `v*` tag marks a full release, and it stays a draft (not Latest) when
   Windows signing failed in CI (sign with `sign:win`, then publish it). A tag fails early when macOS signing is
-  not configured (`CHARTMATE_MAC_SIGN_IDENTITY`), unless `CHARTMATE_ALLOW_UNSIGNED_MAC` is `true`. Signing setup (Apple
+  not configured (`CHARTMATE_MAC_SIGN_IDENTITY`), unless `CHARTMATE_ALLOW_UNSIGNED_MAC` is `true`, and a signed
+  one fails without the notarization credentials, unless `CHARTMATE_ALLOW_UNNOTARIZED_MAC` is `true`. Signing setup (Apple
   Developer ID and notarization, the Certum certificate for Windows, the manual `sign:win` fallback):
   [docs/desktop.md](docs/desktop.md#signing-notarization-updates). The release also gets the tag's `compose.yaml`
   and `.env.example` (as `env.example`: GitHub renames assets that start with a dot), so

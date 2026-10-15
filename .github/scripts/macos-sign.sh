@@ -7,7 +7,8 @@
 #   macos-sign.sh import                    CSC_LINK (base64 .p12), CSC_KEY_PASSWORD, IDENTITY: a temporary keychain
 #                                           with the key imported non-extractable, usable by codesign only.
 #   macos-sign.sh store-notary              APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID: a notarytool
-#                                           profile in that keychain. Prints notarize=true|false.
+#                                           profile in that keychain. Prints notarize=true|false; without the
+#                                           credentials it fails unless ALLOW_UNNOTARIZED=true.
 #   macos-sign.sh sign-app <app> <entitlements> <inherit-entitlements>
 #                                           IDENTITY: refuses any code outside the expected Electron layout, then
 #                                           signs nested code inside-out (deepest first), then the app; hardened
@@ -67,6 +68,12 @@ cmd_import() {
 
 cmd_store_notary() {
   if [ -z "${APPLE_ID:-}" ] && [ -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] && [ -z "${APPLE_TEAM_ID:-}" ]; then
+    # A signed release is notarized too, unless the owner opted out on purpose (an unnotarized app needs a
+    # Gatekeeper override on first launch, like an unsigned one).
+    [ "${ALLOW_UNNOTARIZED:-}" = true ] || die "no notarization credentials (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD," \
+      "APPLE_TEAM_ID in the macos-signing environment): add them, or set the repository variable" \
+      "CHARTMATE_ALLOW_UNNOTARIZED_MAC=true to release signed but not notarized"
+    echo "::warning title=macOS not notarized::no notarization credentials (CHARTMATE_ALLOW_UNNOTARIZED_MAC=true)" >&2
     echo "notarize=false"
     return
   fi

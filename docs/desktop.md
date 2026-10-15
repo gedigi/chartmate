@@ -430,7 +430,10 @@ A tag build is signed when the repository variable `CHARTMATE_MAC_SIGN_IDENTITY`
 never from an output of a job that ran dependency code. A tag without it fails in the `test` job, before any
 dependency code runs, because 1.0.0 shipped signed and a release must not silently lose its signature and its
 updater; set the repository variable `CHARTMATE_ALLOW_UNSIGNED_MAC` to `true` to release macOS unsigned on
-purpose. The key and the Apple credentials live only in the `macos-signing` environment, and only two jobs, which
+purpose. A signed tag is also notarized: without the notarization credentials (`APPLE_ID`,
+`APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`) `sign-mac` fails (`macos-sign.sh store-notary`), unless the
+repository variable `CHARTMATE_ALLOW_UNNOTARIZED_MAC` is `true` (signed but not notarized: Gatekeeper then asks on
+first launch). The key and the Apple credentials live only in the `macos-signing` environment, and only two jobs, which
 run no dependency code, can read them:
 
 1. `package-mac` (no secrets) installs the dependencies and builds both apps unsigned. It bundles with
