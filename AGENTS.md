@@ -79,7 +79,7 @@ or an unpackaged smoke run, fetch it once with `node apps/desktop/node_modules/e
 | Server DB suites on Postgres (as CI's `postgres` job; e.g. `docker run` the digest-pinned image from `compose.yaml` on a free port) | `TEST_PG_URL=postgres://… CHARTMATE_TEST_DB=postgres pnpm --filter @chartmate/server exec vitest run --no-file-parallelism test/db test/market test/baskets test/routes test/http` |
 | End-to-end | `pnpm e2e` (first time: `pnpm exec playwright install chromium`); `E2E_PORT=8873 pnpm e2e` for another port |
 | Docker image | `docker build -t chartmate .` |
-| Docker image smoke test (read-only rootfs + tmpfs, healthcheck, API, UI, SQLite temp files, SIGTERM) | `scripts/docker-smoke.sh chartmate` (another arch: `--platform linux/arm64`) |
+| Docker image smoke test (read-only rootfs + tmpfs, healthcheck, API, UI, SQLite temp files, SIGTERM) | `scripts/docker-smoke.sh chartmate` (another arch: `--platform linux/arm64`; an image built with `--build-arg GITHUB_REPOSITORY=owner/name`: add `--expect-repository owner/name` to check its source link) |
 | Re-record provider fixtures (network) | `pnpm --filter @chartmate/server exec tsx scripts/record-fixtures.ts` |
 | Scaffold a custom indicator + its test (see `CONTRIBUTING.md`) | `pnpm new:indicator <Name> [--pane main]` |
 
