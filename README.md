@@ -390,6 +390,11 @@ Where to read next:
 
 ### Charts
 
+- **Theme**: the sun / moon button in the top bar switches between the dark theme (the default) and the light
+  one. The choice is stored per browser (localStorage `chartmate.theme`) and applied before the page paints;
+  each theme keeps its own chart appearance (see below).
+- **Toggle watchlist**: the button at the right end of the top bar shows or hides the watchlist sidebar, giving
+  the chart the full width.
 - **Timeframes** 1m … 1M, chart types candles / bars / line / area, light and dark themes. The look is flat:
   the chart sits on its own rounded sheet, chrome is solid panels with hairline edges (no glass, glow or drop
   shadows), and every font is the system sans-serif (no web fonts). The time axis labels read with context
@@ -716,6 +721,21 @@ form an untitled top group.
 
 A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
 
+**Managing baskets.** The **Baskets** button in the top bar (next to **Chart**) opens the Baskets page: each
+basket with its constituents, versions, start date, current weights and live value, and **Open chart**, **Edit**
+and **Delete** buttons. **New basket** opens the editor:
+
+- **Name**, then the **constituents**: search a stock or crypto symbol in each row, give it a weight in percent,
+  **Add constituent** for more rows, and **Normalize to 100%** to scale the weights so they add up to 100.
+- **Start date (UTC)**: the basket is worth 100 on that date, sized at the prior close.
+- A live **preview** chart on the right shows the basket's daily history (with the simulated part before the
+  start, see below) as you edit; **Create basket** saves it.
+
+Editing an existing basket renames it, moves its start date (while it has a single version), lists its
+**Version history** and, with **Change weights**, adds a new version: new weights and an effective date after
+the latest version's. Earlier versions are never rewritten. A basket's chart is opened like any symbol: from the
+Baskets page, the symbol search or the watchlist.
+
 - A basket has one or more **versions**; each has weights and an `effective from` calendar date.
   A version applies from 00:00 UTC of that date on daily and longer timeframes, and on intraday charts of
   baskets holding crypto. On intraday charts and live quotes of a **stock-only** basket it applies from the
@@ -968,9 +988,9 @@ listed in the picker; no other file needs editing. `custom/vwap.ts` and `custom/
 examples; `custom/ppo.ts` (the percentage price oscillator: params, two lines, a histogram and a level) is the
 annotated example that CONTRIBUTING.md walks through. Restart `pnpm dev` (or rebuild) after adding a file.
 
-`custom/wyckoff.ts` (with its calculation in `wyckoffCalc.ts`) is a port of the Pine Script indicator
-'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colors in a `draw`
-callback. Indicator code never hardcodes a color: lines take palette slots (`lineSlots`), and an indicator that
+`custom/wyckoff.ts` (with its calculation in `apps/web/src/chart/indicators/wyckoffCalc.ts`) is a port of the
+Pine Script indicator 'Wyckoff Accumulation Distribution' by faytterro and draws its boxes, labels and bar colors
+in a `draw` callback. Indicator code never hardcodes a color: lines take palette slots (`lineSlots`), and an indicator that
 paints on the canvas itself takes its colors from `indicators/colors.ts` (`activeIndicatorColors()`, read at draw
 time); a test rejects color literals in `src/chart/indicators/`. **License:** these two files (and their tests)
 are covered by the [Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/), not by the project's AGPL-3.0;
