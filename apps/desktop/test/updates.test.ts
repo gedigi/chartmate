@@ -650,6 +650,24 @@ describe('update controller', () => {
     expect(h.shown.map((m) => m.message)).toEqual(['Chartmate 1.2.0 is ready to install']);
   });
 
+  it('stop() (quitting) clears the schedule and both watchdogs', async () => {
+    const h = harness({ answer: 0, waitForInstallReady: true });
+    h.controller.start();
+    h.updater.emit('update-available', { version: '1.2.0' });
+    h.updater.emit('update-downloaded', { version: '1.2.0' });
+    expect(h.live().some((t) => t.ms === HANDOVER_WATCHDOG_MS)).toBe(true);
+    h.controller.stop();
+    expect(h.live()).toEqual([]);
+
+    const w = harness({ answer: 0 });
+    w.updater.emit('update-available', { version: '1.2.0' });
+    w.updater.emit('update-downloaded', { version: '1.2.0' });
+    await flush();
+    expect(w.live().some((t) => t.ms === INSTALL_WATCHDOG_MS)).toBe(true);
+    w.controller.stop();
+    expect(w.live()).toEqual([]);
+  });
+
   it('macOS: the hand-over watchdog stops once Squirrel.Mac reports ready or fails', async () => {
     for (const end of ['install-ready', 'error'] as const) {
       const h = harness({ waitForInstallReady: true });

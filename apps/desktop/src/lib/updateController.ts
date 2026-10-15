@@ -64,7 +64,7 @@ export type UpdatePhase = 'idle' | 'checking' | 'downloading' | 'downloaded' | '
 export interface UpdateController {
   /** Starts the background schedule (if automatic checks are on). */
   start(): void;
-  /** Stops the background schedule (the app is quitting). */
+  /** The app is quitting: stops the background schedule and both watchdogs (install, macOS hand-over). */
   stop(): void;
   /** "Check for Updates…" (macOS menu): reports the outcome in a dialog. */
   checkNow(): Promise<void>;
@@ -357,6 +357,8 @@ export function createUpdateController(o: {
     },
     stop() {
       stopSchedule();
+      stopWatchdog();
+      stopHandOverWatchdog();
     },
     async checkNow() {
       switch (phase) {
