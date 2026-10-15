@@ -34,6 +34,20 @@
 .chart-save-notes > .save-note:first-child:not(:last-child) { flex-shrink: 0; }
 .chart-save-notes:empty { display: none; }
 .chart-host { position: absolute; inset: 0; }
+/*
+ * Bottom row, under the time axis (in flow, so it never covers bars, the axis or the overlays above it): the date range
+ * presets, left-aligned with the plot. A quiet segmented control: no track, so it reads as part of the sheet; the
+ * selected range gets the usual segmented pill. A narrow chart scrolls the row sideways instead of wrapping it.
+ */
+.chart-bottomrow {
+  display: flex; align-items: center; flex-shrink: 0; min-width: 0; height: 32px; padding: 0 8px 4px; background: var(--bg);
+  overflow-x: auto; scrollbar-width: none;
+}
+.chart-bottomrow::-webkit-scrollbar { display: none; }
+.chart-bottomrow .range-bar { flex: none; gap: 1px; padding: 0; background: none; border-color: transparent; }
+.chart-bottomrow .range-bar button { flex: none; min-height: 22px; padding: 1px 8px; font-size: 11.5px; font-weight: 500; letter-spacing: 0.01em; }
+.chart-bottomrow .range-bar button:disabled { opacity: 0.5; cursor: default; }
+.chart-bottomrow .range-bar button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .chart-init-error { position: absolute; inset: 0; color: var(--error); }
 
 .chart-notice, .chart-toast {
