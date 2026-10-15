@@ -39,6 +39,7 @@ export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () 
     providers: 'fixture',
     webDist: null,
     trustProxy: false,
+    allowedHosts: [],
     ...overrides,
   };
   const app = await buildApp({ config, repos, market, baskets, logger: false, now: opts.now });

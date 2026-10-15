@@ -144,8 +144,10 @@ points Chartmate at it. Data is not copied over from SQLite. Any other Postgres 
 
 Terminate HTTPS in a reverse proxy (Caddy, nginx, Traefik, …) on the same host, forwarding to
 `127.0.0.1:8787`, and set `CHARTMATE_TRUST_PROXY=1` (the number of proxy hops, or `true`, or the proxy's
-IP/CIDR). Chartmate then takes the client IP and the `https` scheme from the `X-Forwarded-*` headers, so the
-login rate limits apply per client and the session cookie is marked `Secure`. With Caddy, for example:
+IP/CIDR). Chartmate then takes the client IP, the `https` scheme and the host from the `X-Forwarded-*` headers,
+so the login rate limits apply per client and the session cookie is marked `Secure`. Set a password, and list
+the public name in `CHARTMATE_ALLOWED_HOSTS` (`chartmate.example.com`): without a password that is required,
+otherwise every request is refused with a 403. With Caddy, for example:
 
 ```
 chartmate.example.com {
@@ -161,6 +163,16 @@ chartmate.example.com {
   from the password, so a leaked session cookie would let someone guess the password offline.
 - Login attempts are rate limited: 10 failures per IP per 15 minutes, plus a global limit of 100
   failures per 15 minutes. The global limit means a determined attacker can lock *you* out for a while.
+- **Allowed hosts.** Without a password the server answers only to `localhost`, `127.0.0.1` and `[::1]` (on
+  any port), plus the names in `CHARTMATE_ALLOWED_HOSTS` (comma-separated hostnames or IP addresses, no scheme
+  or port, e.g. `chartmate.example.com,192.168.1.10`). A request for any other `Host` gets a 403 before it
+  reaches the API or the web app, so a malicious page cannot reach your instance by pointing its own domain at
+  your machine (DNS rebinding). State-changing API requests (anything but `GET`) that carry an `Origin` from
+  another host are refused too. Behind a trusted proxy (`CHARTMATE_TRUST_PROXY`) the `X-Forwarded-Host` the
+  proxy sets is checked instead of `Host`. With a password the login protects the instance and any host is
+  served, unless `CHARTMATE_ALLOWED_HOSTS` is set, which is then enforced as well. Opening Chartmate by a LAN
+  address or name without a password therefore needs that name in `CHARTMATE_ALLOWED_HOSTS`; for anything
+  beyond your own machine, set a password.
 - Behind a reverse proxy set `CHARTMATE_TRUST_PROXY`, otherwise every client appears to come from the
   proxy's IP and they all share one rate-limit budget, and the session cookie is not marked `Secure`.
 - The session cookie lasts 30 days. Changing `CHARTMATE_SESSION_SECRET` (or the password, if the secret
@@ -218,6 +230,7 @@ created if missing).
 | `CHARTMATE_PASSWORD` | unset (no auth) | Enables password login. |
 | `CHARTMATE_SESSION_SECRET` | derived from the password | Cookie signing secret, min 16 chars. Set explicitly in production. |
 | `CHARTMATE_TRUST_PROXY` | unset (`false`) | `true`, a hop count (e.g. `1`), or an IP/CIDR list of trusted proxies. |
+| `CHARTMATE_ALLOWED_HOSTS` | unset | Comma-separated hostnames or IP addresses (no scheme or port; IPv6 in brackets) served besides `localhost`, `127.0.0.1` and `[::1]`. Enforced without a password, and with one when set; see [Security](#security). |
 | `CRYPTO_PROVIDER` | `binance` | `binance` or `coinbase`. |
 | `BINANCE_BASE_URL` | `https://data-api.binance.vision` | Alternate Binance-compatible endpoint. |
 | `CHARTMATE_PROVIDERS` | `live` | `fixture` serves deterministic synthetic data (tests/demos, no network). |

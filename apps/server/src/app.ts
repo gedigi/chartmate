@@ -6,6 +6,7 @@ import { ZodError } from 'zod';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { registerAuth } from './auth.js';
+import { registerHostGuard } from './hostGuard.js';
 import type { BasketService } from './baskets/service.js';
 import type { Config } from './config.js';
 import type { Repos } from './db/repos.js';
@@ -114,6 +115,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     request.log.error({ err: error }, 'unhandled error');
     return reply.code(500).send({ code: 'internal', message: 'Internal error' });
   });
+
+  // First hook: a request for a host that is not allowed never reaches auth, the API or the static files.
+  registerHostGuard(app, { password: config.password, allowedHosts: config.allowedHosts });
 
   const authOpts = { password: config.password, sessionSecret: config.sessionSecret, now: deps.now ?? Date.now };
   await registerAuth(app, authOpts);

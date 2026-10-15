@@ -16,6 +16,7 @@ describe('desktopConfig', () => {
     expect(config.binanceBaseUrl).toBe('https://data-api.binance.vision');
     expect(config.webDist).toBeNull();
     expect(config.trustProxy).toBe(false);
+    expect(config.allowedHosts).toEqual(['chartmate']);
   });
 
   it('never reads server-only settings from the environment (no password, listener or web dist overrides)', () => {
@@ -23,7 +24,7 @@ describe('desktopConfig', () => {
       userData: UD,
       env: {
         CHARTMATE_PASSWORD: 'x', HOST: '0.0.0.0', PORT: '80', DATABASE_URL: 'postgres://h/db', CHARTMATE_WEB_DIST: '/tmp',
-        CHARTMATE_TRUST_PROXY: 'true',
+        CHARTMATE_TRUST_PROXY: 'true', CHARTMATE_ALLOWED_HOSTS: 'evil.example',
       },
     });
     expect(config.password).toBeNull();
@@ -31,6 +32,7 @@ describe('desktopConfig', () => {
     expect(config.databaseUrl.startsWith('sqlite:')).toBe(true);
     expect(config.webDist).toBeNull();
     expect(config.trustProxy).toBe(false);
+    expect(config.allowedHosts).toEqual(['chartmate']);
   });
 
   it('honors the provider overrides', () => {

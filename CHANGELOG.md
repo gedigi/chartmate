@@ -3,6 +3,15 @@
 What changed in each release of Chartmate. Versions follow [semantic versioning](https://semver.org); the desktop
 app, the Docker image and the release tag share one version number.
 
+## Unreleased
+
+### Self-hosting
+
+- Without a password, the server answers only to `localhost`, `127.0.0.1` and `[::1]` (any port) and refuses
+  any other `Host` with a 403, so a web page cannot reach it through DNS rebinding; state-changing API requests
+  from another site's origin are refused too. Add the names you use to the new `CHARTMATE_ALLOWED_HOSTS`, or set
+  a password. Behind a trusted reverse proxy the forwarded host is checked.
+
 ## [1.0.0] - 2026-10-14
 
 The first stable release: a charting app for US stocks and ETFs, crypto and your own baskets, as a desktop app

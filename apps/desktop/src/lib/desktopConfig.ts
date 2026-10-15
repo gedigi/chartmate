@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { isAbsolute, join } from 'node:path';
 import type { Config } from '../../../server/src/config.js';
+import { APP_HOST } from './hardening.js';
 
 export const DB_FILE_NAME = 'chartmate.db';
 export const DEFAULT_BINANCE_BASE_URL = 'https://data-api.binance.vision';
@@ -32,6 +33,7 @@ function binanceBaseUrl(raw: string | undefined): string {
  * concerns the network surface or storage is fixed:
  * - no listener (the Fastify app is only reached through app:// + inject; listenGuard.ts), so host/port are
  *   inert placeholders;
+ * - the server's Host / Origin guard allows only the renderer's own origin (app://chartmate) besides loopback;
  * - auth disabled: there is no network surface to protect, and the renderer is the only client (a password would
  *   only add a login screen in front of a single-user local app);
  * - SQLite in the per-user data directory; the web UI is served by the protocol handler, not @fastify/static.
@@ -55,6 +57,7 @@ export function desktopConfig(opts: { userData: string; env: Env }): { config: C
     providers,
     webDist: null,
     trustProxy: false,
+    allowedHosts: [APP_HOST],
   };
   return { config, dbPath };
 }
