@@ -123,10 +123,15 @@ locally with `SMOKE_ALLOW_REAL_USERDATA=1`.
 
 ## Network and environment
 
-The desktop app honors only `CHARTMATE_PROVIDERS`, `CRYPTO_PROVIDER`, `BINANCE_BASE_URL` (https only) and
+The desktop app honors only `CHARTMATE_PROVIDERS`, `CRYPTO_PROVIDER`, `BINANCE_BASE_URL` and
 `CHARTMATE_DISABLE_UPDATES=1` from the environment (`src/lib/desktopConfig.ts`, `src/lib/updatePolicy.ts`), plus
-`CHARTMATE_USER_DATA_DIR` in dev-bundle runs and the TEST-ONLY copy. Everything else that concerns the network surface or storage is
-fixed: no listener, no login, SQLite in the per-user data directory.
+`CHARTMATE_USER_DATA_DIR` in dev-bundle runs and the TEST-ONLY copy. Everything else that concerns the network
+surface or storage is fixed: no listener, no login, SQLite in the per-user data directory.
+
+`BINANCE_BASE_URL` adds its host to the outbound allowlist, so a hardened build accepts only
+`https://data-api.binance.vision` (the default), `https://api.binance.com` and `https://api.binance.us` (no path,
+port, credentials, query or fragment). Any other value is ignored with one warning in the log, and the default is
+used. The dev bundle accepts any https URL without credentials, port, query or fragment.
 
 A packaged build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY` or `SSLKEYLOGFILE` is set.
 Node applies the first during pre-execution, before any app code runs, so the app cannot undo it, and the second
@@ -210,7 +215,7 @@ The renderer is treated as untrusted web content, and the main process exposes n
   origin it drops the `Authorization`, `Cookie` and `Proxy-Authorization` headers. The allowed hosts are:
   - `query1/query2.finance.yahoo.com` and `finance.yahoo.com`, found by observing live traffic;
   - `guce.yahoo.com` and `consent.yahoo.com`, for the EU consent flow (from the yahoo-finance2 source);
-  - the configured Binance host, or `api.exchange.coinbase.com`.
+  - the configured Binance host (one of the three above in a hardened build), or `api.exchange.coinbase.com`.
 
   Fixture mode allows nothing.
 - **Fuses** (flipped in the `afterPack` hook with `@electron/fuses`):

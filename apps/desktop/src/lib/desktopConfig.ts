@@ -13,8 +13,33 @@ const val = (env: Env, key: string): string | undefined => {
   return v === undefined || v === '' ? undefined : v;
 };
 
-function binanceBaseUrl(raw: string | undefined): string {
+/**
+ * The Binance API hosts a hardened build accepts in BINANCE_BASE_URL (the server's Binance provider speaks the
+ * /api/v3 REST API all three serve). The value adds its host to the outbound allowlist, so a hardened build never
+ * lets the environment add an arbitrary one.
+ */
+export const KNOWN_BINANCE_HOSTS: readonly string[] = Object.freeze(['data-api.binance.vision', 'api.binance.com', 'api.binance.us']);
+
+/** `https://<known host>` for an exact known-host origin (optional trailing slash), else null. */
+function knownBinanceOrigin(raw: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return null;
+  }
+  const plain = u.protocol === 'https:' && !u.username && !u.password && !u.port && !u.search && !u.hash && u.pathname === '/';
+  return plain && KNOWN_BINANCE_HOSTS.includes(u.hostname) ? u.origin : null;
+}
+
+function binanceBaseUrl(raw: string | undefined, hardened: boolean, onIgnored?: (msg: string) => void): string {
   if (raw === undefined) return DEFAULT_BINANCE_BASE_URL;
+  if (hardened) {
+    const known = knownBinanceOrigin(raw);
+    if (known !== null) return known;
+    onIgnored?.(`BINANCE_BASE_URL ignored: only ${KNOWN_BINANCE_HOSTS.map((h) => `https://${h}`).join(', ')} are accepted; using the default`);
+    return DEFAULT_BINANCE_BASE_URL;
+  }
   let u: URL;
   try {
     u = new URL(raw);
@@ -37,9 +62,11 @@ function binanceBaseUrl(raw: string | undefined): string {
  *   state-changing API requests are accepted from the renderer's own origin (app://chartmate) only;
  * - auth disabled: there is no network surface to protect, and the renderer is the only client (a password would
  *   only add a login screen in front of a single-user local app);
- * - SQLite in the per-user data directory; the web UI is served by the protocol handler, not @fastify/static.
+ * - SQLite in the per-user data directory; the web UI is served by the protocol handler, not @fastify/static;
+ * - hardened builds (`hardened`, default true; lib/buildMode.ts) take BINANCE_BASE_URL only when it names a known
+ *   Binance API host (KNOWN_BINANCE_HOSTS); anything else is ignored and reported once through `onIgnored`.
  */
-export function desktopConfig(opts: { userData: string; env: Env }): { config: Config; dbPath: string } {
+export function desktopConfig(opts: { userData: string; env: Env; hardened?: boolean; onIgnored?: (msg: string) => void }): { config: Config; dbPath: string } {
   if (!isAbsolute(opts.userData)) throw new Error('userData must be an absolute path');
   const { env } = opts;
   const providers = val(env, 'CHARTMATE_PROVIDERS') ?? 'live';
@@ -54,7 +81,7 @@ export function desktopConfig(opts: { userData: string; env: Env }): { config: C
     password: null,
     sessionSecret: randomBytes(32).toString('hex'),
     cryptoProvider: crypto,
-    binanceBaseUrl: binanceBaseUrl(val(env, 'BINANCE_BASE_URL')),
+    binanceBaseUrl: binanceBaseUrl(val(env, 'BINANCE_BASE_URL'), opts.hardened ?? true, opts.onIgnored),
     providers,
     webDist: null,
     trustProxy: false,

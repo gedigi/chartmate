@@ -786,7 +786,8 @@ Environment overrides the desktop app honors:
 
 - `CHARTMATE_PROVIDERS` (`live` (the default) or `fixture`);
 - `CRYPTO_PROVIDER`;
-- `BINANCE_BASE_URL` (https only);
+- `BINANCE_BASE_URL`, limited to `https://data-api.binance.vision` (the default), `https://api.binance.com` and
+  `https://api.binance.us`; any other value is ignored (and logged);
 - `CHARTMATE_DISABLE_UPDATES=1` (no update checks or downloads at all, see [Updates](#updates)).
 
 A packaged build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE` or

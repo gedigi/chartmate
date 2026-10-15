@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DB_FILE_NAME, desktopConfig, resolveUserDataDir } from '../src/lib/desktopConfig.js';
+import { DB_FILE_NAME, DEFAULT_BINANCE_BASE_URL, desktopConfig, KNOWN_BINANCE_HOSTS, resolveUserDataDir } from '../src/lib/desktopConfig.js';
 
 const UD = '/Users/x/Library/Application Support/Chartmate';
 
@@ -40,16 +40,45 @@ describe('desktopConfig', () => {
   it('honors the provider overrides', () => {
     expect(desktopConfig({ userData: UD, env: { CHARTMATE_PROVIDERS: 'fixture' } }).config.providers).toBe('fixture');
     expect(desktopConfig({ userData: UD, env: { CRYPTO_PROVIDER: 'coinbase' } }).config.cryptoProvider).toBe('coinbase');
-    expect(desktopConfig({ userData: UD, env: { BINANCE_BASE_URL: 'https://api.binance.com/' } }).config.binanceBaseUrl).toBe('https://api.binance.com');
+    expect(desktopConfig({ userData: UD, hardened: false, env: { BINANCE_BASE_URL: 'https://api.binance.com/' } }).config.binanceBaseUrl).toBe('https://api.binance.com');
   });
 
   it('rejects invalid overrides', () => {
     expect(() => desktopConfig({ userData: UD, env: { CHARTMATE_PROVIDERS: 'mock' } })).toThrow(/CHARTMATE_PROVIDERS/);
     expect(() => desktopConfig({ userData: UD, env: { CRYPTO_PROVIDER: 'kraken' } })).toThrow(/CRYPTO_PROVIDER/);
-    expect(() => desktopConfig({ userData: UD, env: { BINANCE_BASE_URL: 'http://api.binance.com' } })).toThrow(/https/);
-    expect(() => desktopConfig({ userData: UD, env: { BINANCE_BASE_URL: 'https://u:p@api.binance.com' } })).toThrow(/BINANCE_BASE_URL/);
-    expect(() => desktopConfig({ userData: UD, env: { BINANCE_BASE_URL: 'https://api.binance.com:8443' } })).toThrow(/BINANCE_BASE_URL/);
-    expect(() => desktopConfig({ userData: UD, env: { BINANCE_BASE_URL: 'nope' } })).toThrow(/BINANCE_BASE_URL/);
+    expect(() => desktopConfig({ userData: UD, hardened: false, env: { BINANCE_BASE_URL: 'http://api.binance.com' } })).toThrow(/https/);
+    expect(() => desktopConfig({ userData: UD, hardened: false, env: { BINANCE_BASE_URL: 'https://u:p@api.binance.com' } })).toThrow(/BINANCE_BASE_URL/);
+    expect(() => desktopConfig({ userData: UD, hardened: false, env: { BINANCE_BASE_URL: 'https://api.binance.com:8443' } })).toThrow(/BINANCE_BASE_URL/);
+    expect(() => desktopConfig({ userData: UD, hardened: false, env: { BINANCE_BASE_URL: 'nope' } })).toThrow(/BINANCE_BASE_URL/);
+  });
+
+  it('development (dev bundle) honors any https Binance-compatible endpoint', () => {
+    expect(desktopConfig({ userData: UD, hardened: false, env: { BINANCE_BASE_URL: 'https://binance-mirror.example/api' } }).config.binanceBaseUrl)
+      .toBe('https://binance-mirror.example/api');
+  });
+
+  it('hardened builds accept only the known Binance API hosts and ignore anything else (logged once)', () => {
+    expect(KNOWN_BINANCE_HOSTS).toEqual(['data-api.binance.vision', 'api.binance.com', 'api.binance.us']);
+    for (const h of KNOWN_BINANCE_HOSTS) {
+      const notes: string[] = [];
+      expect(desktopConfig({ userData: UD, env: { BINANCE_BASE_URL: `https://${h}/` }, onIgnored: (m) => notes.push(m) }).config.binanceBaseUrl)
+        .toBe(`https://${h}`);
+      expect(notes).toEqual([]);
+    }
+    for (const raw of ['https://binance-mirror.example', 'https://api.binance.com.evil.example', 'https://api.binance.com/x',
+      'http://api.binance.com', 'https://api.binance.com:8443', 'https://u:p@api.binance.com', 'nope']) {
+      const notes: string[] = [];
+      const { config } = desktopConfig({ userData: UD, env: { BINANCE_BASE_URL: raw }, onIgnored: (m) => notes.push(m) });
+      expect(config.binanceBaseUrl, raw).toBe(DEFAULT_BINANCE_BASE_URL);
+      expect(notes, raw).toHaveLength(1);
+      expect(notes[0]).toMatch(/BINANCE_BASE_URL/);
+      expect(notes[0]).not.toContain(raw); // the value itself is not logged
+    }
+  });
+
+  it('is hardened unless told otherwise', () => {
+    expect(desktopConfig({ userData: UD, env: { BINANCE_BASE_URL: 'https://binance-mirror.example' } }).config.binanceBaseUrl)
+      .toBe(DEFAULT_BINANCE_BASE_URL);
   });
 
   it('treats blank overrides as unset', () => {

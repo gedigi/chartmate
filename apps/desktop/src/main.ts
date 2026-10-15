@@ -70,7 +70,7 @@ protocol.registerSchemesAsPrivileged([...PRIVILEGED_SCHEMES]);
 const hardenOpts = { hardened, onBlocked: (what: string, url: string) => log.warn(`blocked ${what} ${url}`) };
 hardenApp(app, hardenOpts);
 
-const { config } = desktopConfig({ userData, env: process.env });
+const { config } = desktopConfig({ userData, env: process.env, hardened, onIgnored: (m) => log.warn(m) });
 // Outbound network: providers only, HTTPS only, exact hosts, every redirect hop checked.
 const allowed = providerHosts(config);
 // Transport: direct connections (no env proxy) trusting only Node's bundled root CAs, whatever the environment says.

@@ -25,6 +25,8 @@ app, the Docker image and the release tag share one version number.
 - The released app keeps all of its startup and window protections even when its executable is renamed (for
   example a copy renamed to `electron.exe`): it still refuses debugging switches, keeps DevTools off and ignores
   `CHARTMATE_USER_DATA_DIR`.
+- `BINANCE_BASE_URL` accepts only the Binance API hosts (`data-api.binance.vision`, `api.binance.com`,
+  `api.binance.us`); any other value is ignored with a warning in the log instead of being allowed through.
 
 ### Self-hosting
 
