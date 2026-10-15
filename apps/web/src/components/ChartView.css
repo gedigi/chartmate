@@ -12,9 +12,11 @@
    while the chips are shown; each pill ellipsizes its text when space runs short. */
 .chart-save-notes {
   display: flex; flex-direction: row; align-items: center; justify-content: flex-end; gap: 6px; flex: 0 1 auto; min-width: 0;
-  max-width: 60%; margin-left: auto; padding: 8px 10px 2px;
+  max-width: 75%; margin-left: auto; padding: 8px 10px 2px;
 }
+/* The short layout note keeps its words; the drawings note (longer, names symbols) gives way first. */
 .chart-save-notes > .save-note { min-width: 0; flex: 0 1 auto; }
+.chart-save-notes > .save-note:first-child:not(:last-child) { flex-shrink: 0; }
 .chart-save-notes:empty { display: none; }
 .chart-host { position: absolute; inset: 0; }
 .chart-init-error { position: absolute; inset: 0; color: var(--error); }
