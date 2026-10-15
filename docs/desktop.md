@@ -199,17 +199,19 @@ The renderer is treated as untrusted web content, and the main process exposes n
   - OnlyLoadAppFromAsar: on;
   - LoadBrowserProcessSpecificV8Snapshot: off;
   - GrantFileProtocolExtraPrivileges: off.
-- **Opening the browser**: `shell.openExternal` is called in exactly one place, when a build that cannot update
-  itself offers the releases page after **Check for updates**. The URL is baked in at bundle time from
+- **Opening the browser**: `shell.openExternal` is called in exactly one place, when a macOS build that cannot
+  update itself offers the releases page after **Check for Updates…**. The URL is baked in at bundle time from
   `GITHUB_REPOSITORY` (`build/repository.cjs`) and re-validated before the call (`src/lib/releasesPage.ts`): it
   must be exactly `https://github.com/<owner>/<name>/releases`, with a strict slug and no port, credentials, query
   or fragment. A test pins that there is no other call.
-- **Update UX** (`src/lib/updateController.ts`, `src/lib/updateMenu.ts`): native menu items and message boxes in
-  the main process only. No IPC, no preload, nothing is injected into the renderer. Data from GitHub is untrusted:
-  the version must be plain semver (otherwise the dialog says "a new version"), and release notes, which arrive
-  as HTML, become plain text with tags, control and bidirectional formatting characters removed, at most 12
-  lines and 600 characters (`src/lib/releaseNotes.ts`). Error dialogs never show the error text; the log gets
-  its first line, capped.
+- **Update UX** (`src/lib/updateController.ts`, `src/lib/updateMenu.ts`): native menu items (macOS) and message
+  boxes in the main process only. No IPC, no preload, nothing is injected into the renderer. Data from GitHub is
+  untrusted: the version must be plain semver (otherwise the dialog says "a new version"), and release notes,
+  which arrive as HTML, become plain text with tags removed, entities decoded, and every Unicode control (Cc,
+  except newline), format (Cf: zero-width, bidirectional overrides and isolates, soft hyphen, tags), line
+  separator (Zl) and paragraph separator (Zp) character dropped, at most 12 lines and 600 characters
+  (`src/lib/releaseNotes.ts`). Error dialogs never show the error text. Updater log lines have CR and LF escaped
+  and are capped at 500 characters, so release data cannot forge log lines.
 - **Unused features**: the app never uses `remote` or `file://`.
 
 ## Signing, notarization, updates
@@ -235,54 +237,84 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
     hardware or a cloud HSM, so this only fits older certificates.
 - **Auto-update** (`electron-updater`, GitHub provider) is **on in signed builds**.
   - **Unsigned builds**: the updater is compiled out entirely, whatever `product.json` says. There is no
-    `updater.cjs` in the package and no updater code path in `main.cjs`. **Check for updates** explains that
-    updates need a signed build and offers the releases page (see [Security model](#security-model)). Windows
-    builds stay unsigned, and therefore without an updater, until a Certum certificate is set up.
+    `updater.cjs` in the package and no updater code path in `main.cjs`. On macOS, **Check for Updates…**
+    explains that updates need a signed build and offers the releases page (see [Security model](#security-model)).
+    Windows builds stay unsigned, and therefore without an updater, until a Certum certificate is set up.
   - **Signed builds**: the updater runs only when all of these hold (`updateAvailability` in
     `src/lib/updatePolicy.ts`):
-    - `CHARTMATE_DISABLE_UPDATES` is not set to `1` (if it is, the menu item is disabled and a second, disabled
-      item names the variable);
+    - `CHARTMATE_DISABLE_UPDATES` is not set to `1` (if it is, the macOS menu item is disabled and a second,
+      disabled item names the variable);
     - the app is packaged, on macOS or Windows;
     - `autoUpdate` is `true` in `product.json` (it is from the release after 1.0.0 on; set it to `false` to ship
       a build without updates);
-    - the build ships an `app-update.yml`, and on Windows it pins `publisherName`.
+    - the build ships an `app-update.yml` (parsed as YAML), and on Windows it names a `publisherName` (without it
+      electron-updater would skip the signature check) **and** the build pins the publisher DN
+      (`CHARTMATE_WIN_PUBLISHER_DN`, see below).
 
-    Otherwise **Check for updates** says updates are not available in this build.
+    Otherwise, on macOS, **Check for Updates…** says updates are not available in this build. If the updater
+    fails to start, the error is logged and the app runs on without updates.
+  - **Where the controls are**:
+    - macOS: **Check for Updates…** and the **Check for Updates Automatically** checkbox, under About in the app
+      menu.
+    - Windows: none. The frameless window (title bar overlay) has no visible menu bar, so menu items would be
+      unreachable, and there is no IPC or preload to put them in the page. Signed Windows builds update in the
+      background only; `CHARTMATE_DISABLE_UPDATES=1` turns that off.
   - **How it behaves** (`src/lib/updateController.ts`):
-    - **Check for Updates…** (macOS app menu, under About; Windows **Help** menu) checks right away and reports
-      "You're up to date", a concise error (details only in the log), or "Chartmate X is available" while it
-      downloads.
-    - In the background, with **Check for updates automatically** on, the first check runs 15 s after start,
-      then every 6 hours; it is silent until an update has been downloaded.
+    - **Check for Updates…** checks right away and reports "You're up to date", "Chartmate X is available"
+      while it downloads, or a short failure message.
+    - In the background, with automatic checks on, the first check runs 15 s after start, then every 6 hours; it
+      is silent until an update has been downloaded. The schedule stops when the app quits or the user chooses
+      to restart.
     - Downloads are automatic. When one finishes, a native dialog offers **Restart Now** (Windows: **Restart
-      now**; `quitAndInstall`) or
-      **Later** (`autoInstallOnAppQuit`: installed when the app quits), with a plain-text summary of the release
-      notes.
+      now**; `quitAndInstall`) or **Later** (`autoInstallOnAppQuit`: installed when the app quits), with a
+      plain-text summary of the release notes. On macOS with no window open, the app asks for focus
+      (`app.focus({ steal: false })`) before showing it.
+    - Failures are reported only when someone is waiting for the outcome, and worded by what failed: "Couldn't
+      check for updates" or "Couldn't download the update" after a manual check, "Couldn't install the update"
+      after **Restart Now** (for example a failed Squirrel.Mac hand-over, or an installer that cannot start). The
+      state then goes back to idle, so the next check retries. Background failures are only logged.
     - Once an update is downloaded, no further check runs: another check would start a second Squirrel.Mac
-      hand-over. **Check for updates** re-offers the restart instead. An error resets the state, so a later
-      check retries.
-  - **The setting**: **Check for updates automatically** is a menu checkbox saved in
-    `<userData>/update-settings.json` (`src/lib/updateSettings.ts`). The file name is fixed, the file must be a
-    regular file (no symlink) of at most 1 KiB holding exactly `{"checkAutomatically": <boolean>}`; anything else
-    is ignored and logged, and the default (on) applies. Writes go to a fresh temp file (exclusive create, 0600,
-    fsync) that is renamed over the target, so a planted symlink is replaced, never written through.
-  - **How updates are verified** (electron-updater's defaults, never overridden; tests pin that the code sets no
-    `channel`, `verifyUpdateCodeSignature` or feed URL):
-    - every download is checked against the SHA-512 in `latest-mac.yml` / `latest.yml`;
-    - Windows: electron-updater checks the installer's Authenticode signature against the `publisherName` pinned
-      in `app-update.yml`. The app refuses to update if that field is missing;
-    - macOS: Squirrel.Mac checks that the new app's code signature satisfies the running app's designated
-      requirement. This is also the only case that opens a listener (the loopback exception described under
-      [How it works](#how-it-works)), one per hand-over.
-  - **No downgrades**: `allowDowngrade` is `false`, `forceDevUpdateConfig` is `false`, and `channel` is never set
-    (setting it would allow downgrades).
-  - **Pre-releases**: a full release only ever updates to full releases; a pre-release build (`1.1.0-beta.1`) also
-    to newer pre-releases (`src/lib/updatePolicy.ts`).
+      hand-over. **Check for Updates…** offers the restart again instead.
+  - **The setting**: **Check for Updates Automatically** is saved in `<userData>/update-settings.json`
+    (`src/lib/updateSettings.ts`). The file name is fixed. It is read through a single descriptor opened with
+    `O_NOFOLLOW | O_NONBLOCK` and checked with `fstat` (on Windows, which has neither flag, an `lstat` comes
+    first), so a symlink, FIFO or other non-regular file is refused; it must be at most 1 KiB holding exactly
+    `{"checkAutomatically": <boolean>}`. Anything else is ignored and logged, and the default (on) applies. Writes
+    go to a fresh temp file (exclusive create, 0600, fsync) that is renamed over the target, so a planted symlink
+    is replaced, never written through.
+  - **How updates are verified**:
+    - Integrity: each download is checked against the SHA-512 listed in `latest-mac.yml` / `latest.yml`. That
+      file comes from the same GitHub release over the same HTTPS connection, so this catches corrupted or
+      truncated downloads; it does not prove who published the update. The code signature does.
+    - Windows: our own verifier (`src/lib/winSignature.ts`) replaces electron-updater's, which skips the check
+      when PowerShell cannot run. It runs `Get-AuthenticodeSignature` (the system PowerShell by absolute path, no
+      shell, the file path passed in an environment variable) and fails **closed**: any error, timeout, stderr
+      output, unreadable result, status other than `Valid`, a different file, or a subject that does not match the
+      pinned DN refuses the installer. Every attribute in the pin (at least CN, O and C) must match; extra subject
+      fields are allowed. The pin is `CHARTMATE_WIN_PUBLISHER_DN`, baked in at bundle time; the `publisherName` in
+      `app-update.yml` only has to be present.
+    - macOS: before the zip is handed to Squirrel.Mac, the app reads `Contents/Info.plist` from the zip
+      (`src/lib/updateBundle.ts`): there must be exactly one app, and its `CFBundleShortVersionString` must equal
+      the version the release advertised and be newer than the running app. Anything unexpected refuses the
+      update, and the loopback listener is then never armed. Squirrel.Mac then checks that the new app's code
+      signature satisfies the running app's designated requirement. The hand-over is the only case that opens a
+      listener (the loopback exception described under [How it works](#how-it-works)), one per hand-over.
+  - **Downgrades**: `allowDowngrade` and `forceDevUpdateConfig` are `false`, `channel` is never set (setting it
+    would allow downgrades), and `isUpdateSupported` accepts only a valid semver strictly newer than the running
+    version. These judge the version **the release metadata advertises**. On macOS the downloaded bundle's own
+    version is checked as well (above). On Windows the installer's internal version is not inspected: a validly
+    signed older installer listed under a newer version in a tampered `latest.yml` would be installed. That takes
+    write access to the repository's releases.
+  - **Pre-releases**: a full release only ever updates to full releases; a pre-release build (`1.1.0-beta.1`,
+    detected by parsing the version) also to newer pre-releases (`src/lib/updatePolicy.ts`).
   - **Network**: electron-updater downloads through its own session partition (`electron-updater`; a test pins
-    the dependency's partition name). Its request filter allows HTTPS only, on the default port, without URL
-    credentials, to `github.com`, `api.github.com`, `objects.githubusercontent.com` and
-    `release-assets.githubusercontent.com`, checking every redirect hop. The filter is installed before the first
-    check can run.
+    the dependency's partition name). That partition connects directly (`setProxy({ mode: 'direct' })`: no system
+    or PAC proxy, like provider traffic), and its request filter allows HTTPS only, on the default port, without
+    URL credentials, to `github.com`, `objects.githubusercontent.com` and `release-assets.githubusercontent.com`,
+    checking every redirect hop. `api.github.com` is not allowed: the public GitHub provider only uses it for a
+    custom host (pinned by a test). TLS is verified by Chromium's network stack against the operating system's
+    trust store, not by the bundled-CA transport that market data uses. The proxy setting and the filter are in
+    place before the first check can run.
   - **Release assets**: both packaging steps run with `CHARTMATE_PUBLISH=github`, so electron-builder writes
     `app-update.yml` (`provider: github`, owner and repository from `GITHUB_REPOSITORY`) into the app and
     `latest-mac.yml` / `latest.yml` next to the artifacts (`--dir` builds get no `app-update.yml`). The release job
@@ -291,8 +323,10 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
   - **1.0.0 shipped with `autoUpdate: false`**, so 1.0.0 installs never check for updates: their users install
     the next version once by hand, and update automatically from then on.
   - **Untestable without a real signed release**: the GitHub feed lookup, the Squirrel.Mac hand-over and
-    install, and the restart. Unit tests cover the policy, the controller (with a fake updater), the menu, the
-    settings file and the sanitizers; the smoke test checks the menu and that unsigned builds contain no updater.
+    install, the Windows signature check against a real certificate, and the restart. Unit tests cover the
+    policy, the controller (with a fake updater), the menu, the settings file, the zip version check, the DN
+    pin, the verifier (with a fake process runner) and the sanitizers; the smoke test checks the macOS menu and
+    that unsigned builds contain no updater.
 
 ### Windows signing with Certum
 
@@ -315,7 +349,12 @@ the installer. `latest.yml` and the blockmaps are computed from the signed files
 - Install SimplySign Desktop: Windows, or `brew install --cask simplysign` on macOS (Intel only; it needs Rosetta).
   Log in with your email and a code from the phone app, then finish Certum's activation. The certificate's
   subject CN (for example `Open Source Developer, Jane Doe`) is your **publisher name**. Copy it exactly and keep
-  it the same across renewals: installed copies accept updates only from that name.
+  it the same across renewals.
+- Also copy the certificate's full subject, the **publisher DN**: on Windows, run
+  `(Get-AuthenticodeSignature <a file you signed>).SignerCertificate.Subject`. Keep at least CN, O and C (for
+  example `CN="Open Source Developer, Jane Doe", O=Open Source Developer, C=PL`), plus any other fields that stay
+  the same across renewals. Installed copies accept updates only from a certificate matching every field you
+  keep: drop a field that a renewal could change, or updates stop at that renewal.
 
 **2. CI signing (`desktop.yml`, tag builds only).** Set up the repository once:
 
@@ -332,6 +371,7 @@ the installer. `latest.yml` and the blockmaps are computed from the signed files
 | `CHARTMATE_CERTUM_USERNAME` | `windows-signing` secret | SimplySign account email |
 | `CHARTMATE_CERTUM_OTP_URI` | `windows-signing` secret | the `otpauth://totp/…` URI from the activation QR code |
 | `CHARTMATE_WIN_PUBLISHER_NAME` | repository variable | the certificate subject CN |
+| `CHARTMATE_WIN_PUBLISHER_DN` | repository variable | the publisher DN (at least CN, O and C); without it, signed Windows builds do not update themselves |
 | `CHARTMATE_CERTUM_SIMPLYSIGN_MSI_SHA256` | repository variable | SHA-256 of the SimplySign Desktop installer CI downloads (required) |
 | `CHARTMATE_CERTUM_SIMPLYSIGN_VERSION` | repository variable, optional | that installer's version (default `9.4.4.92`) |
 | `CHARTMATE_CERTUM_SIMPLYSIGN_SIGNER_SHA1` | repository variable, optional | pins the installer's signing certificate thumbprint |
@@ -389,9 +429,9 @@ Limitations:
   `(read -rs CHARTMATE_CERTUM_OTP_URI; export CHARTMATE_CERTUM_OTP_URI; node apps/desktop/scripts/certum/totp.mjs)`
   and paste the URI. The subshell keeps the seed out of your shell. It must print the same code as the phone app;
   if it differs, set `CHARTMATE_CERTUM_TOTP_ALGORITHM`.
-- `publisherName` pins only the certificate CN. Pinning the full subject would also reject a certificate with
-  the same CN from someone else, but it would break updates as soon as any other subject field changes at
-  renewal. The CN is the default.
+- `publisherName` in `app-update.yml` is the certificate CN, but the update check pins the DN in
+  `CHARTMATE_WIN_PUBLISHER_DN`, so a certificate with the same CN from another organization is refused. Every
+  field you pin must survive renewals.
 
 **3. Manual signing (fallback, no seed stored anywhere).** After CI has published a tag, possibly with an unsigned
 Windows build, run this on your Mac or a Windows PC:
@@ -400,6 +440,7 @@ Windows build, run this on your Mac or a Windows PC:
 git checkout vX.Y.Z
 # SimplySign Desktop: connect, then type the code from the phone app
 export CHARTMATE_WIN_PUBLISHER_NAME='Open Source Developer, Jane Doe'
+export CHARTMATE_WIN_PUBLISHER_DN='CN="Open Source Developer, Jane Doe", O=Open Source Developer, C=PL'
 export CHARTMATE_WIN_PKCS11_MODULE=/usr/local/lib/libSimplySignPKCS.dylib   # macOS
 # export CHARTMATE_WIN_CERT_SHA1=<thumbprint>                               # Windows instead (certmgr.msc)
 pnpm --filter @chartmate/desktop sign:win

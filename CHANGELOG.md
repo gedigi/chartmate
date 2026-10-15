@@ -7,14 +7,18 @@ app, the Docker image and the release tag share one version number.
 
 ### Desktop app
 
-- Automatic updates for signed builds (macOS): the app checks 15 seconds after it starts and every 6 hours,
-  downloads new versions in the background and asks to restart now or later (later installs on quit), with a
-  short summary of the release notes.
-- **Check for Updates…** in the Chartmate menu (Windows: Help menu) checks right away, and a **Check for updates
-  automatically** menu checkbox turns the background checks off. `CHARTMATE_DISABLE_UPDATES=1` still turns
-  updates off entirely.
-- Builds that cannot update themselves (unsigned, which includes Windows for now) say so and offer to open the
-  releases page.
+- Automatic updates for signed builds: the app checks 15 seconds after it starts and every 6 hours, downloads
+  new versions in the background and asks to restart now or later (later installs on quit), with a short summary
+  of the release notes. A failed check, download or install you asked for is reported in a dialog.
+- macOS: **Check for Updates…** in the Chartmate menu checks right away, and **Check for Updates Automatically**
+  next to it turns the background checks off. An unsigned build says it cannot update itself and offers to open
+  the releases page.
+- Windows has no update menu (the window has no menu bar): signed builds update in the background. Windows builds
+  are unsigned for now and keep updating by hand from the releases page.
+- `CHARTMATE_DISABLE_UPDATES=1` turns updates off entirely.
+- Updates are verified before they install: on macOS the downloaded app must be the advertised, newer version and
+  be signed by the same developer; on Windows the installer must be validly signed by the pinned publisher, and any
+  failure to check refuses it.
 - Chartmate 1.0.0 shipped with updates turned off: install this version by hand once, and later versions arrive
   automatically.
 

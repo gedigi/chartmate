@@ -49,22 +49,30 @@ your computer (see [Data location](#data-location)).
 Signed builds update themselves. The app checks for a new version 15 seconds after it starts and then every 6
 hours, downloads it in the background and then asks whether to restart now or later; with **Later** the update
 is installed the next time you quit. Your data is kept. The dialog shows a short, plain-text summary of the
-release notes.
+release notes. If a check, download or install you asked for fails, a dialog says so; the details are in the
+[log](#data-location), and the next check tries again.
 
-- **Check for Updates…** checks right away and tells you the result. It is in the **Chartmate** menu on macOS
-  and in the **Help** menu on Windows.
-- **Check for Updates Automatically** (Windows: **Check for updates automatically**), next to it, turns the
-  background checks off or on. A manual check always works. The choice is saved in `update-settings.json` in the
-  [data directory](#data-location).
-- `CHARTMATE_DISABLE_UPDATES=1` in the environment turns updates off completely: the menu item is grayed out and
-  says why.
-- Unsigned builds cannot update themselves. **Check for updates** says so and offers to open the releases page;
-  install the new version over the old one. The signing table in each release's notes says which builds are
-  signed; Windows builds are unsigned for now, so on Windows you update by hand.
+On macOS:
+
+- **Check for Updates…** in the **Chartmate** menu checks right away and tells you the result.
+- **Check for Updates Automatically**, next to it, turns the background checks off or on. **Check for Updates…**
+  works either way. The choice is saved in `update-settings.json` in the [data directory](#data-location).
+- An unsigned build cannot update itself: **Check for Updates…** says so and offers to open the releases page.
+
+On Windows the window has no menu bar, so there is no update menu. A signed build checks and downloads in the
+background and asks to restart when an update is ready. Windows builds are unsigned for now (each release's
+signing table says), and unsigned builds do not update themselves: download the new installer from the
+[releases page](../../releases/latest) and run it over the old version.
+
+Everywhere:
+
+- `CHARTMATE_DISABLE_UPDATES=1` in the environment turns updates off completely (on macOS the menu item is
+  grayed out and says why).
 - A pre-release build (`1.1.0-beta.1`) also updates to newer pre-releases; a regular release only to regular
-  releases. The app never installs an older version.
+  releases. Only a newer version than the one running is offered, and on macOS the downloaded app's own version
+  is checked before it is installed.
 - **Chartmate 1.0.0 shipped with updates turned off**: if you have 1.0.0, download and install the next version
-  once by hand; from then on the app updates itself.
+  once by hand; from then on the app updates itself (on macOS; on Windows once its builds are signed).
 
 ## Self-host
 

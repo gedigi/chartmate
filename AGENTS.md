@@ -113,7 +113,9 @@ and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by defa
 ## Conventions
 
 - American English everywhere: code, comments, UI strings, docs, commit messages.
-- Sentence case for UI labels and headings; no ALL-CAPS labels.
+- Sentence case for UI labels and headings; no ALL-CAPS labels. Native macOS menu items and dialog buttons follow
+  the platform's title case instead ("Check for Updates…", "Restart Now"); Windows dialog buttons stay in
+  sentence case.
 - Describe Chartmate on its own terms: never name or compare to other charting products in docs, code
   comments, UI copy, commit messages or release notes.
 - `packages/shared`, `apps/server` and `apps/desktop` are NodeNext ESM: relative imports end in `.js`.
@@ -156,10 +158,14 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
 
 - No new IPC channels, preload scripts or exposed APIs. If one is ever unavoidable it needs strict input
   validation and a security review.
-- Update UX stays in the main process: native menus and dialogs only (`src/lib/updateController.ts`), with
-  GitHub release data treated as untrusted plain text (`src/lib/releaseNotes.ts`). `shell.openExternal` has a
-  single, test-pinned call for the validated build-time releases page (`src/lib/releasesPage.ts`); do not add
-  others. Changes to the updater (`src/updater.ts`, `updatePolicy.ts`, `updateArming.ts`) are security changes.
+- Update UX stays in the main process: native macOS menu items and dialogs only (`src/lib/updateController.ts`;
+  the Windows window has no visible menu bar, so Windows updates run in the background), with GitHub release
+  data treated as untrusted plain text (`src/lib/releaseNotes.ts`). `shell.openExternal` has a single,
+  test-pinned call for the validated build-time releases page (`src/lib/releasesPage.ts`); do not add others.
+- Update verification fails closed: the Windows installer verifier (`winSignature.ts`, pinned publisher DN from
+  `CHARTMATE_WIN_PUBLISHER_DN`) and the macOS bundle version check (`updateBundle.ts`) refuse on any error.
+  Changes to the updater (`src/updater.ts`, `updatePolicy.ts`, `updateArming.ts`, `updateBundle.ts`,
+  `winSignature.ts`) are security changes.
 - Keep the CSP header (no `unsafe-inline` / `unsafe-eval`) and Trusted Types (`trusted-types 'none'`): never
   write HTML strings into the DOM.
 - Main-process network goes through the outbound allowlist (`netAllowlist.ts`) on the direct, CA-pinned
