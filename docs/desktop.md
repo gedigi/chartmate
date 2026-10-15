@@ -515,9 +515,13 @@ pnpm --filter @chartmate/desktop sign:win
    - the release exists.
 2. It reinstalls `node_modules` from the lockfile, then rebuilds the Windows app for the tag. CI's installers
    cannot be re-signed in place, because the app and the uninstaller are inside them.
-3. Right before packaging, it asks for the card PIN, if your setup has one. The PIN is passed only to
-   electron-builder, and from there to `osslsigncode` (as `PKCS11_PIN`). The first rejected PIN stops all
-   further signing attempts.
+3. Right before packaging, it asks for the card PIN, if your setup has one (or takes `CHARTMATE_WIN_PKCS11_PIN`
+   from its own environment). The PIN is never put in electron-builder's environment, which every tool it starts
+   would inherit: it is written to an owner-only file (0600) in a fresh private temporary directory (0700), and
+   electron-builder gets only that file's path as `CHARTMATE_WIN_PKCS11_PIN_FILE`. The sign hook
+   (`build/win-sign.cjs`) reads and deletes the file on its first call, keeps the PIN in memory for the other
+   files, and gives it to `osslsigncode` only (as `PKCS11_PIN`). The directory is removed when packaging ends,
+   whatever the outcome. The first rejected PIN stops all further signing attempts.
 4. It signs, then verifies everything.
 5. It shows the files and asks before replacing them on the GitHub Release with `gh release upload --clobber`.
    The repository comes from `gh` or `GITHUB_REPOSITORY`.
@@ -546,6 +550,18 @@ Optional settings:
 - `CHARTMATE_WIN_SIGN_PASS_ENV`: names of extra variables, comma-separated, that the signing tool may see.
   Signing tools get only a minimal environment, so a PKCS#11 module that needs its own configuration variable
   has to be listed here.
+
+Build-only variables (they affect packaging, never the running app):
+
+- `CHARTMATE_PUBLISH=github`: electron-builder writes `app-update.yml` and `latest*.yml` for GitHub Releases
+  (needs `GITHUB_REPOSITORY`; see [Release assets](#signing-notarization-updates)). CI's packaging steps and
+  `sign:win` set it.
+- `CHARTMATE_WIN_SIGN_LOG`: a file the sign hook appends one JSON line to per signed file;
+  `scripts/verify-win-signatures.mjs` checks that every expected file was signed (`--sign-log`). CI's Certum packaging step and
+  `sign:win` set it to a temporary file.
+- `CHARTMATE_WIN_PKCS11_PIN`: the card PIN for `sign:win` (it asks otherwise). In a direct electron-builder run the
+  hook also accepts it from the environment, with the exposure described above.
+- `CHARTMATE_WIN_PKCS11_PIN_FILE`: set by `sign:win` only (see step 3); the file must be an owner-only regular file.
 
 Windows needs SimplySign Desktop, the Windows SDK (`signtool`) and `gh`.
 

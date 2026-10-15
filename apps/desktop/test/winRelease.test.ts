@@ -1,9 +1,10 @@
-import { join } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error plain ESM script without types
 import * as verifyScript from '../scripts/verify-win-signatures.mjs';
 // @ts-expect-error plain ESM script without types
-import { buildAffectingIgnored, rewriteReleaseNotes, windowsAssets } from '../scripts/sign-win-release.mjs';
+import { buildAffectingIgnored, builderEnv, rewriteReleaseNotes, windowsAssets, writePinFile } from '../scripts/sign-win-release.mjs';
 
 const {
   appUpdateProblems, commonName, latestYmlProblems, parseOsslVerify, parseSigntoolVerify, signatureProblems, signLogProblems, zipExtractCommand,
@@ -125,5 +126,23 @@ describe('sign-win-release', () => {
     const out = rewriteReleaseNotes(notes('unsigned'), 'Certum (SimplySign)');
     expect(out).not.toContain('Windows build is unsigned');
     expect(out).toContain('Unsigned builds contain no auto-updater');
+  });
+});
+
+describe('sign:win PIN hand-off', () => {
+  it('electron-builder and its children never get the PIN in their environment, only the path of a private file', () => {
+    const env = builderEnv({ PATH: '/bin', CHARTMATE_WIN_PKCS11_PIN: '123456' }, '/private/x/pin');
+    expect(env).toEqual({ PATH: '/bin', CHARTMATE_WIN_PKCS11_PIN_FILE: '/private/x/pin' });
+    expect(JSON.stringify(env)).not.toContain('123456');
+    expect(builderEnv({ PATH: '/bin', CHARTMATE_WIN_PKCS11_PIN_FILE: '/stale' }, null)).toEqual({ PATH: '/bin' });
+  });
+
+  it.runIf(process.platform !== 'win32')('writes the PIN to an owner-only file in a fresh owner-only directory, removed by cleanup', () => {
+    const { file, cleanup } = writePinFile('424242');
+    expect(statSync(dirname(file)).mode & 0o777).toBe(0o700);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(readFileSync(file, 'utf8')).toBe('424242');
+    cleanup();
+    expect(existsSync(dirname(file))).toBe(false);
   });
 });
