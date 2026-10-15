@@ -75,6 +75,7 @@ or an unpackaged smoke run, fetch it once with `node apps/desktop/node_modules/e
 | All unit tests | `pnpm test` |
 | One package | `pnpm --filter @chartmate/<shared\|server\|web\|desktop> test` (or `typecheck`) |
 | One file | `pnpm --filter @chartmate/web exec vitest run test/chart/theme.test.ts` |
+| Server DB suites on Postgres (as CI's `postgres` job; e.g. `docker run` the digest-pinned image from `compose.yaml` on a free port) | `TEST_PG_URL=postgres://… CHARTMATE_TEST_DB=postgres pnpm --filter @chartmate/server exec vitest run --no-file-parallelism test/db test/market test/baskets test/routes test/http` |
 | End-to-end | `pnpm e2e` (first time: `pnpm exec playwright install chromium`); `E2E_PORT=8873 pnpm e2e` for another port |
 | Docker image | `docker build -t chartmate .` |
 | Docker image smoke test (read-only rootfs + tmpfs, healthcheck, API, UI, SQLite temp files, SIGTERM) | `scripts/docker-smoke.sh chartmate` (another arch: `--platform linux/arm64`) |
@@ -93,7 +94,7 @@ Desktop (`apps/desktop`; `pnpm --filter @chartmate/desktop <script>`):
 | `smoke` | Playwright + Electron smoke tests. |
 
 Smoke env vars: `SMOKE_APP` (the TEST-ONLY copy from `smoke/prepare-inspectable.mjs`; unset = unpackaged
-app), `SMOKE_HARDENED_APP` (the unmodified packaged app), `SMOKE_EXPECT_UNSIGNED` (`1` unsigned, `0` signed),
+app, which needs the dev bundle: `node apps/desktop/scripts/bundle.mjs --dev`), `SMOKE_HARDENED_APP` (the unmodified packaged app), `SMOKE_EXPECT_UNSIGNED` (`1` unsigned, `0` signed),
 `SMOKE_ALLOW_REAL_USERDATA=1` (needed outside CI for the hardened spec; it moves the real per-user data aside
 and back), `SMOKE_LIVE=1` (live providers), `SMOKE_PROVIDERS` (`fixture` by default). See "Smoke tests" in
 `docs/desktop.md` for the full sequence.
@@ -175,8 +176,11 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   `winSignature.ts`) are security changes.
 - Keep the CSP header (no `unsafe-inline` / `unsafe-eval`) and Trusted Types (`trusted-types 'none'`): never
   write HTML strings into the DOM.
-- Main-process network goes through the outbound allowlist (`netAllowlist.ts`) on the direct, CA-pinned
-  transport (`directFetch.ts`). Adding a host is a security change.
+- Main-process network goes through the outbound allowlist (`netAllowlist.ts`) on the direct transport
+  (`directFetch.ts`: no proxy, trusts only Node's bundled root store). Adding a host is a security change.
+- Security gates use `hardened` (`isHardened()` in `buildMode.ts`, computed once in `src/boot.ts`), never
+  `app.isPackaged`, which only reflects the executable's file name. Only the `--dev` bundle run unpackaged is
+  unhardened.
 - Fuses (`build/fuses.cjs`), window hardening (`hardening.ts`), startup guards (`startupGuards.ts`), the listen
   guard and the navigation/permission handlers are pinned by tests. Changing any of them needs a security
   review.

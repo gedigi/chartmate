@@ -2,7 +2,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
-import { DAY, makeApp, type TestApp } from './helpers.js';
+import { buildApp } from '../../src/app.js';
+import { passwordFingerprint } from '../../src/auth.js';
+import { DAY, makeApp, testConfig, type TestApp } from './helpers.js';
 
 function cookieHeader(setCookie: string | string[] | undefined): string {
   const raw = Array.isArray(setCookie) ? setCookie[0]! : setCookie!;
@@ -40,7 +42,7 @@ describe('auth', () => {
     const ok = await t.app.inject({ method: 'POST', url: '/api/login', payload: { password: 'hunter2' } });
     expect(ok.statusCode).toBe(204);
     const setCookie = String(ok.headers['set-cookie']);
-    expect(setCookie).toMatch(/^chartmate_session=v1\.\d+\./);
+    expect(setCookie).toMatch(/^chartmate_session=v2\.\d+\.[\w-]{22}\./);
     expect(setCookie).toMatch(/HttpOnly/i);
     expect(setCookie).toMatch(/SameSite=Lax/i);
     expect(setCookie).toMatch(/Path=\//);
@@ -70,7 +72,48 @@ describe('auth', () => {
       method: 'POST', url: '/api/login', payload: { password: 'hunter2' }, headers: { 'x-forwarded-proto': 'https' },
     });
     expect(ok.statusCode).toBe(204);
-    expect(String(ok.headers['set-cookie'])).toMatch(/Secure/);
+    const setCookie = String(ok.headers['set-cookie']);
+    expect(setCookie).toMatch(/^__Host-chartmate_session=/);
+    expect(setCookie).toMatch(/Secure/);
+    expect(setCookie).toMatch(/Path=\//);
+    expect(setCookie).not.toMatch(/Domain=/i);
+    const cookie = cookieHeader(ok.headers['set-cookie']);
+    const https = { 'x-forwarded-proto': 'https' };
+    expect((await t.app.inject({ method: 'GET', url: '/api/watchlist', headers: { ...https, cookie } })).statusCode).toBe(200);
+    // A session issued over plain http before the move to https still works (both names are read).
+    const plain = await t.app.inject({ method: 'POST', url: '/api/login', payload: { password: 'hunter2' } });
+    const plainCookie = cookieHeader(plain.headers['set-cookie']);
+    expect(plainCookie).toMatch(/^chartmate_session=/);
+    expect((await t.app.inject({ method: 'GET', url: '/api/watchlist', headers: { ...https, cookie: plainCookie } })).statusCode).toBe(200);
+    // Logout over https clears both names.
+    const out = await t.app.inject({ method: 'POST', url: '/api/logout', headers: { ...https, cookie } });
+    const cleared = ([] as string[]).concat(out.headers['set-cookie'] as string | string[]);
+    expect(cleared.map((c) => c.split('=')[0]).sort()).toEqual(['__Host-chartmate_session', 'chartmate_session']);
+  });
+
+  it('a password change revokes every session; cookies of the old format are refused', async () => {
+    t = await makeApp({ password: 'hunter2' });
+    const ok = await t.app.inject({ method: 'POST', url: '/api/login', payload: { password: 'hunter2' } });
+    const cookie = cookieHeader(ok.headers['set-cookie']);
+    const old = t.app.signCookie(`v1.${Date.now()}`); // issued before this version
+    expect((await t.app.inject({ method: 'GET', url: '/api/watchlist', headers: { cookie: `chartmate_session=${encodeURIComponent(old)}` } })).statusCode).toBe(401);
+    // The same server data and secret, restarted with a new password.
+    const app2 = await buildApp({ config: { ...testConfig(), password: 'hunter3' }, repos: t.repos, market: t.market, baskets: t.baskets, logger: false });
+    expect((await app2.inject({ method: 'GET', url: '/api/watchlist', headers: { cookie } })).statusCode).toBe(401);
+    await app2.close();
+  });
+
+  it('without CHARTMATE_SESSION_SECRET the secret is random, stored once in the database and reused', async () => {
+    t = await makeApp({ password: 'hunter2', sessionSecret: null });
+    const secret = await t.repos.settings.get('session_secret');
+    expect(secret).toMatch(/^[0-9a-f]{64}$/);
+    const ok = await t.app.inject({ method: 'POST', url: '/api/login', payload: { password: 'hunter2' } });
+    const cookie = cookieHeader(ok.headers['set-cookie']);
+    expect((await t.app.inject({ method: 'GET', url: '/api/watchlist', headers: { cookie } })).statusCode).toBe(200);
+    expect(await t.repos.settings.sessionSecret()).toBe(secret); // generated only once
+    // The cookie carries nothing derivable from the password alone (keyed by the random secret).
+    expect(cookie).toContain(passwordFingerprint('hunter2', secret!));
+    expect(cookie).not.toContain(passwordFingerprint('hunter2', 'test-secret-test-secret-test-secret'));
   });
 
   it('ignores X-Forwarded-Proto when trustProxy is off', async () => {
@@ -284,7 +327,12 @@ describe('session expiry and logout', () => {
       const r = await t.app.inject({ method: 'GET', url: '/api/watchlist', headers: { cookie: `chartmate_session=${encodeURIComponent(signed)}` } });
       expect(r.statusCode, value).toBe(401);
     }
-    const good = t.app.signCookie(`v1.${Date.now()}`);
+    for (const value of [`v1.${Date.now()}`, `v2.${Date.now()}.${passwordFingerprint('other', 'test-secret-test-secret-test-secret')}`]) {
+      const signed = t.app.signCookie(value);
+      const r = await t.app.inject({ method: 'GET', url: '/api/watchlist', headers: { cookie: `chartmate_session=${encodeURIComponent(signed)}` } });
+      expect(r.statusCode, value).toBe(401);
+    }
+    const good = t.app.signCookie(`v2.${Date.now()}.${passwordFingerprint('hunter2', 'test-secret-test-secret-test-secret')}`);
     expect((await t.app.inject({ method: 'GET', url: '/api/watchlist', headers: { cookie: `chartmate_session=${encodeURIComponent(good)}` } })).statusCode).toBe(200);
   });
 

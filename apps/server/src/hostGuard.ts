@@ -125,6 +125,8 @@ function isDefaultPort(protocol: string, port: string): boolean {
  *   another site that points its own name at this server is refused.
  * - Origin: a state-changing API request (not GET/HEAD/OPTIONS) that carries an Origin must come from the
  *   request's own origin (see originMatches), with or without a password.
+ * - Fetch metadata: an API request a browser marks `Sec-Fetch-Site` other than `same-origin` or `none` (typed
+ *   URL) is refused, whatever its method. Requests without the header (scripts, the desktop app) pass.
  */
 export function registerHostGuard(app: FastifyInstance, opts: HostGuardOptions): void {
   const checkHost = opts.password === null || opts.allowedHosts.length > 0;
@@ -154,6 +156,13 @@ export function registerHostGuard(app: FastifyInstance, opts: HostGuardOptions):
     if (origin !== undefined && !SAFE_METHODS.has(request.method) && isApiPath(request.url)
       && !originMatches(request, origin, allowedOrigins)) {
       return deny(request, reply, 'origin_not_allowed', 'Origin not allowed.');
+    }
+    // A browser marks every request with Sec-Fetch-Site (pages cannot forge it). The app only calls its own API,
+    // so an API request another site's page caused (an <img>, a script, a no-cors fetch) is refused before it
+    // reaches a provider: without a password such GETs would otherwise burn the provider quota.
+    const site = request.headers['sec-fetch-site'];
+    if (site !== undefined && site !== 'same-origin' && site !== 'none' && isApiPath(request.url)) {
+      return deny(request, reply, 'cross_site', 'Cross-site API requests are not allowed.');
     }
   });
 }

@@ -179,7 +179,8 @@ docker compose start chartmate
 In `.env` (see above), set `POSTGRES_PASSWORD` and uncomment `DATABASE_URL` and `COMPOSE_PROFILES=postgres` (all three
 are in `.env.example`), then `docker compose up -d`. This starts the `postgres` service with its own volume and
 points Chartmate at it. Data is not copied over from SQLite. Any other Postgres works too: set
-`DATABASE_URL=postgres://user:pass@host:5432/chartmate`.
+`DATABASE_URL=postgres://user:pass@host:5432/chartmate`. Chartmate keeps its tables, and its migration bookkeeping, in the connection's current
+schema (the first schema of its `search_path`).
 
 ### Behind a reverse proxy (HTTPS)
 
@@ -189,6 +190,9 @@ IP/CIDR). Chartmate then takes the client IP, the `https` scheme and the host fr
 so the login rate limits apply per client and the session cookie is marked `Secure`. Set a password (an
 exposed instance always needs one), and list the public name in `CHARTMATE_ALLOWED_HOSTS`
 (`chartmate.example.com`): without a password that is required, otherwise every request is refused with a 403.
+Without `CHARTMATE_TRUST_PROXY` the server sees plain HTTP from the proxy even when the browser uses HTTPS: it
+then issues the plain `chartmate_session` cookie without `Secure` (and without the `__Host-` prefix), so a
+browser would also send it over plain HTTP. Set the variable whenever a proxy terminates TLS.
 
 The proxy must pass the real host: the `Host` header and every `X-Forwarded-Host` entry must be allowed names
 (the `Host` may also be `127.0.0.1:8787`, which some proxies send by default). Serve Chartmate only from a
@@ -216,9 +220,16 @@ location / {
 ### Security
 
 - Set `CHARTMATE_PASSWORD` whenever the instance is reachable from anything but your own machine; it turns on
-  a login page. Use a strong password, and serve the instance over HTTPS only.
-- Set `CHARTMATE_SESSION_SECRET` to a random value (`openssl rand -hex 32`). If unset, the secret is derived
-  from the password, so a leaked session cookie would let someone guess the password offline.
+  a login page. Use a strong password (the server warns at startup below 12 characters), and serve the
+  instance over HTTPS only. A password of only whitespace is refused at startup rather than read as "no
+  password"; the server also warns when it is reachable beyond loopback without a password (judged on
+  `CHARTMATE_PUBLISHED_BIND`, which `compose.yaml` sets from `CHARTMATE_BIND`, or else on `HOST`; the default
+  Compose setup publishes on 127.0.0.1 and does not warn).
+- Session cookies are signed with `CHARTMATE_SESSION_SECRET` when set (min 16 characters; `openssl rand -hex
+  32`). When unset, a random secret is generated on first start and kept in the database (`settings` table),
+  so it survives restarts; it is never derived from the password, so a leaked cookie gives nothing to guess the
+  password from. Anyone who can read the database can forge sessions, which is no more than they can already
+  read. Set the variable to keep sessions valid across a restore into a fresh database.
 - Login attempts are rate limited: 10 failures per IP per 15 minutes, plus a global limit of 100
   failures per 15 minutes. The global limit means a determined attacker can lock *you* out for a while.
 - **Allowed hosts.** Without a password the server answers only to `localhost`, `127.0.0.1` and `[::1]` (on
@@ -237,10 +248,23 @@ location / {
   it was sent to, or the browser marks it `Sec-Fetch-Site: same-origin`. For a loopback host, a loopback
   `Origin` on any port is accepted too, which is what `pnpm dev` needs (the page on port 5173, the API on 8787).
   Requests without an `Origin` (curl, scripts) are not affected.
+- **No cross-site API calls.** An API request the browser marks `Sec-Fetch-Site: cross-site` or `same-site`
+  (another site's page loading an image, script or no-cors fetch from your instance) gets a 403, whatever its
+  method, so another page cannot make your server spend its data-provider quota. Requests the browser marks
+  `same-origin` or `none` (a typed URL), and requests without the header (curl, scripts), are not affected.
+- **Response headers.** The web app is served with a strict Content Security Policy (same-origin scripts,
+  styles, fonts and API calls only, no inline code, Trusted Types required, no framing), `X-Frame-Options:
+  DENY`, `Cross-Origin-Opener-Policy: same-origin`, `X-Content-Type-Options: nosniff` and `Referrer-Policy:
+  no-referrer`; API responses carry the last two plus `Cache-Control: no-store`. Hashed bundles under `/assets/` are cached for a year
+  (`immutable`), `index.html` and the other files are revalidated on every load. Files whose name starts with a
+  dot are never served, and a missing file (a path under `/assets/` or with a file extension) is a 404 rather
+  than the app page. If you add your own CSP at a reverse proxy, keep it at least this strict.
 - Behind a reverse proxy set `CHARTMATE_TRUST_PROXY`, otherwise every client appears to come from the
   proxy's IP and they all share one rate-limit budget, and the session cookie is not marked `Secure`.
-- The session cookie lasts 30 days. Changing `CHARTMATE_SESSION_SECRET` (or the password, if the secret
-  is derived from it) revokes all existing sessions.
+- The session cookie lasts 30 days. Each cookie carries a keyed fingerprint of the password, so changing
+  `CHARTMATE_PASSWORD` (or `CHARTMATE_SESSION_SECRET`, or deleting the generated `session_secret` row) signs
+  every session out. Over HTTPS the cookie is named `__Host-chartmate_session` (Secure, `Path=/`, no `Domain`,
+  so no other site or subdomain can set it); over plain HTTP it is `chartmate_session`. Logout clears both.
 - **Pin the image.** `latest` follows every release. To run exactly the image you checked, look up the
   digest of a version, verify that digest itself, then pin both in `.env`:
 
@@ -302,12 +326,13 @@ created if missing).
 | `PORT` | `8787` | HTTP port. |
 | `HOST` | `127.0.0.1` (Docker: `0.0.0.0`) | Listen address. Use `0.0.0.0` (or `::`) to accept connections from other hosts. |
 | `DATABASE_URL` | `sqlite:./data/chartmate.db` (Docker: `sqlite:/data/chartmate.db`) | `sqlite:<path>` or `postgres://…`. An empty SQLite path (`sqlite:`) is rejected. |
-| `CHARTMATE_PASSWORD` | unset (no auth) | Enables password login. |
-| `CHARTMATE_SESSION_SECRET` | derived from the password | Cookie signing secret, min 16 chars. Set explicitly in production. |
+| `CHARTMATE_PASSWORD` | unset (no auth) | Enables password login. Only whitespace is an error; under 12 characters logs a warning. Changing it signs every session out. |
+| `CHARTMATE_SESSION_SECRET` | generated once, stored in the database | Cookie signing secret, min 16 chars. Set it to keep sessions across a restore into a fresh database. |
 | `CHARTMATE_TRUST_PROXY` | unset (`false`) | `true`, a hop count (e.g. `1`), or an IP/CIDR list of trusted proxies. |
 | `CHARTMATE_ALLOWED_HOSTS` | unset | Comma-separated hostnames or IP addresses (no scheme or port; IPv6 in brackets) served besides `localhost`, `127.0.0.1` and `[::1]`. Enforced without a password, and with one when set; see [Security](#security). |
+| `CHARTMATE_PUBLISHED_BIND` | unset (Compose: `CHARTMATE_BIND`) | Address the port is published on outside the container. Only used to decide whether to warn about running without a password; `compose.yaml` sets it, you never need to. |
 | `CRYPTO_PROVIDER` | `binance` | `binance` or `coinbase`. |
-| `BINANCE_BASE_URL` | `https://data-api.binance.vision` | Alternate Binance-compatible endpoint. |
+| `BINANCE_BASE_URL` | `https://data-api.binance.vision` | Alternate Binance-compatible endpoint (`https://` only, no credentials, query or fragment). |
 | `CHARTMATE_PROVIDERS` | `live` | `fixture` serves deterministic synthetic data (tests/demos, no network). |
 | `CHARTMATE_WEB_DIST` | `apps/web/dist` (Docker: `/app/web`) | Directory of the built web app. |
 
@@ -337,6 +362,7 @@ running the desktop app unpackaged: `node apps/desktop/node_modules/electron/ins
 | Typecheck everything (incl. e2e) | `pnpm typecheck` |
 | Unit and route tests of every package (no network) | `pnpm test` |
 | One package | `pnpm --filter @chartmate/<shared\|server\|web\|desktop> test` |
+| Server DB suites on Postgres | `TEST_PG_URL=postgres://… CHARTMATE_TEST_DB=postgres pnpm --filter @chartmate/server exec vitest run --no-file-parallelism test/db test/market test/baskets test/routes test/http` |
 | End-to-end tests (Chromium) | `pnpm e2e` (first time: `pnpm exec playwright install chromium`) |
 | Dependency vulnerabilities | `pnpm audit` |
 | New indicator | `pnpm new:indicator <Name>` (see [Custom indicators](#custom-indicators)) |
@@ -715,7 +741,8 @@ A basket is a weighted set of stocks/crypto charted as one synthetic instrument.
 - A version holds at most 50 constituents, and its effective date must lie between 1970-01-01 and
   tomorrow (UTC). A version dated tomorrow is sized at the latest daily close before that date, which may
   not be final yet: until that date begins (00:00 UTC) its holdings are provisional, re-sized every few
-  minutes, and they are then fixed at that final close.
+  minutes, and they are then fixed at that final close. A basket holds at most 100 versions and 100 different symbols across all of
+  them.
 - **Deleting** a basket (Baskets page) also removes it from the watchlist and clears its drawings; if it was
   on the chart, the chart switches to the first other watchlist symbol. A reference that survives (say, the
   cleanup failed or another tab still lists it) shows as "Deleted basket" in the watchlist and on the chart,
@@ -739,15 +766,24 @@ from 1h.
 Crypto symbols are `crypto:<BASE>` priced in USD (Binance `BTCUSDT`, Coinbase `BTC-USD`). Binance
 blocks some regions (e.g. the US): set `CRYPTO_PROVIDER=coinbase`, or point `BINANCE_BASE_URL` at an
 endpoint reachable from your host. Switching providers does not invalidate saved baskets, watchlists
-or drawings. If a provider is down or rate limiting, cached bars are served marked `stale`.
+or drawings. If a provider is down or rate limiting, cached bars are served marked `stale`, and requests to it
+pause for 30 seconds. A crypto symbol Binance does not list is left out of quote requests for 10 minutes.
 
-Fetched history is cached in the database and not re-downloaded. Yahoo's bars are split- and
+Fetched history is cached in the database and not re-downloaded. An empty answer from a provider is only
+remembered as "no bars here" when it cannot be a passing glitch: the range ended more than 7 days ago, lies
+before the symbol's listing date, or holds no trading session (a stock's weekend or night); otherwise it is
+asked again on the next load. Bars and the record of the range they cover are written in one transaction.
+Yahoo's bars are split- and
 dividend-adjusted *as of the day they were fetched*, so the server checks each stock for splits at most
 once a day when serving its bars (a lightweight Yahoo chart call with split events since the last check,
 stamped in `symbols.splits_checked_at`). When a split occurred since the last check, that symbol's daily
 bars and the intraday bars still within Yahoo's lookback are dropped and refetched on demand; older intraday
 bars (no longer downloadable) are kept and rescaled by the split ratio. Baskets holding the stock recompute
-their units. Note for upgrades: the first check after upgrading looks for splits since each symbol's last
+their units. Each check also looks back 7 days before the previous one, so a split the provider reports a few
+days late is still applied; applied splits are recorded by their New York date (`applied_splits`), so none is applied twice, even when the
+provider restamps an event a few hours later. A stock
+whose bars were cached before its metadata row existed (e.g. the lookup failed at the time) has its refetchable
+bars dropped once when the row appears, since when they were fetched is unknown. Note for upgrades: the first check after upgrading looks for splits since each symbol's last
 metadata refresh (`symbols.updated_at`) minus 7 days, so older splits (already reflected in the cache) change
 nothing; a split between an older cached fetch and that baseline is not detected (delete the symbol's cache as
 in Troubleshooting if a chart shows such a jump). Split events dated in the future are applied only once they
@@ -787,6 +823,16 @@ mirrored `watchlist` table (symbols only; sections are not visible to it). Upgra
 the existing `watchlist_entries` rows, so watchlist edits made while downgraded are not carried over (empty that
 table before upgrading to re-import the old list instead).
 
+**Rolling back to 1.0.0.** This version adds migrations 004 (symbol ids), 005 (applied splits) and 006
+(settings), and 1.0.0 refuses to start while they are recorded. Stop the server, back up the database, then
+`DELETE FROM kysely_migration WHERE name IN ('004_symbol_ids', '005_applied_splits', '006_settings');` and start
+1.0.0. Migration 004 cannot be undone: ids stay in their normalized spelling (1.0.0 reads them fine) and merged
+or dropped entries do not come back. The added `applied_splits` and `settings` tables and the
+`symbols.splits_tracked_from` column are left in place and ignored by 1.0.0. Sessions issued by either version
+are not accepted by the other, so expect to log in again. Before upgrading again, run
+`UPDATE symbols SET splits_tracked_from = splits_checked_at;`: splits 1.0.0 applied in the meantime are not in
+`applied_splits`, and without this the first check after the upgrade could apply them a second time.
+
 ## Desktop app
 
 The desktop app is the same Chartmate in its own window: the server and the web UI run inside the app, with no
@@ -812,13 +858,16 @@ The directory holds:
 What gets logged:
 
 - **Main process**: lifecycle lines (start, window shown, quit) at INFO, plus warnings (blocked navigations,
-  requests and listeners) and errors.
+  requests and listeners) and errors. Blocked navigations and requests are logged at most 20 times a minute
+  (the page's and the app's own outbound requests counted separately); beyond that, one line at the end of the
+  minute (or at quit) says how many were left out.
 - **Embedded server**: warnings and errors only. Error objects are reduced to type, message and code, with no
   stack, request URLs drop their query strings, and headers are never logged.
 - **Before writing any line**: absolute paths, URL credentials and secret-looking values are scrubbed.
 
 Migrations run before the window loads. `CHARTMATE_USER_DATA_DIR=/abs/path` overrides the directory in
-development runs only; packaged builds ignore it, just as they refuse `--user-data-dir`.
+development runs (`pnpm --filter @chartmate/desktop start`) and in the test-only copy the smoke tests build; the
+released app ignores it (even when its executable is renamed), just as it refuses `--user-data-dir`.
 
 ### Environment
 
@@ -826,10 +875,11 @@ Environment overrides the desktop app honors:
 
 - `CHARTMATE_PROVIDERS` (`live` (the default) or `fixture`);
 - `CRYPTO_PROVIDER`;
-- `BINANCE_BASE_URL` (https only);
+- `BINANCE_BASE_URL`, limited to `https://data-api.binance.vision` (the default), `https://api.binance.com` and
+  `https://api.binance.us`; any other value is ignored (and logged);
 - `CHARTMATE_DISABLE_UPDATES=1` (no update checks or downloads at all, see [Updates](#updates)).
 
-A packaged build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE` or
+A released (hardened) build **refuses to start** (with an error dialog) if `NODE_USE_ENV_PROXY`, `SSLKEYLOGFILE` or
 `NODE_EXTRA_CA_CERTS` is set. Node applies the first during pre-execution, before any app code runs, so the app
 cannot undo it; the second would let TLS session keys be logged; the third would add trusted root certificates
 (Electron normally drops it already). `NODE_USE_SYSTEM_CA` is allowed: provider requests ignore it (see below).
@@ -853,13 +903,20 @@ JSON over `/api` (the web client uses nothing else). With `CHARTMATE_PASSWORD` s
 | `GET /api/bars?symbol=&tf=&session=rth\|eth&from=&to=` | Bars in a range (ms timestamps), with `stale`, notices and markers. |
 | `GET /api/latest?symbol=&tf=&session=` | The latest bar. |
 | `GET /api/quotes?symbols=` / `GET /api/sparklines?symbols=` | Watchlist quotes / sparklines (comma-separated ids, at most 50). |
-| `GET`, `POST /api/baskets`; `GET`, `PUT`, `DELETE /api/baskets/:id`; `POST /api/baskets/:id/versions` | Baskets and their versions. |
+| `GET`, `POST /api/baskets`; `GET`, `PUT`, `DELETE /api/baskets/:id`; `POST /api/baskets/:id/versions` | Baskets and their versions (at most 50 constituents per version, 100 versions and 100 distinct symbols per basket). Appending a version is atomic; one that loses a race with another edit three times gets a 409. |
 | `GET`, `PUT /api/watchlist` | The watchlist (see [Watchlist and sections](#watchlist-and-sections)). |
 | `GET`, `PUT /api/layouts/:key` | Chart layout; `default` is the one the app uses. |
 | `GET`, `PUT /api/drawings/:symbol` | Drawings of a symbol. |
 
 Symbol ids are `stock:<TICKER>`, `crypto:<BASE>` or `basket:<uuid>`; timeframes are `1m 5m 15m 30m 1h 2h 4h 1D
-1W 1M`.
+1W 1M`. Ids are case-insensitive and normalized (`crypto:btc` is `crypto:BTC`; basket UUIDs are lowercase), and
+each code must fit its class: a stock ticker is 1–20 of `A–Z 0–9 . - = ^` starting with a letter, digit or `^`
+(`BRK-B`, `^GSPC`, `ES=F`), a crypto base 1–20 letters or digits, a basket a UUID; anything else is a 400.
+Migration 004 rewrote the ids stored by earlier versions (watchlist, layouts, drawings, basket weights) to this
+spelling, merging case variants and dropping ids that are not valid. A basket version that loses an invalid
+constituent this way is reweighted: its other constituents are rescaled to sum to 100%, and the server logs the
+basket id and version at that first start (a version whose weights would not stay positive and finite is left
+as it was).
 
 The watchlist is a `WatchlistEntry[]`: `{ type: 'symbol', id }` or `{ type: 'section', id: <uuid>, title,
 collapsed }`, read and replaced as a whole. `PUT /api/watchlist` still accepts the older plain symbol id array

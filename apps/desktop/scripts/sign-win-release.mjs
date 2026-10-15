@@ -16,8 +16,8 @@
 //
 // Options: --tag=vX.Y.Z (default: v<package.json version>), --no-upload (build + verify only; any commit),
 //          --yes (do not ask before uploading).
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -49,6 +49,72 @@ export function buildAffectingIgnored(paths) {
   return paths.filter((p) => /(^|\/)\.env(\..+)?$/.test(p) && !/(^|\/)\.env\.example$/.test(p) && !/(^|\/)node_modules\//.test(p));
 }
 
+/**
+ * The environment electron-builder runs with: never the PIN itself (it would reach every child process electron-builder
+ * starts), only the path of the owner-only file build/win-sign.cjs reads it from (or no PIN at all).
+ */
+export function builderEnv(env, pinFile) {
+  const out = { ...env };
+  delete out.CHARTMATE_WIN_PKCS11_PIN;
+  delete out.CHARTMATE_WIN_PKCS11_PIN_FILE;
+  if (pinFile) out.CHARTMATE_WIN_PKCS11_PIN_FILE = pinFile;
+  return out;
+}
+
+/** Writes the PIN to `<fresh 0700 dir>/pin` (0600, exclusive create); `cleanup` removes the directory. */
+export function writePinFile(pin) {
+  const dir = mkdtempSync(join(tmpdir(), 'chartmate-pin-'));
+  chmodSync(dir, 0o700);
+  const file = join(dir, 'pin');
+  writeFileSync(file, pin, { mode: 0o600, flag: 'wx' });
+  return { file, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+/** Removes CHARTMATE_WIN_PKCS11_PIN from `env` (process.env) and returns it, so no child process inherits it. */
+export function takePin(env) {
+  const pin = env.CHARTMATE_WIN_PKCS11_PIN;
+  delete env.CHARTMATE_WIN_PKCS11_PIN;
+  return pin;
+}
+
+/**
+ * Runs `run` (the electron-builder step) with `cleanup` (removing the PIN file) guaranteed: when the step ends,
+ * whatever the outcome, and on SIGINT / SIGTERM, after which the signal is re-raised with its default action so the
+ * exit status still says how the script ended. The handlers are removed afterwards.
+ */
+export function withSignalCleanup(cleanup, run, proc = process) {
+  const handlers = new Map();
+  const remove = () => {
+    for (const [sig, h] of handlers) proc.removeListener(sig, h);
+    handlers.clear();
+  };
+  for (const sig of ['SIGINT', 'SIGTERM']) {
+    const h = () => {
+      remove();
+      try {
+        cleanup();
+      } finally {
+        proc.kill(proc.pid, sig);
+      }
+    };
+    handlers.set(sig, h);
+    proc.once(sig, h);
+  }
+  return Promise.resolve().then(run).finally(() => {
+    remove();
+    cleanup();
+  });
+}
+
+/** sh(), asynchronously: the event loop keeps running, so signal handlers fire while the child runs. */
+function shAsync(command, args, opts = {}) {
+  return new Promise((resolveRun, reject) => {
+    const child = spawn(command, args, { stdio: 'inherit', cwd: opts.cwd ?? desktop, env: opts.env ?? process.env });
+    child.once('error', reject);
+    child.once('exit', (code, signal) => (code === 0 ? resolveRun() : reject(new Error(`${command} ${args.join(' ')} failed (${code ?? signal})`))));
+  });
+}
+
 function sh(command, args, opts = {}) {
   const r = spawnSync(command, args, { stdio: opts.capture ? ['ignore', 'pipe', 'inherit'] : 'inherit', encoding: 'utf8', cwd: opts.cwd ?? desktop, env: opts.env ?? process.env, shell: process.platform === 'win32' && command === 'pnpm' });
   if (r.status !== 0) throw new Error(`${command} ${args.join(' ')} failed (${r.status ?? r.error})`);
@@ -71,6 +137,8 @@ function ask(question, { hidden = false } = {}) {
 }
 
 async function main() {
+  // Before anything runs: no child (git, gh, pnpm install, the web build) may inherit the PIN.
+  let pin = takePin(process.env);
   const argv = process.argv.slice(2);
   const opt = (name) => argv.find((a) => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=');
   const upload = !argv.includes('--no-upload');
@@ -109,11 +177,11 @@ async function main() {
   // node_modules must be exactly the lockfile (no install scripts), as in CI.
   sh('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], { cwd: resolve(desktop, '..', '..') });
 
-  // The PIN is never part of the general build environment: it is asked for right before electron-builder and given
-  // only to it (and from there, by build/win-sign.cjs, to osslsigncode as PKCS11_PIN).
-  const env = { ...process.env, CHARTMATE_PUBLISH: 'github', GITHUB_REPOSITORY: repo };
-  let pin = env.CHARTMATE_WIN_PKCS11_PIN;
-  delete env.CHARTMATE_WIN_PKCS11_PIN;
+  // The PIN is never in any build environment, electron-builder's included (its children would inherit it): it is
+  // asked for right before electron-builder and written to an owner-only file in a private temp directory, whose path
+  // build/win-sign.cjs gets; the hook reads and deletes it on first use and gives it to osslsigncode as PKCS11_PIN.
+  const env = builderEnv({ ...process.env, CHARTMATE_PUBLISH: 'github', GITHUB_REPOSITORY: repo }, null);
+  let pinFile = null;
 
   const out = resolve(desktop, 'release-win-signed', tag);
   rmSync(out, { recursive: true, force: true });
@@ -129,9 +197,14 @@ async function main() {
     if (signing.certum === 'pkcs11' && pin === undefined && process.stdin.isTTY) {
       pin = await ask('SimplySign card PIN (press Enter if your setup does not ask for one): ', { hidden: true });
     }
-    sh(process.execPath, [require.resolve('electron-builder/cli.js'), '--config', 'electron-builder.config.cjs', '--win', '--publish', 'never',
-      `-c.directories.output=${out}`], { env: pin ? { ...env, CHARTMATE_WIN_PKCS11_PIN: pin } : env });
+    if (pin) pinFile = writePinFile(pin);
     pin = undefined;
+    // The PIN file goes away when packaging ends, and also on Ctrl-C / SIGTERM (the signal is then re-raised).
+    await withSignalCleanup(() => {
+      pinFile?.cleanup();
+      pinFile = null;
+    }, () => shAsync(process.execPath, [require.resolve('electron-builder/cli.js'), '--config', 'electron-builder.config.cjs', '--win', '--publish', 'never',
+      `-c.directories.output=${out}`], { env: builderEnv(env, pinFile?.file ?? null) }));
 
     console.log('\n== Verifying ==');
     const problems = verifyRelease(out, { publisher, signLog: env.CHARTMATE_WIN_SIGN_LOG });

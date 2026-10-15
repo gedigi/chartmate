@@ -1,11 +1,12 @@
 import {
   DRAWING_COLOR_RE, DRAWING_COLOR_TOKENS, HEX_COLOR_RE, MAX_INDICATOR_LEVEL, MAX_INDICATOR_LEVELS, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_POSITION_PCT, MAX_SECTION_TITLE,
   MAX_TEXT_SIZE, MAX_WATCHLIST_SECTIONS, MAX_WATCHLIST_SYMBOLS, MIN_LINE_WIDTH, MIN_TEXT_SIZE, migrateAppearance, TIMEFRAMES,
-  mergeLegacyWatchlist, watchlistProblem,
+  mergeLegacyWatchlist, normalizeSymbolId, tryNormalizeSymbolId, watchlistProblem,
   type DrawingState, type Layout, type Timeframe, type WatchlistEntry,
 } from '@chartmate/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { FALLBACK_LAYOUT_SYMBOL } from '../db/migrations.js';
 import type { Repos } from '../db/repos.js';
 import { isSymbolId, parse, SymbolIdSchema } from './validation.js';
 
@@ -134,7 +135,7 @@ const DrawingsBody = z.array(z.unknown()).max(500).transform((ds) => ds.filter((
 const LayoutKey = z.object({
   key: z.string().max(110).refine((k) => k === 'default' || (k.startsWith('sym:') && isSymbolId(k.slice(4))), {
     message: "layout key must be 'default' or 'sym:<symbol id>'",
-  }),
+  }).transform((k) => (k === 'default' ? k : `sym:${normalizeSymbolId(k.slice(4))}`)),
 });
 const SymbolParams = z.object({ symbol: SymbolIdSchema });
 
@@ -155,6 +156,9 @@ export async function userRoutes(app: FastifyInstance, deps: { repos: Repos }): 
     const { key } = parse(LayoutKey, request.params);
     const layout = await repos.layouts.get(key);
     if (!layout) return reply.type('application/json; charset=utf-8').send('null');
+    // Rows written before symbol ids were normalized (and missed by migration 004, e.g. by a rolled-back server).
+    const symbol = tryNormalizeSymbolId(layout.symbol) ?? FALLBACK_LAYOUT_SYMBOL;
+    if (symbol !== layout.symbol) layout.symbol = symbol;
     if (layout.appearance === undefined) return layout;
     // Rows saved before appearance was per theme hold the flat shape.
     const { appearance, ...rest } = layout;

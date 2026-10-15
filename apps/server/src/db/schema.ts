@@ -6,7 +6,13 @@ export interface SymbolsTable {
   ticker: string | null;
   /** Last time stock splits were checked for this symbol (null = never). */
   splits_checked_at: number | null;
+  /** Splits after this are recorded in applied_splits (migration 005; null = rows from before it, never checked). */
+  splits_tracked_from: number | null;
 }
+/** Server settings (migration 006): `session_secret` = the generated cookie signing secret. */
+export interface SettingsTable { key: string; value: string }
+/** Splits applied to a symbol's cached bars (migration 005). */
+export interface AppliedSplitsTable { symbol: string; ts: number }
 export interface BasketsTable { id: string; name: string; base_value: number; created_at: number; updated_at: number }
 export interface BasketVersionsTable { basket_id: string; idx: number; effective_from: string; weights_json: string }
 /** Legacy (pre-sections) watchlist; still mirrored with the symbols for a manual rollback (see README). */
@@ -31,4 +37,6 @@ export interface Database {
   watchlist_entries: WatchlistEntriesTable;
   layouts: LayoutsTable;
   drawings: DrawingsTable;
+  applied_splits: AppliedSplitsTable;
+  settings: SettingsTable;
 }

@@ -17,6 +17,10 @@ export class BasketValidationError extends Error {
 
 /** Most constituents a single basket version may hold. */
 export const MAX_CONSTITUENTS = 50;
+/** Most versions a basket may hold. */
+export const MAX_BASKET_VERSIONS = 100;
+/** Most distinct constituents across all of a basket's versions. */
+export const MAX_BASKET_SYMBOLS = 100;
 /** Earliest allowed `effectiveFrom`. */
 export const MIN_EFFECTIVE_DATE = '1970-01-01';
 
@@ -27,6 +31,11 @@ export function maxEffectiveDate(now: number = Date.now()): string {
 
 export function validateVersions(versions: BasketVersion[], opts: { now?: number } = {}): void {
   if (versions.length === 0) throw new BasketValidationError('Basket needs at least one version');
+  if (versions.length > MAX_BASKET_VERSIONS) throw new BasketValidationError(`A basket may have at most ${MAX_BASKET_VERSIONS} versions`);
+  const symbols = new Set(versions.flatMap((v) => Object.keys(v.weights ?? {})));
+  if (symbols.size > MAX_BASKET_SYMBOLS) {
+    throw new BasketValidationError(`A basket may hold at most ${MAX_BASKET_SYMBOLS} different symbols across its versions`);
+  }
   const maxDate = maxEffectiveDate(opts.now ?? Date.now());
   const minTs = parseDateString(MIN_EFFECTIVE_DATE);
   const maxTs = parseDateString(maxDate);

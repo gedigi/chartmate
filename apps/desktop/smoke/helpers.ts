@@ -187,3 +187,14 @@ export function isolateUserData(dirs: readonly string[] = userDataDirsTouchedByA
     if (errors.length > 0) throw new Error(`user data restore incomplete (backups are kept as *.smoke-backup): ${errors.map(String).join('; ')}`);
   };
 }
+
+/**
+ * The unpackaged runs (Playwright's _electron.launch) need the dev bundle (`node scripts/bundle.mjs --dev`): every
+ * production bundle is hardened whatever the executable is called (src/lib/buildMode.ts), so it would refuse
+ * Playwright's --inspect / --remote-debugging-port switches. Only the dev bundle has source maps.
+ */
+export function requireDevBundle(appDir: string): void {
+  if (!existsSync(join(appDir, 'dist', 'main.cjs.map'))) {
+    throw new Error('the unpackaged smoke run needs the dev bundle: node scripts/bundle.mjs --dev (docs/desktop.md, "Smoke tests")');
+  }
+}

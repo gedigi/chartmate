@@ -28,19 +28,27 @@ function moveFile(from: string, to: string): void {
  * After a product rename the per-user data directory changes (it is named after the product). Moves `files` from
  * the first legacy directory that has `marker` into `target`, unless `target` already has its own `marker`
  * (never overwrites). Returns the directory migrated from, or null.
+ *
+ * The marker moves LAST: the target counts as migrated only once it has the marker, so a migration interrupted
+ * by an error (which propagates) is completed on the next launch instead of leaving, say, the database without
+ * its WAL. `move` is injectable for tests.
  */
-export function migrateLegacyUserData(opts: { target: string; legacyDirs: readonly string[]; files: readonly string[]; marker: string }): string | null {
+export function migrateLegacyUserData(opts: {
+  target: string; legacyDirs: readonly string[]; files: readonly string[]; marker: string; move?: (from: string, to: string) => void;
+}): string | null {
   const target = resolve(opts.target);
+  const move = opts.move ?? moveFile;
   if (existsSync(join(target, opts.marker))) return null;
   for (const dir of opts.legacyDirs) {
     const from = resolve(dir);
     if (from === target || !existsSync(join(from, opts.marker))) continue;
     ensurePrivateDir(target);
-    for (const f of opts.files) {
+    const ordered = [...opts.files.filter((f) => f !== opts.marker), opts.marker];
+    for (const f of ordered) {
       const src = join(from, f);
       if (!existsSync(src)) continue;
       const dst = join(target, f);
-      moveFile(src, dst);
+      move(src, dst);
       chmodSync(dst, 0o600);
     }
     return from;

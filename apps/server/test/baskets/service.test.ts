@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { nyDateUtcMidnight, tagSessionFixedHours, tfMs, type BasketVersion, type NativeTimeframe } from '@chartmate/shared';
-import { createDb } from '../../src/db/connect.js';
+import { createTestDb, type TestDb } from '../helpers/testDb.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';
 import { AppError, NotFoundError, ProviderError } from '../../src/errors.js';
@@ -38,7 +38,7 @@ async function expectAppError(p: Promise<unknown>, status: number, code: string,
 }
 
 describe('BasketService', () => {
-  let h: ReturnType<typeof createDb>;
+  let h: TestDb;
   let repos: Repos;
   let now: number;
   let stock: FakeProvider;
@@ -47,7 +47,7 @@ describe('BasketService', () => {
   let svc: BasketService;
 
   beforeEach(async () => {
-    h = createDb('sqlite::memory:');
+    h = await createTestDb();
     await migrate(h.db);
     repos = createRepos(h.db);
     now = NOW;
@@ -91,7 +91,7 @@ describe('BasketService', () => {
     });
 
     it('rejects nested baskets', async () => {
-      await expectAppError(svc.create({ name: 'b', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'basket:abc': 0.5 })] }),
+      await expectAppError(svc.create({ name: 'b', versions: [v('2026-09-14', { 'stock:AAA': 0.5, 'basket:3f2b6c1e-3f1a-4c1e-9a7b-2a1d3c4e5f60': 0.5 })] }),
         400, 'invalid_basket', /no nested baskets/);
     });
 

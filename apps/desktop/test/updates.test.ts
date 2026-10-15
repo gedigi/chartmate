@@ -7,7 +7,7 @@ import { menuTemplate } from '../src/lib/menu.js';
 import { releaseNotesText, safeVersion } from '../src/lib/releaseNotes.js';
 import { isAllowedReleasesUrl, releasesPageUrl } from '../src/lib/releasesPage.js';
 import {
-  configureUpdater, createUpdateController, INSTALL_WATCHDOG_MS, logLine, STARTUP_CHECK_DELAY_MS, UPDATE_CHECK_INTERVAL_MS, type MessageOptions, type UpdaterPort,
+  configureUpdater, createUpdateController, HANDOVER_WATCHDOG_MS, INSTALL_WATCHDOG_MS, logLine, STARTUP_CHECK_DELAY_MS, UPDATE_CHECK_INTERVAL_MS, type MessageOptions, type UpdaterPort,
 } from '../src/lib/updateController.js';
 import { startUpdatesSafely, unsupportedUpdateMessage, updateMenuItems, type UpdateMenuState } from '../src/lib/updateMenu.js';
 import { isUpdateRequestAllowed, UPDATE_HOSTS, UPDATE_PARTITION, updateAvailability } from '../src/lib/updatePolicy.js';
@@ -219,10 +219,10 @@ describe('update menu (macOS only: the Windows window has no visible menu bar)',
   });
   it('macOS: the update items sit right after About; Windows gets no update menu (it would be unreachable)', () => {
     const updates = { state: { kind: 'enabled', automatic: true } as UpdateMenuState, ...handlers };
-    const mac = menuTemplate({ isMac: true, isPackaged: true, appName: 'Chartmate', updates });
+    const mac = menuTemplate({ isMac: true, hardened: true, appName: 'Chartmate', updates });
     const appMenu = mac[0]!.submenu as MenuItemConstructorOptions[];
     expect(labels(appMenu).slice(0, 4)).toEqual(['about', 'Check for Updates…', 'Check for Updates Automatically', 'separator']);
-    const win = menuTemplate({ isMac: false, isPackaged: true, appName: 'Chartmate', updates });
+    const win = menuTemplate({ isMac: false, hardened: true, appName: 'Chartmate', updates });
     const all = JSON.stringify(win);
     expect(all).not.toMatch(/update/i);
     expect(win.some((m) => m.role === 'help')).toBe(false);
@@ -619,6 +619,75 @@ describe('update controller', () => {
     h.updater.emit('update-downloaded', { version: '1.2.0' });
     h.updater.emit('error', new Error('Squirrel failed'));
     await flush();
+    expect(h.shown.at(-1)).toMatchObject({ type: 'error', message: 'Couldn’t install the update' });
+  });
+
+  it('macOS: a hand-over that never ends times out, marks the version failed and resumes the schedule', async () => {
+    const h = harness({ answer: 0, waitForInstallReady: true });
+    h.controller.start();
+    await h.fire();
+    h.updater.emit('update-available', { version: '1.2.0' });
+    h.updater.emit('update-downloaded', { version: '1.2.0' });
+    await flush();
+    expect(HANDOVER_WATCHDOG_MS).toBe(10 * 60_000);
+    const watchdog = h.live().find((t) => t.ms === HANDOVER_WATCHDOG_MS)!;
+    expect(watchdog).toBeDefined();
+    await h.fire(watchdog);
+    expect(h.controller.phase).toBe('idle');
+    expect(h.logs.join('\n')).toMatch(/hand-over .*timed out/);
+    expect(h.shown).toEqual([]); // background: logged only
+    // The schedule still runs, and the same version is not offered again in this session.
+    const next = h.live().filter((t) => t.ms === UPDATE_CHECK_INTERVAL_MS).at(-1)!;
+    expect(next).toBeDefined();
+    await h.fire(next);
+    expect(h.updater.checks).toBe(2);
+    h.updater.emit('update-available', { version: '1.2.0' });
+    h.updater.emit('update-downloaded', { version: '1.2.0' });
+    await flush();
+    // A late install-ready from the timed-out hand-over (or this one) is what clears the mark.
+    h.updater.emit('install-ready');
+    await flush();
+    expect(h.shown.map((m) => m.message)).toEqual(['Chartmate 1.2.0 is ready to install']);
+  });
+
+  it('stop() (quitting) clears the schedule and both watchdogs', async () => {
+    const h = harness({ answer: 0, waitForInstallReady: true });
+    h.controller.start();
+    h.updater.emit('update-available', { version: '1.2.0' });
+    h.updater.emit('update-downloaded', { version: '1.2.0' });
+    expect(h.live().some((t) => t.ms === HANDOVER_WATCHDOG_MS)).toBe(true);
+    h.controller.stop();
+    expect(h.live()).toEqual([]);
+
+    const w = harness({ answer: 0 });
+    w.updater.emit('update-available', { version: '1.2.0' });
+    w.updater.emit('update-downloaded', { version: '1.2.0' });
+    await flush();
+    expect(w.live().some((t) => t.ms === INSTALL_WATCHDOG_MS)).toBe(true);
+    w.controller.stop();
+    expect(w.live()).toEqual([]);
+  });
+
+  it('macOS: the hand-over watchdog stops once Squirrel.Mac reports ready or fails', async () => {
+    for (const end of ['install-ready', 'error'] as const) {
+      const h = harness({ waitForInstallReady: true });
+      h.updater.emit('update-available', { version: '1.2.0' });
+      h.updater.emit('update-downloaded', { version: '1.2.0' });
+      if (end === 'error') h.updater.emit('error', new Error('Squirrel failed'));
+      else h.updater.emit('install-ready');
+      await flush();
+      expect(h.live().filter((t) => t.ms === HANDOVER_WATCHDOG_MS), end).toEqual([]);
+    }
+  });
+
+  it('macOS: "Check for Updates…" while the update is being handed over says so, then reports how it ends', async () => {
+    const h = harness({ waitForInstallReady: true });
+    h.updater.emit('update-available', { version: '1.2.0' });
+    h.updater.emit('update-downloaded', { version: '1.2.0' });
+    await h.controller.checkNow();
+    expect(h.updater.checks).toBe(0);
+    expect(h.shown.at(-1)).toMatchObject({ type: 'info', message: 'Chartmate 1.2.0 is being prepared' });
+    await h.fire(h.live().find((t) => t.ms === HANDOVER_WATCHDOG_MS)!);
     expect(h.shown.at(-1)).toMatchObject({ type: 'error', message: 'Couldn’t install the update' });
   });
 

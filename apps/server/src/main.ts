@@ -1,6 +1,6 @@
 import { BasketService } from './baskets/service.js';
 import { buildApp } from './app.js';
-import { loadConfig } from './config.js';
+import { configWarnings, loadConfig } from './config.js';
 import { createDb } from './db/connect.js';
 import { migrate } from './db/migrations.js';
 import { createRepos } from './db/repos.js';
@@ -36,6 +36,7 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
+  for (const w of configWarnings(config)) app.log.warn(w);
   await app.listen({ host: config.host, port: config.port });
   const shownHost = config.host.includes(':') ? `[${config.host}]` : config.host;
   app.log.info(

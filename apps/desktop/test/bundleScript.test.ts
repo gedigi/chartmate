@@ -21,6 +21,12 @@ describe('bundle.mjs --test-inspectable', () => {
     expect(run('--test-inspectable', `--out=${dist}/../dist/y`).status).toBe(2);
   });
 
+  it('refuses --dev (the TEST-ONLY copy must stay a hardened production bundle)', () => {
+    const r = run('--test-inspectable', '--dev', `--out=${join(mkdtempSync(join(tmpdir(), 'bundle-dev-')), 'x')}`);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/--dev/);
+  });
+
   it('refuses dist/ reached through a symlink', () => {
     mkdirSync(dist, { recursive: true });
     const link = join(mkdtempSync(join(tmpdir(), 'bundle-link-')), 'd');

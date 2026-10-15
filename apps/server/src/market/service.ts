@@ -1,5 +1,5 @@
 import {
-  baseTimeframe, bucketStart, filterSession, isIntraday, parseSymbolId, resample, tfMs,
+  baseTimeframe, bucketStart, filterSession, isIntraday, nyDateUtcMidnight, nyParts, nyToUtc, parseSymbolId, resample, tfMs,
   type AssetClass, type Bar, type Calendar, type NativeTimeframe, type Quote, type SessionMode,
   type SymbolId, type SymbolInfo, type Timeframe,
 } from '@chartmate/shared';
@@ -8,6 +8,7 @@ import { AppError, NotFoundError, ProviderError } from '../errors.js';
 import { RequestQueue } from '../providers/queue.js';
 import type { ProviderRegistry } from '../providers/registry.js';
 import type { MarketDataProvider } from '../providers/types.js';
+import { bucketEnd } from './buckets.js';
 import { mergeRanges, missingRanges, splitRange } from './coverage.js';
 
 const DAY = 86_400_000;
@@ -19,6 +20,8 @@ const SYMBOL_RETRY_MS = 60 * 60_000;
 const NEGATIVE_TTL_MS = 10 * 60_000;
 /** Most unknown ids remembered at once. */
 const MAX_UNKNOWN = 1000;
+/** Most symbols tracked at once by the in-memory split bookkeeping (oldest dropped first). */
+const MAX_TRACKED = 10_000;
 /** A provider "no data" answer for a chunk ending longer ago than this is trusted (cached as empty). */
 const NO_DATA_TRUST_MS = 7 * DAY;
 /** Stock splits are checked at most this often per symbol. */
@@ -27,6 +30,8 @@ const SPLIT_CHECK_MS = DAY;
 const SPLIT_RETRY_MS = 60 * 60_000;
 /** Never-checked rows (pre-migration): splits older than updated_at - this are assumed reflected in the cache. */
 const SPLIT_BASELINE_SLACK_MS = 7 * DAY;
+/** How far before the last check a split may be dated and still be reported for the first time. */
+const SPLIT_LATE_REPORT_MS = 7 * DAY;
 const INTRADAY_NATIVE: NativeTimeframe[] = ['1m', '5m', '15m', '30m', '1h'];
 
 export interface GetBarsArgs { symbol: SymbolId; tf: Timeframe; session: SessionMode; from: number; to: number }
@@ -39,14 +44,28 @@ export function calendarFor(symbol: SymbolId, session: SessionMode): Calendar {
   return session === 'rth' ? 'nyse-rth' : 'nyse-eth';
 }
 
-/** Exclusive end of the `tf` bucket that contains `ts`. */
-function bucketEnd(ts: number, tf: Timeframe, cal: Calendar): number {
-  const start = bucketStart(ts, tf, cal);
-  if (tf === '1M') {
-    const d = new Date(start);
-    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+/**
+ * Whether [from, to) overlaps a trading session: always for crypto (it trades around the clock); for stocks, a
+ * weekday (Mon–Fri) daily bar, or intraday a weekday's 04:00–20:00 New York extended session. Holidays count as
+ * sessions (no calendar here), so an empty holiday is simply asked again until it is a week old.
+ */
+export function holdsSession(assetClass: MarketClass, tf: NativeTimeframe, from: number, to: number): boolean {
+  if (from >= to) return false;
+  if (assetClass === 'crypto') return true;
+  if (to - from > 5 * DAY) return true;
+  if (tf === '1D') {
+    for (let d = Math.ceil(from / DAY) * DAY; d < to; d += DAY) {
+      const dow = new Date(d).getUTCDay();
+      if (dow !== 0 && dow !== 6) return true;
+    }
+    return false;
   }
-  return start + tfMs(tf);
+  for (let t = from - DAY; t < to + DAY; t += DAY) {
+    const { y, m, d, dow } = nyParts(t);
+    if (dow === 0 || dow === 6) continue;
+    if (nyToUtc(y, m, d, 4, 0) < to && nyToUtc(y, m, d, 20, 0) > from) return true;
+  }
+  return false;
 }
 
 function parseMarketSymbol(id: SymbolId): { assetClass: MarketClass; code: string } {
@@ -78,9 +97,18 @@ export class MarketDataService {
   /** Earliest time the next split check may run, per symbol (in-memory; the DB stamp survives restarts). */
   private readonly splitNextCheck = new Map<SymbolId, number>();
   private readonly splitChecks = new Map<SymbolId, Promise<void>>();
+  /** Stocks seen by this process with neither a symbols row nor cached bars: their bars are fetched from then on. */
+  private readonly freshSymbols = new Set<SymbolId>();
 
-  constructor(deps: { repos: Repos; registry: ProviderRegistry; now?: () => number; queues?: { stock: RequestQueue; crypto: RequestQueue } }) {
+  /** Most symbols the in-memory split bookkeeping tracks at once. */
+  private readonly maxTracked: number;
+
+  constructor(deps: {
+    repos: Repos; registry: ProviderRegistry; now?: () => number; queues?: { stock: RequestQueue; crypto: RequestQueue };
+    maxTracked?: number;
+  }) {
     this.repos = deps.repos;
+    this.maxTracked = deps.maxTracked ?? MAX_TRACKED;
     this.registry = deps.registry;
     this.now = deps.now ?? Date.now;
     this.queues = deps.queues ?? {
@@ -97,10 +125,14 @@ export class MarketDataService {
     // A derived bucket starting before `to` needs its natives up to the bucket's end.
     const nativeTo = derived && a.to > a.from ? Math.max(a.to, bucketEnd(a.to - 1, a.tf, cal)) : a.to;
 
-    const [native, earliestTs] = await Promise.all([
+    // Both settle before returning (no lookup left running after a failed fetch); earliest never rejects.
+    const [nativeR, earliestR] = await Promise.allSettled([
       this.getNativeBars(a.symbol, base, a.from, nativeTo),
       this.earliest(a.symbol, a.tf),
     ]);
+    if (nativeR.status === 'rejected') throw nativeR.reason;
+    const native = nativeR.value;
+    const earliestTs = earliestR.status === 'fulfilled' ? earliestR.value : null;
 
     let bars = native.bars;
     if (assetClass === 'stock' && isIntraday(base)) bars = filterSession(bars, a.session);
@@ -156,30 +188,48 @@ export class MarketDataService {
         // Nothing cached -> nothing to invalidate: remember "checked now" (the row insert stamps the DB later).
         // Cached bars without a row: try again later (the row normally appears with the first symbolInfo).
         const cached = await this.repos.bars.hasAny(symbol);
-        this.splitNextCheck.set(symbol, now + (cached ? SPLIT_RETRY_MS : SPLIT_CHECK_MS));
+        if (!cached) this.rememberFresh(symbol);
+        this.setNextCheck(symbol, now + (cached ? SPLIT_RETRY_MS : SPLIT_CHECK_MS));
         return;
       }
       const last = row.splitsCheckedAt ?? null;
       if (last !== null && now - last < SPLIT_CHECK_MS) {
-        this.splitNextCheck.set(symbol, last + SPLIT_CHECK_MS);
+        this.setNextCheck(symbol, last + SPLIT_CHECK_MS);
         return;
       }
       // Rows from before split checks existed: splits older than the row's refresh (minus slack) are already
       // reflected in what was cached.
       const since = last ?? row.updatedAt - SPLIT_BASELINE_SLACK_MS;
-      const splits = await this.queues.stock.run(`splits|${code}|${since}`, () => provider.splitsSince!(code, since));
-      // Only splits that already happened: a future-dated (announced) event is applied once it has occurred.
-      const relevant = splits.filter((sp) => sp.ts > since && sp.ts <= now).sort((x, y) => x.ts - y.ts);
+      // Look back past the last check too: a split may be reported a few days after its date. Never past the start
+      // of the applied-split record, since an earlier version may have applied older splits without recording them.
+      const trackedFrom = row.splitsTrackedFrom ?? null;
+      const lookFrom = trackedFrom === null ? since : Math.max(since - SPLIT_LATE_REPORT_MS, Math.min(trackedFrom, since));
+      const [splits, applied] = await Promise.all([
+        this.queues.stock.run(`splits|${code}|${lookFrom}`, () => provider.splitsSince!(code, lookFrom)),
+        this.repos.symbols.appliedSplits(symbol),
+      ]);
+      // Only splits that already happened (a future-dated, announced event is applied once it has occurred), and
+      // each one once.
+      // Splits are identified by their NY trading date: a provider may restamp the same event a few hours apart.
+      const seen = new Set(applied);
+      const relevant = [...splits].sort((x, y) => x.ts - y.ts).filter((sp) => {
+        const day = nyDateUtcMidnight(sp.ts);
+        if (sp.ts <= lookFrom || sp.ts > now || seen.has(day)) return false;
+        seen.add(day);
+        return true;
+      });
       if (relevant.length > 0) {
-        await this.repos.bars.applySplit(symbol, this.splitOps(relevant), now); // stamps in the same transaction
+        // Stamps and records the splits in the same transaction. A row from before migration 005 starts its record
+        // at this check's baseline, so later checks get the late-report look-back.
+        await this.repos.bars.applySplit(symbol, this.splitOps(relevant), now, relevant.map((sp) => nyDateUtcMidnight(sp.ts)), since);
         this.epoch++;
       } else {
-        await this.repos.symbols.markSplitsChecked(symbol, now);
+        await this.repos.symbols.markSplitsChecked(symbol, now, since);
       }
-      this.splitNextCheck.set(symbol, now + SPLIT_CHECK_MS);
+      this.setNextCheck(symbol, now + SPLIT_CHECK_MS);
     } catch (err) {
       if (err instanceof ProviderError && err.retryable && err.provider !== 'queue') this.queues.stock.backoff(BACKOFF_MS);
-      this.splitNextCheck.set(symbol, now + SPLIT_RETRY_MS); // never fail a bars request over this
+      this.setNextCheck(symbol, now + SPLIT_RETRY_MS); // never fail a bars request over this
     }
   }
 
@@ -205,6 +255,8 @@ export class MarketDataService {
 
   async getNativeBars(symbol: SymbolId, tf: NativeTimeframe, from: number, to: number): Promise<{ bars: Bar[]; stale: boolean }> {
     const { assetClass, code } = parseMarketSymbol(symbol);
+    // A symbol the provider just said it does not know is not asked for bars again until the entry expires.
+    if (this.isRememberedUnknown(symbol)) throw new NotFoundError(`Unknown symbol ${symbol}`);
     if (assetClass === 'stock') await this.ensureSplitsChecked(symbol);
     const provider = this.provider(assetClass);
     const queue = this.queues[assetClass];
@@ -247,8 +299,11 @@ export class MarketDataService {
           if (e instanceof ProviderError && e.retryable && e.provider !== 'queue') queue.backoff(BACKOFF_MS);
           throw e;
         }
-        await this.repos.bars.upsert(symbol, tf, fetched.bars);
-        await markCovered(gapFrom, gapTo);
+        const coveredTo = Math.min(gapTo, recentEdge);
+        // An empty answer is only trusted when it cannot be an upstream hiccup (see trustEmpty): otherwise the gap
+        // stays uncovered and is asked again next time.
+        const cover = fetched.bars.length > 0 || await this.trustEmpty(symbol, assetClass, tf, gapFrom, coveredTo, now);
+        await this.repos.bars.store(symbol, tf, fetched.bars, cover ? [gapFrom, coveredTo] : null);
       })));
 
     let stale = false;
@@ -271,7 +326,8 @@ export class MarketDataService {
       // Providers report "no data" as NotFound for valid symbols too (e.g. a pre-listing window).
       // For a known symbol such a chunk is simply empty; only an unknown symbol is a 404.
       const known = await this.isKnown(symbol, tf);
-      if (known === false) throw firstNotFound;
+      // The provider's own wording stays server-side (logged by the app's error handler from `cause`).
+      if (known === false) throw new NotFoundError(`Unknown symbol ${symbol}`, { cause: firstNotFound });
       if (known === null) {
         stale = true; // couldn't tell (lookup outage): serve the DB, don't mark coverage
       } else {
@@ -345,7 +401,10 @@ export class MarketDataService {
       if (list.length === 0) return [];
       try {
         return await this.queues[cls].run(`quotes|${list.join(',')}`, () => this.provider(cls).quotes(list));
-      } catch {
+      } catch (err) {
+        // Quotes are polled: a rate limit or outage cools the queue down instead of being retried every poll.
+        const e = asProviderError(this.provider(cls).id, err);
+        if (e instanceof ProviderError && e.retryable && e.provider !== 'queue') this.queues[cls].backoff(BACKOFF_MS);
         return [];
       }
     };
@@ -383,6 +442,24 @@ export class MarketDataService {
     }
   }
 
+  private isRememberedUnknown(id: SymbolId): boolean {
+    const until = this.unknownUntil.get(id);
+    return until !== undefined && this.now() < until;
+  }
+
+  /** Bounded: beyond `maxTracked` symbols the oldest entry is dropped (it is simply checked against the DB again). */
+  private setNextCheck(id: SymbolId, at: number): void {
+    const m = this.splitNextCheck;
+    m.delete(id); // re-insert so Map order stays oldest-first
+    while (m.size >= this.maxTracked) m.delete(m.keys().next().value!);
+    m.set(id, at);
+  }
+
+  private rememberFresh(id: SymbolId): void {
+    if (this.freshSymbols.size >= this.maxTracked) this.freshSymbols.delete(this.freshSymbols.values().next().value!);
+    this.freshSymbols.add(id);
+  }
+
   /** Negative-caches an unknown id; the map is capped (expired entries first, then the oldest). */
   private rememberUnknown(id: SymbolId): void {
     const now = this.now();
@@ -394,6 +471,20 @@ export class MarketDataService {
       m.delete(k);
     }
     m.set(id, now + NEGATIVE_TTL_MS);
+  }
+
+  /**
+   * Whether a successful but empty provider answer for [from, to) may be cached as "no bars here": the range ends
+   * more than 7 days ago (a late-arriving fix is unlikely), or at/before the symbol's known listing date, or it
+   * holds no trading session at all (a stock's weekend or overnight gap). Anything else may be a transient upstream
+   * glitch and must not become permanent coverage.
+   */
+  private async trustEmpty(symbol: SymbolId, assetClass: MarketClass, tf: NativeTimeframe, from: number, to: number, now: number): Promise<boolean> {
+    if (from >= to) return false;
+    if (to < now - NO_DATA_TRUST_MS) return true;
+    if (!holdsSession(assetClass, tf, from, to)) return true;
+    const firstTs = (await this.repos.symbols.get(symbol))?.firstTs ?? null;
+    return firstTs !== null && to <= firstTs;
   }
 
   /** true = known symbol, false = unknown (NotFound), null = undetermined (lookup failed). */
@@ -440,7 +531,28 @@ export class MarketDataService {
       updatedAt: lookupFailed && firstTs === null ? now - SYMBOL_TTL_MS + SYMBOL_RETRY_MS : now,
     };
     await this.repos.symbols.upsert(row);
+    // Bars cached before the row existed, and not by this process after it saw the symbol with nothing cached.
+    if (prev === null && assetClass === 'stock' && !this.freshSymbols.has(id) && (await this.repos.bars.hasAny(id))) {
+      await this.purgeUntracked(id, now);
+    }
     return toInfo(row, assetClass, code);
+  }
+
+  /**
+   * A stock whose bars were cached before its symbols row existed (e.g. the metadata lookup failed then) was never
+   * checked for splits, and when its bars were fetched is unknown. The new row starts split tracking now, so
+   * everything still refetchable (daily bars, intraday bars inside the provider lookback) is dropped and fetched
+   * again adjusted as of today; older intraday bars cannot be refetched and are kept as they are.
+   */
+  private async purgeUntracked(id: SymbolId, now: number): Promise<void> {
+    const limits = this.provider('stock').limits.maxLookbackMs;
+    const ops: SplitOp[] = [{ tf: '1D', cut: Number.MIN_SAFE_INTEGER }];
+    for (const tf of INTRADAY_NATIVE) {
+      const L = limits[tf];
+      ops.push({ tf, cut: L === undefined ? Number.MIN_SAFE_INTEGER : now - L });
+    }
+    await this.repos.bars.applySplit(id, ops, now);
+    this.epoch++;
   }
 
   private searchClass(cls: MarketClass, q: string): Promise<SymbolInfo[]> {

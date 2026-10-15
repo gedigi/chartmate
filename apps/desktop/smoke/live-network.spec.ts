@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron, chromium, expect, test, type Page } from '@playwright/test';
-import { executableOf, spawnWithCdp } from './helpers.js';
+import { executableOf, requireDevBundle, spawnWithCdp } from './helpers.js';
 
 test.skip(process.env.SMOKE_LIVE !== '1', 'set SMOKE_LIVE=1 to run against the live providers');
 
@@ -44,7 +44,9 @@ test('live providers only touch allowlisted hosts', async () => {
       child.kill('SIGTERM');
     }
   } else {
-    const app = await electron.launch({ args: [fileURLToPath(new URL('..', import.meta.url))], env });
+    const appDir = fileURLToPath(new URL('..', import.meta.url));
+    requireDevBundle(appDir);
+    const app = await electron.launch({ args: [appDir], env });
     try {
       // Record hosts behind the allowlist guard (yahoo-finance2 resolves globalThis.fetch on every call).
       await app.evaluate(() => {

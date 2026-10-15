@@ -482,16 +482,16 @@ describe('ChartView', () => {
   });
 
   it('re-derives the basket poll interval when the basket is edited', async () => {
-    const B: SymbolInfo = { id: 'basket:b1', assetClass: 'basket', ticker: 'B1', name: 'B1', pricePrecision: 2 };
-    const stocks: Basket = { id: 'b1', name: 'B1', baseValue: 100, createdAt: 0, updatedAt: 0,
+    const B: SymbolInfo = { id: 'basket:b1b1b1b1-0000-4000-8000-000000000001', assetClass: 'basket', ticker: 'B1', name: 'B1', pricePrecision: 2 };
+    const stocks: Basket = { id: 'b1b1b1b1-0000-4000-8000-000000000001', name: 'B1', baseValue: 100, createdAt: 0, updatedAt: 0,
       versions: [{ effectiveFrom: '2024-01-02', weights: { 'stock:AAPL': 1 } }] };
     const get = vi.spyOn(api.baskets, 'get').mockResolvedValue(stocks);
-    renderView({ ...LAYOUT, symbol: 'basket:b1' }, B);
+    renderView({ ...LAYOUT, symbol: 'basket:b1b1b1b1-0000-4000-8000-000000000001' }, B);
     await flush();
     await flush();
     expect(adapter().load.mock.calls.at(-1)![0]).toMatchObject({ pollMs: 15000, basketHasCrypto: false });
     get.mockResolvedValue({ ...stocks, versions: [...stocks.versions, { effectiveFrom: '2024-02-01', weights: { 'crypto:BTC': 1 } }] });
-    act(() => notifyBasketChanged('b1'));
+    act(() => notifyBasketChanged('b1b1b1b1-0000-4000-8000-000000000001'));
     await flush();
     await flush();
     expect(adapter().load.mock.calls.at(-1)![0]).toMatchObject({ pollMs: 5000, basketHasCrypto: true });

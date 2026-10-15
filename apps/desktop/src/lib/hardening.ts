@@ -27,9 +27,10 @@ export const PRIVILEGED_SCHEMES: readonly CustomScheme[] = Object.freeze([{
 
 /**
  * BrowserWindow webPreferences. The renderer is a plain web page: OS-sandboxed, isolated, no Node, no preload
- * (it only needs fetch('/api/…') over app://), no webviews, DevTools only in unpackaged development runs.
+ * (it only needs fetch('/api/…') over app://), no webviews, DevTools only in unhardened development runs (the dev
+ * bundle run unpackaged; lib/buildMode.ts).
  */
-export function secureWebPreferences(opts: { isPackaged: boolean }): WebPreferences {
+export function secureWebPreferences(opts: { hardened: boolean }): WebPreferences {
   return {
     sandbox: true,
     contextIsolation: true,
@@ -46,7 +47,7 @@ export function secureWebPreferences(opts: { isPackaged: boolean }): WebPreferen
     safeDialogs: true,
     autoplayPolicy: 'user-gesture-required',
     backgroundThrottling: true,
-    devTools: !opts.isPackaged,
+    devTools: !opts.hardened,
   };
 }
 
@@ -77,7 +78,8 @@ export function isRendererRequestAllowed(url: string, opts: { dev: boolean }): b
 }
 
 export interface HardenOptions {
-  isPackaged: boolean;
+  /** isHardened() (lib/buildMode.ts): DevTools are closed and devtools:// requests canceled unless it is false. */
+  hardened: boolean;
   /** Notified of blocked navigations/requests (URL origin only, for the log). */
   onBlocked?: (what: string, url: string) => void;
 }
@@ -112,7 +114,7 @@ export function hardenWebContents(contents: WebContents, opts: HardenOptions): v
     opts.onBlocked?.('window.open', originOf(url));
     return { action: 'deny' };
   });
-  if (opts.isPackaged) {
+  if (opts.hardened) {
     contents.on('devtools-opened', () => contents.closeDevTools());
   }
 }
@@ -135,7 +137,7 @@ export function hardenSession(session: Session, opts: HardenOptions): void {
     });
   }
   session.webRequest.onBeforeRequest((details, callback) => {
-    const allowed = isRendererRequestAllowed(details.url, { dev: !opts.isPackaged });
+    const allowed = isRendererRequestAllowed(details.url, { dev: !opts.hardened });
     if (!allowed) opts.onBlocked?.('request', originOf(details.url));
     callback({ cancel: !allowed });
   });
