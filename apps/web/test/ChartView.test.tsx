@@ -507,6 +507,33 @@ describe('ChartView', () => {
     expect(api.drawings.put).toHaveBeenCalledTimes(1);
   });
 
+  it('a permanent drawings load failure is reported once and not retried; drawing stays disabled', async () => {
+    vi.useFakeTimers();
+    const { ApiError } = await import('../src/api/client');
+    vi.mocked(api.drawings.get).mockRejectedValue(new ApiError(403, 'forbidden', 'Forbidden'));
+    renderView();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    act(() => adapter().events!.onMeta(meta()));
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not load drawings: Forbidden');
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(api.drawings.get).toHaveBeenCalledTimes(1);
+    expect(trendLine()).toBeDisabled();
+  });
+
+  it('a failed basket lookup still loads the chart (stock grid) and is retried: a crypto basket then polls at 5 s', async () => {
+    vi.useFakeTimers();
+    const B: SymbolInfo = { id: 'basket:b1b1b1b1-0000-4000-8000-000000000001', assetClass: 'basket', ticker: 'B1', name: 'B1', pricePrecision: 2 };
+    const crypto: Basket = { id: 'b1b1b1b1-0000-4000-8000-000000000001', name: 'B1', baseValue: 100, createdAt: 0, updatedAt: 0,
+      versions: [{ effectiveFrom: '2024-01-02', weights: { 'crypto:BTC': 1 } }] };
+    const get = vi.spyOn(api.baskets, 'get').mockRejectedValueOnce(new Error('down')).mockResolvedValue(crypto);
+    renderView({ ...LAYOUT, symbol: 'basket:b1b1b1b1-0000-4000-8000-000000000001' }, B);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(adapter().load.mock.calls.at(-1)![0]).toMatchObject({ pollMs: 15000, basketHasCrypto: false });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(adapter().load.mock.calls.at(-1)![0]).toMatchObject({ pollMs: 5000, basketHasCrypto: true });
+  });
+
   it('re-derives the basket poll interval when the basket is edited', async () => {
     const B: SymbolInfo = { id: 'basket:b1b1b1b1-0000-4000-8000-000000000001', assetClass: 'basket', ticker: 'B1', name: 'B1', pricePrecision: 2 };
     const stocks: Basket = { id: 'b1b1b1b1-0000-4000-8000-000000000001', name: 'B1', baseValue: 100, createdAt: 0, updatedAt: 0,

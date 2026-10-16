@@ -295,6 +295,25 @@ describe('useLayout load failures and early edits', () => {
     expect(put).not.toHaveBeenCalled();
   });
 
+  it('a permanent failure (e.g. 403) of the default load is not retried automatically; retry() still reloads it', async () => {
+    vi.mocked(api.layouts.get).mockImplementation(async (key) => {
+      if (key === 'default') throw new ApiError(403, 'forbidden', 'Forbidden');
+      return null;
+    });
+    const { result } = renderHook(() => useLayout());
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(result.current.loadError).toBe('Forbidden');
+    const calls = () => vi.mocked(api.layouts.get).mock.calls.filter((c) => c[0] === 'default').length;
+    const before = calls();
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(calls()).toBe(before);
+    expect(result.current.loaded).toBe(false);
+    vi.mocked(api.layouts.get).mockImplementation(async (key) => (key === 'default' ? saved : null));
+    act(() => result.current.retry());
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(result.current.loaded).toBe(true);
+  });
+
   it('retry() reloads the default layout at once', async () => {
     let fail = true;
     vi.mocked(api.layouts.get).mockImplementation(async (key) => {

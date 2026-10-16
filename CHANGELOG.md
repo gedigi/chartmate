@@ -13,6 +13,11 @@ app, the Docker image and the release tag share one version number.
   Zooming, scrolling or changing the interval deselects the range.
 - Time axis ticks and grid lines fall on calendar boundaries (months, quarters, years, days, hours…), evenly spaced
   and never crowded, instead of every so many bars: month labels no longer skip unevenly.
+- An intraday chart left in a background tab, or on a computer that slept, across the market close now loads the
+  last bars of the session when you come back, instead of showing a stale close until the next session opens.
+- A charted basket deleted from another window shows "Couldn't load" with Retry instead of retrying forever under
+  "Connection lost". Loads that cannot succeed (a refused layout or drawings request) stop retrying, a basket
+  lookup that fails for a moment is retried, and Retry after a symbol error shows the chart loading right away.
 
 - **About Chartmate**: click the Chartmate mark in the top bar to see the version (self-hosted: also the
   server's, when it differs) and get the source code of that version and the license, as the AGPL-3.0 asks of

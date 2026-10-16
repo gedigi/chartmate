@@ -1,6 +1,6 @@
 import { isIntraday, parseSymbolId, type DrawingState, type IndicatorState, type Layout, type SessionMode, type SymbolId, type SymbolInfo, type Timeframe } from '@chartmate/shared';
 import { memo, useCallback, useEffect, useRef, useState, type JSX } from 'react';
-import { api, errorMessage } from '../api/client';
+import { api, errorMessage, isPermanentError } from '../api/client';
 import { ChartAdapter, type IndicatorSpec, type ShownRange } from '../chart/ChartAdapter';
 import { migrateCalcParams } from '../chart/indicators/catalog';
 import type { LoaderMeta } from '../chart/dataLoader';
@@ -10,7 +10,7 @@ import { onBasketChanged } from '../state/useBaskets';
 import { drawingsStore } from '../state/drawingsStore';
 import { DrawingsNote } from './DrawingsSave';
 import { SaveNote, type SaveNoteState } from './SaveNote';
-import { retryDelayMs } from '../state/retry';
+import { loadWithRetry, retryDelayMs } from '../state/retry';
 import { scrollFade, useScrollEdges } from '../state/useScrollEdges';
 import { DrawingStyleBar } from './DrawingStyleBar';
 import { DrawingToolbar } from './DrawingToolbar';
@@ -54,13 +54,12 @@ function usePollMs(info: SymbolInfo | null): { pollMs: number | null; basketHasC
   }, [isBasket, id]);
   useEffect(() => {
     if (!isBasket || !id) return;
-    let canceled = false;
-    const done = (crypto: boolean) => { if (!canceled) setBasket({ id, crypto }); };
-    api.baskets.get(parseSymbolId(id).code).then(
-      (b) => done(b.versions.some((v) => Object.keys(v.weights).some((w) => w.startsWith('crypto:')))),
-      () => done(false),
+    // A failed lookup charts it as stock-only for now (so the chart still loads) and is retried unless permanent.
+    return loadWithRetry(
+      () => api.baskets.get(parseSymbolId(id).code),
+      (b) => setBasket({ id, crypto: b.versions.some((v) => Object.keys(v.weights).some((w) => w.startsWith('crypto:'))) }),
+      () => setBasket((prev) => (prev?.id === id ? prev : { id, crypto: false })),
     );
-    return () => { canceled = true; };
   }, [isBasket, id, basketRev]);
   if (!info) return { pollMs: null, basketHasCrypto: false };
   if (!isBasket) return { pollMs: pollIntervalMs(info.assetClass), basketHasCrypto: false };
@@ -339,6 +338,11 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
         },
         (err: unknown) => {
           if (canceled) return;
+          // A permanent failure cannot succeed later: say so once; drawing stays off so nothing overwrites them.
+          if (isPermanentError(err)) {
+            setToast(`Could not load drawings: ${errorMessage(err)}`);
+            return;
+          }
           if (attempt === 0) setToast(`Could not load drawings (retrying): ${errorMessage(err)}`);
           timer = setTimeout(() => fetchDrawings(attempt + 1), retryDelayMs(attempt));
         },

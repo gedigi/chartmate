@@ -1,6 +1,6 @@
 import { HEX_COLOR_RE, migrateAppearance, type IndicatorState, type Layout, type SymbolId } from '@chartmate/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, errorMessage } from '../api/client';
+import { api, errorMessage, isPermanentError } from '../api/client';
 import { catalogEntry, migrateLegacyLineColors, validateParam } from '../chart/indicators/catalog';
 import { COLOR_DEFAULTS_REV, dropLegacyAppearanceDefaults, dropLegacyBarColors } from '../chart/theme';
 import { retryDelayMs } from './retry';
@@ -168,7 +168,8 @@ export function useLayout(): UseLayout {
         (err: unknown) => {
           if (canceled) return;
           setLoadError(errorMessage(err));
-          timer = setTimeout(() => load(attempt + 1), retryDelayMs(attempt));
+          // A permanent failure (e.g. 403) cannot succeed by retrying; retry() still reloads it on demand.
+          if (!isPermanentError(err)) timer = setTimeout(() => load(attempt + 1), retryDelayMs(attempt));
         },
       );
     };

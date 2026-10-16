@@ -13,7 +13,7 @@ import { Watchlist } from './components/Watchlist';
 import { syncShellThemeColor } from './desktopShell';
 import { onBasketChanged, onBasketDeleted } from './state/useBaskets';
 import { DEFAULT_LAYOUT, useLayout } from './state/useLayout';
-import { retryDelayMs } from './state/retry';
+import { loadWithRetry, retryDelayMs } from './state/retry';
 import { useSidebarWidth } from './state/sidebarWidth';
 import { readStored, writeStored } from './state/storage';
 
@@ -87,7 +87,11 @@ function useSymbolInfo(symbol: SymbolId): { state: SymbolInfoState; retry: () =>
       clearTimeout(timer);
     };
   }, [symbol, attemptKey]);
-  const retry = useCallback(() => setAttemptKey((k) => k + 1), []);
+  // Back to "loading" at once, so the error panel does not linger while the new attempt runs.
+  const retry = useCallback(() => {
+    setState(null);
+    setAttemptKey((k) => k + 1);
+  }, []);
   return { state: state?.id === symbol ? state.value : { status: 'loading' }, retry };
 }
 
@@ -108,15 +112,12 @@ function useShowSession(symbol: SymbolId): boolean {
 
   useEffect(() => {
     if (assetClass !== 'basket') return;
-    let canceled = false;
-    api.baskets.get(code).then(
-      (b) => {
-        const hasStock = b.versions.some((v) => Object.keys(v.weights).some((id) => id.startsWith('stock:')));
-        if (!canceled) setBasketHasStock({ id: symbol, value: hasStock });
-      },
-      () => { if (!canceled) setBasketHasStock({ id: symbol, value: false }); },
+    // A failed lookup hides the toggle for now and is retried unless permanent (e.g. a deleted basket).
+    return loadWithRetry(
+      () => api.baskets.get(code),
+      (b) => setBasketHasStock({ id: symbol, value: b.versions.some((v) => Object.keys(v.weights).some((id) => id.startsWith('stock:'))) }),
+      () => setBasketHasStock((prev) => (prev?.id === symbol ? prev : { id: symbol, value: false })),
     );
-    return () => { canceled = true; };
   }, [symbol, assetClass, code, basketRev]);
 
   if (assetClass === 'stock') return true;

@@ -131,6 +131,36 @@ describe('App', () => {
     expect(await screen.findByText("Couldn't load symbol crypto:BTC: Unknown symbol")).toBeInTheDocument();
   });
 
+  it('Retry after a symbol error shows loading at once instead of the old error', async () => {
+    vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+    vi.mocked(api.symbol).mockRejectedValue(new ApiError(404, 'not_found', 'Unknown symbol'));
+    render(<App />);
+    const panel = await screen.findByTestId('symbol-error');
+    vi.mocked(api.symbol).mockReturnValue(new Promise(() => {}));
+    act(() => within(panel).getByRole('button', { name: 'Retry' }).click());
+    expect(screen.queryByTestId('symbol-error')).not.toBeInTheDocument();
+  });
+
+  it('a failed basket lookup is retried for the RTH/ETH toggle', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+      const layout: Layout = { symbol: 'basket:b1b1b1b1-0000-4000-8000-000000000001', tf: '1h', session: 'rth', chartType: 'candle', indicators: [] };
+      vi.mocked(api.layouts.get).mockImplementation(async (key) => (key === 'default' ? layout : null));
+      vi.mocked(api.symbol).mockResolvedValue({ id: 'basket:b1b1b1b1-0000-4000-8000-000000000001', assetClass: 'basket', ticker: 'B1', name: 'B1', pricePrecision: 2 });
+      const withStock: Basket = { id: 'b1b1b1b1-0000-4000-8000-000000000001', name: 'B1', baseValue: 100, createdAt: 0, updatedAt: 0,
+        versions: [{ effectiveFrom: '2024-01-02', weights: { 'stock:AAPL': 1 } }] };
+      vi.spyOn(api.baskets, 'get').mockRejectedValueOnce(new Error('down')).mockRejectedValueOnce(new Error('down')).mockResolvedValue(withStock);
+      render(<App />);
+      await screen.findByTestId('chart-view');
+      expect(screen.queryByRole('button', { name: 'RTH' })).not.toBeInTheDocument();
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(await screen.findByRole('button', { name: 'RTH' })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not retry a symbol info load that failed permanently (404)', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
