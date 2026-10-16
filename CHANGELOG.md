@@ -5,7 +5,7 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
-## [1.1.0] - 2026-10-16
+## [1.1.1] - 2026-10-16
 
 ### Everywhere
 
@@ -198,6 +198,11 @@ app, the Docker image and the release tag share one version number.
 - Stored indicator settings are checked when the layout loads: a period or other param outside its allowed
   range falls back to its default, and an invalid line color follows the theme again.
 - Indicator names and settings labels are in sentence case ("Relative strength index", "RSI length").
+
+## [1.1.0] - 2026-10-16
+
+Published as a Docker image only (the desktop build did not complete); 1.1.1 has the same changes for every
+platform.
 
 ## [1.0.0] - 2026-10-14
 
