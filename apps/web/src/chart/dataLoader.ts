@@ -29,8 +29,8 @@ export interface LoaderEvents {
   /** Polling found a gap too large to backfill: the chart should reset and load from scratch. */
   onReload?(): void;
   /**
-   * The initial load failed permanently (a 4xx other than 401/408/429, e.g. an invalid basket): nothing is
-   * retried automatically; the user can retry by loading again.
+   * The initial load or a poll failed permanently (a 4xx other than 401/408/429, e.g. an invalid or deleted
+   * basket): nothing is retried and polling stops; the user can retry by loading again.
    */
   onFatal?(e: Error): void;
 }
@@ -113,8 +113,10 @@ export const MAX_BACKFILL_BARS = 3900;
  *   terminal instead: onFatal, an empty answer, no retries. AbortErrors are never reported.
  * - Polling: a polled bar newer than the last known one first backfills [lastTs, bar.ts + tf) through /api/bars and
  *   pushes every bar in order (this finalizes the previously forming bar and fills gaps after sleep/outages);
- *   a gap over MAX_BACKFILL_BARS fires onReload instead. Polling pauses while the document is hidden and polls
- *   at once when it becomes visible again.
+ *   a gap over MAX_BACKFILL_BARS fires onReload instead. A poll with no bar (market closed) after the last known bar
+ *   has ended loads [lastTs, now) once, so bars missed up to the close are not left stale or missing until the
+ *   next session. A permanent 4xx while polling stops polling (onFatal). Polling pauses while the document is
+ *   hidden and polls at once when it becomes visible again.
  */
 export function createDataLoader(ctx: LoaderContext, events: LoaderEvents): DataLoaderImpl {
   const now = ctx.now ?? Date.now;
@@ -273,6 +275,28 @@ export function createDataLoader(ctx: LoaderContext, events: LoaderEvents): Data
     const tf = fromPeriod(p.period);
     const step = tfMs(tf);
 
+    /** The last bar a null poll already caught up from (once per last bar, not on every poll while closed). */
+    let caughtUpFrom = Number.NaN;
+
+    /**
+     * bar: null (outside market hours) while the last known bar has ended: the polls that would have finalized it
+     * and loaded the bars up to the close were missed (tab hidden, sleep, outage, a failed poll at the close), so
+     * load [lastTs, now) once.
+     */
+    async function catchUp(signal: AbortSignal): Promise<void> {
+      const t = now();
+      if (!Number.isFinite(lastTs) || lastTs === caughtUpFrom || t < lastTs + step) return;
+      const from = lastTs;
+      const fill = await fetchBars({ symbol, tf, session: ctx.session(), from, to: Math.min(t, from + MAX_BACKFILL_BARS * step) }, signal);
+      if (!live()) return;
+      for (const b of fill.bars) {
+        if (b.ts < lastTs) continue;
+        lastTs = b.ts;
+        p.callback(toKLineData(b));
+      }
+      caughtUpFrom = lastTs;
+    }
+
     async function poll(signal: AbortSignal): Promise<void> {
       const res = await fetchLatest({ symbol, tf, session: ctx.session() }, signal);
       if (!live()) return;
@@ -281,8 +305,12 @@ export function createDataLoader(ctx: LoaderContext, events: LoaderEvents): Data
         events.onMeta(meta);
       }
       const latest = res.bar;
-      // bar: null is normal outside market hours → no update. Never move backwards.
-      if (!latest || latest.ts < lastTs) return;
+      if (!latest) {
+        await catchUp(signal);
+        return;
+      }
+      // Never move backwards.
+      if (latest.ts < lastTs) return;
       if (latest.ts > lastTs && Number.isFinite(lastTs)) {
         if ((latest.ts - lastTs) / step > MAX_BACKFILL_BARS) {
           events.onReload?.();
@@ -309,6 +337,13 @@ export function createDataLoader(ctx: LoaderContext, events: LoaderEvents): Data
         () => { if (live()) setConnection(false); },
         (err: unknown) => {
           if (!live() || isAbort(err)) return;
+          if (isPermanentError(err)) {
+            // E.g. the basket was deleted elsewhere: polling cannot recover, so stop and let the UI offer a Retry.
+            stopPolling();
+            setConnection(false);
+            events.onFatal?.(toError(err));
+            return;
+          }
           setConnection(true, toError(err));
         },
       ).finally(() => { if (polling === ctrl) polling = null; });
