@@ -308,6 +308,8 @@ jobs:
           # One latest-mac.yml listing both zips (sha512 and size of the files in release/).
           node scripts/merge-update-info.mjs "$RUNNER_TEMP/latest-mac-x64.yml" "$RUNNER_TEMP/latest-mac-arm64.yml" > release/latest-mac.yml
           cat release/latest-mac.yml
+      # Only for the TEST-ONLY inspectable copy (its bundle embeds the web build); the shipped apps are not rebuilt.
+      - run: pnpm --filter @chartmate/web build
       - name: Smoke test (shipped arm64 app + TEST-ONLY inspectable copy)
         working-directory: apps/desktop
         env:

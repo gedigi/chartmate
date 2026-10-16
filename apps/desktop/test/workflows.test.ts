@@ -324,6 +324,17 @@ describe('desktop.yml secret scoping and release', () => {
     expect(pkg.run).toContain('node scripts/merge-update-info.mjs "$RUNNER_TEMP/latest-mac-x64.yml" "$RUNNER_TEMP/latest-mac-arm64.yml" > release/latest-mac.yml');
   });
 
+  it('every job that builds the TEST-ONLY inspectable copy builds the web UI first (the bundle embeds apps/web/dist)', () => {
+    const using = Object.keys(wf.jobs).filter((name) => steps(name).some((s) => s.run?.includes('smoke/prepare-inspectable.mjs')));
+    expect(using.sort()).toEqual(['dist-mac', 'package-win']);
+    for (const name of using) {
+      const st = steps(name);
+      const web = st.findIndex((s) => s.run?.split('\n').some((l) => l.trim() === 'pnpm --filter @chartmate/web build'));
+      expect(web, name).toBeGreaterThanOrEqual(0);
+      expect(web, name).toBeLessThan(st.findIndex((s) => s.run?.includes('smoke/prepare-inspectable.mjs')));
+    }
+  });
+
   it('notarize-mac-dmg signs a dmg only after proving it holds the app sign-mac signed (cdhash)', () => {
     expect(job('sign-mac').outputs).toMatchObject({
       cdhash_x64: '${{ steps.cdhash.outputs.x64 }}',
