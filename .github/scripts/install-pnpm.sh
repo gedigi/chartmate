@@ -36,7 +36,9 @@ fetch() {
 
 # 1. corepack
 fetch "corepack@$corepack_version" "$corepack_integrity"
-npm install --global --ignore-scripts --no-audit --no-fund "$fetched"
+# --force: corepack also links yarn/yarnpkg shims, and runner images that ship their own yarn would otherwise fail
+# with EEXIST (Windows). Only this hash-checked local tarball is installed, with no install scripts; yarn is unused.
+npm install --global --force --ignore-scripts --no-audit --no-fund "$fetched"
 
 # 3a. The native binary for this runner, checked before corepack fetches anything.
 version="$(node -p "/^pnpm@([0-9][^+]*)\+sha512\.[0-9a-f]{128}$/.exec(require('./package.json').packageManager)?.[1] ?? ''")"

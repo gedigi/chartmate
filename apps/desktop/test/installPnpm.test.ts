@@ -123,7 +123,11 @@ describe('install-pnpm.sh', () => {
     expect(r.out).not.toMatch(/unbound|error/i);
     expect(r.status).toBe(0);
     expect(r.calls).toContainEqual(expect.stringMatching(new RegExp(`^npm pack @pnpm/exe\\.${target}@${PNPM} --pack-destination=\\S+ --silent$`)));
-    expect(r.calls.filter((c) => c.startsWith('npm install'))).toHaveLength(1);
+    // --force: the runner images ship their own yarn, whose bin links collide with corepack's yarn shims (EEXIST on
+    // Windows). Only the hash-checked local tarball is installed, with no install scripts.
+    expect(r.calls.filter((c) => c.startsWith('npm install'))).toEqual([
+      expect.stringMatching(/^npm install --global --force --ignore-scripts --no-audit --no-fund \S+\/corepack\.tgz$/),
+    ]);
     expect(r.calls).toEqual(expect.arrayContaining(['corepack enable pnpm', 'corepack install']));
     expect(readFileSync(native(), 'utf8')).toBe('native pnpm');
     // tar only ever sees relative names (it runs inside the temporary directory).
