@@ -5,6 +5,8 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+## [1.1.0] - 2026-10-16
+
 ### Everywhere
 
 - **Date ranges**: 1D, 5D, 1M, 3M, 6M, YTD, 1Y and All under the chart show that period, ending at the latest
