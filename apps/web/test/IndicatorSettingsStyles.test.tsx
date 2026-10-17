@@ -1,5 +1,5 @@
 import type { IndicatorState } from '@chartmate/shared';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { catalogEntry } from '../src/chart/indicators/catalog';
@@ -11,6 +11,20 @@ import { IndicatorSettings } from '../src/components/IndicatorSettings';
 const RSI: IndicatorState = { name: 'RSI', pane: 'sub', calcParams: [6, 12, 24], visible: true };
 const VOL: IndicatorState = { name: 'VOL', pane: 'sub', calcParams: [5, 10, 20], visible: true };
 const save = () => screen.getByRole('button', { name: 'Save' });
+
+/** The color a palette picker button shows (its chip), as #rrggbb. */
+function shown(label: string): string {
+  const chip = screen.getByRole('button', { name: label }).querySelector<HTMLElement>('.color-picker-chip')!;
+  const m = /rgb\((\d+), (\d+), (\d+)\)/.exec(chip.style.backgroundColor);
+  return m ? `#${m.slice(1).map((n) => Number(n).toString(16).padStart(2, '0')).join('')}` : chip.style.backgroundColor;
+}
+/** The swatch name a palette picker button shows ("Gold", "Up color", "Custom #123456", …). */
+const shownName = (label: string) => screen.getByRole('button', { name: label }).title.replace(/^Color: /, '');
+/** Opens the picker labeled `label` and picks the swatch named `swatch`. */
+async function pick(label: string, swatch: string) {
+  await userEvent.click(screen.getByRole('button', { name: label }));
+  await userEvent.click(screen.getByRole('option', { name: swatch }));
+}
 
 describe('IndicatorSettings line width / style and bar colors', () => {
   it('catalog flags the histogram indicators', () => {
@@ -50,16 +64,17 @@ describe('IndicatorSettings line width / style and bar colors', () => {
   it('histogram indicators get up/down bar colors; Reset restores everything', async () => {
     const onSave = vi.fn();
     render(<IndicatorSettings state={{ ...VOL, lineWidths: [2, 1, 1] }} onSave={onSave} onClose={() => {}} />);
-    const up = screen.getByLabelText('Up bar color');
-    expect(up).toHaveValue(DEFAULT_BAR_COLORS.up);
-    expect(screen.getByLabelText('Down bar color')).toHaveValue(DEFAULT_BAR_COLORS.down);
-    fireEvent.input(up, { target: { value: '#00ff00' } });
+    expect(shownName('Up bar color')).toBe('Up color');
+    expect(shown('Up bar color')).toBe(DEFAULT_BAR_COLORS.up);
+    expect(shown('Down bar color')).toBe(DEFAULT_BAR_COLORS.down);
+    await pick('Up bar color', 'Blue');
     await userEvent.click(save());
-    expect(onSave).toHaveBeenLastCalledWith({ ...VOL, lineWidths: [2, 1, 1], barColors: { up: '#00ff00', down: DEFAULT_BAR_COLORS.down } });
+    // The untouched side is stored as its default reference ('down'), so it keeps following the candle color.
+    expect(onSave).toHaveBeenLastCalledWith({ ...VOL, lineWidths: [2, 1, 1], barColors: { up: 'palette:5', down: 'down' } });
 
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
     expect(screen.getByLabelText('MA1 width')).toHaveValue('1');
-    expect(screen.getByLabelText('Up bar color')).toHaveValue(DEFAULT_BAR_COLORS.up);
+    expect(shownName('Up bar color')).toBe('Up color');
     await userEvent.click(save());
     // Back to the defaults: no width/style/bar overrides are saved (the adapter restores the chart defaults).
     expect(onSave).toHaveBeenLastCalledWith(VOL);
@@ -68,30 +83,31 @@ describe('IndicatorSettings line width / style and bar colors', () => {
   it('bar color defaults follow the active theme; untouched defaults are not saved; overrides win', async () => {
     const onSave = vi.fn();
     const { unmount } = render(<IndicatorSettings state={VOL} theme="light" onSave={onSave} onClose={() => {}} />);
-    expect(screen.getByLabelText('Up bar color')).toHaveValue('#0b9da0');
-    expect(screen.getByLabelText('Down bar color')).toHaveValue('#c43d68');
+    expect(shown('Up bar color')).toBe('#0b9da0');
+    expect(shown('Down bar color')).toBe('#c43d68');
     await userEvent.click(save());
     expect(onSave).toHaveBeenLastCalledWith(VOL);
     unmount();
+    // Hex colors saved before palette references show as a "Custom" swatch, kept until another swatch is picked.
     render(<IndicatorSettings state={{ ...VOL, barColors: { up: '#00ff00', down: '#ff0000' } }} theme="light" onSave={onSave} onClose={() => {}} />);
-    expect(screen.getByLabelText('Up bar color')).toHaveValue('#00ff00');
+    expect(shownName('Up bar color')).toBe('Custom #00ff00');
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
-    expect(screen.getByLabelText('Up bar color')).toHaveValue('#0b9da0');
+    expect(shown('Up bar color')).toBe('#0b9da0');
   });
 
   it('bar color defaults follow the custom candle colors of the active theme', async () => {
     const onSave = vi.fn();
     const appearance = { dark: { upColor: '#3366ff', downColor: '#ffaa00' } };
     render(<IndicatorSettings state={VOL} theme="dark" appearance={appearance} onSave={onSave} onClose={() => {}} />);
-    expect(screen.getByLabelText('Up bar color')).toHaveValue('#3366ff');
-    expect(screen.getByLabelText('Down bar color')).toHaveValue('#ffaa00');
+    expect(shown('Up bar color')).toBe('#3366ff');
+    expect(shown('Down bar color')).toBe('#ffaa00');
     await userEvent.click(save());
     expect(onSave).toHaveBeenLastCalledWith(VOL); // untouched → no override, the bars keep following the candles
   });
 });
 
 describe('IndicatorSettings default line colors follow the theme palette', () => {
-  const values = (names: string[]) => names.map((n) => (screen.getByLabelText(`${n} color`) as HTMLInputElement).value);
+  const values = (names: string[]) => names.map((n) => shown(`${n} color`));
   it('color pickers show the current theme defaults; untouched are not saved; user colors win; Reset returns to theme defaults', async () => {
     const onSave = vi.fn();
     const { unmount } = render(<IndicatorSettings state={RSI} theme="light" onSave={onSave} onClose={() => {}} />);
@@ -102,7 +118,7 @@ describe('IndicatorSettings default line colors follow the theme palette', () =>
 
     const user = { ...RSI, lineColors: ['#111111', '#222222', '#333333'] };
     render(<IndicatorSettings state={user} theme="dark" onSave={onSave} onClose={() => {}} />);
-    expect(screen.getByLabelText('RSI1 color')).toHaveValue('#111111');
+    expect(shownName('RSI1 color')).toBe('Custom #111111');
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
     expect(values(['RSI1', 'RSI2', 'RSI3'])).toEqual(['#f2b861', '#a99bff', '#3fc8e4']);
     onSave.mockClear();
@@ -115,9 +131,19 @@ describe('IndicatorSettings stores only the edited colors (the rest keep followi
   it('editing one line saves that line only; the others stay empty (theme default)', async () => {
     const onSave = vi.fn();
     render(<IndicatorSettings state={RSI} theme="dark" onSave={onSave} onClose={() => {}} />);
-    fireEvent.input(screen.getByLabelText('RSI2 color'), { target: { value: '#123456' } });
+    await pick('RSI2 color', 'Pink');
     await userEvent.click(save());
-    expect(onSave.mock.calls[0]![0].lineColors).toEqual(['', '#123456']);
+    expect(onSave.mock.calls[0]![0].lineColors).toEqual(['', 'palette:4']);
+  });
+
+  it('a picked swatch follows the theme: the same reference shows each theme\'s palette color', () => {
+    const picked = { ...RSI, lineColors: ['', 'palette:4'] };
+    const { unmount } = render(<IndicatorSettings state={picked} theme="dark" onSave={() => {}} onClose={() => {}} />);
+    expect(shown('RSI2 color')).toBe('#f27bd0');
+    unmount();
+    render(<IndicatorSettings state={picked} theme="light" onSave={() => {}} onClose={() => {}} />);
+    expect(shown('RSI2 color')).toBe('#c8399a');
+    expect(shownName('RSI2 color')).toBe('Pink');
   });
 
   it('an old dense payload: entries equal to either theme default are shown as the active theme default and saved as defaults', async () => {
@@ -125,16 +151,16 @@ describe('IndicatorSettings stores only the edited colors (the rest keep followi
     // Saved in dark with only RSI2 edited: RSI1 / RSI3 hold the dark palette.
     const old = { ...RSI, lineColors: ['#f2b861', '#123456', '#3fc8e4'] };
     render(<IndicatorSettings state={old} theme="light" onSave={onSave} onClose={() => {}} />);
-    expect(screen.getByLabelText('RSI1 color')).toHaveValue('#c98512');
-    expect(screen.getByLabelText('RSI2 color')).toHaveValue('#123456');
-    expect(screen.getByLabelText('RSI3 color')).toHaveValue('#0a8ea6');
+    expect(shown('RSI1 color')).toBe('#c98512');
+    expect(shownName('RSI2 color')).toBe('Custom #123456');
+    expect(shown('RSI3 color')).toBe('#0a8ea6');
     await userEvent.click(save());
     expect(onSave.mock.calls[0]![0].lineColors).toEqual(['', '#123456']);
   });
 
   it('bar colors: a stored side equal to a theme default follows the active theme', () => {
     render(<IndicatorSettings state={{ ...VOL, barColors: { up: '#00ff00', down: DEFAULT_BAR_COLORS.down } }} theme="light" onSave={() => {}} onClose={() => {}} />);
-    expect(screen.getByLabelText('Up bar color')).toHaveValue('#00ff00');
-    expect(screen.getByLabelText('Down bar color')).toHaveValue(defaultBarColors('light').down);
+    expect(shownName('Up bar color')).toBe('Custom #00ff00');
+    expect(shown('Down bar color')).toBe(defaultBarColors('light').down);
   });
 });

@@ -1,5 +1,5 @@
 import { isDrawingColorToken } from '@chartmate/shared';
-import { useEffect, useId, useRef, useState, type FocusEvent, type JSX, type KeyboardEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type JSX, type KeyboardEvent } from 'react';
 import type { DrawingSwatch } from '../chart/drawingColors';
 
 /** A swatch as the picker lays it out: a palette reference, or the drawing's own (custom) hex. */
@@ -8,28 +8,47 @@ interface Option { key: string; color: string; name: string; token: string | nul
 /** Swatches before this index are the theme colors (accent, neutrals, up / down); the rest are the palette hues. */
 const THEME_ROW = 5;
 
+/** Bottom and top edges the popover must stay within: the nearest scrolling ancestor (which clips it), else the window. */
+function visibleBounds(el: HTMLElement): { top: number; bottom: number } {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const { overflowY } = getComputedStyle(p);
+    if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'hidden') {
+      const r = p.getBoundingClientRect();
+      return { top: Math.max(r.top, 0), bottom: Math.min(r.bottom, window.innerHeight) };
+    }
+  }
+  return { top: 0, bottom: window.innerHeight };
+}
+
 /**
- * Drawing color: a swatch button opening a small popover of theme palette swatches (accent, white / black, gray, the
- * candle up / down colors and the six indicator hues), never a free color wheel. A drawing with a plain hex (saved
- * before palette references) shows it as a marked "Custom" swatch, untouched until another swatch is picked.
+ * Drawing and indicator colors: a swatch button opening a small popover of theme palette swatches (accent, white /
+ * black, gray, the candle up / down colors and the six indicator hues), never a free color wheel. A plain hex (saved
+ * before palette references) shows as a marked "Custom" swatch, untouched until another swatch is picked.
  * Keyboard: the button opens with Enter / Space / ArrowDown; arrows move between swatches (up / down between rows),
  * Home / End, Enter / Space pick; Escape closes; the focus returns to the button.
  */
-export function DrawingColorPicker({ value, swatches, disabled, onPick, onReset }: {
-  /** The drawing's color: a palette reference or a hex. */
+export function PaletteColorPicker({ value, swatches, disabled = false, onPick, onReset, label = 'Drawing color', id }: {
+  /** The current color: a palette reference or a hex. */
   value: string;
   swatches: DrawingSwatch[];
-  disabled: boolean;
-  /** A swatch was picked, also the one the drawing already has (it still becomes the default of new drawings). */
+  disabled?: boolean;
+  /** A swatch was picked, also the current one (a drawing's pick still becomes the default of new drawings). */
   onPick: (token: string) => void;
-  /** "Reset to default": the drawing and new drawings go back to the default color. */
+  /** "Reset to default": back to the default color. */
   onReset: () => void;
+  /** Accessible name of the button and the swatch list. */
+  label?: string;
+  /** Id of the button, for an outside <label htmlFor>. */
+  id?: string;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const rootRef = useRef<HTMLSpanElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const optionRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  /** Opens upward when the popover would be cut off below (e.g. the last rows of a scrolling dialog). */
+  const [above, setAbove] = useState(false);
   /** A pointer is down inside the picker (a click there may move the focus to nothing first, see onFocusOut). */
   const pressedInside = useRef(false);
   const listId = useId();
@@ -53,6 +72,16 @@ export function DrawingColorPicker({ value, swatches, disabled, onPick, onReset 
     setOpen(true);
   };
 
+  useLayoutEffect(() => {
+    const pop = popoverRef.current;
+    const root = rootRef.current;
+    if (!open || !pop || !root) { setAbove(false); return; }
+    const bounds = visibleBounds(root);
+    const button = root.getBoundingClientRect();
+    const height = pop.getBoundingClientRect().height;
+    const gap = 11;
+    setAbove(button.bottom + gap + height > bounds.bottom && button.top - gap - height >= bounds.top);
+  }, [open]);
   useEffect(() => { if (open) optionRefs.current[active]?.focus(); }, [open, active]);
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   // A press outside closes it (the focus stays where the press put it).
@@ -130,7 +159,7 @@ export function DrawingColorPicker({ value, swatches, disabled, onPick, onReset 
   return (
     <span className="color-picker" ref={rootRef} onKeyDown={onRootKeyDown} onBlur={onFocusOut}>
       <button
-        ref={buttonRef} type="button" className="color-picker-button" aria-label="Drawing color"
+        ref={buttonRef} id={id} type="button" className="color-picker-button" aria-label={label}
         title={`Color: ${current?.name ?? value}`} disabled={disabled}
         aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined}
         onClick={() => (open ? close(false) : openList())}
@@ -139,8 +168,8 @@ export function DrawingColorPicker({ value, swatches, disabled, onPick, onReset 
         <span className="color-picker-chip" style={{ backgroundColor: current?.color ?? value }} />
       </button>
       {open && (
-        <div className="color-picker-popover">
-          <div id={listId} role="listbox" aria-label="Drawing color" className="color-picker-list" onKeyDown={onListKeyDown}>
+        <div ref={popoverRef} className={`color-picker-popover${above ? ' above' : ''}`}>
+          <div id={listId} role="listbox" aria-label={label} className="color-picker-list" onKeyDown={onListKeyDown}>
             {rows.map((row, r) => (
               <div key={r} role="group" aria-label={r === 0 ? 'Theme colors' : 'Palette'} className="color-picker-row">
                 {row.map((o) => {

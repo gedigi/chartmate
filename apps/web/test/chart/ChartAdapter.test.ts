@@ -221,6 +221,19 @@ describe('ChartAdapter', () => {
     expect(a.listIndicators()).toEqual([]);
   });
 
+  it('a palette reference in lineColors is drawn in the active theme and redrawn on a theme switch', () => {
+    const a = make();
+    const id = a.addIndicator({ name: 'MA', pane: 'main', calcParams: [20], lineColors: ['palette:4'] });
+    const created = chart().createIndicator.mock.calls.at(-1)![0] as { styles: { lines: Array<{ color: string }> } };
+    expect(created.styles.lines[0]).toEqual(expect.objectContaining({ color: '#f27bd0' }));
+    type Override = { id: string; styles: { lines: Array<{ color: string }> } };
+    const lastLines = () => (chart().overrideIndicator.mock.calls.map((c) => c[0] as Override).filter((o) => o.id === id).at(-1)!).styles.lines;
+    a.setTheme('light');
+    expect(lastLines()[0]).toEqual(expect.objectContaining({ color: '#c8399a' }));
+    // The stored value stays the reference.
+    expect(a.listIndicators()[0]!.lineColors).toEqual(['palette:4']);
+  });
+
   it('updateIndicator without lineColors resets a previous color override to the default line colors', () => {
     const a = make();
     const id = a.addIndicator({ name: 'MA', pane: 'main', calcParams: [20], lineColors: ['#fff'] });

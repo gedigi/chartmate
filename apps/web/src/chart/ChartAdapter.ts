@@ -44,7 +44,7 @@ import { solidBarFigures } from './solidBars';
 import { calendarTicks, countdownText, crosshairDate, hasCountdown, tickLabelFits } from './timeLabels';
 import { textWidth } from './axisRange';
 import {
-  candleStyles, CHART_FONT, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, defaultIndicatorCircles, effectiveBarColors, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, themeSoftTone, themeTokens,
+  candleStyles, CHART_FONT, chartStyles, DEFAULT_TEXT_SIZE, defaultIndicatorBars, defaultIndicatorCircles, effectiveBarColors, indicatorLevelColor, overlayStyles, refreshThemeTokens, resolveAppearance, resolvePaletteColor, themeSoftTone, themeTokens,
   type ThemeName,
 } from './theme';
 
@@ -480,15 +480,21 @@ export class ChartAdapter {
     this.refreshLockedLook();
     this.refreshColorRefs();
     // Indicator lines without a color override carry the palette of the theme they were written in: rewrite
-    // them, per line (width / style overrides kept; the lines a user colored keep that color exactly).
-    for (const i of this.chart.getIndicators()) {
-      const o = this.overrides.get(i.id) ?? {};
-      const styles = this.indicatorStyles(i.name, o, undefined, 'all-lines');
-      if (styles?.lines) this.chart.overrideIndicator({ id: i.id, name: i.name, styles: { lines: styles.lines } });
-    }
+    // them, per line (width / style overrides kept; a palette reference resolves in the new theme, a hex stays).
+    this.refreshIndicatorLines(() => true);
     this.refreshThemedBars();
     this.refreshMeasure();
     this.emitSelection(); // the style bar's swatches show this theme's colors
+  }
+
+  /** Rewrites every line of the indicators whose overrides match `which` (colors resolved again in the current theme). */
+  private refreshIndicatorLines(which: (o: IndicatorOverrides) => boolean): void {
+    for (const i of this.chart.getIndicators()) {
+      const o = this.overrides.get(i.id) ?? {};
+      if (!which(o)) continue;
+      const styles = this.indicatorStyles(i.name, o, undefined, 'all-lines');
+      if (styles?.lines) this.chart.overrideIndicator({ id: i.id, name: i.name, styles: { lines: styles.lines } });
+    }
   }
 
   /**
@@ -522,6 +528,8 @@ export class ChartAdapter {
     this.updatePositionColors();
     this.updateIndicatorColors();
     this.chart.setStyles(this.styles());
+    // Lines colored with the up / down reference follow the candle colors.
+    this.refreshIndicatorLines((o) => o.lineColors?.some((c) => c === 'up' || c === 'down') === true);
     this.refreshThemedBars();
     this.refreshLockedLook();
     this.refreshColorRefs();
@@ -617,6 +625,8 @@ export class ChartAdapter {
     const lineCount = catalogEntry(name)?.lines.length ?? 0;
     if (hasLines || (reset && (reset.lineColors || reset.lineWidths || reset.lineStyles)) || (force && lineCount > 0)) {
       const defaults = this.defaultLines(name);
+      // A palette reference resolves in the active theme (re-run on theme and candle color changes); a hex is drawn as is.
+      const lineColor = (c: string | undefined) => (c !== undefined && isDrawingColorToken(c) ? resolvePaletteColor(c, this.theme, this.appearance) : c);
       // Every catalog line is written, always: KLineChart merges style arrays by index, so a line past a shorter
       // override array would otherwise keep its previous override (and lines past a partial array would keep
       // KLineChart's defaults instead of the theme palette). Uncatalogued indicators: the longer of both lists.
@@ -629,7 +639,7 @@ export class ChartAdapter {
         const line = klineLine(style, size, INDICATOR_DASH);
         return {
           ...d,
-          color: lineColorOverride(name, i, o.lineColors?.[i]) ?? d.color,
+          color: lineColor(lineColorOverride(name, i, o.lineColors?.[i])) ?? d.color,
           size,
           ...line,
           dashedValue: style === 'solid' ? d.dashedValue : line.dashedValue,

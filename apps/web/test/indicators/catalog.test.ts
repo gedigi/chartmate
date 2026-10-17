@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { INDICATOR_PALETTE } from '../../src/chart/theme';
-import { CATALOG, catalogEntry, defaultLineColor, defaultLineColors, indicatorLabel, migrateCalcParams, validateParam } from '../../src/chart/indicators/catalog';
+import {
+  CATALOG, catalogEntry, defaultLineColor, defaultLineColors, defaultLineToken, effectiveLineColor, indicatorLabel, lineColorOverride, migrateCalcParams,
+  sparseLineColors, validateParam,
+} from '../../src/chart/indicators/catalog';
 import { CUSTOM_INDICATORS } from '../../src/chart/indicators/extensions';
 
 describe('CATALOG', () => {
@@ -79,6 +82,39 @@ describe('default line colors (per-theme categorical palette)', () => {
   it('unknown indicators fall back to the palette by line index', () => {
     expect(defaultLineColor(1, undefined, 'light')).toBe('#5b49e0');
     expect(defaultLineColor(0, 'NOPE', 'dark')).toBe('#f2b861');
+  });
+});
+
+describe('palette references as line colors', () => {
+  const RSI = { name: 'RSI' };
+  it('a line\'s default reference is its palette slot (BOLL maps its lines through lineSlots)', () => {
+    expect(defaultLineToken(0, 'RSI')).toBe('palette:0');
+    expect(['Upper', 'Middle', 'Lower'].map((_, i) => defaultLineToken(i, 'BOLL'))).toEqual(['palette:1', 'palette:0', 'palette:2']);
+  });
+
+  it('a reference resolves to the palette color of the active theme, so it follows theme switches', () => {
+    const s = { ...RSI, lineColors: ['palette:3'] };
+    expect(effectiveLineColor(s, 0, 'dark')).toBe(INDICATOR_PALETTE.dark[3]);
+    expect(effectiveLineColor(s, 0, 'light')).toBe(INDICATOR_PALETTE.light[3]);
+  });
+
+  it('up / down references resolve to the (custom) candle colors', () => {
+    const appearance = { dark: { upColor: '#3366ff', downColor: '#ffaa00' } };
+    expect(effectiveLineColor({ ...RSI, lineColors: ['down'] }, 0, 'dark', appearance)).toBe('#ffaa00');
+  });
+
+  it('the line\'s own default reference is no override; any other reference is', () => {
+    expect(lineColorOverride('RSI', 1, 'palette:1')).toBeUndefined();
+    expect(lineColorOverride('RSI', 1, 'palette:4')).toBe('palette:4');
+    expect(lineColorOverride('RSI', 1, 'muted')).toBe('muted');
+    // Hex colors saved before references keep working exactly as before.
+    expect(lineColorOverride('RSI', 0, '#123456')).toBe('#123456');
+    expect(lineColorOverride('RSI', 0, INDICATOR_PALETTE.light[0])).toBeUndefined();
+  });
+
+  it('sparseLineColors stores only the picked references (defaults become empty, trailing ones trimmed)', () => {
+    expect(sparseLineColors('RSI', ['palette:0', 'palette:5', 'palette:2'])).toEqual(['', 'palette:5']);
+    expect(sparseLineColors('RSI', ['palette:0', 'palette:1', 'palette:2'])).toBeUndefined();
   });
 });
 

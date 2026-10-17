@@ -162,11 +162,12 @@
 }
 .drawing-style-bar button, .drawing-style-bar select, .drawing-style-bar input { min-height: 26px; }
 /*
- * Drawing color: a quiet swatch button (like the lock toggle) opening a small popover of theme palette swatches. The
+ * Drawing and indicator colors: a quiet swatch button (like the lock toggle) opening a small popover of theme palette swatches. The
  * selected swatch is drawn like a drawing's handle on the chart: a smaller dot inside a ring of its own color.
  */
 .color-picker { position: relative; display: inline-flex; }
-.drawing-style-bar .color-picker-button {
+.drawing-style-bar .color-picker-button,
+.settings-row .color-picker-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -179,7 +180,9 @@
   background: none;
 }
 .drawing-style-bar .color-picker-button:hover:not(:disabled),
-.drawing-style-bar .color-picker-button[aria-expanded='true'] { background: var(--bg-hover); border-color: transparent; }
+.drawing-style-bar .color-picker-button[aria-expanded='true'],
+.settings-row .color-picker-button:hover:not(:disabled),
+.settings-row .color-picker-button[aria-expanded='true'] { background: var(--bg-hover); border-color: transparent; }
 .color-picker-button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .color-picker-button:disabled { cursor: default; opacity: 0.5; }
 .color-picker-chip {
@@ -204,6 +207,8 @@
   animation: color-picker-in 110ms ease-out;
 }
 @keyframes color-picker-in { from { opacity: 0; transform: translateY(-3px); } }
+.color-picker-popover.above { top: auto; bottom: calc(100% + 11px); animation-name: color-picker-in-above; }
+@keyframes color-picker-in-above { from { opacity: 0; transform: translateY(3px); } }
 @media (prefers-reduced-motion: reduce) { .color-picker-popover { animation: none; } }
 .color-picker-list { display: flex; flex-direction: column; gap: 4px; }
 .color-picker-row { display: grid; grid-template-columns: repeat(6, 26px); gap: 4px; }
@@ -235,7 +240,8 @@
 }
 .color-swatch:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) { .color-swatch-fill { transition: none; } }
-.drawing-style-bar .color-picker-reset {
+.drawing-style-bar .color-picker-reset,
+.settings-row .color-picker-reset {
   min-height: 0;
   height: 26px;
   padding: 0 8px;
@@ -248,7 +254,8 @@
   font-weight: 500;
   text-align: left;
 }
-.drawing-style-bar .color-picker-reset:hover { background: var(--bg-hover); color: var(--text); }
+.drawing-style-bar .color-picker-reset:hover,
+.settings-row .color-picker-reset:hover { background: var(--bg-hover); color: var(--text); }
 .color-picker-reset:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .drawing-style-bar select { height: 26px; }
 .drawing-style-locked { font-size: 12px; color: var(--text-muted); padding: 0 2px; white-space: nowrap; }

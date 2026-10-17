@@ -1,5 +1,5 @@
-import { isHexColor, type DrawingColorToken, type ThemedAppearance } from '@chartmate/shared';
-import { indicatorPaletteColor, resolveAppearance, themeTokens, type ThemeName } from './theme';
+import type { DrawingColorToken, ThemedAppearance } from '@chartmate/shared';
+import { resolvePaletteColor, type ThemeName } from './theme';
 
 /** Color of new drawings until the user picks one (and after "Reset to default"). */
 export const DEFAULT_DRAWING_COLOR: DrawingColorToken = 'accent';
@@ -9,24 +9,8 @@ export interface DrawingSwatch { token: DrawingColorToken; color: string; name: 
 
 const PALETTE_NAMES = ['Gold', 'Violet', 'Cyan', 'Orange', 'Pink', 'Blue'] as const;
 
-/**
- * The color a drawing color stands for in `theme`: a palette reference resolves to that theme's token (up / down: the
- * candle colors, the user's own ones included); a hex (drawings saved before references, the appearance default) is
- * drawn exactly as stored. Anything else → the theme accent.
- */
-export function resolveDrawingColor(c: string, theme: ThemeName, appearance?: ThemedAppearance): string {
-  if (isHexColor(c)) return c.toLowerCase();
-  const t = themeTokens(theme);
-  switch (c) {
-    case 'accent': return t.accent;
-    case 'text': return t.text;
-    case 'muted': return t.muted;
-    case 'up': return resolveAppearance(theme, appearance).upColor;
-    case 'down': return resolveAppearance(theme, appearance).downColor;
-  }
-  const slot = /^palette:([0-5])$/.exec(c);
-  return slot ? indicatorPaletteColor(theme, Number(slot[1])) : t.accent;
-}
+/** The color a drawing color stands for in `theme` (see resolvePaletteColor). */
+export const resolveDrawingColor = resolvePaletteColor;
 
 function swatchName(token: DrawingColorToken, theme: ThemeName): string {
   switch (token) {

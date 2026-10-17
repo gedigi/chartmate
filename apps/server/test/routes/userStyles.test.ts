@@ -68,6 +68,15 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
     }
   });
 
+  it('indicator line and bar colors may be palette references (they follow the theme) or hex', async () => {
+    const ok = { ...layout.indicators[0]!, lineColors: ['', 'palette:3', '#123456'], barColors: { up: 'palette:5', down: 'down' } };
+    expect((await putLayout({ ...layout, indicators: [ok] })).statusCode).toBe(200);
+    expect((await t.app.inject({ method: 'GET', url: '/api/layouts/default' })).json().indicators[0]).toEqual(ok);
+    for (const bad of [{ barColors: { up: 'palette:6', down: 'down' } }, { barColors: { up: 'up', down: 'url(x)' } }]) {
+      expect((await putLayout({ ...layout, indicators: [{ ...layout.indicators[0]!, ...bad }] })).statusCode, JSON.stringify(bad)).toBe(400);
+    }
+  });
+
   it('indicator reference levels: optional, up to 5 finite numbers, plus a show flag', async () => {
     const rsi = { name: 'RSI', pane: 'sub', calcParams: [14], visible: true } as const;
     // Old layouts without levels stay valid and round-trip unchanged (the web app applies the catalog defaults).

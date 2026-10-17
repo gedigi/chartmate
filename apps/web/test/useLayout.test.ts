@@ -261,6 +261,14 @@ describe('sanitizeIndicators (stored indicator values are checked on read)', () 
     expect(sanitizeIndicators(unknown).indicators[0]!.calcParams).toEqual([3]);
   });
 
+  it('keeps palette references in line and bar colors (they follow the theme); drops unknown references', () => {
+    const rsi = { name: 'RSI', pane: 'sub' as const, calcParams: [6, 12, 24], visible: true };
+    const ok: Layout = { ...saved, indicators: [{ ...rsi, lineColors: ['palette:3', '', 'up'] }] };
+    expect(sanitizeIndicators(ok)).toBe(ok);
+    const bad: Layout = { ...saved, indicators: [{ ...rsi, lineColors: ['palette:9', 'palette:1'] }] };
+    expect(sanitizeIndicators(bad).indicators[0]!.lineColors).toEqual(['', 'palette:1']);
+  });
+
   it('is applied when the default layout loads', async () => {
     vi.mocked(api.layouts.get).mockResolvedValue({ ...saved, indicators: [{ name: 'RSI', pane: 'sub', calcParams: [-3, 12, 24], visible: true }] });
     const { result } = renderHook(() => useLayout());

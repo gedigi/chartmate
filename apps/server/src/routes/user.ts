@@ -84,7 +84,7 @@ const IndicatorSchema = z.object({
   lineColors: z.array(z.string().max(32)).max(10).optional(),
   lineWidths: z.array(LineWidth).max(10).optional(),
   lineStyles: z.array(LineStyle).max(10).optional(),
-  barColors: z.object({ up: Hex, down: Hex }).optional(),
+  barColors: z.object({ up: DrawingColor, down: DrawingColor }).optional(),
   levels: z.array(z.number().finite().min(-MAX_INDICATOR_LEVEL).max(MAX_INDICATOR_LEVEL)).max(MAX_INDICATOR_LEVELS).optional(),
   showLevels: z.boolean().optional(),
 });

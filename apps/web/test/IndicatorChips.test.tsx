@@ -51,7 +51,8 @@ describe('IndicatorChips', () => {
   it('settings show the active theme\'s default bar colors', async () => {
     render(<IndicatorChips layout={BASE} setLayout={() => {}} theme="light" />);
     await userEvent.click(screen.getByRole('button', { name: 'Settings for VOL(5, 10, 20)' }));
-    expect(screen.getByLabelText('Up bar color')).toHaveValue('#0b9da0');
+    const chip = screen.getByRole('button', { name: 'Up bar color' }).querySelector<HTMLElement>('.color-picker-chip')!;
+    expect(chip.style.backgroundColor).toBe('rgb(11, 157, 160)'); // #0b9da0
   });
 
   it('gear opens settings; save updates that indicator', async () => {

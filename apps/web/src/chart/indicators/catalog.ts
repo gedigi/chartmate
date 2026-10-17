@@ -1,5 +1,7 @@
+import { isDrawingColorToken, type DrawingColorToken, type ThemedAppearance } from '@chartmate/shared';
 import {
-  INDICATOR_PALETTE, indicatorPaletteColor, LEGACY_INDICATOR_PALETTES, LEGACY_KLINE_LINE_COLORS, LEGACY_LINE_SLOTS, LEGACY_VWAP_COLOR, type ThemeName,
+  INDICATOR_PALETTE, indicatorPaletteColor, LEGACY_INDICATOR_PALETTES, LEGACY_KLINE_LINE_COLORS, LEGACY_LINE_SLOTS, LEGACY_VWAP_COLOR, resolvePaletteColor,
+  type ThemeName,
 } from '../theme';
 import { CUSTOM_INDICATORS } from './extensions';
 import type { CatalogEntry } from './types';
@@ -81,13 +83,26 @@ export function defaultLineColor(i: number, name: string | undefined, theme: The
  */
 export function lineColorOverride(name: string, i: number, stored: string | undefined): string | undefined {
   if (!stored) return undefined;
+  // A palette reference (the settings' swatches): only the line's own palette slot is its default.
+  if (isDrawingColorToken(stored)) return stored === defaultLineToken(i, name) ? undefined : stored;
   const c = stored.toLowerCase();
   return c === defaultLineColor(i, name, 'dark') || c === defaultLineColor(i, name, 'light') ? undefined : stored;
 }
 
-/** The color drawn for line `i` of indicator state `s` in `theme`: its override, else the theme default. */
-export function effectiveLineColor(s: { name: string; lineColors?: readonly string[] }, i: number, theme: ThemeName): string {
-  return lineColorOverride(s.name, i, s.lineColors?.[i]) ?? defaultLineColor(i, s.name, theme);
+/** The palette reference of line `i`'s default color (its catalog slot): what the settings' swatches show for it. */
+export function defaultLineToken(i: number, name: string | undefined): DrawingColorToken {
+  const slot = (name === undefined ? undefined : catalogEntry(name)?.lineSlots?.[i]) ?? i;
+  return `palette:${slot % INDICATOR_PALETTE.dark.length}` as DrawingColorToken;
+}
+
+/**
+ * The color drawn for line `i` of indicator state `s` in `theme`: its override (a palette reference resolves in
+ * `theme`, up / down to the candle colors of `appearance`), else the theme default.
+ */
+export function effectiveLineColor(s: { name: string; lineColors?: readonly string[] }, i: number, theme: ThemeName, appearance?: ThemedAppearance): string {
+  const o = lineColorOverride(s.name, i, s.lineColors?.[i]);
+  if (o === undefined) return defaultLineColor(i, s.name, theme);
+  return isDrawingColorToken(o) ? resolvePaletteColor(o, theme, appearance) : o;
 }
 
 /**

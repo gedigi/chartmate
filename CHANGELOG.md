@@ -5,6 +5,12 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+### Everywhere
+
+- Indicator line and histogram bar colors are picked from the theme swatches, like drawing colors, instead of a
+  free color wheel. A picked color follows the theme: it recolors when you switch between dark and light (up /
+  down follow your own candle colors). Colors saved before keep showing exactly, as a **Custom** swatch.
+
 ## [1.1.1] - 2026-10-16
 
 ### Everywhere

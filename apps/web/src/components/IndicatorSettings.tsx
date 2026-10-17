@@ -1,10 +1,12 @@
-import { MAX_LINE_WIDTH, MIN_LINE_WIDTH, type IndicatorState, type LineStyleKind, type ThemedAppearance } from '@chartmate/shared';
+import { isDrawingColorToken, MAX_LINE_WIDTH, MIN_LINE_WIDTH, type IndicatorState, type LineStyleKind, type ThemedAppearance } from '@chartmate/shared';
 import { useId, useState, type FormEvent, type JSX } from 'react';
-import { catalogEntry, defaultLineColor, effectiveLineColor, migrateCalcParams, sparseLineColors, validateParam } from '../chart/indicators/catalog';
+import { catalogEntry, defaultLineToken, lineColorOverride, migrateCalcParams, sparseLineColors, validateParam } from '../chart/indicators/catalog';
+import { drawingSwatches } from '../chart/drawingColors';
 import { defaultBarColors, effectiveBarColors, type ThemeName } from '../chart/theme';
 import { LINE_STYLES, parseLineStyle } from '../chart/drawingStyles';
 import { formatLevels, parseLevels } from '../chart/indicators/levels';
 import { Modal } from './Modal';
+import { PaletteColorPicker } from './PaletteColorPicker';
 import './Indicators.css';
 
 export interface IndicatorSettingsProps {
@@ -18,22 +20,34 @@ export interface IndicatorSettingsProps {
 }
 
 const WIDTHS = Array.from({ length: MAX_LINE_WIDTH - MIN_LINE_WIDTH + 1 }, (_, i) => MIN_LINE_WIDTH + i);
+const DEFAULT_BARS = { up: 'up', down: 'down' } as const;
+
+/**
+ * The swatch a histogram side shows: a palette reference as stored; a hex saved before references stays (a "Custom"
+ * swatch) unless it is that side's default, which becomes the up / down reference.
+ */
+function barPick(side: 'up' | 'down', stored: { up: string; down: string } | undefined, theme: ThemeName, appearance?: ThemedAppearance): string {
+  if (!stored) return side;
+  if (isDrawingColorToken(stored[side])) return stored[side];
+  return effectiveBarColors(theme, appearance, stored)[side] === defaultBarColors(theme, appearance)[side] ? side : stored[side];
+}
 
 /**
  * Edits one indicator's params (validated: integers ≥ 1, except params the catalog marks as decimal, which
- * must be > 0) and line colors. Colors are only saved while they differ from the defaults, so untouched
+ * must be > 0) and line colors. Colors are picked from the theme palette (PaletteColorPicker) and stored as palette
+ * references, so they follow theme switches; they are only saved while they differ from the defaults, so untouched
  * (or reset) indicators keep following the active theme's indicator palette. The same applies to line widths
  * (1–4) / styles (solid, dashed, dotted) and, for histogram indicators, the up/down bar colors.
  * Oscillators with catalog reference levels (RSI 70 / 30, MACD 0, …) get a Levels section: a show toggle and the
  * level values, saved only while they differ from the defaults (hidden → `showLevels: false`).
  */
 export function IndicatorSettings({ state, onSave, onClose, theme = 'dark', appearance }: IndicatorSettingsProps): JSX.Element {
-  const DEFAULT_BAR_COLORS = defaultBarColors(theme, appearance);
+  const swatches = drawingSwatches(theme, appearance);
   const entry = catalogEntry(state.name);
   const defaults = entry?.defaultParams ?? state.calcParams;
   const labels = entry?.paramLabels ?? state.calcParams.map((_, i) => `Param ${i + 1}`);
   const lines = entry?.lines ?? [];
-  const defaultColors = lines.map((_, i) => defaultLineColor(i, state.name, theme));
+  const defaultColors = lines.map((_, i) => defaultLineToken(i, state.name));
 
   // Explicit migration of stored params (shorter lists are padded with defaults); the user sees complete values
   // and Save writes the clean, complete list.
@@ -41,11 +55,14 @@ export function IndicatorSettings({ state, onSave, onClose, theme = 'dark', appe
     const params = entry ? migrateCalcParams(state.name, state.calcParams) : state.calcParams;
     return labels.map((_, i) => String(params[i] ?? ''));
   });
-  const [colors, setColors] = useState(() => lines.map((_, i) => effectiveLineColor(state, i, theme)));
+  // Each line's palette reference (or the hex it was saved with before references); its default slot when unset.
+  const [colors, setColors] = useState(() => lines.map((_, i) => lineColorOverride(state.name, i, state.lineColors?.[i]) ?? defaultColors[i]!));
   const [widths, setWidths] = useState(() => lines.map((_, i) => state.lineWidths?.[i] ?? 1));
   const [styles, setStyles] = useState<LineStyleKind[]>(() => lines.map((_, i) => state.lineStyles?.[i] ?? 'solid'));
   const hasBars = entry?.bars === true;
-  const [bars, setBars] = useState(() => effectiveBarColors(theme, appearance, state.barColors));
+  const [bars, setBars] = useState<{ up: string; down: string }>(() => ({
+    up: barPick('up', state.barColors, theme, appearance), down: barPick('down', state.barColors, theme, appearance),
+  }));
   const defaultLevels = entry?.levels;
   const [showLevels, setShowLevels] = useState(state.showLevels !== false);
   const [levelsText, setLevelsText] = useState(() => formatLevels(state.levels ?? defaultLevels ?? []));
@@ -68,7 +85,7 @@ export function IndicatorSettings({ state, onSave, onClose, theme = 'dark', appe
     if (lineColors) next.lineColors = lineColors;
     if (lines.length > 0 && widths.some((w) => w !== 1)) next.lineWidths = widths;
     if (lines.length > 0 && styles.some((s) => s !== 'solid')) next.lineStyles = styles;
-    if (hasBars && (bars.up !== DEFAULT_BAR_COLORS.up || bars.down !== DEFAULT_BAR_COLORS.down)) next.barColors = { ...bars };
+    if (hasBars && (bars.up !== DEFAULT_BARS.up || bars.down !== DEFAULT_BARS.down)) next.barColors = { ...bars };
     if (defaultLevels) {
       const levels = 'levels' in parsedLevels ? parsedLevels.levels : state.levels;
       if (levels && (levels.length !== defaultLevels.length || levels.some((v, i) => v !== defaultLevels[i]))) next.levels = levels;
@@ -83,7 +100,7 @@ export function IndicatorSettings({ state, onSave, onClose, theme = 'dark', appe
     setColors(defaultColors);
     setWidths(lines.map(() => 1));
     setStyles(lines.map(() => 'solid'));
-    setBars({ ...DEFAULT_BAR_COLORS });
+    setBars({ ...DEFAULT_BARS });
     setShowLevels(true);
     setLevelsText(formatLevels(defaultLevels ?? []));
   };
@@ -121,11 +138,10 @@ export function IndicatorSettings({ state, onSave, onClose, theme = 'dark', appe
               return (
                 <div key={id} className="settings-row settings-line">
                   <label htmlFor={id}>{line} color</label>
-                  <input
-                    id={id}
-                    type="color"
-                    value={colors[i]}
-                    onChange={(e) => setColors((cs) => cs.map((c, j) => (j === i ? e.target.value : c)))}
+                  <PaletteColorPicker
+                    id={id} label={`${line} color`} value={colors[i]!} swatches={swatches}
+                    onPick={(token) => setColors((cs) => cs.map((c, j) => (j === i ? token : c)))}
+                    onReset={() => setColors((cs) => cs.map((c, j) => (j === i ? defaultColors[i]! : c)))}
                   />
                   <select
                     aria-label={`${line} width`} title="Width" value={widths[i]}
@@ -150,9 +166,13 @@ export function IndicatorSettings({ state, onSave, onClose, theme = 'dark', appe
             {(['up', 'down'] as const).map((k) => {
               const id = `${idBase}-bar-${k}`;
               return (
-                <div key={k} className="settings-row">
+                <div key={k} className="settings-row settings-line">
                   <label htmlFor={id}>{k === 'up' ? 'Up' : 'Down'} bar color</label>
-                  <input id={id} type="color" value={bars[k]} onChange={(e) => setBars((b) => ({ ...b, [k]: e.target.value }))} />
+                  <PaletteColorPicker
+                    id={id} label={`${k === 'up' ? 'Up' : 'Down'} bar color`} value={bars[k]} swatches={swatches}
+                    onPick={(token) => setBars((b) => ({ ...b, [k]: token }))}
+                    onReset={() => setBars((b) => ({ ...b, [k]: DEFAULT_BARS[k] }))}
+                  />
                 </div>
               );
             })}

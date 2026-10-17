@@ -6,8 +6,22 @@ import { contrastRatio, DARK_TEXT, LIGHT_TEXT } from '../../src/chart/contrast';
 import { textToOverlay } from '../../src/chart/drawingStyles';
 import { markerStyles } from '../../src/chart/markers';
 import {
-  candleStyles, CHART_FONT, chartStyles, defaultAppearance, defaultBarColors, defaultIndicatorBars, hexToRgba, indicatorLevelColor, overlayStyles, themeSoftTone, refreshThemeTokens, resolveAppearance, THEME_CSS_VARS, THEME_TOKENS, themeTokens,
+  candleStyles, CHART_FONT, chartStyles, defaultAppearance, defaultBarColors, effectiveBarColors, INDICATOR_PALETTE, defaultIndicatorBars, hexToRgba, indicatorLevelColor, overlayStyles, themeSoftTone, refreshThemeTokens, resolveAppearance, THEME_CSS_VARS, THEME_TOKENS, themeTokens,
 } from '../../src/chart/theme';
+
+describe('effectiveBarColors with palette references', () => {
+  it('a reference resolves in the active theme; up / down on their own side are the default (candle colors)', () => {
+    const stored = { up: 'palette:5', down: 'down' };
+    expect(effectiveBarColors('dark', undefined, stored)).toEqual({ up: INDICATOR_PALETTE.dark[5], down: THEME_TOKENS.dark.down });
+    expect(effectiveBarColors('light', undefined, stored)).toEqual({ up: INDICATOR_PALETTE.light[5], down: THEME_TOKENS.light.down });
+    const appearance = { dark: { upColor: '#3366ff', downColor: '#ffaa00' } };
+    expect(effectiveBarColors('dark', appearance, { up: 'up', down: 'up' })).toEqual({ up: '#3366ff', down: '#3366ff' });
+  });
+
+  it('hex pairs saved before references are read as before', () => {
+    expect(effectiveBarColors('dark', undefined, { up: '#00ff00', down: THEME_TOKENS.light.down })).toEqual({ up: '#00ff00', down: THEME_TOKENS.dark.down });
+  });
+});
 
 describe('resolveAppearance', () => {
   it('fills unset fields with theme defaults', () => {

@@ -63,7 +63,7 @@ export function IndicatorChips({ layout, setLayout, theme = 'dark' }: IndicatorC
                 {(() => {
                   // The chip's key: the indicator's first line color, or the candle up color for histogram-only ones.
                   const e = catalogEntry(s.name);
-                  const color = e && e.lines.length > 0 ? effectiveLineColor(s, 0, theme)
+                  const color = e && e.lines.length > 0 ? effectiveLineColor(s, 0, theme, layout.appearance)
                     : e?.bars ? effectiveBarColors(theme, layout.appearance, s.barColors).up : null;
                   return color ? <span className="indicator-chip-dot" aria-hidden="true" style={{ backgroundColor: color }} /> : null;
                 })()}

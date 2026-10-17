@@ -1,4 +1,4 @@
-import { HEX_COLOR_RE, migrateAppearance, type IndicatorState, type Layout, type SymbolId } from '@chartmate/shared';
+import { HEX_COLOR_RE, isDrawingColorToken, migrateAppearance, type IndicatorState, type Layout, type SymbolId } from '@chartmate/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorMessage, isPermanentError } from '../api/client';
 import { catalogEntry, migrateLegacyLineColors, validateParam } from '../chart/indicators/catalog';
@@ -31,7 +31,7 @@ function sanitizeIndicator(s: IndicatorState): IndicatorState {
       .filter((v) => Number.isFinite(v))
     : s.calcParams.filter((v) => Number.isFinite(v));
   const paramsChanged = calcParams.length !== s.calcParams.length || calcParams.some((v, i) => v !== s.calcParams[i]);
-  const lineColors = s.lineColors?.map((c) => (c === '' || HEX_COLOR_RE.test(c) ? c : ''));
+  const lineColors = s.lineColors?.map((c) => (c === '' || HEX_COLOR_RE.test(c) || isDrawingColorToken(c) ? c : ''));
   const colorsChanged = lineColors !== undefined && lineColors.some((c, i) => c !== s.lineColors![i]);
   if (!paramsChanged && !colorsChanged) return s;
   const out: IndicatorState = { ...s, calcParams };
@@ -45,8 +45,8 @@ function sanitizeIndicator(s: IndicatorState): IndicatorState {
 
 /**
  * Stored indicator values are checked on read (the server only checks their types): a param the settings dialog would
- * reject (not finite, out of the catalog's bounds) becomes the catalog default, a line color that is not '#rrggbb'
- * follows the theme again. Returns `l` itself when everything is valid.
+ * reject (not finite, out of the catalog's bounds) becomes the catalog default, a line color that is neither '#rrggbb'
+ * nor a palette reference follows the theme again. Returns `l` itself when everything is valid.
  */
 export function sanitizeIndicators(l: Layout): Layout {
   const indicators = l.indicators.map(sanitizeIndicator);

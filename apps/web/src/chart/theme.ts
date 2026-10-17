@@ -1,4 +1,4 @@
-import type { CandleBodyStyle, ChartAppearance, ChartType, DrawingLineStyle, LastPriceLineStyle, ThemedAppearance } from '@chartmate/shared';
+import { isDrawingColorToken, type CandleBodyStyle, type ChartAppearance, type ChartType, type DrawingLineStyle, type LastPriceLineStyle, type ThemedAppearance } from '@chartmate/shared';
 import type { DeepPartial, Styles } from 'klinecharts';
 import { contrastRatio, readableTextOn, readableTextOnAll } from './contrast';
 import { softTone } from './color';
@@ -190,6 +190,25 @@ export interface ResolvedAppearance {
 }
 
 /**
+ * The color a palette color stands for in `theme` (drawing and indicator colors): a reference resolves to that theme's
+ * token (up / down: the candle colors, the user's own ones included); a hex (saved before references, the appearance
+ * default) is drawn exactly as stored. Anything else → the theme accent.
+ */
+export function resolvePaletteColor(c: string, theme: ThemeName, appearance?: ThemedAppearance): string {
+  if (isHexColor(c)) return c.toLowerCase();
+  const t = themeTokens(theme);
+  switch (c) {
+    case 'accent': return t.accent;
+    case 'text': return t.text;
+    case 'muted': return t.muted;
+    case 'up': return resolveAppearance(theme, appearance).upColor;
+    case 'down': return resolveAppearance(theme, appearance).downColor;
+  }
+  const slot = /^palette:([0-5])$/.exec(c);
+  return slot ? indicatorPaletteColor(theme, Number(slot[1])) : t.accent;
+}
+
+/**
  * Default up / down colors of indicator histograms (VOL, MACD, AO): the candle colors of `theme` — the user's
  * custom ones from `appearance` when set, else the theme's. Per-indicator `barColors` overrides still win; the soft
  * tone of rising MACD / AO bars is derived from whichever color is drawn (themeSoftTone).
@@ -209,6 +228,8 @@ export function effectiveBarColors(theme: ThemeName, appearance: ThemedAppearanc
   const d = defaultBarColors(theme, appearance);
   if (!stored) return d;
   const pick = (dir: 'up' | 'down'): string => {
+    // A palette reference (the settings' swatches) resolves in `theme`; its own side's up / down is the default.
+    if (isDrawingColorToken(stored[dir])) return stored[dir] === dir ? d[dir] : resolvePaletteColor(stored[dir], theme, appearance);
     const c = stored[dir].toLowerCase();
     const isDefault = (['dark', 'light'] as const).some((t) => c === THEME_TOKENS[t][dir] || c === defaultBarColors(t, appearance)[dir].toLowerCase());
     return isDefault ? d[dir] : stored[dir];

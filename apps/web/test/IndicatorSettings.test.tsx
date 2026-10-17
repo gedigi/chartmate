@@ -9,15 +9,31 @@ const BOLL: IndicatorState = { name: 'BOLL', pane: 'main', calcParams: [20, 2], 
 
 const save = () => screen.getByRole('button', { name: 'Save' });
 
+/** The color a palette picker button shows (its chip), as #rrggbb. */
+function shown(label: string): string {
+  const chip = screen.getByRole('button', { name: label }).querySelector<HTMLElement>('.color-picker-chip')!;
+  const m = /rgb\((\d+), (\d+), (\d+)\)/.exec(chip.style.backgroundColor);
+  return m ? `#${m.slice(1).map((n) => Number(n).toString(16).padStart(2, '0')).join('')}` : chip.style.backgroundColor;
+}
+/** The swatch name a palette picker button shows ("Gold", "Up color", "Custom #123456", …). */
+const shownName = (label: string) => screen.getByRole('button', { name: label }).title.replace(/^Color: /, '');
+/** Opens the picker labeled `label` and picks the swatch named `swatch`. */
+async function pick(label: string, swatch: string) {
+  await userEvent.click(screen.getByRole('button', { name: label }));
+  await userEvent.click(screen.getByRole('option', { name: swatch }));
+}
+
 describe('IndicatorSettings', () => {
-  it('renders a dialog with one numeric input per param and one color input per line', () => {
+  it('renders a dialog with one numeric input per param and one palette color picker per line', () => {
     render(<IndicatorSettings state={RSI} onSave={() => {}} onClose={() => {}} />);
     expect(screen.getByRole('dialog', { name: /RSI/ })).toHaveAttribute('aria-modal', 'true');
     expect(screen.getByLabelText('RSI1 period')).toHaveValue('6');
     expect(screen.getByLabelText('RSI2 period')).toHaveValue('12');
     expect(screen.getByLabelText('RSI3 period')).toHaveValue('24');
-    expect(screen.getByLabelText('RSI1 color')).toHaveAttribute('type', 'color');
-    expect(screen.getByLabelText('RSI3 color')).toBeInTheDocument();
+    // Palette swatches only: no free color input anywhere in the dialog.
+    expect(document.querySelector('input[type="color"]')).toBeNull();
+    expect(shownName('RSI1 color')).toBe('Gold');
+    expect(shownName('RSI3 color')).toBe('Cyan');
   });
 
   it('entering 0 for an RSI period shows an error and disables Save', async () => {
@@ -47,19 +63,29 @@ describe('IndicatorSettings', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('BOLL std-dev accepts decimals; color edits are saved as lineColors', async () => {
+  it('BOLL std-dev accepts decimals; a picked swatch is saved as a palette reference in lineColors', async () => {
     const onSave = vi.fn();
-    const { fireEvent } = await import('@testing-library/react');
     render(<IndicatorSettings state={BOLL} onSave={onSave} onClose={() => {}} />);
     const sd = screen.getByLabelText('Std dev');
     await userEvent.clear(sd);
     await userEvent.type(sd, '2.5');
-    fireEvent.input(screen.getByLabelText('Middle color'), { target: { value: '#00ff00' } });
+    await pick('Middle color', 'Orange');
     await userEvent.click(save());
     const saved = onSave.mock.calls[0]![0] as IndicatorState;
     expect(saved.calcParams).toEqual([20, 2.5]);
     // Only the edited line is stored ('' = theme default), so the others keep following the theme.
-    expect(saved.lineColors).toEqual(['', '#00ff00']);
+    expect(saved.lineColors).toEqual(['', 'palette:3']);
+  });
+
+  it('Escape in an open swatch popover closes the popover only, not the dialog', async () => {
+    const onClose = vi.fn();
+    render(<IndicatorSettings state={RSI} onSave={() => {}} onClose={onClose} />);
+    await userEvent.click(screen.getByRole('button', { name: 'RSI1 color' }));
+    expect(screen.getByRole('listbox', { name: 'RSI1 color' })).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
   it('Reset restores default params and colors', async () => {

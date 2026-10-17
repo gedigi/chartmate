@@ -2,7 +2,7 @@ import { MAX_LINE_WIDTH, MIN_LINE_WIDTH, type PositionDefaults } from '@chartmat
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react';
 import { MAX_PRICE_DECIMALS, type ChartAdapter, type SelectedDrawing } from '../chart/ChartAdapter';
 import { LINE_STYLES, parseLineStyle } from '../chart/drawingStyles';
-import { DrawingColorPicker } from './DrawingColorPicker';
+import { PaletteColorPicker } from './PaletteColorPicker';
 import { DrawingLockToggle } from './LockIcon';
 import { PositionStyleBar, type PositionControls } from './PositionStyleBar';
 
@@ -125,7 +125,7 @@ export function DrawingStyleBar({ controls, onUsePositionDefaults, onPickColor, 
   const sizes = sel.kind === 'text' && !FONT_SIZES.includes(sel.style.size) ? [...FONT_SIZES, sel.style.size].sort((a, b) => a - b) : FONT_SIZES;
   return (
     <div className="drawing-style-bar" role="toolbar" aria-label="Drawing style">
-      <DrawingColorPicker
+      <PaletteColorPicker
         key={sel.id} value={sel.style.color} swatches={controls.drawingSwatches()} disabled={locked}
         onPick={(token) => {
           // Re-picking the drawing's own swatch changes nothing on it, but still makes it the color of new drawings.
