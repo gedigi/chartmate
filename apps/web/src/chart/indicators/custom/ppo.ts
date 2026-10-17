@@ -59,7 +59,8 @@ export function calcPpo(bars: ReadonlyArray<{ close: number }>, fast: number, sl
 /**
  * Histogram bar colors. No color is written here: they are the chart's bar colors (the theme's up / down colors, or
  * the user's own from the indicator settings), which KLineChart passes in. Above zero: up; below: down. A bar that
- * rises is returned as 'stroke', which the chart draws filled in the soft tone of its color.
+ * rises is returned as 'stroke' (KLineChart's MACD convention); the chart draws every bar filled, a falling one in the
+ * soft tone of its color (solidBars.ts).
  */
 const histStyles: IndicatorFigureStylesCallback<PpoResult> = ({ data, indicator, defaultStyles }) => {
   const own = indicator.styles?.bars?.[0];

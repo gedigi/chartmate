@@ -1041,12 +1041,12 @@ describe('ChartAdapter', () => {
   });
 
   describe('indicator line widths / styles / bar colors', () => {
-    it('histogram bars are always filled: a template bar drawn as an outline (MACD / AO rising) is filled in the opaque soft tone of the active theme', () => {
+    it('histogram bars are always filled: a bar that falls versus the previous one is filled in the opaque soft tone of the active theme', () => {
       const a = make();
       const create = chart().createIndicator.getMockImplementation()!;
       chart().createIndicator.mockImplementationOnce((v, stack) => {
         const id = create(v, stack);
-        const figures = [{ key: 'dif', type: 'line' }, { key: 'macd', type: 'bar', styles: () => ({ style: 'stroke', color: '#00ff00' }) }];
+        const figures = [{ key: 'dif', type: 'line' }, { key: 'macd', type: 'bar', styles: () => ({ style: 'fill', color: '#00ff00' }) }];
         Object.assign(chart().indicators.find((i) => i.id === id)!, { figures });
         return id;
       });
@@ -1058,11 +1058,14 @@ describe('ChartAdapter', () => {
       expect(o).toHaveProperty('createTooltipDataSource', expect.any(Function));
       const darkSoft = softTone('#00ff00', THEME_TOKENS.dark.bg);
       expect(darkSoft).toMatch(/^#[0-9a-f]{6}$/);
-      expect(o.figures[1]!.styles!({})).toEqual({ style: 'fill', color: darkSoft, borderColor: darkSoft });
+      const falling = { data: { prev: { macd: 3 }, current: { macd: 2 } } };
+      expect(o.figures[1]!.styles!(falling)).toEqual({ style: 'fill', color: darkSoft, borderColor: darkSoft });
+      // A rising bar keeps the full color.
+      expect(o.figures[1]!.styles!({ data: { prev: { macd: 2 }, current: { macd: 3 } } })).toMatchObject({ style: 'fill', color: '#00ff00' });
       // Resolved at draw time: after a theme toggle the same figure takes the light theme's soft tone.
       a.setTheme('light');
       const lightSoft = softTone('#00ff00', THEME_TOKENS.light.bg);
-      expect(o.figures[1]!.styles!({})).toEqual({ style: 'fill', color: lightSoft, borderColor: lightSoft });
+      expect(o.figures[1]!.styles!(falling)).toEqual({ style: 'fill', color: lightSoft, borderColor: lightSoft });
       a.setTheme('dark');
       // Without stroke bars (e.g. VOL, whose bars follow the chart's fill style) nothing is overridden.
       chart().overrideIndicator.mockClear();

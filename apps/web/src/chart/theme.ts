@@ -35,7 +35,7 @@ export const THEME_TOKENS = {
  * the strong color.
  *
  * One family per direction: every strong up / down mark (candles, volume, MACD / AO, positions, watchlist, baskets,
- * sparklines) uses the SAME opaque color; the only other member is the soft tone (upSoft / downSoft: rising MACD /
+ * sparklines) uses the SAME opaque color; the only other member is the soft tone (upSoft / downSoft: falling MACD /
  * AO bars), an OPAQUE color derived by softTone() (src/chart/color.ts) — same OKLCH hue, lightness moved toward the
  * chart background. Never an rgba() of the strong color: over white that reads pink, over the dark bg brown. The
  * upSoft / downSoft constants are softTone(up / down, bg) (a test checks it); custom colors get theirs at runtime.
@@ -211,7 +211,7 @@ export function resolvePaletteColor(c: string, theme: ThemeName, appearance?: Th
 /**
  * Default up / down colors of indicator histograms (VOL, MACD, AO): the candle colors of `theme` — the user's
  * custom ones from `appearance` when set, else the theme's. Per-indicator `barColors` overrides still win; the soft
- * tone of rising MACD / AO bars is derived from whichever color is drawn (themeSoftTone).
+ * tone of falling MACD / AO bars is derived from whichever color is drawn (themeSoftTone).
  */
 export function defaultBarColors(theme: ThemeName, appearance?: ThemedAppearance): { up: string; down: string } {
   const a = resolveAppearance(theme, appearance);
@@ -262,7 +262,7 @@ export function indicatorLevelColor(theme: ThemeName): string {
   return themeTokens(theme).level;
 }
 
-/** The soft tone of `color` on `theme`'s chart background (rising MACD / AO bars): see softTone. */
+/** The soft tone of `color` on `theme`'s chart background (falling MACD / AO / PPO bars): see softTone. */
 export function themeSoftTone(theme: ThemeName, color: string): string {
   return softTone(color, themeTokens(theme).bg);
 }
@@ -472,7 +472,7 @@ export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
       },
     },
     indicator: {
-      // Default histogram bars: filled, opaque, in the exact candle up / down colors (rising MACD / AO bars get the
+      // Default histogram bars: filled, opaque, in the exact candle up / down colors (falling MACD / AO bars get the
       // soft tone, see solidBars.ts).
       bars: [{ style: 'fill', borderSize: 0, ...defaultIndicatorBars(theme) }],
       // SAR dots in the same colors; the OHLC fallback (a price overlay moved off the candle pane) and text figures

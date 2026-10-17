@@ -10,6 +10,9 @@ app, the Docker image and the release tag share one version number.
 - Indicator line and histogram bar colors are picked from the theme swatches, like drawing colors, instead of a
   free color wheel. A picked color follows the theme: it recolors when you switch between dark and light (up /
   down follow your own candle colors). Colors saved before keep showing exactly, as a **Custom** swatch.
+- MACD, AO and PPO histograms swap their two tones: a bar that grows over the previous one (green growing, red
+  recovering toward zero) is drawn in the full color, and a bar that falls (green shrinking, red growing downward)
+  in the soft, darker tone.
 
 ## [1.1.1] - 2026-10-16
 

@@ -532,7 +532,8 @@ Where to read next:
 - **Default market colors**: one up and one down color per theme (the `--up` / `--down` CSS tokens; dark
   `#3ccfd0` / `#e76a88`, light `#0b9da0` / `#c43d68`), used by candles, volume, MACD, AO and PPO bars, positions,
   the watchlist, baskets and sparklines. Volume / MACD / AO / PPO bars without their own colors follow the active
-  theme's candle colors, custom ones included. Rising MACD / AO / PPO bars use an opaque soft tone of the same hue;
+  theme's candle colors, custom ones included. MACD / AO / PPO bars that fall versus the previous bar (a green bar shrinking, a red bar growing downward) use an
+  opaque soft tone of the same hue, so growing green bars and red bars recovering toward zero are the bright ones;
   the legend shows histogram values in the readable up / down text colors. Parabolic SAR dots use the same up
   / down colors. Indicator lines take a per-theme categorical palette (six colors, none of them green or red);
   VWAP uses its own slot (blue), apart from the moving averages and Bollinger Bands it shares the price pane

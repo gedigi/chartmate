@@ -2,7 +2,7 @@ import type { IndicatorCreateTooltipDataSourceCallback, IndicatorStyle, Indicato
 
 /**
  * Tooltip legends of an indicator with histogram bars (VOL, MACD, AO) whose colors are TEXT colors. KLineChart colors
- * a legend with its figure's draw color, so a bar's value would take the bar color — for a rising MACD bar the soft
+ * a legend with its figure's draw color, so a bar's value would take the bar color — for a falling MACD bar the soft
  * tone, which is too faint to read as small text. This rebuilds the default legends (same titles, values and number
  * formatting, line colors untouched) with the bar colors as text: a bar's up / down color or its soft tone becomes the
  * theme's up / down text tone (`upFg` / `downFg`) when it is the theme's default, else the strong custom color itself.

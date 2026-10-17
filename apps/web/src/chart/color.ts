@@ -103,7 +103,7 @@ const softCache = new Map<string, string>();
  * The soft tone of `color` on `bg` (both CSS colors; a translucent `color` is first composited onto `bg`): same OKLCH
  * hue, lightness moved SOFT_TONE.lightness of the way toward the background, chroma scaled by
  * (1 − chromaLoss × lightness) — opaque, so it looks the same wherever it is drawn. Unparseable input is returned as
- * is. Memoized (it runs for every rising histogram bar on every repaint).
+ * is. Memoized (it runs for every falling histogram bar on every repaint).
  */
 export function softTone(color: string, bg: string): string {
   const key = `${color}|${bg}`;

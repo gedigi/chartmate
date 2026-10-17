@@ -696,10 +696,10 @@ export class ChartAdapter {
     const id = this.chart.createIndicator(create, main);
     if (!id) throw new Error(`Cannot create indicator ${spec.name}`);
     if (levels) this.drawnLevels.set(id, JSON.stringify(effectiveLevels(spec)));
-    // Histogram bars are always filled (MACD / AO outline rising bars by default): rising ones in the soft tone.
+    // Histogram bars are always filled (MACD / AO outline rising bars by default): falling ones in the soft tone.
     const created = this.chart.getIndicators().find((i) => i.id === id);
     const figures = solidBarFigures(created?.figures, (c) => themeSoftTone(this.theme, c));
-    // Bar and SAR dot values in the legend take the up / down TEXT tones (never the faint soft tone of a rising bar).
+    // Bar and SAR dot values in the legend take the up / down TEXT tones (never the faint soft tone of a falling bar).
     const legends = created?.figures?.some((f) => f.type === 'bar' || f.type === 'circle') ? { createTooltipDataSource: this.barLegends } : {};
     if (figures || 'createTooltipDataSource' in legends) this.chart.overrideIndicator({ id, name: spec.name, ...(figures ? { figures } : {}), ...legends });
     if (hasOverrides(overrides)) this.overrides.set(id, overrides);
