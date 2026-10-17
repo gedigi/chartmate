@@ -159,6 +159,16 @@ export function fitBarSpace(count: number, width: number, rightMargin: number): 
   return Math.min(MAX_BAR_SPACE, Math.max(MIN_BAR_SPACE, (width - rightMargin) / count));
 }
 
+/**
+ * How many of `count` bars a plot `width` px wide shows at `space` px per bar (the newest ones, after the
+ * `rightMargin` px gap). A width of exactly (width − margin) / count must show all `count` bars: the division back can
+ * land a hair below the whole number in floating point, so a tiny tolerance keeps the first bar.
+ */
+export function barsShown(count: number, width: number, rightMargin: number, space: number): number {
+  if (width <= 0) return count;
+  return Math.min(count, Math.max(1, Math.floor((width - rightMargin) / space + 1e-6)));
+}
+
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const pad2 = (n: number) => String(n).padStart(2, '0');
 

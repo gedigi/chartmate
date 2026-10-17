@@ -32,7 +32,7 @@ import { levelsDraw, levelsRange } from './indicators/levels';
 import { registerCustomIndicators } from './indicators/register';
 import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
-import { fitBarSpace, rangeLabel, rangeLookbackMs, rangeStart, visibleBarCount, type RangeCalendar, type RangePreset } from './ranges';
+import { barsShown, fitBarSpace, rangeLabel, rangeLookbackMs, rangeStart, visibleBarCount, type RangeCalendar, type RangePreset } from './ranges';
 import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
 import {
   MEASURE_OVERLAY, measureColors, measureLines, measureStats, registerMeasureOverlay, snapValue,
@@ -2137,7 +2137,7 @@ export class ChartAdapter {
       this.fitting--;
     }
     // Too many bars for the width (at the narrowest bars): the newest that fit are shown.
-    const bars = width > 0 ? Math.min(count, Math.max(1, Math.floor((width - RANGE_RIGHT_MARGIN_PX) / space))) : count;
+    const bars = barsShown(count, width, RANGE_RIGHT_MARGIN_PX, space);
     const first = times[times.length - bars];
     const last = times.at(-1);
     if (first === undefined || last === undefined) return;

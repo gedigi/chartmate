@@ -13,6 +13,8 @@ app, the Docker image and the release tag share one version number.
 - MACD, AO and PPO histograms swap their two tones: a bar that grows over the previous one (green growing, red
   recovering toward zero) is drawn in the full color, and a bar that falls (green shrinking, red growing downward)
   in the soft, darker tone.
+- The span next to the date range buttons no longer sometimes starts one bar late (for example 1D reading 09:35
+  instead of 09:30): at some chart widths and bar counts the first bar was left out of the count.
 
 ## [1.1.1] - 2026-10-16
 

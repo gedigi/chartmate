@@ -2,7 +2,7 @@ import { nyToUtc, tfMs, type Timeframe } from '@chartmate/shared';
 import { describe, expect, it } from 'vitest';
 import { initialWindowMs } from '../../src/chart/periods';
 import {
-  allTimeframe, fitBarSpace, MAX_BAR_SPACE, MIN_ALL_BAR_PX, MIN_BAR_SPACE, MIN_SESSION_BARS, RANGE_PRESETS, rangeLabel, rangeLookbackMs, rangeStart,
+  allTimeframe, barsShown, fitBarSpace, MAX_BAR_SPACE, MIN_ALL_BAR_PX, MIN_BAR_SPACE, MIN_SESSION_BARS, RANGE_PRESETS, rangeLabel, rangeLookbackMs, rangeStart,
   rangeTimeframe, visibleBarCount,
 } from '../../src/chart/ranges';
 
@@ -256,5 +256,22 @@ describe('rangeLabel: the dates a shown range spans, in the chart timezone', () 
     expect(rangeLabel(nyToUtc(2026, 10, 14, 9, 30), nyToUtc(2026, 10, 14, 15, 55), '5m', tz)).toBe('Oct 14, 09:30 – 15:55');
     expect(rangeLabel(nyToUtc(2026, 10, 8, 9, 30), nyToUtc(2026, 10, 14, 15, 45), '15m', tz)).toBe('Oct 8, 09:30 – Oct 14, 15:45');
     expect(rangeLabel(Date.UTC(2026, 9, 17, 12, 5), Date.UTC(2026, 9, 18, 12, 0), '5m', 'UTC')).toBe('Oct 17, 12:05 – Oct 18, 12:00');
+  });
+});
+
+describe('barsShown', () => {
+  it('a fitted bar width shows every bar, even where the division lands just below the whole number', () => {
+    // (600 − 80) / 7 per bar: 520 / (520 / 7) is 6.999… in floating point; the first bar must stay (the 1D span label
+    // otherwise started one bar late, at 09:35, at some times of day).
+    expect(Math.floor(520 / (520 / 7))).toBe(6);
+    expect(barsShown(7, 600, 80, fitBarSpace(7, 600, 80))).toBe(7);
+    for (let count = 1; count <= 400; count++) {
+      for (const width of [600, 873, 1024, 1280, 1599]) expect(barsShown(count, width, 80, fitBarSpace(count, width, 80))).toBe(Math.min(count, Math.floor(width - 80)));
+    }
+  });
+
+  it('too many bars for the width: the newest that fit at the narrowest bars; no width yet: all of them', () => {
+    expect(barsShown(5000, 600, 80, MIN_BAR_SPACE)).toBe(520);
+    expect(barsShown(42, 0, 80, MAX_BAR_SPACE)).toBe(42);
   });
 });
