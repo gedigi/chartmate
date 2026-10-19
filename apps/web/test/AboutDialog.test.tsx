@@ -104,6 +104,21 @@ describe('AboutDialog (AGPL-3.0 section 13 source offer)', () => {
     expect(about).not.toHaveBeenCalled();
   });
 
+  it('desktop on macOS: says where updates are (the Chartmate menu); no button, the page cannot start an update', () => {
+    render(<AboutDialog version="1.0.0" sourceUrl={REPO} sourceRef="v1.0.0" desktop mac release onClose={() => {}} />);
+    expect(screen.getByText('Updates').nextElementSibling).toHaveTextContent('Chartmate menu → Check for Updates…');
+    expect(screen.queryByRole('button', { name: /update/i })).not.toBeInTheDocument();
+  });
+
+  it('no updates row on Windows (no menu bar) or self-hosted', () => {
+    const { unmount } = render(<AboutDialog version="1.0.0" sourceUrl={REPO} desktop mac={false} onClose={() => {}} />);
+    expect(screen.queryByText('Updates')).not.toBeInTheDocument();
+    unmount();
+    vi.spyOn(api, 'about').mockResolvedValue({ version: '1.0.0' });
+    render(<AboutDialog version="1.0.0" sourceUrl={REPO} desktop={false} mac onClose={() => {}} />);
+    expect(screen.queryByText('Updates')).not.toBeInTheDocument();
+  });
+
   it('desktop built without a repository: points to the LICENSE that ships with the app', () => {
     render(<AboutDialog version="1.0.0" sourceUrl={null} desktop onClose={() => {}} />);
     expect(screen.queryByRole('link')).not.toBeInTheDocument();

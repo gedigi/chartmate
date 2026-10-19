@@ -5,6 +5,8 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+## [1.1.2] - 2026-10-19
+
 ### Everywhere
 
 - Indicator line and histogram bar colors are picked from the theme swatches, like drawing colors, instead of a
@@ -20,6 +22,10 @@ app, the Docker image and the release tag share one version number.
 - Charts, live updates, baskets, the watchlist and symbol search reuse data fetched moments ago instead of asking
   Yahoo, Binance or Coinbase again, and make no new requests for stocks while the market is closed (nights and
   weekends; at most one every 6 hours), so the free data sources are asked far less often.
+
+### Desktop app
+
+- macOS: About Chartmate says where updates are (**Chartmate** menu → **Check for Updates…**).
 
 ## [1.1.1] - 2026-10-16
 

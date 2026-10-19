@@ -1,6 +1,6 @@
 {
   "name": "@chartmate/desktop",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "description": "Chartmate desktop app (Electron): the Chartmate server and web UI in one hardened window, with no network listener.",
   "license": "AGPL-3.0-only",

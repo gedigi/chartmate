@@ -16,6 +16,8 @@ export interface AboutDialogProps {
   desktop?: boolean;
   /** A production build (default); a development build links the repository root. */
   release?: boolean;
+  /** macOS: the desktop app's updates are in its native Chartmate menu (default: from the user agent). */
+  mac?: boolean;
 }
 
 /** The license text, for a build that does not know its repository. */
@@ -45,7 +47,7 @@ const shortUrl = (url: string) => url.replace(/^https:\/\//, '');
  */
 export function AboutDialog({
   onClose, version = APP_VERSION, sourceUrl = SOURCE_URL, sourceRef = SOURCE_REF, desktop = isDesktopApp(),
-  release = !import.meta.env.DEV,
+  release = !import.meta.env.DEV, mac = /Mac/.test(navigator.userAgent),
 }: AboutDialogProps): JSX.Element {
   const [serverVersion, setServerVersion] = useState<string | null>(null);
 
@@ -105,6 +107,13 @@ export function AboutDialog({
           <dt>License</dt>
           <dd>{license}</dd>
         </div>
+        {/* Where, not a button: the page has no way to start an update (the update UX stays in the main process). */}
+        {desktop && mac && (
+          <div>
+            <dt>Updates</dt>
+            <dd>Chartmate menu → Check for Updates…</dd>
+          </div>
+        )}
         {serverVersion !== null && serverVersion !== version && (
           <div>
             <dt>Server version</dt>
