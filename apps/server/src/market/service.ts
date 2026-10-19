@@ -10,6 +10,7 @@ import type { ProviderRegistry } from '../providers/registry.js';
 import type { MarketDataProvider } from '../providers/types.js';
 import { bucketEnd } from './buckets.js';
 import { mergeRanges, missingRanges, splitRange } from './coverage.js';
+import { TtlCache, freshUntil } from './freshness.js';
 import { isSameSplit, type AppliedSplit } from './splitMatch.js';
 
 const DAY = 86_400_000;
@@ -34,6 +35,12 @@ const SPLIT_BASELINE_SLACK_MS = 7 * DAY;
 /** How far before the last check a split may be dated and still be reported for the first time. */
 const SPLIT_LATE_REPORT_MS = 7 * DAY;
 const INTRADAY_NATIVE: NativeTimeframe[] = ['1m', '5m', '15m', '30m', '1h'];
+/** Most fresh recent tails and fresh quotes remembered at once (each; least recently used dropped first). */
+const MAX_FRESH = 5000;
+/** How long a symbol search answer is reused. */
+const SEARCH_TTL_MS = 10 * 60_000;
+/** Most search answers remembered at once. */
+const MAX_SEARCHES = 200;
 
 export interface GetBarsArgs { symbol: SymbolId; tf: Timeframe; session: SessionMode; from: number; to: number }
 export interface BarsResult { bars: Bar[]; stale: boolean; hasMoreBefore: boolean; earliestTs: number | null; notices: string[] }
@@ -101,15 +108,27 @@ export class MarketDataService {
   /** Stocks seen by this process with neither a symbols row nor cached bars: their bars are fetched from then on. */
   private readonly freshSymbols = new Set<SymbolId>();
 
+  /**
+   * Recent tails fetched successfully, per `symbol|tf`: from where, and under which `epoch`. While fresh (see
+   * `freshUntil`), the bars from `from` on are served from the database instead of asking the provider again.
+   */
+  private readonly tails: TtlCache<string, { from: number; epoch: number }>;
+  /** Quotes fetched recently, per `class:code`. */
+  private readonly quoteCache: TtlCache<string, Quote>;
+  /** Symbol search answers, per `class|normalized query`. */
+  private readonly searchCache = new TtlCache<string, SymbolInfo[]>(MAX_SEARCHES);
+
   /** Most symbols the in-memory split bookkeeping tracks at once. */
   private readonly maxTracked: number;
 
   constructor(deps: {
     repos: Repos; registry: ProviderRegistry; now?: () => number; queues?: { stock: RequestQueue; crypto: RequestQueue };
-    maxTracked?: number;
+    maxTracked?: number; maxFresh?: number;
   }) {
     this.repos = deps.repos;
     this.maxTracked = deps.maxTracked ?? MAX_TRACKED;
+    this.tails = new TtlCache(deps.maxFresh ?? MAX_FRESH);
+    this.quoteCache = new TtlCache(deps.maxFresh ?? MAX_FRESH);
     this.registry = deps.registry;
     this.now = deps.now ?? Date.now;
     this.queues = deps.queues ?? {
@@ -282,10 +301,18 @@ export class MarketDataService {
     if (from >= to) return { bars: [], stale: false };
 
     const recentEdge = floorGrid(tf === '1D' ? now - 3 * DAY : now - 2 * step);
-    const covered = await this.repos.coverage.list(symbol, tf);
-    const gaps = missingRanges(covered, from, Math.min(to, recentEdge));
     const recentFrom = Math.max(from, recentEdge);
-    if (recentFrom < to) gaps.push([recentFrom, to]);
+    // The recent tail is never covered: it is fetched again unless a successful fetch of it (from at or before
+    // this request's tail) is still fresh. Bars from that fetch's start on are then in the database as of then,
+    // including those below the edge that has moved since, so no gap is asked for there either.
+    const epoch = this.epoch;
+    const tailKey = `${symbol}|${tf}`;
+    const tail = recentFrom < to ? this.tails.get(tailKey, now) : undefined;
+    const tailFresh = tail !== undefined && tail.epoch === epoch && tail.from <= recentFrom;
+    const fetchTail = recentFrom < to && !tailFresh;
+    const covered = await this.repos.coverage.list(symbol, tf);
+    const gaps = missingRanges(covered, from, Math.min(to, recentEdge, tailFresh ? tail.from : Infinity));
+    if (fetchTail) gaps.push([recentFrom, to]);
     const span = provider.limits.maxSpanPerRequestMs[tf];
     const chunks = mergeRanges(gaps).flatMap(([a, b]) => splitRange(a, b, span));
 
@@ -314,17 +341,24 @@ export class MarketDataService {
     let stale = false;
     const notFound: Array<[number, number]> = [];
     let firstNotFound: NotFoundError | null = null;
+    // The tail counts as fetched when every chunk reaching into it succeeded (or, below, said "no data" for a known
+    // symbol): a failed or skipped (cooling down) fetch is never fresh.
+    let tailFetched = fetchTail;
+    let tailNotFound = false;
     for (let i = 0; i < results.length; i++) {
       const r = results[i]!;
       if (r.status === 'fulfilled') continue;
+      const inTail = chunks[i]![1] > recentFrom;
       const err: unknown = r.reason;
       if (err instanceof NotFoundError) {
         notFound.push(chunks[i]!);
         if (firstNotFound === null) firstNotFound = err;
+        if (inTail) tailNotFound = true;
         continue;
       }
       if (!(err instanceof ProviderError)) throw err; // internal failures propagate
       stale = true; // the cooldown was already applied where the fetch failed
+      if (inTail) tailFetched = false;
     }
 
     if (firstNotFound !== null) {
@@ -335,6 +369,7 @@ export class MarketDataService {
       if (known === false) throw new NotFoundError(`Unknown symbol ${symbol}`, { cause: firstNotFound });
       if (known === null) {
         stale = true; // couldn't tell (lookup outage): serve the DB, don't mark coverage
+        if (tailNotFound) tailFetched = false;
       } else {
         // Only trust "no data" when it cannot be a transient upstream hiccup: the chunk ends before the listing
         // date, or long enough ago. Otherwise leave it uncovered (retried next time) and report stale.
@@ -348,6 +383,7 @@ export class MarketDataService {
         }
       }
     }
+    if (tailFetched) this.tails.set(tailKey, { from: recentFrom, epoch }, freshUntil(assetClass, now), now);
     return { bars: await this.repos.bars.range(symbol, tf, Math.max(from, outFrom), Math.min(to, outTo)), stale };
   }
 
@@ -404,14 +440,31 @@ export class MarketDataService {
     const run = async (cls: MarketClass): Promise<Quote[]> => {
       const list = codes[cls];
       if (list.length === 0) return [];
-      try {
-        return await this.queues[cls].run(`quotes|${list.join(',')}`, () => this.provider(cls).quotes(list));
-      } catch (err) {
-        // Quotes are polled: a rate limit or outage cools the queue down instead of being retried every poll.
-        const e = asProviderError(this.provider(cls).id, err);
-        if (e instanceof ProviderError && e.retryable && e.provider !== 'queue') this.queues[cls].backoff(BACKOFF_MS);
-        return [];
+      // A quote fetched within its freshness window is served as is; the rest are fetched in one call.
+      const now = this.now();
+      const byCode = new Map<string, Quote>();
+      for (const code of list) {
+        const q = this.quoteCache.get(`${cls}:${code}`, now);
+        if (q !== undefined) byCode.set(code, q);
       }
+      const missing = list.filter((code) => !byCode.has(code));
+      if (missing.length > 0) {
+        try {
+          const fetched = await this.queues[cls].run(`quotes|${missing.join(',')}`, () => this.provider(cls).quotes(missing));
+          const until = freshUntil(cls, now);
+          for (const q of fetched) {
+            const code = q.id.slice(cls.length + 1);
+            if (!q.id.startsWith(`${cls}:`) || !missing.includes(code)) continue;
+            byCode.set(code, q);
+            this.quoteCache.set(`${cls}:${code}`, q, until, now);
+          }
+        } catch (err) {
+          // Quotes are polled: a rate limit or outage cools the queue down instead of being retried every poll.
+          const e = asProviderError(this.provider(cls).id, err);
+          if (e instanceof ProviderError && e.retryable && e.provider !== 'queue') this.queues[cls].backoff(BACKOFF_MS);
+        }
+      }
+      return list.flatMap((code) => byCode.get(code) ?? []);
     };
     const [s, c] = await Promise.all([run('stock'), run('crypto')]);
     return [...s, ...c];
@@ -560,8 +613,15 @@ export class MarketDataService {
     this.epoch++;
   }
 
-  private searchClass(cls: MarketClass, q: string): Promise<SymbolInfo[]> {
-    return this.queues[cls].run(`search|${q}`, () => this.provider(cls).search(q));
+  /** Answers are reused for 10 minutes per class and normalized query (trimmed, case-insensitive); failures are not. */
+  private async searchClass(cls: MarketClass, q: string): Promise<SymbolInfo[]> {
+    const key = `${cls}|${q.trim().toUpperCase()}`;
+    const cached = this.searchCache.get(key, this.now());
+    if (cached !== undefined) return cached;
+    const res = await this.queues[cls].run(`search|${q}`, () => this.provider(cls).search(q));
+    const now = this.now();
+    this.searchCache.set(key, res, now + SEARCH_TTL_MS, now);
+    return res;
   }
 
   private provider(cls: MarketClass): MarketDataProvider {

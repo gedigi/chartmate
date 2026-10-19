@@ -7,6 +7,7 @@ import { AppError, NotFoundError, ProviderError } from '../../src/errors.js';
 import { RequestQueue } from '../../src/providers/queue.js';
 import { FakeProvider } from '../helpers/fakeProvider.js';
 import { MarketDataService, calendarFor, holdsSession } from '../../src/market/service.js';
+import { CRYPTO_FRESH_MS, POLL_SLACK_MS, STOCK_FRESH_MS } from '../../src/market/freshness.js';
 
 const MIN = 60_000;
 const HOUR = 3_600_000;
@@ -65,7 +66,7 @@ describe('MarketDataService', () => {
   }
 
   describe('getNativeBars caching', () => {
-    it('first call fetches; identical second call only refetches the recent span', async () => {
+    it('first call fetches; identical second call once the tail is no longer fresh only refetches the recent span', async () => {
       const from = NOW - 10 * DAY;
       const r1 = await svc.getNativeBars('crypto:BTC', '1h', from, NOW);
       expect(crypto.calls).toEqual([{ code: 'BTC', tf: '1h', from: H(from), to: NEXT_1H }]);
@@ -74,6 +75,7 @@ describe('MarketDataService', () => {
       // recentEdge is floored to the 1h grid: 18:20 − 2h → 16:00
       expect(await repos.coverage.list('crypto:BTC', '1h')).toEqual([[H(from), EDGE_1H]]);
 
+      now = NOW + CRYPTO_FRESH_MS; // past the tail's freshness window (same recent edge)
       const r2 = await svc.getNativeBars('crypto:BTC', '1h', from, NOW);
       expect(crypto.calls.slice(1)).toEqual([{ code: 'BTC', tf: '1h', from: EDGE_1H, to: NEXT_1H }]);
       expect(r2.bars).toEqual(r1.bars);
@@ -135,19 +137,21 @@ describe('MarketDataService', () => {
       const fresh = await svc.getBars(args);
       expect(fresh.stale).toBe(false);
       crypto.fail = new ProviderError('binance', 'HTTP 429', true, 429);
+      const T = NOW + CRYPTO_FRESH_MS; // the recent tail is due again
+      now = T;
       const r = await svc.getBars(args);
       expect(r.stale).toBe(true);
       expect(r.bars).toEqual(fresh.bars);
-      expect(queues.crypto.cooldownUntil).toBe(NOW + 30_000);
+      expect(queues.crypto.cooldownUntil).toBe(T + 30_000);
 
       // during the cooldown: no provider call, still cached + stale, cooldown not extended
       crypto.calls = [];
-      now = NOW + 10_000;
+      now = T + 10_000;
       const r2 = await svc.getBars(args);
       expect(crypto.calls).toEqual([]);
       expect(r2.stale).toBe(true);
       expect(r2.bars).toEqual(fresh.bars);
-      expect(queues.crypto.cooldownUntil).toBe(NOW + 30_000);
+      expect(queues.crypto.cooldownUntil).toBe(T + 30_000);
     });
 
     it('wider window with an uncached gap during an outage returns what is in the DB and does not mark the gap covered', async () => {
@@ -344,6 +348,7 @@ describe('MarketDataService', () => {
     it('one side failing returns the other; both failing throws ProviderError', async () => {
       stock.searchFail = new ProviderError('yahoo', 'down', true);
       expect((await svc.search('BTC')).map((s) => s.id)).toEqual(['crypto:BTC']);
+      now = NOW + 10 * MIN; // past the search cache
       crypto.searchFail = new ProviderError('binance', 'down', true);
       await expect(svc.search('BTC')).rejects.toBeInstanceOf(ProviderError);
     });
@@ -352,6 +357,7 @@ describe('MarketDataService', () => {
       expect(q.map((x) => x.id).sort()).toEqual(['crypto:BTC', 'crypto:ETH', 'stock:AAPL']);
       expect(stock.quoteCalls).toEqual([['AAPL', 'ZZZ']]);
       expect(crypto.quoteCalls).toEqual([['BTC', 'ETH']]);
+      now = NOW + STOCK_FRESH_MS; // past the quotes' freshness window
       stock.fail = new ProviderError('yahoo', 'down', true);
       expect((await svc.quotes(['stock:AAPL', 'crypto:BTC'])).map((x) => x.id)).toEqual(['crypto:BTC']);
     });
@@ -594,6 +600,215 @@ describe('MarketDataService', () => {
       const r = await svc.getNativeBars('stock:AAPL', '1D', from, to);
       expect(r).toEqual({ bars: [], stale: false });
       expect(await repos.coverage.list('stock:AAPL', '1D')).toEqual([[from, to]]);
+    });
+  });
+
+  describe('freshness (recent tail, quotes, search)', () => {
+    const CRYPTO_WINDOW = CRYPTO_FRESH_MS - POLL_SLACK_MS;
+    const STOCK_WINDOW = STOCK_FRESH_MS - POLL_SLACK_MS;
+    const btc = { symbol: 'crypto:BTC', tf: '1h' as const, session: 'eth' as const, from: NOW - 2 * DAY, to: NOW };
+
+    it('repeated getBars within the crypto window make one provider call; the tail is served from the DB, never covered', async () => {
+      const r1 = await svc.getBars(btc);
+      expect(crypto.calls).toHaveLength(1);
+      now = NOW + CRYPTO_WINDOW - 1;
+      const r2 = await svc.getBars(btc);
+      expect(crypto.calls).toHaveLength(1);
+      expect(r2.bars).toEqual(r1.bars);
+      expect(r2.bars.at(-1)!.ts).toBe(H(NOW)); // the in-progress bar came from the DB
+      expect(r2.stale).toBe(false);
+      expect(await repos.coverage.list('crypto:BTC', '1h')).toEqual([[H(NOW - 2 * DAY), EDGE_1H]]);
+      now = NOW + CRYPTO_WINDOW;
+      await svc.getBars(btc);
+      expect(crypto.calls.slice(1)).toEqual([{ code: 'BTC', tf: '1h', from: EDGE_1H, to: NEXT_1H }]);
+    });
+
+    it('getLatest polls within the window reuse the chart load\'s tail', async () => {
+      await svc.getBars(btc);
+      await svc.getLatest('crypto:BTC', '1h', 'eth');
+      await svc.getLatest('crypto:BTC', '2h', 'eth');
+      expect(crypto.calls).toHaveLength(1);
+    });
+
+    it('a narrower earlier fetch does not stand in for a wider tail', async () => {
+      await svc.getLatest('crypto:BTC', '1h', 'eth'); // tail from 17:00 only
+      expect(crypto.calls).toEqual([{ code: 'BTC', tf: '1h', from: H(NOW - HOUR), to: NEXT_1H }]);
+      await svc.getBars(btc);
+      expect(crypto.calls.slice(1)).toEqual([{ code: 'BTC', tf: '1h', from: H(NOW - 2 * DAY), to: NEXT_1H }]);
+    });
+
+    it('a bar that opens within the window is picked up by the next poll, one poll interval later', async () => {
+      const args = { symbol: 'crypto:BTC', tf: '1m' as const, session: 'eth' as const, from: NOW - HOUR, to: NOW + MIN };
+      now = NOW + 58_000; // 18:20:58
+      await svc.getBars(args);
+      now = NOW + 61_000; // 18:21:01: another reader inside the window gets the data as of 18:20:58
+      expect((await svc.getBars({ ...args, to: now + MIN })).bars.at(-1)!.ts).toBe(NOW);
+      now = NOW + 58_000 + CRYPTO_FRESH_MS; // the chart's own next poll
+      const r = await svc.getBars({ ...args, to: now + MIN });
+      expect(crypto.calls).toHaveLength(2);
+      expect(r.bars.at(-1)!.ts).toBe(NOW + MIN);
+    });
+
+    it('stocks in session: 15 s window', async () => {
+      const args = { symbol: 'stock:AAPL', tf: '1h' as const, session: 'eth' as const, from: NOW - 2 * DAY, to: NOW };
+      await svc.getBars(args);
+      const n = stock.calls.length;
+      now = NOW + STOCK_WINDOW - 1;
+      await svc.getBars(args);
+      expect(stock.calls).toHaveLength(n);
+      now = NOW + STOCK_WINDOW;
+      await svc.getBars(args);
+      expect(stock.calls).toHaveLength(n + 1);
+    });
+
+    it('stocks overnight: no refetch until the 04:00 New York session start', async () => {
+      const at = Date.UTC(2026, 10, 5, 7); // Thu 02:00 EST
+      const fourAm = Date.UTC(2026, 10, 5, 9);
+      now = at;
+      const args = { symbol: 'stock:AAPL', tf: '1m' as const, session: 'eth' as const, from: at - HOUR, to: at };
+      await svc.getBars(args);
+      const n = stock.calls.length;
+      now = fourAm - 1;
+      await svc.getBars({ ...args, from: now - HOUR, to: now });
+      await svc.getLatest('stock:AAPL', '1m', 'eth');
+      // The recent edge moved on by two hours, but nothing since the fresh fetch is asked for (no 1-minute gaps).
+      expect(stock.calls).toHaveLength(n);
+      now = fourAm;
+      await svc.getBars({ ...args, from: now - HOUR, to: now });
+      expect(stock.calls.slice(n)).toEqual([{ code: 'AAPL', tf: '1m', from: fourAm - HOUR, to: fourAm }]);
+    });
+
+    it('stocks on a weekend: no refetch for 6 hours (the cap), then again', async () => {
+      const sat = Date.UTC(2026, 10, 7, 17); // Sat 12:00 EST
+      now = sat;
+      const args = { symbol: 'stock:AAPL', tf: '1D' as const, session: 'rth' as const, from: sat - 20 * DAY, to: sat };
+      await svc.getBars(args);
+      const n = stock.calls.length;
+      now = sat + 6 * HOUR - 1;
+      await svc.getBars(args);
+      await svc.getLatest('stock:AAPL', '1D', 'rth');
+      expect(stock.calls).toHaveLength(n);
+      now = sat + 6 * HOUR;
+      await svc.getBars(args);
+      expect(stock.calls).toHaveLength(n + 1);
+    });
+
+    it('a failed fetch is not fresh: the next call asks again', async () => {
+      crypto.fail = new ProviderError('binance', 'down', false, 500);
+      expect((await svc.getBars(btc)).stale).toBe(true);
+      crypto.fail = null;
+      const r = await svc.getBars(btc);
+      expect(crypto.calls).toHaveLength(2);
+      expect(r.stale).toBe(false);
+      await svc.getBars(btc);
+      expect(crypto.calls).toHaveLength(2);
+    });
+
+    it('a cooled-down queue (no fetch at all) is not fresh either', async () => {
+      queues.crypto.backoff(1000);
+      expect((await svc.getBars(btc)).stale).toBe(true);
+      now = NOW + 1000;
+      await svc.getBars(btc);
+      expect(crypto.calls).toHaveLength(1);
+    });
+
+    it('"no data" for the recent tail of a known symbol counts as fetched', async () => {
+      await svc.symbolInfo('stock:AAPL');
+      stock.noDataBefore = NOW + 2 * DAY;
+      await svc.getNativeBars('stock:AAPL', '1D', NOW - 2 * DAY, NOW);
+      await svc.getNativeBars('stock:AAPL', '1D', NOW - 2 * DAY, NOW);
+      expect(stock.calls).toHaveLength(1);
+    });
+
+    it('purged bars (split / untracked purge) invalidate the fresh tail', async () => {
+      const from = NOW - 2 * DAY;
+      // Bars cached before the symbol had a row: the row's first refresh purges them and bumps the epoch.
+      await repos.bars.store('stock:AAPL', '1h', stock.generate('1h', NOW - 5 * DAY, NOW - 4 * DAY), null);
+      await svc.getNativeBars('stock:AAPL', '1h', from, NOW);
+      const epoch = svc.cacheEpoch;
+      await svc.symbolInfo('stock:AAPL');
+      expect(svc.cacheEpoch).toBe(epoch + 1);
+      expect(await repos.bars.range('stock:AAPL', '1h', from, NOW)).toEqual([]);
+      stock.calls = [];
+      const r = await svc.getNativeBars('stock:AAPL', '1h', from, NOW);
+      expect(stock.calls.at(-1)!.to).toBe(NEXT_1H); // the tail is fetched again, not only the purged history
+      expect(r.bars.at(-1)!.ts).toBe(H(NOW) - 30 * MIN); // 12:30 EST, the in-progress hour
+    });
+
+    it('the tail map is bounded', async () => {
+      const small = new MarketDataService({ repos, registry: { stock, crypto }, now: () => now, queues, maxFresh: 3 });
+      for (const c of ['BTC', 'ETH', 'SOL', 'XRP']) await small.getNativeBars(`crypto:${c}`, '1h', NOW - HOUR, NOW);
+      expect((small as unknown as { tails: { size: number } }).tails.size).toBe(3);
+      crypto.calls = [];
+      await small.getNativeBars('crypto:BTC', '1h', NOW - HOUR, NOW); // evicted: asked again
+      await small.getNativeBars('crypto:XRP', '1h', NOW - HOUR, NOW);
+      expect(crypto.calls.map((c) => c.code)).toEqual(['BTC']);
+    });
+
+    it('quotes: fresh ones are reused, only missing or stale codes are fetched, in one call per class', async () => {
+      await svc.quotes(['stock:AAPL', 'crypto:BTC']);
+      now = NOW + CRYPTO_WINDOW;
+      const q = await svc.quotes(['stock:AAPL', 'stock:MSFT', 'crypto:BTC', 'crypto:ETH']);
+      expect(q.map((x) => x.id)).toEqual(['stock:AAPL', 'stock:MSFT', 'crypto:BTC', 'crypto:ETH']);
+      expect(stock.quoteCalls).toEqual([['AAPL'], ['MSFT']]);
+      expect(crypto.quoteCalls).toEqual([['BTC'], ['BTC', 'ETH']]);
+      now = NOW + STOCK_WINDOW;
+      await svc.quotes(['stock:AAPL', 'stock:MSFT']);
+      expect(stock.quoteCalls.at(-1)).toEqual(['AAPL']);
+    });
+
+    it('quotes: a failure is not cached and keeps serving what is still fresh', async () => {
+      await svc.quotes(['stock:AAPL']);
+      stock.fail = new ProviderError('yahoo', 'down', false, 500);
+      expect((await svc.quotes(['stock:AAPL', 'stock:MSFT'])).map((x) => x.id)).toEqual(['stock:AAPL']);
+      stock.fail = null;
+      await svc.quotes(['stock:MSFT']);
+      expect(stock.quoteCalls).toEqual([['AAPL'], ['MSFT'], ['MSFT']]);
+    });
+
+    it('quotes: closed stock market reuses the quote until the session start (capped)', async () => {
+      const sat = Date.UTC(2026, 10, 7, 17);
+      now = sat;
+      await svc.quotes(['stock:AAPL']);
+      now = sat + 6 * HOUR - 1;
+      await svc.quotes(['stock:AAPL']);
+      expect(stock.quoteCalls).toHaveLength(1);
+      now = sat + 6 * HOUR;
+      await svc.quotes(['stock:AAPL']);
+      expect(stock.quoteCalls).toHaveLength(2);
+    });
+
+    it('the quote cache is bounded', async () => {
+      const small = new MarketDataService({ repos, registry: { stock, crypto }, now: () => now, queues, maxFresh: 2 });
+      await small.quotes(['stock:AAPL', 'stock:MSFT', 'stock:BTCS']);
+      expect((small as unknown as { quoteCache: { size: number } }).quoteCache.size).toBe(2);
+      await small.quotes(['stock:AAPL', 'stock:MSFT', 'stock:BTCS']);
+      expect(stock.quoteCalls.at(-1)).toEqual(['AAPL']);
+    });
+
+    it('search results are cached per class and normalized query for 10 minutes; errors are not', async () => {
+      await svc.search('btc');
+      await svc.search(' BTC ');
+      expect(stock.searchCalls).toEqual(['btc']);
+      expect(crypto.searchCalls).toEqual(['btc']);
+      now = NOW + 10 * MIN;
+      await svc.search('BTC');
+      expect(stock.searchCalls).toEqual(['btc', 'BTC']);
+
+      stock.searchFail = new ProviderError('yahoo', 'down', true);
+      await svc.search('msft');
+      stock.searchFail = null;
+      expect((await svc.search('msft')).map((s) => s.id)).toEqual(['stock:MSFT']);
+      expect(stock.searchCalls.filter((q) => q === 'msft')).toHaveLength(2);
+    });
+
+    it('the search cache holds about 200 entries', async () => {
+      for (let i = 0; i <= 200; i++) await svc.search(`q${i}`);
+      stock.searchCalls = [];
+      await svc.search('q200');
+      expect(stock.searchCalls).toEqual([]);
+      await svc.search('q0');
+      expect(stock.searchCalls).toEqual(['q0']);
     });
   });
 

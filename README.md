@@ -951,6 +951,11 @@ Fetched history is cached in the database and not re-downloaded. An empty answer
 remembered as "no bars here" when it cannot be a passing glitch: the range ended more than 7 days ago, lies
 before the symbol's listing date, or holds no trading session (a stock's weekend or night); otherwise it is
 asked again on the next load. Bars and the record of the range they cover are written in one transaction.
+The latest bars, quotes and search results are also reused for a short while (in memory, per server process)
+instead of asking the provider again: crypto bars and quotes for 5 seconds, stock ones for 15 seconds during any
+session (04:00–20:00 New York on weekdays, plus 15 minutes after the close; exchange holidays count as sessions)
+and otherwise until the next 04:00 session start (at most 6 hours), and searches for 10 minutes. A failed
+request is never reused, and bars dropped by a split check are fetched again at once.
 Yahoo's bars are split- and dividend-adjusted *as of the day they were fetched*, so the server checks each stock
 for splits at most once a day when serving its bars (a lightweight Yahoo chart call with split events since the
 last check, stamped in `symbols.splits_checked_at`). When a split occurred since the last check, that symbol's

@@ -6,6 +6,7 @@ import { createRepos, type Repos } from '../../src/db/repos.js';
 import { AppError, NotFoundError, ProviderError } from '../../src/errors.js';
 import { RequestQueue } from '../../src/providers/queue.js';
 import { MarketDataService } from '../../src/market/service.js';
+import { CRYPTO_FRESH_MS, STOCK_FRESH_MS } from '../../src/market/freshness.js';
 import { BasketService } from '../../src/baskets/service.js';
 import { FakeProvider } from '../helpers/fakeProvider.js';
 
@@ -254,6 +255,7 @@ describe('BasketService', () => {
       const fresh = await svc.getBars(args);
       expect(fresh.stale).toBe(false);
       crypto.fail = new ProviderError('fixture', '429', true, 429);
+      now = NOW + CRYPTO_FRESH_MS; // the constituents' recent bars are due again
       const r = await svc.getBars(args);
       expect(r.stale).toBe(true);
       expect(r.bars).toEqual(fresh.bars);
@@ -552,6 +554,7 @@ describe('BasketService', () => {
       const nativeSpy = vi.spyOn(market, 'getNativeBars');
       stock.quoteCalls = [];
       crypto.quoteCalls = [];
+      now = NOW + STOCK_FRESH_MS; // the next poll: the quotes fetched by the first one are no longer fresh
       const r = await svc.liveQuotes([mix.id, stocks.id], ['stock:BBB']);
       expect(spy).not.toHaveBeenCalled();
       expect(nativeSpy).not.toHaveBeenCalled();
@@ -649,9 +652,11 @@ describe('BasketService', () => {
       stock.quotePrice = () => 110;
       const at110 = (await svc.liveQuotes([b.id], [])).baskets[0]!;
       stock.quotePrice = () => 100;
+      now = NOW + STOCK_FRESH_MS; // each poll past the quotes' freshness window
       const q0 = (await svc.liveQuotes([b.id], [])).baskets[0]!;
       expect(q0.ext).toBeUndefined();
       stock.quoteExt = () => ({ session: 'post', price: 110, changePct: 10, ts: NOW });
+      now = NOW + 2 * STOCK_FRESH_MS;
       const q = (await svc.liveQuotes([b.id], [])).baskets[0]!;
       expect(q.price).toBeCloseTo(q0.price, 9); // the regular value ignores ext
       expect(q.changePct).toBeCloseTo(q0.changePct!, 9);

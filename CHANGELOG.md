@@ -17,6 +17,9 @@ app, the Docker image and the release tag share one version number.
   instead of 09:30): at some chart widths and bar counts the first bar was left out of the count.
 - The 1M date range now shows 2-hour bars (was 1-hour) and 3M shows 4-hour bars (was daily); 6M, YTD and 1Y keep
   daily bars.
+- Charts, live updates, baskets, the watchlist and symbol search reuse data fetched moments ago instead of asking
+  Yahoo, Binance or Coinbase again, and make no new requests for stocks while the market is closed (nights and
+  weekends; at most one every 6 hours), so the free data sources are asked far less often.
 
 ## [1.1.1] - 2026-10-16
 
