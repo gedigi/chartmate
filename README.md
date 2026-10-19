@@ -507,8 +507,9 @@ Where to read next:
   | --- | --- | --- |
   | 1D | 5m | Stocks: the latest session (with pre- and post-market on ETH); while it has fewer than 12 bars (early pre-market), the session before it too. Crypto: the last 24 hours. |
   | 5D | 15m | Stocks: the last five sessions (weekends and holidays skipped). Crypto: the last 5 × 24 hours. |
-  | 1M | 1h | From the day after the same date one month earlier. |
-  | 3M, 6M, 1Y | 1D | From the day after the same date 3, 6 or 12 months earlier. |
+  | 1M | 2h | From the day after the same date one month earlier. |
+  | 3M | 4h | From the day after the same date three months earlier. |
+  | 6M, 1Y | 1D | From the day after the same date 6 or 12 months earlier. |
   | YTD | 1D | From January 1 of the latest bar's year (on the January 1 holiday, the year that just ended). |
   | All | 1W or 1M | The whole history: weekly bars when each gets at least 2 px of the chart's width, else monthly bars (on a 1000 px wide chart, about 10 years of weekly bars fit). |
 

@@ -25,7 +25,7 @@ const DAY = 86_400_000;
 const WEEK = 7 * DAY;
 
 const TIMEFRAMES: Record<Exclude<RangePreset, 'All'>, Timeframe> = {
-  '1D': '5m', '5D': '15m', '1M': '1h', '3M': '1D', '6M': '1D', YTD: '1D', '1Y': '1D',
+  '1D': '5m', '5D': '15m', '1M': '2h', '3M': '4h', '6M': '1D', YTD: '1D', '1Y': '1D',
 };
 
 /** The bar interval of a preset; All takes the one allTimeframe picked (weekly unless given). */
@@ -56,6 +56,7 @@ export function rangeLookbackMs(preset: RangePreset): number {
     case '1D': return 10 * DAY; // one session (or 24 h), long weekends included
     case '5D': return 20 * DAY; // five sessions around holidays
     case '1M': return 32 * DAY;
+    case '3M': return 95 * DAY; // 4h bars: intraday history, so bounded too
     default: return Infinity;
   }
 }

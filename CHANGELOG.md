@@ -15,6 +15,8 @@ app, the Docker image and the release tag share one version number.
   in the soft, darker tone.
 - The span next to the date range buttons no longer sometimes starts one bar late (for example 1D reading 09:35
   instead of 09:30): at some chart widths and bar counts the first bar was left out of the count.
+- The 1M date range now shows 2-hour bars (was 1-hour) and 3M shows 4-hour bars (was daily); 6M, YTD and 1Y keep
+  daily bars.
 
 ## [1.1.1] - 2026-10-16
 

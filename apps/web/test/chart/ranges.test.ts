@@ -47,7 +47,7 @@ describe('RANGE_PRESETS', () => {
 
 describe('rangeTimeframe', () => {
   it.each([
-    ['1D', '5m'], ['5D', '15m'], ['1M', '1h'], ['3M', '1D'], ['6M', '1D'], ['YTD', '1D'], ['1Y', '1D'], ['All', '1W'],
+    ['1D', '5m'], ['5D', '15m'], ['1M', '2h'], ['3M', '4h'], ['6M', '1D'], ['YTD', '1D'], ['1Y', '1D'], ['All', '1W'],
   ] as const)('%s → %s', (preset, tf) => expect(rangeTimeframe(preset)).toBe(tf));
 
   it('All takes the interval it is given (weekly or monthly, see allTimeframe)', () => {
@@ -230,10 +230,14 @@ describe('fitBarSpace', () => {
 
 describe('rangeLookbackMs: intraday ranges stay inside the stock data source\'s intraday history', () => {
   // Free intraday history: 5m / 15m ~59 days, 1h ~729 days (the stock provider's limits; see README "Data sources").
-  const providerLookback: Partial<Record<Timeframe, number>> = { '5m': 59 * DAY, '15m': 59 * DAY, '1h': 729 * DAY };
-  it.each(['1D', '5D', '1M'] as const)('%s: deepest bar needed plus one more page is within the limit', (preset) => {
+  const providerLookback: Partial<Record<Timeframe, number>> = { '5m': 59 * DAY, '15m': 59 * DAY, '1h': 729 * DAY, '2h': 729 * DAY, '4h': 729 * DAY };
+  it.each(['1D', '5D', '1M', '3M'] as const)('%s: deepest bar needed plus one more page is within the limit', (preset) => {
     const tf = rangeTimeframe(preset);
     expect(rangeLookbackMs(preset) + initialWindowMs(tf)).toBeLessThan(providerLookback[tf]!);
+  });
+  it('3M on 4h bars needs about three months back, not unbounded history', () => {
+    expect(rangeLookbackMs('3M')).toBeGreaterThanOrEqual(93 * DAY);
+    expect(rangeLookbackMs('3M')).toBeLessThan(120 * DAY);
   });
   it('daily and longer ranges are unbounded', () => {
     expect(rangeLookbackMs('1Y')).toBe(Infinity);
