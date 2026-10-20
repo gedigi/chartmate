@@ -181,6 +181,9 @@ function toSessionOpen(ts: number): number {
   return nyToUtc(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), 9, 30);
 }
 
+/** Undo steps kept (per restored set of drawings). */
+const MAX_UNDO = 100;
+
 const samePoints = (a: Point[], b: Point[]) =>
   a.length === b.length && a.every((p, i) => p.timestamp === b[i]!.timestamp && p.value === b[i]!.value);
 
@@ -1361,6 +1364,76 @@ export class ChartAdapter {
 
   private emitChange(): void {
     if (this.silent > 0 || this.destroyed) return;
+    this.recordHistory();
+    for (const cb of this.changeListeners) cb();
+  }
+
+  // ── undo / redo (⌘Z / ⌘⇧Z) ──
+  // Snapshots of the serialized drawings: every user edit (each onDrawingsChange) pushes the state before it. Restoring
+  // drawings (a load, a symbol switch, a reload) starts a new history.
+
+  /** Drawings as of the last recorded change (or restore): the state an edit is undone to. */
+  private historyBase: DrawingState[] = [];
+  private undoStack: DrawingState[][] = [];
+  private redoStack: DrawingState[][] = [];
+
+  private resetHistory(): void {
+    this.historyBase = this.serializeDrawings();
+    this.undoStack = [];
+    this.redoStack = [];
+  }
+
+  private recordHistory(): void {
+    const now = this.serializeDrawings();
+    if (JSON.stringify(now) === JSON.stringify(this.historyBase)) return;
+    this.undoStack.push(this.historyBase);
+    if (this.undoStack.length > MAX_UNDO) this.undoStack.shift();
+    this.redoStack = [];
+    this.historyBase = now;
+  }
+
+  /** Whether undo() has a drawing edit to undo. */
+  canUndo(): boolean {
+    return this.undoStack.length > 0 && this.pendingRestore === null;
+  }
+
+  /** Whether redo() has an undone edit to redo. */
+  canRedo(): boolean {
+    return this.redoStack.length > 0 && this.pendingRestore === null;
+  }
+
+  /**
+   * Undoes the last drawing edit (saved like any edit: one onDrawingsChange). A drawing being placed is canceled
+   * instead. Returns false when there is nothing to undo.
+   */
+  undo(): boolean {
+    if (this.drawing) {
+      this.cancelDrawing();
+      return true;
+    }
+    if (!this.canUndo()) return false;
+    this.redoStack.push(this.historyBase);
+    this.applyHistory(this.undoStack.pop()!);
+    return true;
+  }
+
+  /** Redoes the last undone drawing edit; false when there is none. */
+  redo(): boolean {
+    if (!this.canRedo()) return false;
+    this.cancelDrawing();
+    this.undoStack.push(this.historyBase);
+    this.applyHistory(this.redoStack.pop()!);
+    return true;
+  }
+
+  private applyHistory(drawings: DrawingState[]): void {
+    const undo = this.undoStack;
+    const redo = this.redoStack;
+    this.clearMeasure();
+    this.restoreDrawings(drawings, this.dataSymbol ?? undefined);
+    this.undoStack = undo;
+    this.redoStack = redo;
+    if (this.destroyed) return;
     for (const cb of this.changeListeners) cb();
   }
 
@@ -1687,7 +1760,7 @@ export class ChartAdapter {
    * Replaces all user drawings. Does not fire onDrawingsChange. Existing drawings (and any in-progress one) are
    * removed at once; the new ones are created once data has arrived — for `symbol` when given (so drawings of a
    * new symbol never land on the previous symbol's data), else for the current load. Queued until then.
-   * The "lock all" state is re-derived from the restored drawings.
+   * The "lock all" state is re-derived from the restored drawings, and the undo history starts over.
    */
   restoreDrawings(stored: DrawingState[], symbol?: string): void {
     // A drawing without points (older versions could store one) would put the chart into drawing mode: skipped.
@@ -1696,14 +1769,14 @@ export class ChartAdapter {
     this.withSilence(() => this.removeUserOverlays());
     this.pendingRestore = null;
     this.deriveLockAll(drawings);
-    if (drawings.length === 0) return;
     const ready = symbol === undefined ? this.dataSymbol !== null : this.dataSymbol === symbol;
-    if (!ready) {
+    if (drawings.length > 0 && !ready) {
       this.pendingRestore = symbol === undefined ? { drawings } : { drawings, symbol };
-      return;
+    } else if (drawings.length > 0) {
+      this.createDrawings(drawings);
+      this.ensurePositionHistory();
     }
-    this.createDrawings(drawings);
-    this.ensurePositionHistory();
+    this.resetHistory();
   }
 
   private createDrawings(drawings: DrawingState[]): void {
@@ -1735,6 +1808,7 @@ export class ChartAdapter {
     this.pendingRestore = null;
     this.createDrawings(pending.drawings);
     this.ensurePositionHistory();
+    this.resetHistory();
   }
 
   /** Number of saved user drawings and how many of them are locked (own lock or "Lock all"). */

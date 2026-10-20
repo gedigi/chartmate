@@ -5,6 +5,10 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+### Everywhere
+
+- **⌘Z** (Ctrl+Z on Windows) undoes the last drawing change and **⌘⇧Z** (Ctrl+Shift+Z or Ctrl+Y) redoes it.
+
 ## [1.1.2] - 2026-10-19
 
 ### Everywhere

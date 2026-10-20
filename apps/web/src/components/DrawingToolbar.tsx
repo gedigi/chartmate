@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX, type ReactNode } from 'react';
 import type { ChartAdapter, DrawingTool } from '../chart/ChartAdapter';
-import { clipboardShortcut, hasTextSelection, isApplePlatform, isInPopup, isModalOpen } from '../keyboard';
+import { clipboardShortcut, hasTextSelection, isApplePlatform, isInPopup, isModalOpen, undoShortcut } from '../keyboard';
 import { LockIcon } from './LockIcon';
 import './DrawingToolbar.css';
 
@@ -8,7 +8,7 @@ import './DrawingToolbar.css';
 export type DrawingControls = Pick<
   ChartAdapter,
   'startDrawing' | 'cancelDrawing' | 'clearDrawings' | 'drawingCount' | 'removeSelected' | 'copySelected' | 'pasteDrawing' | 'canPaste' | 'getSelectedDrawing' | 'setMagnet' | 'setLockAll' | 'onLockAllChange'
-  | 'setMagnetOverride' | 'setShiftConstraint' | 'deselect' | 'onSelectionChange' | 'clearMeasure'
+  | 'setMagnetOverride' | 'setShiftConstraint' | 'deselect' | 'onSelectionChange' | 'clearMeasure' | 'undo' | 'redo'
 >;
 
 export interface DrawingToolbarProps {
@@ -128,7 +128,8 @@ function isOtherWidget(target: EventTarget | null): boolean {
 /**
  * Vertical drawing toolbar (left column of the chart): drawing tools, magnet, lock all, delete selected, clear all
  * (locked drawings are kept).
- * Keyboard: Delete/Backspace removes the selected drawing, ⌘C / ⌘V (Ctrl+C / Ctrl+V elsewhere) copies it / pastes
+ * Keyboard: ⌘Z / ⌘⇧Z (Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y elsewhere) undoes / redoes drawing edits (text fields keep their
+ * own undo), Delete/Backspace removes the selected drawing, ⌘C / ⌘V (Ctrl+C / Ctrl+V elsewhere) copies it / pastes
  * the copy (in-app clipboard), Escape cancels the active tool, holding ⌘ (macOS) / Ctrl
  * snaps the drawing being placed or dragged to OHLC values, Option/Alt+T starts a trend line, Option/Alt+H a
  * horizontal line and Option/Alt+R a rectangle (see TOOL_SHORTCUTS), holding Shift keeps trend lines / rays / extended lines / channels horizontal.
@@ -234,6 +235,20 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
       document.removeEventListener('copy', onClipboard);
       document.removeEventListener('paste', onClipboard);
     };
+  }, []);
+
+  // Undo / redo of drawing edits. Text fields keep their own undo; dialogs, popups and modals keep the keys. With
+  // nothing to undo the browser's own action goes ahead. In the desktop app the Edit menu's accelerator only gets the
+  // key when the page leaves it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const kind = undoShortcut(e);
+      if (!kind || e.defaultPrevented || isTyping(e.target) || isInPopup(e.target) || isModalOpen() || disabledRef.current) return;
+      const c = controlsRef.current;
+      if (kind === 'undo' ? c?.undo() : c?.redo()) e.preventDefault();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
   }, []);
 
   useEffect(() => {

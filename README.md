@@ -649,6 +649,10 @@ Where to read next:
   channel to keep it perfectly horizontal: every point takes the anchor's price (the first point while drawing,
   the fixed end while dragging one end), rounded to the symbol's price precision. A channel's width point stays
   free. Combined with ⌘/Ctrl, the snap picks the anchor price and Shift keeps the line flat.
+- **Undo and redo**: **⌘Z** undoes the last drawing change (drawing, moving, restyling, locking, deleting, clear
+  all, paste) and **⌘⇧Z** redoes it; on other systems **Ctrl+Z** and **Ctrl+Shift+Z** or **Ctrl+Y**. Each undo is
+  saved like any edit. While a drawing is being placed, ⌘Z cancels it. The history belongs to the symbol on screen:
+  switching symbols or reloading starts a new one.
 - **Copy and paste**: **⌘C** / **⌘V** (macOS) or **Ctrl+C** / **Ctrl+V** (other systems) copy the selected
   drawing and paste a copy, which is selected and saved like a newly drawn drawing. Every drawing type works,
   with its style and options (channel extend, rectangle fill, price labels, text, position prices). The clipboard lives in
@@ -796,6 +800,7 @@ it.
 | Delete, Backspace | Delete the selected drawing (unless locked) |
 | Escape | Cancel the drawing tool, deselect the drawing, end the measure |
 | ⌘C / ⌘V | Copy the selected drawing / paste it |
+| ⌘Z / ⌘⇧Z (Ctrl+Y too on Windows and Linux) | Undo / redo the last drawing change |
 | ⌘ while placing or dragging | Snap to the nearest open, high, low or close |
 | Shift while placing or dragging | Keep a trend line, ray, extended line or channel horizontal |
 | Shift-drag, Shift-click | Measure |
@@ -806,7 +811,8 @@ it.
 | ← / → (sidebar edge) | Resize the sidebar by 16 px (64 px with Shift); Home / End: narrowest / widest; Enter: default |
 
 The drawing shortcuts are ignored while a form control (field, checkbox, select, button) has the focus or inside a
-dialog, and are shown in the buttons' tooltips.
+dialog, and are shown in the buttons' tooltips. Undo / redo and copy / paste are only left to text fields (which keep
+their own undo) and dialogs, so ⌘Z right after changing a style bar option undoes that change.
 
 ### Watchlist and sections
 

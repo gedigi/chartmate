@@ -29,6 +29,17 @@ export function clipboardShortcut(e: KeyboardEvent): 'copy' | 'paste' | null {
   return key === 'c' ? 'copy' : key === 'v' ? 'paste' : null;
 }
 
+/**
+ * ⌘Z / Ctrl+Z: 'undo'; ⌘⇧Z / Ctrl+Shift+Z, and Ctrl+Y off Apple platforms: 'redo'; else null. Matched by the typed
+ * key, so it follows the keyboard layout (Z on an AZERTY keyboard too).
+ */
+export function undoShortcut(e: KeyboardEvent): 'undo' | 'redo' | null {
+  if (e.altKey || !hasCommandModifier(e)) return null;
+  const key = e.key.toLowerCase();
+  if (key === 'z') return e.shiftKey ? 'redo' : 'undo';
+  return key === 'y' && !e.shiftKey && !isApplePlatform() ? 'redo' : null;
+}
+
 /** True when the page has selected text (⌘C / Ctrl+C then copies that text). */
 export function hasTextSelection(doc: Document = document): boolean {
   const s = doc.getSelection();

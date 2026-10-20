@@ -23,6 +23,8 @@ function makeControls() {
     setShiftConstraint: vi.fn(),
     deselect: vi.fn(),
     clearMeasure: vi.fn(),
+    undo: vi.fn(() => true),
+    redo: vi.fn(() => true),
     onLockAllChange: vi.fn((cb: (locked: boolean) => void) => { lockCb = cb; return () => { lockCb = null; }; }),
     onSelectionChange: vi.fn((cb: (s: { locked: boolean } | null) => void) => { selCb = cb; return () => { selCb = null; }; }),
   };
@@ -793,5 +795,78 @@ describe('DrawingToolbar copy / paste events (the desktop app\'s Edit menu)', ()
     expect(fireEvent.paste(document.body)).toBe(true);
     expect(c.copySelected).not.toHaveBeenCalled();
     expect(c.pasteDrawing).not.toHaveBeenCalled();
+  });
+});
+
+describe('DrawingToolbar undo / redo (⌘Z / ⌘⇧Z on Apple platforms, Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y elsewhere)', () => {
+  const setPlatform = (p: string) => vi.spyOn(navigator, 'platform', 'get').mockReturnValue(p);
+  const press = (target: Element, init: KeyboardEventInit) => !fireEvent.keyDown(target, init); // true = prevented
+
+  it('⌘Z undoes and ⌘⇧Z redoes on macOS; Ctrl+Z there is not the shortcut', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    expect(press(document.body, { key: 'z', metaKey: true })).toBe(true);
+    expect(c.undo).toHaveBeenCalledTimes(1);
+    expect(press(document.body, { key: 'Z', metaKey: true, shiftKey: true })).toBe(true);
+    expect(c.redo).toHaveBeenCalledTimes(1);
+    expect(press(document.body, { key: 'z', ctrlKey: true })).toBe(false);
+    expect(press(document.body, { key: 'y', metaKey: true })).toBe(false);
+    expect(c.undo).toHaveBeenCalledTimes(1);
+    expect(c.redo).toHaveBeenCalledTimes(1);
+  });
+
+  it('Ctrl+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo on other platforms', () => {
+    setPlatform('Win32');
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    expect(press(document.body, { key: 'z', ctrlKey: true })).toBe(true);
+    expect(press(document.body, { key: 'Z', ctrlKey: true, shiftKey: true })).toBe(true);
+    expect(press(document.body, { key: 'y', ctrlKey: true })).toBe(true);
+    expect(c.undo).toHaveBeenCalledTimes(1);
+    expect(c.redo).toHaveBeenCalledTimes(2);
+    expect(press(document.body, { key: 'z', metaKey: true })).toBe(false);
+  });
+
+  it('with nothing to undo, the browser keeps the key', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    c.undo.mockReturnValue(false);
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    expect(press(document.body, { key: 'z', metaKey: true })).toBe(false);
+    expect(c.undo).toHaveBeenCalledTimes(1);
+  });
+
+  it('text fields, dialogs, open modals and a disabled toolbar keep the key', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    const { rerender } = render(
+      <>
+        <DrawingToolbar controls={c} ticker="AAPL" />
+        <input aria-label="field" />
+        <div role="dialog" aria-label="dlg"><button type="button">in dialog</button></div>
+      </>,
+    );
+    expect(press(screen.getByLabelText('field'), { key: 'z', metaKey: true })).toBe(false);
+    expect(press(screen.getByRole('button', { name: 'in dialog' }), { key: 'z', metaKey: true })).toBe(false);
+    expect(c.undo).not.toHaveBeenCalled();
+    rerender(
+      <>
+        <DrawingToolbar controls={c} ticker="AAPL" />
+        <div aria-modal="true" />
+      </>,
+    );
+    expect(press(document.body, { key: 'z', metaKey: true })).toBe(false);
+    rerender(<DrawingToolbar controls={c} disabled ticker="AAPL" />);
+    expect(press(document.body, { key: 'z', metaKey: true })).toBe(false);
+    expect(c.undo).not.toHaveBeenCalled();
+  });
+
+  it('a style-bar control (a select, a checkbox) does not keep it: the drawing edit is undone', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    render(<><DrawingToolbar controls={c} ticker="AAPL" /><FormControls /></>);
+    expect(press(screen.getByLabelText('Price on line'), { key: 'z', metaKey: true })).toBe(true);
+    expect(c.undo).toHaveBeenCalledTimes(1);
   });
 });
