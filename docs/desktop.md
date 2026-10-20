@@ -532,10 +532,11 @@ the installer. `latest.yml` and the blockmaps are computed from the signed files
 1. Create an environment named `windows-signing` (Settings, Environments). Under deployment branches and tags,
    allow only tags matching `v*`. Optionally add yourself as a required reviewer: each signed release then waits
    for your approval.
-2. Add a tag ruleset (Settings, Rules) for `v*` tags. Restrict creation to yourself, so nobody else can trigger a
-   signing run, and also block updates and deletions. Releases are tagged by `.github/workflows/release.yml` with
-   the workflow token, so add GitHub Actions to the ruleset's bypass list (creation only; it never moves or
-   deletes a tag). Whoever can push to `main` can then release, as they already can change what a release builds.
+2. Add a tag ruleset (Settings, Rules) for `v*` tags that blocks updates and deletions, so a release tag never moves
+   or disappears. Leave **Restrict creations** off: releases are tagged by `.github/workflows/release.yml` with the
+   workflow token, which a ruleset's bypass list cannot name, so a creation rule refuses it (HTTP 422). Creating a
+   release then takes a push to `main` (or write access, for a hand-made tag), so protect `main` and keep write
+   access to people you trust with signing runs.
 3. Set these values. Store the two Certum secrets **only** as `windows-signing` environment secrets, never as
    repository secrets: any workflow can read repository secrets, and they bypass the environment's rules.
 

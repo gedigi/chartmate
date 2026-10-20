@@ -314,7 +314,7 @@ A release is a pushed `vX.Y.Z` tag. The tag builds and publishes everything; not
    section for the version, and does nothing when the tag already exists. A suffixed version (`X.Y.Z-beta.1`)
    makes a pre-release. To re-run it (say, after fixing what stopped it), run the Release workflow from `main` in
    the Actions tab. Pushing a tag by hand (`git tag vX.Y.Z && git push origin vX.Y.Z`, on a commit on `main`)
-   still works too. A `v*` tag ruleset must let GitHub Actions create tags (docs/desktop.md).
+   still works too. A `v*` tag ruleset must not restrict creations, or the workflow cannot tag (docs/desktop.md).
 4. **TODO (after the next release, the first one with the `compose.yaml` asset):** switch the README's
    [Recommended install](README.md#recommended-install-docker-compose) from the `raw.githubusercontent.com/…/main`
    URLs to the release assets (`https://github.com/<repository>/releases/latest/download/compose.yaml` and

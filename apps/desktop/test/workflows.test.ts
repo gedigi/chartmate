@@ -1014,7 +1014,7 @@ describe('release.yml (tags a version bump once CI passes on main, then starts t
     expect(lines).toEqual([
       'set -euo pipefail',
       'if ! gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" --silent; then',
-      'echo "::error title=Could not create $TAG::a v* tag ruleset must let GitHub Actions bypass it (Settings, Rules; docs/desktop.md), then re-run this run"',
+      'echo "::error title=Could not create $TAG::a v* tag ruleset restricts creations: turn that rule off, keep updates and deletions blocked (docs/desktop.md), then re-run this run"',
       'exit 1',
       'fi',
       'gh workflow run desktop.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"',
