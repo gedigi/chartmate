@@ -1013,7 +1013,10 @@ describe('release.yml (tags a version bump once CI passes on main, then starts t
     const lines = String(go.run).split('\n').map((l) => l.trim()).filter(Boolean);
     expect(lines).toEqual([
       'set -euo pipefail',
-      'gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" --silent',
+      'if ! gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" --silent; then',
+      'echo "::error title=Could not create $TAG::a v* tag ruleset must let GitHub Actions bypass it (Settings, Rules; docs/desktop.md), then re-run this run"',
+      'exit 1',
+      'fi',
       'gh workflow run desktop.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"',
       'gh workflow run docker.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"',
       'echo "Tagged $TAG at $SHA and started desktop.yml and docker.yml on it." >> "$GITHUB_STEP_SUMMARY"',
