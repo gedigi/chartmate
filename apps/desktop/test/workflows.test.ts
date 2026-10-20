@@ -10,7 +10,7 @@ const require = createRequire(import.meta.url);
 const yaml = require('js-yaml') as { load(s: string): any };
 const root = (f: string) => readFileSync(new URL(`../../../${f}`, import.meta.url), 'utf8');
 const read = (f: string) => root(`.github/workflows/${f}`);
-const files = ['ci.yml', 'desktop.yml', 'docker.yml', 'docker-refresh.yml'];
+const files = ['ci.yml', 'desktop.yml', 'docker.yml', 'docker-refresh.yml', 'release.yml'];
 
 type Step = { uses?: string; with?: Record<string, unknown>; env?: Record<string, string>; name?: string; run?: string; if?: string; id?: string; shell?: string };
 type Job = { steps: Step[]; env?: unknown; permissions?: unknown; environment?: string; needs?: string[]; if?: string; outputs?: Record<string, string>; 'runs-on': string };
@@ -641,6 +641,9 @@ describe('desktop.yml secret scoping and release', () => {
 describe('docker.yml publish', () => {
   const wf = yaml.load(read('docker.yml'));
   const steps = wf.jobs.publish.steps as Step[];
+  it('publishes on a tag, pushed or dispatched on (release.yml), never on a pull request or a branch', () => {
+    expect(wf.jobs.publish.if).toBe("github.event_name != 'pull_request' && github.ref_type == 'tag'");
+  });
   it('publishes only a tag on main that equals the desktop app version (one version for app, image and tag)', () => {
     const check = steps.find((s) => s.name === 'Check the tag')!;
     expect(check.run).toContain(`node -p "require('./apps/desktop/package.json').version"`);
@@ -932,8 +935,9 @@ describe('docker-refresh.yml (weekly rebuild of the latest release)', () => {
     expect(rank.run).toContain(`git tag --list 'v*' | node scripts/release-tags.mjs "$TAG" | tee -a "$GITHUB_OUTPUT"`);
     const still = publish.steps.find((s) => s.id === 'still')!;
     expect(still.run).toContain(`gh api --paginate "repos/$GITHUB_REPOSITORY/tags?per_page=100" --jq '.[].name' | node scripts/release-tags.mjs --latest`);
-    expect(still.run).toContain('gh run list --repo "$GITHUB_REPOSITORY" --workflow docker.yml --event push');
-    expect(still.run).toContain('select(.status != "completed")');
+    // Release runs on a tag, pushed or dispatched by release.yml (a branch dispatch only builds).
+    expect(still.run).toContain('gh run list --repo "$GITHUB_REPOSITORY" --workflow docker.yml --limit 50 --json status,headBranch');
+    expect(still.run).toContain('select(.status != "completed" and (.headBranch | test("^v[0-9]")))');
     expect(still.run).toContain('gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG"');
     const i = publish.steps.indexOf(still);
     const tag = publish.steps.findIndex((s) => s.name === 'Tag the checked digest');
@@ -959,5 +963,65 @@ describe('docker-refresh.yml (weekly rebuild of the latest release)', () => {
     const run = notify.steps[0]!.run!;
     expect(run).toContain('gh issue comment "$number"');
     expect(run).toContain('gh issue create --repo "$GITHUB_REPOSITORY" --title "$title"');
+  });
+});
+
+describe('release.yml (tags a version bump once CI passes on main, then starts the release workflows)', () => {
+  const wf = yaml.load(read('release.yml'));
+  const job = wf.jobs.tag as Job;
+  const step = (name: string) => job.steps.find((s) => s.name === name)!;
+
+  it('runs after CI on main, or by hand, never on forks, one at a time', () => {
+    expect(wf.on).toEqual({ workflow_run: { workflows: ['CI'], types: ['completed'], branches: ['main'] }, workflow_dispatch: null });
+    expect(job.if).toBe('github.event.repository.fork != true');
+    expect(wf.concurrency).toEqual({ group: 'release', 'cancel-in-progress': false });
+  });
+
+  it('is the only job, with exactly the write scopes the tag and the dispatch need, and runs no dependency code', () => {
+    expect(Object.keys(wf.jobs)).toEqual(['tag']);
+    expect(job.permissions).toEqual({ contents: 'write', actions: 'write' });
+    expect(job.environment).toBeUndefined();
+    expect(JSON.stringify(job)).not.toMatch(/secrets\.|pnpm|npm |npx|node /);
+    expect(job.steps.filter((s) => s.uses).map((s) => s.uses!.split('@')[0])).toEqual(['actions/checkout']);
+  });
+
+  it('releases only a successful CI run of a push to main (or a dispatch from main), at that exact commit', () => {
+    const commit = step('Which commit');
+    expect(commit.run).toContain('[ "$RUN_EVENT" = push ] && [ "$RUN_BRANCH" = main ] && [ "$RUN_CONCLUSION" = success ]');
+    expect(commit.run).toContain('echo "sha=$RUN_SHA" >> "$GITHUB_OUTPUT"');
+    expect(commit.run).toContain('if [ "$GITHUB_REF" != refs/heads/main ]; then');
+    expect(commit.env?.RUN_SHA).toBe('${{ github.event.workflow_run.head_sha }}');
+    const checkout = job.steps.find((s) => s.uses?.startsWith('actions/checkout@'))!;
+    expect(checkout.with?.ref).toBe('${{ steps.commit.outputs.sha }}');
+    expect(checkout.with?.['fetch-depth']).toBe(0);
+  });
+
+  it('checks main, the version, the three package versions, an existing tag and the changelog before tagging', () => {
+    const plan = step('Plan');
+    expect(plan.run).toContain('if ! git merge-base --is-ancestor "$SHA" refs/remotes/origin/main; then');
+    expect(plan.run).toContain('version="$(jq -r .version apps/desktop/package.json)"');
+    expect(plan.run).toContain('for p in apps/web/package.json apps/server/package.json; do');
+    expect(plan.run).toContain('gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag"');
+    expect(plan.run).toContain("grep -q 'HTTP 404'");
+    expect(plan.run).toContain('CHANGELOG.md has no section for $version');
+    expect(plan.run).toContain('echo "tag=$tag" >> "$GITHUB_OUTPUT"');
+  });
+
+  it('creates the tag at the checked commit, then dispatches desktop.yml and docker.yml on it', () => {
+    const go = step('Tag and start the release workflows');
+    expect(go.if).toBe("steps.plan.outputs.tag != ''");
+    const lines = String(go.run).split('\n').map((l) => l.trim()).filter(Boolean);
+    expect(lines).toEqual([
+      'set -euo pipefail',
+      'gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" --silent',
+      'gh workflow run desktop.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"',
+      'gh workflow run docker.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"',
+      'echo "Tagged $TAG at $SHA and started desktop.yml and docker.yml on it." >> "$GITHUB_STEP_SUMMARY"',
+    ]);
+    expect(go.env).toEqual({ GH_TOKEN: '${{ github.token }}', SHA: '${{ steps.commit.outputs.sha }}', TAG: '${{ steps.plan.outputs.tag }}' });
+  });
+
+  it('desktop.yml and docker.yml accept the dispatch and treat a tag ref as a release', () => {
+    for (const f of ['desktop.yml', 'docker.yml']) expect(Object.keys(yaml.load(read(f)).on), f).toContain('workflow_dispatch');
   });
 });

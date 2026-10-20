@@ -26,6 +26,8 @@ name: Desktop
 # Builds without signing are unsigned (allowed); unsigned builds contain no auto-updater at all.
 # The repository is never hardcoded: everything uses github.repository / GITHUB_REPOSITORY.
 # No job here restores a dependency cache, so a poisoned cache entry cannot reach a signed artifact.
+# A tag release runs on a pushed v* tag, or on a dispatch on one: release.yml creates the tag once CI passes on a
+# version bump and dispatches this workflow on it. A dispatch on a branch builds and smoke-tests without releasing.
 on:
   push:
     tags: ['v*']

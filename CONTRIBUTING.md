@@ -309,12 +309,12 @@ A release is a pushed `vX.Y.Z` tag. The tag builds and publishes everything; not
    Chartmate shows them). Tests fail while the desktop version has no changelog section or the three differ.
    Start a new empty `## Unreleased` section after the release.
 2. Run the full checks (`pnpm audit`, `pnpm typecheck`, `pnpm test`, `pnpm e2e`) and merge.
-3. Tag the merge commit on `main` and push `main` together with the tag:
-   `git tag vX.Y.Z && git push origin main vX.Y.Z`. Both release workflows stop if the tagged commit is not on
-   `origin/main`. A suffixed tag
-   (`vX.Y.Z-beta.1`) makes a pre-release. Who can create `v*` tags, and whether they can be moved or deleted,
-   depends on the repository's tag rulesets (docs/desktop.md recommends restricting creation to the owner and
-   blocking updates and deletions).
+3. That is all: once CI passes on `main`, `.github/workflows/release.yml` tags the commit `vX.Y.Z` and starts the
+   release workflows on the tag. It stops with an error if the three versions differ or the changelog has no
+   section for the version, and does nothing when the tag already exists. A suffixed version (`X.Y.Z-beta.1`)
+   makes a pre-release. To re-run it (say, after fixing what stopped it), run the Release workflow from `main` in
+   the Actions tab. Pushing a tag by hand (`git tag vX.Y.Z && git push origin vX.Y.Z`, on a commit on `main`)
+   still works too. A `v*` tag ruleset must let GitHub Actions create tags (docs/desktop.md).
 4. **TODO (after the next release, the first one with the `compose.yaml` asset):** switch the README's
    [Recommended install](README.md#recommended-install-docker-compose) from the `raw.githubusercontent.com/…/main`
    URLs to the release assets (`https://github.com/<repository>/releases/latest/download/compose.yaml` and

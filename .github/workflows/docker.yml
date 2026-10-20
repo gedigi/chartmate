@@ -10,8 +10,8 @@ name: Docker
 #              root filesystem, healthcheck, API, web UI, SQLite temp files, clean SIGTERM shutdown), scans each
 #              for vulnerabilities (fails on a fixable HIGH/CRITICAL one, OS packages and node_modules alike), and
 #              validates compose.yaml. Never pushes.
-#   publish  — only on a pushed vX.Y.Z or vX.Y.Z-suffix tag (never on manual dispatch, which only builds and
-#              tests), in the `ghcr` environment: the only job with `packages: write`. Builds the multi-arch image
+#   publish  — only on a vX.Y.Z or vX.Y.Z-suffix tag, pushed or dispatched on (release.yml starts this workflow on
+#              the tag it creates; a manual dispatch on a branch only builds and tests), in the `ghcr` environment: the only job with `packages: write`. Builds the multi-arch image
 #              on the base digest `image` checked, with BuildKit provenance + SBOM attestations, and pushes it by
 #              digest only (untagged); scans and smoke-tests that pushed digest on both platforms; only then points
 #              the tags at exactly that digest (.github/scripts/tag-image.sh) and adds a Sigstore-signed GitHub build
@@ -156,7 +156,7 @@ jobs:
 
   publish:
     needs: [test, image]
-    if: github.event_name == 'push' && github.ref_type == 'tag'
+    if: github.event_name != 'pull_request' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # Deployment environment: the repository settings limit `ghcr` to the main branch and v* tags (owner setting).

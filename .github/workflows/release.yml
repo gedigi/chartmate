@@ -1,0 +1,115 @@
+name: Release
+
+# Releases without a hand-made tag: when CI passes on a push to main whose desktop app version has no `v<version>` tag
+# yet, this tags that exact commit and starts desktop.yml and docker.yml on the tag (a workflow_dispatch on the tag
+# ref, which both treat like a pushed tag). So a release is: bump the version (CONTRIBUTING, "Releases") and merge.
+#
+#   tag — no dependency code (git, jq and gh only). Stands down (a line in the summary) when CI did not pass, the
+#         run was not a push to main, the commit is no longer on main, or the tag exists. Fails when the version is
+#         not X.Y.Z(-suffix), the three package versions differ or CHANGELOG.md has no section for it. The only job
+#         with `contents: write` (creating the tag ref) and `actions: write` (dispatching the two workflows).
+# A tag pushed by hand still releases through desktop.yml / docker.yml's own `push: tags` trigger; a tag created here
+# with the job token does not fire that trigger (GitHub never starts workflows on its token's pushes), hence the
+# dispatch. workflow_dispatch here re-runs the check for main's head (e.g. after fixing a failed tag step).
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    if: github.event.repository.fork != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Which commit
+        id: commit
+        env:
+          EVENT: ${{ github.event_name }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ]; then
+            if [ "$GITHUB_REF" != refs/heads/main ]; then
+              echo "::error title=Not main::run this from main ($GITHUB_REF)"
+              exit 1
+            fi
+            echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          elif [ "$RUN_EVENT" = push ] && [ "$RUN_BRANCH" = main ] && [ "$RUN_CONCLUSION" = success ]; then
+            echo "sha=$RUN_SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "No release: CI on $RUN_BRANCH ($RUN_EVENT) ended $RUN_CONCLUSION." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.commit.outputs.sha != ''
+        with:
+          persist-credentials: false
+          ref: ${{ steps.commit.outputs.sha }}
+          fetch-depth: 0 # origin/main, for the check below
+      - name: Plan
+        id: plan
+        if: steps.commit.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # Releases come only from reviewed code: the commit must be on main.
+          if ! git merge-base --is-ancestor "$SHA" refs/remotes/origin/main; then
+            echo "No release: $SHA is not on main." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          version="$(jq -r .version apps/desktop/package.json)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error title=Version::apps/desktop/package.json version '$version' is not X.Y.Z(-suffix)"
+            exit 1
+          fi
+          for p in apps/web/package.json apps/server/package.json; do
+            if [ "$(jq -r .version "$p")" != "$version" ]; then
+              echo "::error title=Version::$p is not $version"
+              exit 1
+            fi
+          done
+          tag="v$version"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --silent 2>"$RUNNER_TEMP/ref.err"; then
+            echo "No release: $tag exists." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          elif ! grep -q 'HTTP 404' "$RUNNER_TEMP/ref.err"; then
+            cat "$RUNNER_TEMP/ref.err" >&2
+            echo "::error title=GitHub API::could not look up $tag"
+            exit 1
+          fi
+          escaped="${version//./\\.}"
+          if ! grep -Eq "^## \[?$escaped\]?( |$)" CHANGELOG.md; then
+            echo "::error title=Changelog::CHANGELOG.md has no section for $version"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      # Creating the ref needs a tag ruleset (if any) to let GitHub Actions bypass it (docs/desktop.md, "Tag rules").
+      - name: Tag and start the release workflows
+        if: steps.plan.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.commit.outputs.sha }}
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" --silent
+          gh workflow run desktop.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+          gh workflow run docker.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+          echo "Tagged $TAG at $SHA and started desktop.yml and docker.yml on it." >> "$GITHUB_STEP_SUMMARY"

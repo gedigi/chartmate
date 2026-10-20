@@ -211,7 +211,12 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   `apps/desktop/package.json` (the product version; a test requires a changelog entry for it), and the same
   version in `apps/web/package.json` and `apps/server/package.json` (a test keeps the three equal). The step-by-step
   list is in `CONTRIBUTING.md`, "Releases".
-- Push a tag `vX.Y.Z` (the tagged commit must be on `main`, or both release workflows stop):
+- Releasing is a version bump merged to `main`: once CI passes on it, `.github/workflows/release.yml` (no
+  dependency code; `contents: write` + `actions: write`) checks the three versions and the changelog section,
+  creates the tag `vX.Y.Z` on that commit and dispatches desktop.yml and docker.yml on the tag (a tag created with
+  the workflow token fires no `push: tags` trigger). It stands down when the tag exists, so every other push to
+  `main` is a no-op. A tag pushed by hand still works through the workflows' own `push: tags` trigger.
+- On the tag (the tagged commit must be on `main`, or both release workflows stop):
   `.github/workflows/desktop.yml` tests, then builds macOS arm64/x64 (dmg + zip) and Windows x64/arm64 (NSIS +
   zip), smoke-tests both, and publishes a full GitHub Release with the binaries. The notes start with the tag's
   `CHANGELOG.md` section (`apps/desktop/scripts/changelog-section.mjs`), followed by the signing table. The
@@ -246,7 +251,8 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
     `X.Y.Z`, plus `X.Y`, `X` and `latest` each only when no higher full release exists in that range
     (pre-releases: `X.Y.Z-suffix` only), at exactly that digest; provenance (mode=max), SBOM, the
     `org.opencontainers.image.base.*` labels and a GitHub attestation. Image: `ghcr.io/<owner>/<repo>` from
-    `github.repository` (lowercased); user `1000:1000`. Manual dispatch never publishes.
+    `github.repository` (lowercased); user `1000:1000`. A dispatch on a branch never publishes; one on a tag
+    (release.yml's) does.
   - `compose.yaml` (no `.env` needed) is the documented way to run it, with `.env.example` as the optional
     template; the desktop workflow's release job attaches both to the GitHub Release (`.env.example` as
     `env.example`, since GitHub renames assets that start with a dot).
@@ -255,7 +261,7 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   published GitHub Release and a Dockerfile with a tagged base (v1.0.0 pins a digest, so it is never refreshed);
   `audit` runs the tag's `pnpm audit`; `image` builds, smoke-tests (the tag's own script) and scans; `publish`
   pushes by digest, rechecks, and tags only while the tag is still the latest published release and no docker.yml
-  tag run is queued or in progress; `notify` opens or comments on a "Weekly Docker image refresh failed" issue
+  tag run (pushed or dispatched) is queued or in progress; `notify` opens or comments on a "Weekly Docker image refresh failed" issue
   (`issues: write` only). No concurrency group is shared with docker.yml (it could cancel a pending release).
 - The Compose Postgres is `postgres:18-trixie` with `pull_policy: ${CHARTMATE_POSTGRES_PULL_POLICY:-always}`,
   mounted at `/var/lib/postgresql` (18's layout); a Postgres 17 volume is refused at start. The README's

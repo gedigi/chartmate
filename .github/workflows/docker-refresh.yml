@@ -363,7 +363,7 @@ jobs:
         run: |
           set -euo pipefail
           latest="$(gh api --paginate "repos/$GITHUB_REPOSITORY/tags?per_page=100" --jq '.[].name' | node scripts/release-tags.mjs --latest)"
-          busy="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow docker.yml --event push --limit 50 --json status --jq '[.[] | select(.status != "completed")] | length')"
+          busy="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow docker.yml --limit 50 --json status,headBranch --jq '[.[] | select(.status != "completed" and (.headBranch | test("^v[0-9]")))] | length')"
           if state="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '"\(.draft) \(.prerelease)"' 2>"$RUNNER_TEMP/release.err")"; then
             :
           elif grep -q 'HTTP 404' "$RUNNER_TEMP/release.err"; then
@@ -376,7 +376,7 @@ jobs:
           if [ "$latest" != "$TAG" ]; then
             reason="$TAG is no longer the latest release ($latest is)"
           elif [ "$busy" != 0 ]; then
-            reason="a docker.yml release run (tag push) is queued or in progress ($busy)"
+            reason="a docker.yml release run (on a tag) is queued or in progress ($busy)"
           elif [ "$state" != "false false" ]; then
             reason="$TAG has no published GitHub Release any more ($state)"
           else
