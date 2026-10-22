@@ -219,6 +219,21 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
     expect((await putLayout(layout)).json()).toEqual(layout);
   });
 
+  it('layout hiddenEvents: known kinds only; an invalid list is dropped without failing the save', async () => {
+    for (const hiddenEvents of [['earnings'], ['dividend', 'split'], []]) {
+      const r = await putLayout({ ...layout, hiddenEvents });
+      expect(r.statusCode, String(hiddenEvents)).toBe(200);
+      expect(r.json(), String(hiddenEvents)).toEqual({ ...layout, hiddenEvents });
+    }
+    for (const hiddenEvents of [['news'], 'earnings', ['earnings', 'earnings', 'split', 'dividend'], null]) {
+      const r = await putLayout({ ...layout, hiddenEvents });
+      expect(r.statusCode, String(hiddenEvents)).toBe(200);
+      expect(r.json(), String(hiddenEvents)).not.toHaveProperty('hiddenEvents');
+    }
+    // A layout saved before the field existed still loads as it was (every kind shown).
+    expect((await putLayout(layout)).json()).toEqual(layout);
+  });
+
   it('the appearance default drawing color stays a hex (the appearance dialog edits it)', async () => {
     const r = await putLayout({ ...layout, appearance: { dark: { drawing: { color: 'accent', size: 1, style: 'solid' } } } });
     expect(r.statusCode).toBe(400);

@@ -21,6 +21,18 @@ export interface Basket { id: string; name: string; baseValue: number; versions:
 export interface Marker { ts: number; label: string }
 export interface BarsResponse { symbol: SymbolId; tf: Timeframe; session: SessionMode; bars: Bar[]; hasMoreBefore: boolean; stale: boolean; notices: string[]; markers: Marker[] }
 export interface LatestResponse { bar: Bar | null; stale: boolean }
+/**
+ * A corporate event drawn on stock charts, at `ts` (UTC epoch ms): an earnings report (its reported time; `upcoming`
+ * for the next scheduled one, with the consensus estimate only), a dividend (its ex-date; the amount per share, split
+ * adjusted like the bars) or a split (its ex-date; `ratio` as reported, e.g. '4:1').
+ */
+export type CorporateEvent =
+  | { kind: 'earnings'; ts: number; epsActual?: number; epsEstimate?: number; upcoming?: true }
+  | { kind: 'dividend'; ts: number; amount: number }
+  | { kind: 'split'; ts: number; ratio: string };
+export type CorporateEventKind = CorporateEvent['kind'];
+export const CORPORATE_EVENT_KINDS = ['earnings', 'dividend', 'split'] as const satisfies readonly CorporateEventKind[];
+export interface EventsResponse { symbol: SymbolId; events: CorporateEvent[] }
 export type LineStyleKind = 'solid'|'dashed'|'dotted';
 export interface IndicatorState {
   name: string; pane: 'main'|'sub'; calcParams: number[]; visible: boolean;
@@ -92,6 +104,8 @@ export interface Layout {
    * the appearance's default drawing color). A DrawingColorToken, so one value suits both themes.
    */
   drawingColor?: string;
+  /** Corporate event kinds hidden on stock charts (missing or empty → earnings, dividends and splits all shown). */
+  hiddenEvents?: CorporateEventKind[];
 }
 
 /** Long / short position drawing tools. */

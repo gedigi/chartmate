@@ -1,6 +1,6 @@
 import {
   tagSessionFixedHours, nyParts, pctChange, tfMs,
-  type Bar, type NativeTimeframe, type Quote, type SymbolInfo,
+  type Bar, type CorporateEvent, type NativeTimeframe, type Quote, type SymbolInfo,
 } from '@chartmate/shared';
 import { NotFoundError } from '../errors.js';
 import { rankMatches } from './util.js';
@@ -123,6 +123,42 @@ export class FixtureProvider implements MarketDataProvider {
   /** Fixture data has no splits. */
   async splitsSince(_code: string, _since: number): Promise<StockSplit[]> {
     return [];
+  }
+
+  /**
+   * Deterministic events for stocks (none for crypto): a quarterly dividend (ex-date the 10th of Feb, May, Aug, Nov,
+   * 09:30 New York) since the first bar, earnings on the 25th of Jan, Apr, Jul and Oct after the close for the last
+   * four quarters plus the next one (upcoming), and one MSFT split. SPY, a fund, reports no earnings.
+   */
+  async events(code: string): Promise<CorporateEvent[]> {
+    const sym = this.lookup(code);
+    if (this.assetClass !== 'stock') return [];
+    const now = this.now();
+    const out: CorporateEvent[] = [];
+    const amount = round(sym.base * 0.0015);
+    for (let y = new Date(sym.firstTs).getUTCFullYear(), m = 1; ; m += 3) {
+      if (m > 11) { y += 1; m -= 12; }
+      const ts = Date.UTC(y, m, 10, 13, 30);
+      if (ts > now) break;
+      if (ts >= sym.firstTs) out.push({ kind: 'dividend', ts, amount });
+    }
+    if (code !== 'SPY') {
+      const reports: number[] = [];
+      for (let y = new Date(now).getUTCFullYear() - 2, m = 0; reports.length < 5 || reports[reports.length - 1]! <= now; m += 3) {
+        if (m > 11) { y += 1; m -= 12; }
+        const ts = Date.UTC(y, m, 25, 20, 30);
+        reports.push(ts);
+      }
+      const past = reports.filter((ts) => ts <= now).slice(-4);
+      past.forEach((ts, i) => {
+        const epsEstimate = round(sym.base / 100 + 0.1 * i);
+        out.push({ kind: 'earnings', ts, epsActual: round(epsEstimate * (i % 2 === 0 ? 1.05 : 0.97)), epsEstimate });
+      });
+      const next = reports.find((ts) => ts > now)!;
+      out.push({ kind: 'earnings', ts: next, epsEstimate: round(sym.base / 100 + 0.4), upcoming: true });
+    }
+    if (code === 'MSFT') out.push({ kind: 'split', ts: Date.UTC(2018, 1, 14, 14, 30), ratio: '2:1' });
+    return out.sort((a, b) => a.ts - b.ts);
   }
 
   private generate(sym: FixtureSymbol, tf: NativeTimeframe, from: number, to: number): Bar[] {

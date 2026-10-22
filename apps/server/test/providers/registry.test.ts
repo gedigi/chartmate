@@ -6,6 +6,7 @@ const yahooClient: YahooLike = {
   chart: async () => ({ meta: {}, quotes: [] }),
   search: async () => ({ quotes: [] }),
   quote: async () => [],
+  quoteSummary: async () => ({}),
 };
 const fetchImpl = (async () => new Response('[]')) as typeof fetch;
 const base = { binanceBaseUrl: 'https://data-api.binance.vision', fetchImpl, yahooClient };

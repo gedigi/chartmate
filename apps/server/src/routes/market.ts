@@ -1,6 +1,6 @@
 import {
   parseSymbolId, TIMEFRAMES, tfMs,
-  type Bar, type BarsResponse, type LatestResponse, type Quote, type SymbolId, type SymbolInfo, type Timeframe,
+  type Bar, type BarsResponse, type EventsResponse, type LatestResponse, type Quote, type SymbolId, type SymbolInfo, type Timeframe,
 } from '@chartmate/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -35,6 +35,7 @@ const BarsQuery = z.object({ symbol: SymbolIdSchema, tf: TimeframeSchema, sessio
     }
   });
 const LatestQuery = z.object({ symbol: SymbolIdSchema, tf: TimeframeSchema, session: SessionSchema });
+const EventQuery = z.object({ symbol: SymbolIdSchema });
 const SearchQuery = z.object({ q: z.string().trim().min(1).max(40) });
 const SymbolsQuery = z.object({ symbols: symbolList(50) });
 const IdParams = z.object({ id: SymbolIdSchema });
@@ -111,6 +112,12 @@ export async function marketRoutes(app: FastifyInstance, deps: MarketRouteDeps):
     }
     const r = await market.getBars(q);
     return { ...head, bars: r.bars, hasMoreBefore: r.hasMoreBefore, stale: r.stale, notices: r.notices, markers: [] };
+  });
+
+  // Corporate events (earnings, dividends, splits) of a stock; crypto and baskets have none.
+  app.get('/api/events', async (request): Promise<EventsResponse> => {
+    const { symbol } = parse(EventQuery, request.query);
+    return { symbol, events: isBasket(symbol) ? [] : await market.events(symbol) };
   });
 
   app.get('/api/latest', async (request): Promise<LatestResponse> => {

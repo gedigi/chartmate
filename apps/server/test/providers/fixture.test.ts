@@ -200,4 +200,21 @@ describe('FixtureProvider', () => {
   it('reports no stock splits', async () => {
     expect(await stock().splitsSince('AAPL', 0)).toEqual([]);
   });
+
+  it('events: quarterly dividends, the last four earnings plus the next (upcoming), an MSFT split; none for SPY earnings or crypto', async () => {
+    const now = Date.UTC(2026, 9, 20, 12);
+    const stock = new FixtureProvider({ assetClass: 'stock', now: () => now });
+    const msft = await stock.events('MSFT');
+    const kinds = (k: string) => msft.filter((e) => e.kind === k);
+    expect(msft.map((e) => e.ts)).toEqual([...msft.map((e) => e.ts)].sort((a, b) => a - b));
+    const earnings = kinds('earnings');
+    expect(earnings).toHaveLength(5);
+    expect(earnings.slice(0, 4).every((e) => e.ts <= now && 'epsActual' in e)).toBe(true);
+    expect(earnings[4]).toMatchObject({ ts: Date.UTC(2026, 9, 25, 20, 30), upcoming: true });
+    expect(kinds('dividend').at(-1)!.ts).toBe(Date.UTC(2026, 7, 10, 13, 30));
+    expect(kinds('split')).toEqual([{ kind: 'split', ts: Date.UTC(2018, 1, 14, 14, 30), ratio: '2:1' }]);
+    expect((await stock.events('SPY')).some((e) => e.kind === 'earnings')).toBe(false);
+    expect(await stock.events('MSFT')).toEqual(msft); // deterministic
+    expect(await new FixtureProvider({ assetClass: 'crypto', now: () => now }).events('BTC')).toEqual([]);
+  });
 });

@@ -13,6 +13,7 @@ function fakeYahoo(handlers: Partial<{
   chart: (sym: string, opts: any) => any;
   search: (q: string, opts: any) => any;
   quote: (syms: string[], opts?: any) => any;
+  quoteSummary: (sym: string, opts: any) => any;
 }>) {
   const chartCalls: Call[] = [];
   const searchCalls: { q: string; opts: any }[] = [];
@@ -20,6 +21,7 @@ function fakeYahoo(handlers: Partial<{
     async chart(sym, opts) { chartCalls.push({ sym, opts }); if (!handlers.chart) throw new Error('no chart'); return handlers.chart(sym, opts); },
     async search(q, opts) { searchCalls.push({ q, opts }); if (!handlers.search) throw new Error('no search'); return handlers.search(q, opts); },
     async quote(syms, opts) { if (!handlers.quote) throw new Error('no quote'); return handlers.quote(syms, opts); },
+    async quoteSummary(sym, opts) { if (!handlers.quoteSummary) throw new Error('no quoteSummary'); return handlers.quoteSummary(sym, opts); },
   };
   return { client, chartCalls, searchCalls };
 }
@@ -490,5 +492,69 @@ describe('YahooProvider', () => {
     expect(await provider(client).splitsSince('AAPL', NOW - DAY)).toEqual([]);
     const bad = fakeYahoo({ chart: () => { throw Object.assign(new Error('Too Many Requests'), { code: 429 }); } });
     await expect(provider(bad.client).splitsSince('AAPL', NOW - DAY)).rejects.toBeInstanceOf(ProviderError);
+  });
+
+  describe('events', () => {
+    const div = (iso: string, amount: number) => ({ date: new Date(iso), amount });
+    const chart = () => ({
+      meta: {}, quotes: [],
+      events: {
+        dividends: [div('2026-05-11T13:30:00Z', 0.26), div('2026-08-10T13:30:00Z', 0.27)],
+        splits: [{ date: new Date('2020-08-31T13:30:00Z'), numerator: 4, denominator: 1, splitRatio: '4:1' }],
+      },
+    });
+    const summary = () => ({
+      earnings: { earningsChart: { quarterly: [
+        { actual: 2.01, estimate: 1.94275, reportedDate: new Date('2026-04-30T20:30:00Z') },
+        { actual: 2.02, estimate: 1.89243, reportedDate: new Date('2026-07-30T20:30:00Z') },
+        { actual: null, estimate: 1.5, reportedDate: null }, // no date: skipped
+      ] } },
+      calendarEvents: { earnings: { earningsDate: [new Date('2026-11-02T20:00:00Z')], earningsAverage: 1.98187 } },
+    });
+
+    it('dividends and splits over the whole history, earnings reported and upcoming, sorted by time', async () => {
+      const { client, chartCalls } = fakeYahoo({ chart, quoteSummary: summary });
+      expect(await provider(client).events('AAPL')).toEqual([
+        { kind: 'split', ts: Date.parse('2020-08-31T13:30:00Z'), ratio: '4:1' },
+        { kind: 'earnings', ts: Date.parse('2026-04-30T20:30:00Z'), epsActual: 2.01, epsEstimate: 1.94275 },
+        { kind: 'dividend', ts: Date.parse('2026-05-11T13:30:00Z'), amount: 0.26 },
+        { kind: 'earnings', ts: Date.parse('2026-07-30T20:30:00Z'), epsActual: 2.02, epsEstimate: 1.89243 },
+        { kind: 'dividend', ts: Date.parse('2026-08-10T13:30:00Z'), amount: 0.27 },
+        { kind: 'earnings', ts: Date.parse('2026-11-02T20:00:00Z'), epsEstimate: 1.98187, upcoming: true },
+      ]);
+      expect(chartCalls[0]!.opts).toMatchObject({ interval: '3mo', events: 'div|split' });
+      expect(chartCalls[0]!.opts.period1.getTime()).toBe(0);
+    });
+
+    it('a past "upcoming" date, or one equal to a reported date, is not shown as upcoming', async () => {
+      const past = () => ({ ...summary(), calendarEvents: { earnings: { earningsDate: [new Date(NOW - DAY)] } } });
+      const { client } = fakeYahoo({ chart: () => ({ meta: {}, quotes: [] }), quoteSummary: past });
+      expect((await provider(client).events('AAPL')).filter((e) => e.kind === 'earnings' && e.upcoming)).toEqual([]);
+    });
+
+    it('without fundamentals (an ETF) or when that lookup fails, dividends and splits still come back', async () => {
+      const { client } = fakeYahoo({ chart, quoteSummary: () => { throw new Error('No fundamentals data found for symbol: SPY'); } });
+      const events = await provider(client).events('SPY');
+      expect(events.map((e) => e.kind)).toEqual(['split', 'dividend', 'dividend']);
+    });
+
+    it('skips malformed entries (no date, non-finite or non-positive amounts, no ratio)', async () => {
+      const { client } = fakeYahoo({
+        chart: () => ({ meta: {}, quotes: [], events: {
+          dividends: { a: div('2026-01-01T13:30:00Z', Number.NaN), b: div('2026-02-01T13:30:00Z', 0), c: { amount: 1 }, d: div('2026-03-02T13:30:00Z', 0.5) },
+          splits: [{ date: new Date('2021-01-04T13:30:00Z') }],
+        } }),
+        quoteSummary: () => ({ earnings: { earningsChart: { quarterly: [{ actual: 'x', estimate: Number.POSITIVE_INFINITY, reportedDate: new Date('2026-01-29T21:30:00Z') }] } } }),
+      });
+      expect(await provider(client).events('AAPL')).toEqual([
+        { kind: 'earnings', ts: Date.parse('2026-01-29T21:30:00Z') },
+        { kind: 'dividend', ts: Date.parse('2026-03-02T13:30:00Z'), amount: 0.5 },
+      ]);
+    });
+
+    it('a failed chart call fails the lookup (mapped like other calls)', async () => {
+      const { client } = fakeYahoo({ chart: () => { throw Object.assign(new Error('Too Many Requests'), { code: 429 }); }, quoteSummary: summary });
+      await expect(provider(client).events('AAPL')).rejects.toBeInstanceOf(ProviderError);
+    });
   });
 });

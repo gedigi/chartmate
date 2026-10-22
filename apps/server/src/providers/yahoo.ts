@@ -1,7 +1,7 @@
 import YahooFinance from 'yahoo-finance2';
 import {
   nyDateUtcMidnight, nyParts, nyToUtc, pctChange, tagSessions, tfMs,
-  type Bar, type NativeTimeframe, type Quote, type QuoteExt, type Session, type SessionWindow, type SymbolInfo,
+  type Bar, type CorporateEvent, type NativeTimeframe, type Quote, type QuoteExt, type Session, type SessionWindow, type SymbolInfo,
 } from '@chartmate/shared';
 import { NotFoundError, ProviderError } from '../errors.js';
 import { errMessage, REQUEST_TIMEOUT_MS } from './http.js';
@@ -12,6 +12,7 @@ export interface YahooLike {
   chart(sym: string, opts: Record<string, unknown>): Promise<any>;
   search(q: string, opts: Record<string, unknown>): Promise<any>;
   quote(syms: string[], opts?: Record<string, unknown>): Promise<any>;
+  quoteSummary(sym: string, opts: Record<string, unknown>): Promise<any>;
 }
 
 /** Wraps yahoo-finance2; every call gets its own request timeout so a stalled request can't hold a queue slot. */
@@ -24,6 +25,7 @@ export function createYahooClient(yf: any = new YahooFinance({ suppressNotices: 
     chart: (sym, opts) => yf.chart(encodeURIComponent(sym), opts, moduleOptions()),
     search: (q, opts) => yf.search(q, opts, moduleOptions()),
     quote: (syms, opts) => yf.quote(syms, opts ?? {}, moduleOptions()),
+    quoteSummary: (sym, opts) => yf.quoteSummary(encodeURIComponent(sym), opts, moduleOptions()),
   };
 }
 
@@ -36,8 +38,9 @@ type DateLike = Date | string | number;
 interface YQuote { date: DateLike; open: number | null; high: number | null; low: number | null; close: number | null; volume?: number | null }
 interface YPeriod { start: DateLike; end: DateLike }
 interface YSplit { date: DateLike; splitRatio?: string; numerator?: number; denominator?: number }
+interface YDividend { date: DateLike; amount?: number }
 interface YChart {
-  events?: { splits?: YSplit[] | Record<string, YSplit> };
+  events?: { splits?: YSplit[] | Record<string, YSplit>; dividends?: YDividend[] | Record<string, YDividend> };
   meta?: { firstTradeDate?: DateLike | null; tradingPeriods?: Partial<Record<Session, YPeriod[][] | YPeriod[]>> };
   quotes?: YQuote[];
 }
@@ -165,6 +168,33 @@ export class YahooProvider implements MarketDataProvider {
     return out.sort((a, b) => a.ts - b.ts);
   }
 
+  /**
+   * Corporate events: every dividend and split since the listing (one chart call with dividend and split events),
+   * plus the earnings Yahoo keeps (the last four reports with EPS and estimate, and the next scheduled date). Earnings
+   * are best effort: a symbol without fundamentals (an ETF) or a failed lookup still returns its dividends and splits.
+   */
+  async events(code: string): Promise<CorporateEvent[]> {
+    const opts = { period1: new Date(0), period2: new Date(this.now()), interval: '3mo', events: 'div|split' };
+    const [chart, summary] = await Promise.allSettled([
+      this.call(() => this.client.chart(code, opts)) as Promise<YChart>,
+      this.client.quoteSummary(code, { modules: ['earnings', 'calendarEvents'] }),
+    ]);
+    if (chart.status === 'rejected') throw chart.reason;
+    const out: CorporateEvent[] = [];
+    for (const d of listOf(chart.value.events?.dividends)) {
+      const ts = toMs(d.date);
+      if (ts !== null && isNum(d.amount) && d.amount > 0) out.push({ kind: 'dividend', ts, amount: d.amount });
+    }
+    for (const sp of listOf(chart.value.events?.splits)) {
+      const ts = toMs(sp.date);
+      const ratio = typeof sp.splitRatio === 'string' && sp.splitRatio !== '' ? sp.splitRatio
+        : isNum(sp.numerator) && isNum(sp.denominator) ? `${sp.numerator}:${sp.denominator}` : null;
+      if (ts !== null && ratio !== null) out.push({ kind: 'split', ts, ratio });
+    }
+    if (summary.status === 'fulfilled') out.push(...earningsOf(summary.value, this.now()));
+    return out.sort((a, b) => a.ts - b.ts);
+  }
+
   private async call<T>(fn: () => Promise<T>): Promise<T> {
     try {
       return await fn();
@@ -172,6 +202,28 @@ export class YahooProvider implements MarketDataProvider {
       throw mapYahooError(err);
     }
   }
+}
+
+const listOf = <T>(raw: T[] | Record<string, T> | undefined): T[] => (Array.isArray(raw) ? raw : raw ? Object.values(raw) : []);
+
+/** Reported earnings (with EPS actual / estimate when finite) and the next scheduled report, if still ahead. */
+function earningsOf(summary: any, now: number): CorporateEvent[] {
+  const out: CorporateEvent[] = [];
+  const quarterly: unknown = summary?.earnings?.earningsChart?.quarterly;
+  for (const q of Array.isArray(quarterly) ? quarterly : []) {
+    const ts = toMs(q?.reportedDate);
+    if (ts === null) continue;
+    const e: CorporateEvent = { kind: 'earnings', ts };
+    if (isNum(q.actual)) e.epsActual = q.actual;
+    if (isNum(q.estimate)) e.epsEstimate = q.estimate;
+    out.push(e);
+  }
+  const cal = summary?.calendarEvents?.earnings;
+  const next = Array.isArray(cal?.earningsDate) ? toMs(cal.earningsDate[0]) : null;
+  if (next !== null && next > now && !out.some((e) => e.ts === next)) {
+    out.push({ kind: 'earnings', ts: next, ...(isNum(cal.earningsAverage) ? { epsEstimate: cal.earningsAverage } : {}), upcoming: true });
+  }
+  return out;
 }
 
 function mapYahooError(err: unknown): Error {

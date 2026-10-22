@@ -32,6 +32,7 @@ function stampedAtOpen(): { client: YahooLike; calls: Array<[number, number]> } 
     },
     async search() { return { quotes: [{ symbol: 'AAPL', isYahooFinance: true, quoteType: 'EQUITY', shortname: 'Apple' }] }; },
     async quote() { return []; },
+    async quoteSummary() { return {}; },
   };
   return { client, calls };
 }

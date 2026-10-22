@@ -1,5 +1,5 @@
 import {
-  DRAWING_COLOR_RE, DRAWING_COLOR_TOKENS, HEX_COLOR_RE, MAX_INDICATOR_LEVEL, MAX_INDICATOR_LEVELS, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_POSITION_PCT, MAX_SECTION_TITLE,
+  CORPORATE_EVENT_KINDS, DRAWING_COLOR_RE, DRAWING_COLOR_TOKENS, HEX_COLOR_RE, MAX_INDICATOR_LEVEL, MAX_INDICATOR_LEVELS, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_POSITION_PCT, MAX_SECTION_TITLE,
   MAX_TEXT_SIZE, MAX_WATCHLIST_SECTIONS, MAX_WATCHLIST_SYMBOLS, MIN_LINE_WIDTH, MIN_TEXT_SIZE, migrateAppearance, TIMEFRAMES,
   mergeLegacyWatchlist, normalizeSymbolId, tryNormalizeSymbolId, WATCHLIST_STORED_HEADER, watchlistProblem,
   type DrawingState, type Layout, type Timeframe, type WatchlistEntry,
@@ -101,6 +101,8 @@ const LayoutSchema = z.object({
   // Color of new drawings: the last swatch picked, so a palette reference only (no layout ever stored a hex here).
   // Tolerant: an invalid value is dropped on its own.
   drawingColor: z.enum(DRAWING_COLOR_TOKENS).optional().catch(undefined),
+  // Event kinds hidden on stock charts. Tolerant: an invalid list is dropped on its own (all kinds shown again).
+  hiddenEvents: z.array(z.enum(CORPORATE_EVENT_KINDS)).max(CORPORATE_EVENT_KINDS.length).optional().catch(undefined),
 }) satisfies z.ZodType<Layout, unknown>;
 
 const DrawingSchema = z.object({

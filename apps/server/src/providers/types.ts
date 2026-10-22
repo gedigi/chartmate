@@ -1,4 +1,4 @@
-import type { Bar, NativeTimeframe, Quote, SessionWindow, SymbolInfo } from '@chartmate/shared';
+import type { Bar, CorporateEvent, NativeTimeframe, Quote, SessionWindow, SymbolInfo } from '@chartmate/shared';
 
 export interface ProviderLimits {
   /** How far back from now data exists; absent = unlimited. */
@@ -36,4 +36,6 @@ export interface MarketDataProvider {
   firstBarTs(code: string): Promise<number | null>;
   /** Stock splits with ts strictly after `since` (optional: providers without splits omit it). */
   splitsSince?(code: string, since: number): Promise<StockSplit[]>;
+  /** Earnings, dividends and splits, sorted by ts (optional: providers without them omit it). */
+  events?(code: string): Promise<CorporateEvent[]>;
 }

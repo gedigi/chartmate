@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import type { BarsResponse, LatestResponse, Quote, SymbolInfo } from '@chartmate/shared';
+import type { BarsResponse, EventsResponse, LatestResponse, Quote, SymbolInfo } from '@chartmate/shared';
 import { ProviderError } from '../../src/errors.js';
 import { basketBody, DAY, makeApp, type TestApp } from './helpers.js';
 
@@ -312,5 +312,20 @@ describe('market routes', () => {
       const none = await get('/api/symbols/search?q=zzz');
       expect(none.statusCode).toBe(503);
     });
+  });
+
+  it('GET /api/events: a stock\'s earnings, dividends and splits; none for crypto or baskets; validated', async () => {
+    const r = await get('/api/events?symbol=stock:msft');
+    expect(r.statusCode).toBe(200);
+    const body = r.json<EventsResponse>();
+    expect(body.symbol).toBe('stock:MSFT');
+    expect(new Set(body.events.map((e) => e.kind))).toEqual(new Set(['earnings', 'dividend', 'split']));
+    expect((await get('/api/events?symbol=crypto:BTC')).json()).toEqual({ symbol: 'crypto:BTC', events: [] });
+    const created = await t.app.inject({ method: 'POST', url: '/api/baskets', payload: basketBody() });
+    const id = `basket:${created.json<{ id: string }>().id}`;
+    expect((await get(`/api/events?symbol=${id}`)).json()).toEqual({ symbol: id, events: [] });
+    expect((await get('/api/events?symbol=bogus')).statusCode).toBe(400);
+    expect((await get('/api/events')).statusCode).toBe(400);
+    expect((await get('/api/events?symbol=stock:NOPE')).statusCode).toBe(404);
   });
 });

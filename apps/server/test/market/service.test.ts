@@ -828,4 +828,35 @@ describe('MarketDataService', () => {
     expect(calendarFor('stock:AAPL', 'rth')).toBe('nyse-rth');
     expect(calendarFor('stock:AAPL', 'eth')).toBe('nyse-eth');
   });
+
+  describe('events', () => {
+    const div = { kind: 'dividend' as const, ts: Date.UTC(2026, 7, 10, 13, 30), amount: 0.27 };
+
+    it('asks the stock provider once per symbol for 12 hours, then again', async () => {
+      stock.eventList.AAPL = [div];
+      expect(await svc.events('stock:AAPL')).toEqual([div]);
+      now += 11 * HOUR;
+      expect(await svc.events('stock:AAPL')).toEqual([div]);
+      expect(stock.eventsCalls).toEqual(['AAPL']);
+      now += 2 * HOUR;
+      await svc.events('stock:AAPL');
+      expect(stock.eventsCalls).toEqual(['AAPL', 'AAPL']);
+    });
+
+    it('a failed refresh serves the last answer (up to a week old); with none it fails', async () => {
+      stock.eventList.AAPL = [div];
+      await svc.events('stock:AAPL');
+      stock.eventsFail = new ProviderError('yahoo', 'down', true);
+      now += 13 * HOUR;
+      expect(await svc.events('stock:AAPL')).toEqual([div]);
+      now += 8 * DAY;
+      await expect(svc.events('stock:AAPL')).rejects.toBeInstanceOf(ProviderError);
+      await expect(svc.events('stock:MSFT')).rejects.toBeInstanceOf(ProviderError);
+    });
+
+    it('crypto has no events (the provider is not asked)', async () => {
+      expect(await svc.events('crypto:BTC')).toEqual([]);
+      expect(crypto.eventsCalls).toEqual([]);
+    });
+  });
 });

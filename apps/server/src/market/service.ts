@@ -1,6 +1,6 @@
 import {
   baseTimeframe, bucketStart, filterSession, isIntraday, nyDateUtcMidnight, nyParts, nyToUtc, parseSymbolId, resample, tfMs,
-  type AssetClass, type Bar, type Calendar, type NativeTimeframe, type Quote, type SessionMode,
+  type AssetClass, type Bar, type Calendar, type CorporateEvent, type NativeTimeframe, type Quote, type SessionMode,
   type SymbolId, type SymbolInfo, type Timeframe,
 } from '@chartmate/shared';
 import type { Repos, SplitOp, SymbolInfoRow } from '../db/repos.js';
@@ -41,6 +41,10 @@ const MAX_FRESH = 5000;
 const SEARCH_TTL_MS = 10 * 60_000;
 /** Most search answers remembered at once. */
 const MAX_SEARCHES = 200;
+/** Corporate events change rarely: reused for 12 hours, and a failed refresh serves the last answer up to a week old. */
+const EVENTS_FRESH_MS = 12 * 3_600_000;
+const EVENTS_STALE_MS = 7 * 86_400_000;
+const MAX_EVENTS = 500;
 
 export interface GetBarsArgs { symbol: SymbolId; tf: Timeframe; session: SessionMode; from: number; to: number }
 export interface BarsResult { bars: Bar[]; stale: boolean; hasMoreBefore: boolean; earliestTs: number | null; notices: string[] }
@@ -117,6 +121,8 @@ export class MarketDataService {
   private readonly quoteCache: TtlCache<string, Quote>;
   /** Symbol search answers, per `class|normalized query`. */
   private readonly searchCache = new TtlCache<string, SymbolInfo[]>(MAX_SEARCHES);
+  /** Corporate events per stock code, with when they were fetched (kept until EVENTS_STALE_MS as a fallback). */
+  private readonly eventsCache = new TtlCache<string, { events: CorporateEvent[]; at: number }>(MAX_EVENTS);
 
   /** Most symbols the in-memory split bookkeeping tracks at once. */
   private readonly maxTracked: number;
@@ -611,6 +617,25 @@ export class MarketDataService {
     }
     await this.repos.bars.applySplit(id, ops, now);
     this.epoch++;
+  }
+
+  /** Earnings, dividends and splits of a stock (none for crypto, or with a provider that has none), sorted by ts. */
+  async events(id: SymbolId): Promise<CorporateEvent[]> {
+    const { assetClass, code } = parseSymbolId(id);
+    const provider = this.provider('stock');
+    if (assetClass !== 'stock' || !provider.events) return [];
+    const now = this.now();
+    const cached = this.eventsCache.get(code, now);
+    if (cached && now - cached.at < EVENTS_FRESH_MS) return cached.events;
+    try {
+      const events = await this.queues.stock.run(`events|${code}`, () => provider.events!(code));
+      const at = this.now();
+      this.eventsCache.set(code, { events, at }, at + EVENTS_STALE_MS, at);
+      return events;
+    } catch (err) {
+      if (cached) return cached.events;
+      throw err;
+    }
   }
 
   /** Answers are reused for 10 minutes per class and normalized query (trimmed, case-insensitive); failures are not. */

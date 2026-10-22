@@ -1,6 +1,6 @@
 import {
   nyParts, tagSessionFixedHours, tfMs,
-  type Bar, type NativeTimeframe, type Quote, type QuoteExt, type SymbolInfo,
+  type Bar, type CorporateEvent, type NativeTimeframe, type Quote, type QuoteExt, type SymbolInfo,
 } from '@chartmate/shared';
 import { NotFoundError } from '../../src/errors.js';
 import type { FetchBarsResult, MarketDataProvider, ProviderLimits } from '../../src/providers/types.js';
@@ -33,6 +33,10 @@ export class FakeProvider implements MarketDataProvider {
   /** Per-code stock splits: a split date (factor 2) or { ts, factor }. */
   splits: Record<string, (number | { ts: number; factor: number })[]> = {};
   splitsCalls: { code: string; since: number }[] = [];
+  /** Per-code corporate events returned by events(); eventsFail makes it throw. */
+  eventList: Record<string, CorporateEvent[]> = {};
+  eventsCalls: string[] = [];
+  eventsFail: Error | null = null;
   splitsFail: Error | null = null;
   /** Optional quote price per code (undefined = no quote for that code); default: 10 for universe codes. */
   quotePrice: ((code: string) => number | undefined) | null = null;
@@ -85,6 +89,12 @@ export class FakeProvider implements MarketDataProvider {
     this.firstCalls.push(code);
     if (this.fail) throw this.fail;
     return this.firstTs;
+  }
+
+  async events(code: string): Promise<CorporateEvent[]> {
+    this.eventsCalls.push(code);
+    if (this.eventsFail) throw this.eventsFail;
+    return this.eventList[code] ?? [];
   }
 
   async splitsSince(code: string, since: number): Promise<{ ts: number; ratio: string; factor: number }[]> {
