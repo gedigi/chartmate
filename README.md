@@ -585,6 +585,19 @@ Where to read next:
 - **VWAP** resets each session on intraday charts: at midnight New York time for stocks and stock-only baskets,
   at midnight UTC for crypto and for baskets holding crypto (whose intraday bars use the UTC grid). On 1D and
   longer timeframes it spans the whole loaded series.
+- **Events (stocks)**: earnings, dividends and splits appear as small lettered badges at the bottom of the price
+  pane, on the bar each falls in (several on one bar stack up):
+  - **E** earnings, in the up color when the report beat the EPS estimate, the down color when it missed, the
+    accent when there are no figures, and as a hollow accent ring for the next scheduled report (drawn right of
+    the last bar).
+  - **D** dividends (gold), at the ex-dividend date, with the amount per share.
+  - **S** splits (violet), with the ratio.
+
+  Hover a badge for the date (for earnings, also whether before the open or after the close) and the figures;
+  screen readers get the same list. Each kind is turned on or off in the picker's **Events** group (all on by
+  default; they do not count against the indicator limit, and the choice is saved with the layout). Yahoo Finance
+  provides the whole dividend and split history, but only the last four earnings reports plus the next date, so
+  older quarters have no **E**. The server caches events for 12 hours. Crypto and baskets have none.
 - **Your own**: an indicator is one file; see [Custom indicators](#custom-indicators) and
   [CONTRIBUTING.md](CONTRIBUTING.md#add-an-indicator).
 
@@ -1101,6 +1114,7 @@ JSON over `/api` (the web client uses nothing else). With `CHARTMATE_PASSWORD` s
 | `GET /api/symbols/:id` | Symbol info (name, exchange, price precision). |
 | `GET /api/bars?symbol=&tf=&session=rth\|eth&from=&to=` | Bars in a range (ms timestamps), with `stale`, notices and markers. |
 | `GET /api/latest?symbol=&tf=&session=` | The latest bar. |
+| `GET /api/events?symbol=` | A stock's earnings, dividends and splits (`[]` for crypto and baskets). |
 | `GET /api/quotes?symbols=` / `GET /api/sparklines?symbols=` | Watchlist quotes / sparklines (comma-separated ids, at most 50). |
 | `GET`, `POST /api/baskets`; `GET`, `PUT`, `DELETE /api/baskets/:id`; `POST /api/baskets/:id/versions` | Baskets and their versions (at most 50 constituents per version, 100 versions and 100 distinct symbols per basket). Appending a version is atomic; one that loses a race with another edit three times gets a 409. |
 | `GET`, `PUT /api/watchlist` | The watchlist (see [Watchlist and sections](#watchlist-and-sections)). |

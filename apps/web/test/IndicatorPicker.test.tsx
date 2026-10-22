@@ -124,4 +124,49 @@ describe('IndicatorButton', () => {
     expect(update(full)).toBe(full);
     expect(update(BASE).indicators).toHaveLength(1);
   });
+
+  describe('Events', () => {
+    it('lists earnings, dividends and splits as toggles (shown unless hidden), filtered by the search', async () => {
+      const onToggleEvent = vi.fn();
+      render(<IndicatorPicker count={0} onAdd={() => {}} onClose={() => {}} hiddenEvents={['dividend']} onToggleEvent={onToggleEvent} />);
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByRole('heading', { name: 'Events' })).toBeInTheDocument();
+      const earnings = within(dialog).getByRole('button', { name: /^Earnings/ });
+      expect(earnings).toHaveAttribute('aria-pressed', 'true');
+      expect(within(dialog).getByRole('button', { name: /^Dividends/ })).toHaveAttribute('aria-pressed', 'false');
+      expect(within(dialog).getByRole('button', { name: /^Splits/ })).toHaveAttribute('aria-pressed', 'true');
+      await userEvent.click(earnings);
+      expect(onToggleEvent).toHaveBeenCalledWith('earnings');
+      await userEvent.type(screen.getByRole('searchbox'), 'divid');
+      expect(within(dialog).queryByRole('button', { name: /^Earnings/ })).not.toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: /^Dividends/ })).toBeInTheDocument();
+    });
+
+    it('are not counted against the indicator limit', () => {
+      render(<IndicatorPicker count={MAX_INDICATORS} onAdd={() => {}} onClose={() => {}} hiddenEvents={[]} onToggleEvent={() => {}} />);
+      expect(screen.getByRole('button', { name: /^Splits/ })).toBeEnabled();
+    });
+
+    it('without onToggleEvent there is no Events group', () => {
+      render(<IndicatorPicker count={0} onAdd={() => {}} onClose={() => {}} />);
+      expect(screen.queryByRole('heading', { name: 'Events' })).not.toBeInTheDocument();
+    });
+
+    it('IndicatorButton stores the hidden kinds in the layout (none hidden: no field)', async () => {
+      let last: Layout | null = null;
+      function Harness() {
+        const [layout, setLayout] = useState<Layout>({ symbol: 'stock:AAPL', tf: '1D', session: 'rth', chartType: 'candle', indicators: [] });
+        last = layout;
+        return <IndicatorButton layout={layout} setLayout={(fn) => setLayout(fn)} />;
+      }
+      render(<Harness />);
+      await userEvent.click(screen.getByRole('button', { name: 'Indicators' }));
+      await userEvent.click(screen.getByRole('button', { name: /^Splits/ }));
+      await userEvent.click(screen.getByRole('button', { name: /^Earnings/ }));
+      expect(last!.hiddenEvents).toEqual(['earnings', 'split']);
+      await userEvent.click(screen.getByRole('button', { name: /^Splits/ }));
+      await userEvent.click(screen.getByRole('button', { name: /^Earnings/ }));
+      expect(last!).not.toHaveProperty('hiddenEvents');
+    });
+  });
 });

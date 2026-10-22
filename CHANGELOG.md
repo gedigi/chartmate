@@ -5,6 +5,12 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+### Everywhere
+
+- Stock charts show earnings, dividends and splits as small lettered badges under the bars (E, D, S). Earnings are
+  colored by whether they beat or missed the estimate, and the next report shows ahead of time. Hover a badge for
+  the date and figures. The **Indicators** picker has an **Events** group to turn each kind on or off.
+
 ## [1.1.2] - 2026-10-20
 
 ### Everywhere

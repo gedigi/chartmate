@@ -1,6 +1,6 @@
 import {
   normalizeWatchlist, WATCHLIST_STORED_HEADER,
-  type BarsResponse, type Basket, type BasketVersion, type DrawingState, type LatestResponse, type Layout, type Quote,
+  type BarsResponse, type Basket, type BasketVersion, type DrawingState, type EventsResponse, type LatestResponse, type Layout, type Quote,
   type SessionMode, type SymbolId, type SymbolInfo, type Timeframe, type WatchlistEntry,
 } from '@chartmate/shared';
 
@@ -136,6 +136,7 @@ export const api = {
     get<BarsResponse>(`/bars${qs({ symbol: p.symbol, tf: p.tf, session: p.session, from: p.from, to: p.to })}`, signal),
   latest: (p: LatestParams, signal?: AbortSignal) =>
     get<LatestResponse>(`/latest${qs({ symbol: p.symbol, tf: p.tf, session: p.session })}`, signal),
+  events: (id: SymbolId) => get<EventsResponse>(`/events${qs({ symbol: id })}`),
   quotes: (ids: SymbolId[]) => get<Quote[]>(`/quotes${qs({ symbols: ids.join(',') })}`),
   sparklines: (ids: SymbolId[]) => get<Record<SymbolId, number[]>>(`/sparklines${qs({ symbols: ids.join(',') })}`),
 

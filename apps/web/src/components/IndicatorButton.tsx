@@ -1,4 +1,4 @@
-import { MAX_INDICATORS, type Layout } from '@chartmate/shared';
+import { CORPORATE_EVENT_KINDS, MAX_INDICATORS, type CorporateEventKind, type Layout } from '@chartmate/shared';
 import { useState, type JSX } from 'react';
 import { IndicatorPicker } from './IndicatorPicker';
 
@@ -25,8 +25,19 @@ export function IndicatorButton({ layout, setLayout, disabled }: IndicatorButton
           count={layout.indicators.length}
           onAdd={(s) => setLayout((l) => (l.indicators.length >= MAX_INDICATORS ? l : { ...l, indicators: [...l.indicators, s] }))}
           onClose={() => setOpen(false)}
+          hiddenEvents={layout.hiddenEvents}
+          onToggleEvent={(kind) => setLayout((l) => withEventToggled(l, kind))}
         />
       )}
     </>
   );
+}
+
+/** `l` with `kind` shown if it was hidden, hidden if it was shown (kinds kept in their canonical order; none hidden: no field). */
+function withEventToggled(l: Layout, kind: CorporateEventKind): Layout {
+  const hidden = new Set(l.hiddenEvents ?? []);
+  if (hidden.has(kind)) hidden.delete(kind);
+  else hidden.add(kind);
+  const { hiddenEvents: _old, ...rest } = l;
+  return hidden.size > 0 ? { ...rest, hiddenEvents: CORPORATE_EVENT_KINDS.filter((k) => hidden.has(k)) } : rest;
 }

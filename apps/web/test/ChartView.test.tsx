@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api/client';
+import { resetCorporateEvents } from '../src/state/corporateEvents';
 import { notifyBasketChanged } from '../src/state/useBaskets';
 import type { LoaderEvents } from '../src/chart/dataLoader';
 
@@ -17,6 +18,11 @@ const fake = vi.hoisted(() => {
     setChartType = vi.fn();
     setSessionShading = vi.fn();
     setMarkers = vi.fn();
+    setEvents = vi.fn();
+    eventHoverCb: ((h: unknown) => void) | null = null;
+    onEventHover = vi.fn((cb: (h: unknown) => void) => { this.eventHoverCb = cb; return () => { this.eventHoverCb = null; }; });
+    eventsShownCb: ((g: unknown) => void) | null = null;
+    onEventsShown = vi.fn((cb: (g: unknown) => void) => { this.eventsShownCb = cb; return () => { this.eventsShownCb = null; }; });
     addIndicator = vi.fn(() => `ind_${++this.seq}`);
     updateIndicator = vi.fn();
     removeIndicator = vi.fn();
@@ -112,6 +118,8 @@ beforeEach(() => {
   drawingsStore.reset();
   vi.spyOn(api.drawings, 'get').mockResolvedValue([]);
   vi.spyOn(api.drawings, 'put').mockResolvedValue(undefined);
+  vi.spyOn(api, 'events').mockImplementation(async (symbol) => ({ symbol, events: [] }));
+  resetCorporateEvents();
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -883,5 +891,43 @@ describe('ChartView date ranges', () => {
     await act(async () => { resolve({ bars: [], hasMoreBefore: false }); });
     expect(v.layout().tf).toBe('5m');
     expect(adapter().showRange).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChartView corporate events', () => {
+  const div = { kind: 'dividend' as const, ts: Date.UTC(2026, 7, 10, 13, 30), amount: 0.27 };
+  const earn = { kind: 'earnings' as const, ts: Date.UTC(2026, 6, 30, 20, 30), epsActual: 2.02, epsEstimate: 1.89243 };
+
+  it('fetches a stock\'s events and hands them to the chart with the hidden kinds; none for crypto', async () => {
+    vi.mocked(api.events).mockResolvedValue({ symbol: 'stock:AAPL', events: [earn, div] });
+    const { rerenderWith } = renderView({ ...LAYOUT, hiddenEvents: ['split'] });
+    await flush();
+    await flush();
+    expect(api.events).toHaveBeenCalledWith('stock:AAPL');
+    expect(adapter().setEvents).toHaveBeenLastCalledWith([earn, div], ['split']);
+    rerenderWith({ ...LAYOUT });
+    expect(adapter().setEvents).toHaveBeenLastCalledWith([earn, div], []);
+    rerenderWith({ ...LAYOUT, symbol: 'crypto:BTC' }, BTC);
+    await flush();
+    expect(adapter().setEvents).toHaveBeenLastCalledWith([], []);
+    expect(api.events).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a tooltip for the hovered badges and lists the drawn events for screen readers', async () => {
+    renderView();
+    await flush();
+    act(() => adapter().eventsShownCb!([{ barTs: earn.ts, events: [earn] }, { barTs: div.ts, events: [div] }]));
+    const list = screen.getByTestId('events-readout');
+    expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'Earnings, Jul 30, 2026, after the close: EPS 2.02 vs 1.89 estimated, beat by 6.7%',
+      'Dividend, Aug 10, 2026: $0.27 per share',
+    ]);
+    act(() => adapter().eventHoverCb!({ events: [div], x: 300, y: 400 }));
+    const tip = document.querySelector('.event-tooltip') as HTMLElement;
+    expect(tip).toHaveTextContent('Dividend Aug 10, 2026$0.27 per share');
+    expect(tip.style.left).toBe('300px');
+    expect(tip.style.top).toBe('400px');
+    act(() => adapter().eventHoverCb!(null));
+    expect(document.querySelector('.event-tooltip')).toBeNull();
   });
 });

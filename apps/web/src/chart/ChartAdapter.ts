@@ -5,7 +5,7 @@ import {
 } from 'klinecharts';
 import {
   isDrawingColorToken, isIntraday, isPositionTool, nyToUtc, resolvePositionDefaults, tfMs,
-  type ChartType, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker, type PositionDefaults,
+  type ChartType, type CorporateEvent, type CorporateEventKind, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker, type PositionDefaults,
   type ThemedAppearance, type SessionMode, type SymbolInfo, type Timeframe,
 } from '@chartmate/shared';
 import {
@@ -34,6 +34,7 @@ import type { IndicatorExtendData } from './indicators/types';
 import { toPeriod } from './periods';
 import { barsShown, fitBarSpace, rangeLabel, rangeLookbackMs, rangeStart, visibleBarCount, type RangeCalendar, type RangePreset } from './ranges';
 import { MARKER_OVERLAY, markerStyles, registerMarkerOverlay } from './markers';
+import { badgeStackHeight, EVENT_OVERLAY, eventGroups, groupBadges, registerEventOverlay, type EventGroup, type EventOverlayData } from './events';
 import {
   MEASURE_OVERLAY, measureColors, measureLines, measureStats, registerMeasureOverlay, snapValue,
   type MeasurePoint, type MeasureSnap, type MeasureStats, type MeasureView,
@@ -112,6 +113,9 @@ export type SelectedDrawing = SelectedLock & (
 const INDICATOR_DASH = [4, 4];
 
 /** A date range as fitted on the chart: its first and latest bar times, how many bars, and its span as text. */
+/** Corporate event badges under the mouse: their events and where the top of their stack is (px, in the chart element). */
+export interface EventHover { events: CorporateEvent[]; x: number; y: number }
+
 export interface ShownRange { preset: RangePreset; first: number; last: number; bars: number; label: string }
 
 export interface LoadParams {
@@ -127,6 +131,8 @@ const RANGE_RIGHT_MARGIN_PX = 80;
 const DOUBLE_CLICK_MS = 500;
 const DOUBLE_CLICK_PX = 5;
 const MARKERS = 'markers';
+/** Overlay group of the corporate event badges (never user drawings). */
+const EVENTS = 'events';
 /** Group of the Shift measure overlay (never a user drawing). */
 const MEASURE = 'measure';
 /** A press that moves less than this (px, Manhattan) before its release is a click: the measure then follows the mouse. */
@@ -223,6 +229,15 @@ export class ChartAdapter {
   private tf: Timeframe | null = null;
   private loader: DataLoaderImpl | null = null;
   private markers: Marker[] = [];
+  /** Corporate events of the charted stock and the kinds hidden (see setEvents). */
+  private events: CorporateEvent[] = [];
+  private hiddenEvents: CorporateEventKind[] = [];
+  /** The event groups drawn (re-rendered only when they change), and their overlays' ids. */
+  private eventsKey = '';
+  private eventGroupsShown: EventGroup[] = [];
+  private readonly eventOverlayGroups = new Map<string, EventGroup>();
+  private readonly eventHoverListeners = new Set<(h: EventHover | null) => void>();
+  private readonly eventsShownListeners = new Set<(groups: EventGroup[]) => void>();
   private assetClass: SymbolInfo['assetClass'] | null = null;
   private basketHasCrypto = false;
   /** Passed to every indicator as `extendData` (VWAP picks its session day from it). */
@@ -245,6 +260,7 @@ export class ChartAdapter {
   constructor(el: HTMLElement, opts: { theme: ThemeName }) {
     registerSessionShade();
     registerMarkerOverlay();
+    registerEventOverlay();
     registerDrawingTemplates();
     registerRectangleOverlay();
     registerPositionOverlays();
@@ -388,6 +404,8 @@ export class ChartAdapter {
     if (prevSymbol === p.symbol.id && prevMapping !== this.mapsDailyAnchors()) this.replaceForAnchorMapping(p.symbol.id);
     this.markers = [];
     this.renderMarkers();
+    if (prevSymbol !== p.symbol.id) this.events = [];
+    this.renderEvents();
     const ext: IndicatorExtendData = { assetClass: p.symbol.assetClass, intraday: isIntraday(p.tf), pricePrecision: p.symbol.pricePrecision };
     if (this.basketHasCrypto) ext.utcDays = true; // its intraday bars use the UTC grid
     this.setIndicatorContext(ext);
@@ -463,6 +481,8 @@ export class ChartAdapter {
     this.loadSymbol = null;
     this.markers = [];
     this.renderMarkers();
+    this.events = [];
+    this.renderEvents();
     this.installEmptyLoader();
   }
 
@@ -480,6 +500,7 @@ export class ChartAdapter {
     this.updateIndicatorColors();
     this.chart.setStyles(this.styles());
     for (const o of this.chart.getOverlays({ groupId: MARKERS })) this.chart.overrideOverlay({ id: o.id, styles: markerStyles(t) });
+    this.renderEvents(true); // the badges' colors are the theme's
     this.refreshLockedLook();
     this.refreshColorRefs();
     // Indicator lines without a color override carry the palette of the theme they were written in: rewrite
@@ -537,6 +558,7 @@ export class ChartAdapter {
     this.refreshLockedLook();
     this.refreshColorRefs();
     this.refreshMeasure();
+    this.renderEvents(true); // beats and misses take the candle colors
     this.emitSelection();
   }
 
@@ -604,9 +626,75 @@ export class ChartAdapter {
     this.refreshMeasure(); // older bars shift the indexes: bars / volume are recounted from the bar times
     // The selected position's outcome follows new bars (polling / backfill).
     if (this.selectedId && this.userOverlays().some((o) => o.id === this.selectedId && isPositionTool(o.name))) this.emitSelection();
+    if (this.events.length > 0) this.renderEvents();
     if (this.markers.length === 0) return;
     const key = JSON.stringify(this.markerOverlays().map((o) => [o.extendData, o.points?.[0]?.timestamp]));
     if (key !== this.markersKey) this.renderMarkers();
+  }
+
+  // ── corporate events ──────────────────────────────────────────────────────
+
+  /**
+   * The charted stock's earnings, dividends and splits, and the kinds to leave out: drawn as badges at the bottom of
+   * the price pane on the bars they fall in (kept across timeframe changes of the same symbol; a new symbol clears them).
+   */
+  setEvents(events: CorporateEvent[], hidden: CorporateEventKind[] = []): void {
+    this.events = events;
+    this.hiddenEvents = hidden;
+    this.renderEvents();
+  }
+
+  /** Fired when the mouse enters a bar's badges (where they sit and the events) and leaves them (null). */
+  onEventHover(cb: (h: EventHover | null) => void): () => void {
+    this.eventHoverListeners.add(cb);
+    return () => { this.eventHoverListeners.delete(cb); };
+  }
+
+  /** Fired with the event groups drawn whenever they change (e.g. for a screen-reader list). */
+  onEventsShown(cb: (groups: EventGroup[]) => void): () => void {
+    this.eventsShownListeners.add(cb);
+    cb(this.eventGroupsShown);
+    return () => { this.eventsShownListeners.delete(cb); };
+  }
+
+  /** Redraws the badges when the groups changed (or always, with `force`: new colors). */
+  private renderEvents(force = false): void {
+    const data = this.chart.getDataList();
+    const groups = this.tf ? eventGroups(this.events, data, tfMs(this.tf), this.hiddenEvents) : [];
+    const key = JSON.stringify(groups);
+    if (!force && key === this.eventsKey) return;
+    this.eventsKey = key;
+    this.withSilence(() => this.chart.removeOverlay({ groupId: EVENTS }));
+    this.eventOverlayGroups.clear();
+    this.emitEventHover(null);
+    for (const g of groups) {
+      const extendData: EventOverlayData = { badges: groupBadges(g, this.theme, this.appearance) };
+      const id = this.chart.createOverlay({
+        name: EVENT_OVERLAY, groupId: EVENTS, lock: true, extendData, points: [{ timestamp: g.barTs, value: 0 }],
+        onMouseEnter: ({ overlay }) => { this.hoverEventGroup(overlay.id); },
+        onMouseLeave: () => { this.emitEventHover(null); },
+      });
+      if (typeof id === 'string') this.eventOverlayGroups.set(id, g);
+    }
+    if (key !== JSON.stringify(this.eventGroupsShown)) {
+      this.eventGroupsShown = groups;
+      for (const cb of this.eventsShownListeners) cb(groups);
+    }
+  }
+
+  private hoverEventGroup(overlayId: string): void {
+    const group = this.eventOverlayGroups.get(overlayId);
+    if (!group) return;
+    const pane = this.chart.getSize(CANDLE_PANE);
+    const px = this.chart.convertToPixel({ timestamp: group.barTs }, { paneId: CANDLE_PANE, absolute: true }) as Partial<Coordinate>;
+    if (!pane || typeof px.x !== 'number') return;
+    const kinds = new Set(group.events.map((e) => e.kind)).size;
+    this.emitEventHover({ events: group.events, x: px.x, y: pane.top + pane.height - badgeStackHeight(kinds) });
+  }
+
+  private emitEventHover(h: EventHover | null): void {
+    if (this.destroyed) return;
+    for (const cb of this.eventHoverListeners) cb(h);
   }
 
   // ── indicators ────────────────────────────────────────────────────────────
@@ -1443,7 +1531,7 @@ export class ChartAdapter {
   }
 
   private userOverlays(): Overlay[] {
-    return this.chart.getOverlays().filter((o) => o.groupId !== MARKERS && o.groupId !== MEASURE && !this.removing.has(o.id));
+    return this.chart.getOverlays().filter((o) => o.groupId !== MARKERS && o.groupId !== EVENTS && o.groupId !== MEASURE && !this.removing.has(o.id));
   }
 
   /**
@@ -1803,6 +1891,7 @@ export class ChartAdapter {
   private onDataReady(): void {
     this.dataSymbol = this.loadSymbol;
     this.continueRange();
+    this.renderEvents(); // events handed over before the first page arrived have bars to sit on now
     const pending = this.pendingRestore;
     if (!pending || (pending.symbol !== undefined && pending.symbol !== this.dataSymbol)) return;
     this.pendingRestore = null;
@@ -1988,7 +2077,7 @@ export class ChartAdapter {
     const store = (this.chart as unknown as { getChartStore?: () => { getHoverOverlayInfo?: () => { overlay?: { groupId?: string } | null } } }).getChartStore?.();
     try {
       const o = store?.getHoverOverlayInfo?.()?.overlay;
-      return o != null && o.groupId !== MEASURE && o.groupId !== MARKERS;
+      return o != null && o.groupId !== MEASURE && o.groupId !== MARKERS && o.groupId !== EVENTS;
     } catch {
       return false;
     }

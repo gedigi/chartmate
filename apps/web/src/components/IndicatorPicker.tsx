@@ -1,4 +1,4 @@
-import { MAX_INDICATORS, type IndicatorState } from '@chartmate/shared';
+import { CORPORATE_EVENT_KINDS, MAX_INDICATORS, type CorporateEventKind, type IndicatorState } from '@chartmate/shared';
 import { useId, useState, type JSX } from 'react';
 import { CATALOG, indicatorLabel, type CatalogEntry } from '../chart/indicators/catalog';
 import { Modal } from './Modal';
@@ -9,7 +9,18 @@ export interface IndicatorPickerProps {
   onClose: () => void;
   /** Indicators already on the layout; at MAX_INDICATORS the options are disabled. */
   count: number;
+  /** Corporate event kinds hidden on stock charts (the Events group shows the others as on). */
+  hiddenEvents?: readonly CorporateEventKind[];
+  /** Shows / hides one kind of corporate event; without it there is no Events group. */
+  onToggleEvent?: (kind: CorporateEventKind) => void;
 }
+
+/** The Events group: corporate events drawn as badges on stock charts (not indicators: no limit, no settings). */
+const EVENTS: Record<CorporateEventKind, { name: string; label: string; letter: string }> = {
+  earnings: { name: 'Earnings', label: 'Quarterly reports, EPS against the estimate', letter: 'E' },
+  dividend: { name: 'Dividends', label: 'Ex-dividend dates and amounts', letter: 'D' },
+  split: { name: 'Splits', label: 'Stock splits and their ratios', letter: 'S' },
+};
 
 const GROUPS: Array<{ pane: CatalogEntry['pane']; title: string }> = [
   { pane: 'main', title: 'Overlays' },
@@ -19,13 +30,16 @@ const GROUPS: Array<{ pane: CatalogEntry['pane']; title: string }> = [
 const matches = (e: CatalogEntry, q: string) => !q || e.name.toLowerCase().includes(q) || e.label.toLowerCase().includes(q);
 
 /** Modal list of the indicator catalog with a search filter. Stays open so several can be added. */
-export function IndicatorPicker({ onAdd, onClose, count }: IndicatorPickerProps): JSX.Element {
+export function IndicatorPicker({ onAdd, onClose, count, hiddenEvents = [], onToggleEvent }: IndicatorPickerProps): JSX.Element {
   const [query, setQuery] = useState('');
   const [added, setAdded] = useState<string | null>(null);
   const idBase = useId();
   const q = query.trim().toLowerCase();
   const groups = GROUPS.map((g) => ({ ...g, items: CATALOG.filter((e) => e.pane === g.pane && matches(e, q)) }));
-  const empty = groups.every((g) => g.items.length === 0);
+  const eventKinds = onToggleEvent
+    ? CORPORATE_EVENT_KINDS.filter((k) => !q || EVENTS[k].name.toLowerCase().includes(q) || EVENTS[k].label.toLowerCase().includes(q))
+    : [];
+  const empty = groups.every((g) => g.items.length === 0) && eventKinds.length === 0;
   const full = count >= MAX_INDICATORS;
 
   const add = (e: CatalogEntry) => {
@@ -67,6 +81,28 @@ export function IndicatorPicker({ onAdd, onClose, count }: IndicatorPickerProps)
             </ul>
           </section>
         ))}
+        {eventKinds.length > 0 && (
+          <section className="indicator-group">
+            <h3 id={`${idBase}-events`} className="indicator-group-title">Events</h3>
+            <ul aria-labelledby={`${idBase}-events`}>
+              {eventKinds.map((k) => {
+                const shown = !hiddenEvents.includes(k);
+                return (
+                  <li key={k}>
+                    <button
+                      type="button" className="indicator-option event-option" aria-pressed={shown}
+                      title={`${shown ? 'Hide' : 'Show'} ${EVENTS[k].name.toLowerCase()} on stock charts`} onClick={() => onToggleEvent!(k)}
+                    >
+                      <span className="indicator-option-name">{EVENTS[k].name}</span>
+                      <span className="indicator-option-label">{EVENTS[k].label}</span>
+                      <span className={`event-option-badge event-option-${k}`} aria-hidden="true">{EVENTS[k].letter}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
         {empty && <p className="indicator-empty">No indicators match “{query.trim()}”.</p>}
       </div>
       <div className="indicator-picker-status" role="status">{added}</div>

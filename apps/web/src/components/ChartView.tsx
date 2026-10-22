@@ -1,11 +1,13 @@
-import { isIntraday, parseSymbolId, type DrawingState, type IndicatorState, type Layout, type SessionMode, type SymbolId, type SymbolInfo, type Timeframe } from '@chartmate/shared';
+import { isIntraday, parseSymbolId, type CorporateEvent, type CorporateEventKind, type DrawingState, type IndicatorState, type Layout, type SessionMode, type SymbolId, type SymbolInfo, type Timeframe } from '@chartmate/shared';
 import { memo, useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import { api, errorMessage, isPermanentError } from '../api/client';
-import { ChartAdapter, type IndicatorSpec, type ShownRange } from '../chart/ChartAdapter';
+import { ChartAdapter, type EventHover, type IndicatorSpec, type ShownRange } from '../chart/ChartAdapter';
+import { eventDetail, eventTitle, eventWhen, type EventGroup } from '../chart/events';
 import { migrateCalcParams } from '../chart/indicators/catalog';
 import type { LoaderMeta } from '../chart/dataLoader';
 import { initialWindowMs, pollIntervalMs } from '../chart/periods';
 import { allTimeframe, rangeTimeframe, type RangeCalendar, type RangePreset } from '../chart/ranges';
+import { corporateEvents } from '../state/corporateEvents';
 import { onBasketChanged } from '../state/useBaskets';
 import { drawingsStore } from '../state/drawingsStore';
 import { DrawingsNote } from './DrawingsSave';
@@ -205,6 +207,26 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
     return () => { active = false; };
   }, [adapter, info, tf, session, pollMs, basketHasCrypto, reloadKey]);
 
+  // Corporate events (earnings, dividends, splits) of a stock: fetched per symbol (retried unless the failure is
+  // permanent; a chart without them still works) and handed to the chart with the kinds the layout hides. Declared
+  // after the load effect, which drops the previous symbol's events.
+  const [events, setEvents] = useState<{ id: SymbolId; list: CorporateEvent[] } | null>(null);
+  const stockId = info?.assetClass === 'stock' ? info.id : null;
+  useEffect(() => {
+    if (!stockId) return;
+    return loadWithRetry(() => corporateEvents(stockId), (list) => setEvents({ id: stockId, list }), () => {});
+  }, [stockId]);
+  const hiddenEventsKey = (layout.hiddenEvents ?? []).join(',');
+  useEffect(() => {
+    if (!adapter) return;
+    const hidden = hiddenEventsKey ? (hiddenEventsKey.split(',') as CorporateEventKind[]) : [];
+    adapter.setEvents(events && events.id === stockId ? events.list : [], hidden);
+  }, [adapter, events, stockId, hiddenEventsKey]);
+  const [eventHover, setEventHover] = useState<EventHover | null>(null);
+  useEffect(() => adapter?.onEventHover(setEventHover), [adapter]);
+  const [eventsShown, setEventsShown] = useState<EventGroup[]>([]);
+  useEffect(() => adapter?.onEventsShown(setEventsShown), [adapter]);
+
   // Date ranges: shown once the range's interval is loaded (declared after the load effect, which drops the adapter's
   // range: a reload of the same interval, e.g. Retry, shows it again). Changing the symbol, interval or session, or
   // zooming / scrolling the chart, deselects it.
@@ -400,8 +422,12 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
           </div>
         </div>
         <div className="chart-stage">
-          <div className="chart-host" ref={hostRef} data-testid="chart-host" />
+          <div className="chart-host" ref={hostRef} data-testid="chart-host" onMouseLeave={() => setEventHover(null)} />
           <div className="sr-only" role="status" data-testid="measure-readout">{measureText}</div>
+          {eventHover && <EventTooltip hover={eventHover} width={hostRef.current?.clientWidth ?? 0} />}
+          <ul className="sr-only" aria-label="Events on the chart" data-testid="events-readout">
+            {eventsShown.flatMap((g) => g.events).map((e) => <li key={`${e.kind}-${e.ts}`}>{eventLine(e)}</li>)}
+          </ul>
           <DrawingStyleBar
             controls={adapter} onUsePositionDefaults={(positionDefaults) => setLayout((l) => ({ ...l, positionDefaults }))}
             onPickColor={(drawingColor) => setLayout((l) => (l.drawingColor === drawingColor ? l : { ...l, drawingColor }))}
@@ -461,6 +487,33 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
           <span className="range-span" role="status" data-testid="range-span">{rangeSpan}</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** "Dividend, Aug 10, 2026: $0.27 per share" (the screen-reader list). */
+function eventLine(e: CorporateEvent): string {
+  const detail = eventDetail(e);
+  return `${eventTitle(e)}, ${eventWhen(e)}${detail ? `: ${detail}` : ''}`;
+}
+
+/** Half the tooltip's widest width: near the chart's edges it is aligned to the badges instead of centered on them. */
+const TOOLTIP_HALF = 130;
+
+/** What a bar's event badges stand for, above them (never takes the mouse: the badges keep their hover). */
+function EventTooltip({ hover, width }: { hover: EventHover; width: number }): JSX.Element {
+  const align = hover.x < TOOLTIP_HALF ? 'start' : width > 0 && hover.x > width - TOOLTIP_HALF ? 'end' : 'center';
+  return (
+    <div className="event-tooltip" data-align={align} style={{ left: hover.x, top: hover.y }} aria-hidden="true">
+      {hover.events.map((e) => {
+        const detail = eventDetail(e);
+        return (
+          <div key={`${e.kind}-${e.ts}`} className="event-tooltip-item">
+            <div className="event-tooltip-head"><span className="event-tooltip-title">{eventTitle(e)}</span> <span className="event-tooltip-when">{eventWhen(e)}</span></div>
+            {detail && <div className="event-tooltip-detail">{detail}</div>}
+          </div>
+        );
+      })}
     </div>
   );
 }

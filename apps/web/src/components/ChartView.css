@@ -318,3 +318,23 @@
 .position-field { align-items: center; gap: 3px; }
 .position-caption { color: var(--text-muted); white-space: nowrap; }
 .position-bar .drawing-style-error { z-index: 1; }
+
+/*
+ * Corporate event tooltip: above the hovered bar's badges (chart.events.ts), on the elevated surface like the other
+ * floating chart notes. Never takes the mouse, so moving off the badges closes it.
+ */
+.event-tooltip {
+  position: absolute; z-index: 5; pointer-events: none;
+  transform: translate(-50%, calc(-100% - 6px));
+  display: flex; flex-direction: column; gap: 6px;
+  max-width: 260px; padding: 6px 10px;
+  background: var(--bg-elevated); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  font-size: 12px; line-height: 1.4;
+}
+.event-tooltip[data-align='start'] { transform: translate(-12px, calc(-100% - 6px)); }
+.event-tooltip[data-align='end'] { transform: translate(calc(-100% + 12px), calc(-100% - 6px)); }
+.event-tooltip-head { white-space: nowrap; }
+.event-tooltip-title { font-weight: 600; }
+.event-tooltip-when, .event-tooltip-detail { color: var(--text-muted); }
+.event-tooltip-detail { font-variant-numeric: tabular-nums; }
