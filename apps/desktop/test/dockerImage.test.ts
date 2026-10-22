@@ -49,6 +49,11 @@ describe('Dockerfile', () => {
     const runs = [...text.matchAll(/^RUN [^\n]*(?:\\\n[^\n]*)*/gm)];
     expect(runs.find((r) => /\b(pnpm|corepack)\b/.test(r[0]))!.index).toBe(install);
     expect(text).not.toMatch(/corepack enable/);
+    // pnpm goes into /opt/pnpm (nothing in npm's global prefix), which later steps reach through PATH.
+    expect(text).toMatch(/^RUN bash \.github\/scripts\/install-pnpm\.sh \/opt\/pnpm /m);
+    const path = text.search(/^ENV PATH=\/opt\/pnpm\/bin:\$PATH$/m);
+    expect(path).toBeGreaterThan(install);
+    expect(path).toBeLessThan(text.indexOf('got="$(pnpm --version)"'));
   });
 
   it('applies the OS security updates in the runtime stage and leaves no package lists behind', () => {

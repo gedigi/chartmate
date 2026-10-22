@@ -31,13 +31,9 @@ jobs:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
         run: |
           set -euo pipefail
+          # Installs into a private directory, checks that the pnpm a PATH lookup finds is the pinned version,
+          # and puts it first on PATH for the following steps (GITHUB_PATH).
           bash .github/scripts/install-pnpm.sh
-          want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
-          got="$(pnpm --version)"
-          if [ "$got" != "$want" ]; then
-            echo "::error title=pnpm version::pnpm $got, but package.json pins $want"
-            exit 1
-          fi
       # The pnpm store is cached here only (pull requests and main), never in the release workflows.
       - name: pnpm store path
         id: pnpm-store
@@ -105,13 +101,9 @@ jobs:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
         run: |
           set -euo pipefail
+          # Installs into a private directory, checks that the pnpm a PATH lookup finds is the pinned version,
+          # and puts it first on PATH for the following steps (GITHUB_PATH).
           bash .github/scripts/install-pnpm.sh
-          want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
-          got="$(pnpm --version)"
-          if [ "$got" != "$want" ]; then
-            echo "::error title=pnpm version::pnpm $got, but package.json pins $want"
-            exit 1
-          fi
       - name: pnpm store path
         id: pnpm-store
         run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
@@ -194,13 +186,9 @@ jobs:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
         run: |
           set -euo pipefail
+          # Installs into a private directory, checks that the pnpm a PATH lookup finds is the pinned version,
+          # and puts it first on PATH for the following steps (GITHUB_PATH).
           bash .github/scripts/install-pnpm.sh
-          want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
-          got="$(pnpm --version)"
-          if [ "$got" != "$want" ]; then
-            echo "::error title=pnpm version::pnpm $got, but package.json pins $want"
-            exit 1
-          fi
       - if: steps.changes.outputs.run == 'true'
         run: pnpm install --frozen-lockfile --ignore-scripts
       # As package-mac builds a signed release: the updater compiled in (only bundle.mjs sees the identity name;

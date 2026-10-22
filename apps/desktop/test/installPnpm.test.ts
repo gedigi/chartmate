@@ -29,7 +29,10 @@ const integrity = (file: string) => `sha512-${createHash('sha512').update(readFi
 function tarball(name: string, files: Record<string, string>): string {
   const src = join(dir, `src-${name}`);
   mkdirSync(join(src, 'package'), { recursive: true });
-  for (const [f, c] of Object.entries(files)) writeFileSync(join(src, 'package', f), c);
+  for (const [f, c] of Object.entries(files)) {
+    mkdirSync(dirname(join(src, 'package', f)), { recursive: true });
+    writeFileSync(join(src, 'package', f), c);
+  }
   const out = join(packs, `${name}.tgz`);
   expect(spawnSync('tar', ['-czf', out, '-C', src, 'package']).status).toBe(0);
   return out;
@@ -39,6 +42,30 @@ function stub(name: string, body: string) {
   writeFileSync(join(bin, name), `#!/bin/sh\necho "${name} $*" >> "${log}"\n${body}\n`);
   chmodSync(join(bin, name), 0o755);
 }
+
+/**
+ * dist/corepack.js of the fake corepack tarball. The script runs it with node (it is never put on PATH): it records
+ * the call, `enable pnpm --install-directory <dir>` writes a pnpm shim there that reports the pinned version, and
+ * `install` unpacks the pnpm wrapper into the corepack home as the real one does (STUB_SHADOW: plus a directory
+ * where the wrapper would find a platform package before pnpm-native).
+ */
+const COREPACK_JS = `const fs = require('fs'), path = require('path');
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.STUB_LOG, 'corepack ' + args.join(' ') + '\\n');
+if (args[0] === 'enable') {
+  const d = args[args.indexOf('--install-directory') + 1];
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, 'pnpm'), '#!/bin/sh\\necho ${PNPM}\\n', { mode: 0o755 });
+}
+if (args[0] === 'install') {
+  const d = path.join(process.env.COREPACK_HOME, 'v1', 'pnpm', '${PNPM}');
+  fs.mkdirSync(path.join(d, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(d, 'package.json'), '{"name":"pnpm","version":"${PNPM}"}');
+  fs.writeFileSync(path.join(d, 'bin', 'pnpm.mjs'), '');
+  if (process.env.STUB_SHADOW) fs.mkdirSync(path.join(d, process.env.STUB_SHADOW), { recursive: true });
+}
+`;
+const corepackTarball = () => tarball('corepack', { 'package.json': '{}', 'dist/corepack.js': COREPACK_JS });
 
 /** The scratch repository: the script (corepack pin replaced by `corepackIntegrity`), package.json, lockfile. */
 function setUp({ corepackIntegrity, exeIntegrity }: { corepackIntegrity: string; exeIntegrity: string }) {
@@ -84,14 +111,6 @@ beforeEach(() => {
   cp "${packs}/$f" "$dest/$f" && echo "$f"
 fi
 exit 0`);
-  // corepack install unpacks the pnpm wrapper into the corepack home, as the real one does (STUB_SHADOW: plus a
-  // directory where the wrapper would find a platform package before pnpm-native).
-  stub('corepack', `if [ "$1" = install ]; then
-  d="${home}/v1/pnpm/${PNPM}"; mkdir -p "$d/bin"
-  printf '{"name":"pnpm","version":"${PNPM}"}' > "$d/package.json"; : > "$d/bin/pnpm.mjs"
-  [ -z "$STUB_SHADOW" ] || mkdir -p "$d/$STUB_SHADOW"
-fi
-exit 0`);
   // GNU tar (Git Bash on Windows) reads "D:" in an archive name as a remote host, so tar must only ever get
   // relative names: an absolute or drive-letter argument fails here as it would there.
   stub('tar', `for a in "$@"; do case "$a" in /*|[A-Za-z]:*) echo "tar: absolute path $a" >&2; exit 2 ;; esac; done
@@ -103,7 +122,7 @@ function run(extra: Record<string, string> = {}) {
   const r = spawnSync('bash', [join(repo, '.github', 'scripts', 'install-pnpm.sh')], {
     encoding: 'utf8',
     cwd: dir,
-    env: { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, RUNNER_TEMP: dir, HOME: dir, COREPACK_HOME: home, ...extra },
+    env: { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, RUNNER_TEMP: dir, HOME: dir, COREPACK_HOME: home, STUB_LOG: log, ...extra },
   });
   return { status: r.status, out: r.stdout + r.stderr, calls: existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : [] };
 }
@@ -116,26 +135,33 @@ describe('install-pnpm.sh', () => {
   });
 
   it('installs corepack and puts the hash-checked native pnpm binary where the wrapper looks first', () => {
-    const corepack = tarball('corepack', { 'package.json': '{}' });
+    const corepack = corepackTarball();
     const exe = tarball('exe', { [exeName]: 'native pnpm' });
     setUp({ corepackIntegrity: integrity(corepack), exeIntegrity: integrity(exe) });
-    const r = run();
+    const r = run({ GITHUB_PATH: join(dir, 'github-path') });
     expect(r.out).not.toMatch(/unbound|error/i);
     expect(r.status).toBe(0);
     expect(r.calls).toContainEqual(expect.stringMatching(new RegExp(`^npm pack @pnpm/exe\\.${target}@${PNPM} --pack-destination=\\S+ --silent$`)));
-    expect(r.calls.filter((c) => c.startsWith('npm install'))).toHaveLength(1);
-    expect(r.calls).toEqual(expect.arrayContaining(['corepack enable pnpm', 'corepack install']));
+    // Nothing is installed into npm's global prefix (a runner's preinstalled yarn.cmd broke that on Windows).
+    expect(r.calls.filter((c) => c.startsWith('npm install'))).toHaveLength(0);
+    expect(r.calls).toContainEqual(expect.stringMatching(/^corepack enable pnpm --install-directory \S+\/bin$/));
+    expect(r.calls).toContain('corepack install');
+    // The shims directory is checked by a PATH lookup and the pinned version, and handed to later steps.
+    expect(r.out).toContain(`pnpm ${PNPM}: `);
+    const githubPath = readFileSync(join(dir, 'github-path'), 'utf8').trim();
+    expect(githubPath).toMatch(/pnpm-toolchain\.[^/]+\/bin$/);
+    expect(existsSync(join(githubPath, 'pnpm'))).toBe(true);
     expect(readFileSync(native(), 'utf8')).toBe('native pnpm');
     // tar only ever sees relative names (it runs inside the temporary directory).
     const tars = r.calls.filter((c) => c.startsWith('tar '));
-    expect(tars).toEqual([`tar -xzf exe.tgz package/${exeName}`]);
+    expect(tars).toEqual(['tar -xzf corepack.tgz package', `tar -xzf exe.tgz package/${exeName}`]);
   });
 
   it.each([
     ['next to the corepack home (`v1/pnpm/@pnpm`)', '../@pnpm/exe.x'],
     ['inside the wrapper (`node_modules`)', 'node_modules/@pnpm/exe.x'],
   ])('fails closed when the wrapper would find a platform package %s before pnpm-native', (_where, shadow) => {
-    const corepack = tarball('corepack', { 'package.json': '{}' });
+    const corepack = corepackTarball();
     const exe = tarball('exe', { [exeName]: 'native pnpm' });
     setUp({ corepackIntegrity: integrity(corepack), exeIntegrity: integrity(exe) });
     const r = run({ STUB_SHADOW: shadow });
@@ -145,7 +171,7 @@ describe('install-pnpm.sh', () => {
   });
 
   it('refuses a corepack tarball that does not match the pinned sha512 and installs nothing', () => {
-    tarball('corepack', { 'package.json': '{}' });
+    corepackTarball();
     const exe = tarball('exe', { [exeName]: 'native pnpm' });
     setUp({ corepackIntegrity: `sha512-${'A'.repeat(86)}==`, exeIntegrity: integrity(exe) });
     const r = run();
@@ -156,7 +182,7 @@ describe('install-pnpm.sh', () => {
   });
 
   it('refuses a native pnpm binary that does not match pnpm-lock.yaml and installs no binary', () => {
-    const corepack = tarball('corepack', { 'package.json': '{}' });
+    const corepack = corepackTarball();
     tarball('exe', { [exeName]: 'tampered' });
     setUp({ corepackIntegrity: integrity(corepack), exeIntegrity: `sha512-${'C'.repeat(86)}==` });
     const r = run();
@@ -166,7 +192,7 @@ describe('install-pnpm.sh', () => {
   });
 
   it('fails when pnpm-lock.yaml has no entry for the native binary of this platform', () => {
-    const corepack = tarball('corepack', { 'package.json': '{}' });
+    const corepack = corepackTarball();
     tarball('exe', { [exeName]: 'native pnpm' });
     setUp({ corepackIntegrity: integrity(corepack), exeIntegrity: 'x' });
     writeFileSync(join(repo, 'pnpm-lock.yaml'), readFileSync(join(repo, 'pnpm-lock.yaml'), 'utf8').replace(`@pnpm/exe.${target}@`, '@pnpm/exe.renamed@'));

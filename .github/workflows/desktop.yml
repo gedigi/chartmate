@@ -93,13 +93,9 @@ jobs:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
         run: |
           set -euo pipefail
+          # Installs into a private directory, checks that the pnpm a PATH lookup finds is the pinned version,
+          # and puts it first on PATH for the following steps (GITHUB_PATH).
           bash .github/scripts/install-pnpm.sh
-          want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
-          got="$(pnpm --version)"
-          if [ "$got" != "$want" ]; then
-            echo "::error title=pnpm version::pnpm $got, but package.json pins $want"
-            exit 1
-          fi
       # No dependency install scripts run. Nothing here needs them: esbuild resolves its platform binary package,
       # better-sqlite3 ships prebuilds, the Electron binary is not needed for tests, and electron-builder
       # downloads its own Electron distribution when packaging.
@@ -128,13 +124,9 @@ jobs:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
         run: |
           set -euo pipefail
+          # Installs into a private directory, checks that the pnpm a PATH lookup finds is the pinned version,
+          # and puts it first on PATH for the following steps (GITHUB_PATH).
           bash .github/scripts/install-pnpm.sh
-          want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
-          got="$(pnpm --version)"
-          if [ "$got" != "$want" ]; then
-            echo "::error title=pnpm version::pnpm $got, but package.json pins $want"
-            exit 1
-          fi
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm --filter @chartmate/web build
       - name: Bundle and package the apps (unsigned)
@@ -272,13 +264,9 @@ jobs:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
         run: |
           set -euo pipefail
+          # Installs into a private directory, checks that the pnpm a PATH lookup finds is the pinned version,
+          # and puts it first on PATH for the following steps (GITHUB_PATH).
           bash .github/scripts/install-pnpm.sh
-          want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
-          got="$(pnpm --version)"
-          if [ "$got" != "$want" ]; then
-            echo "::error title=pnpm version::pnpm $got, but package.json pins $want"
-            exit 1
-          fi
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -498,13 +486,9 @@ jobs:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
         run: |
           set -euo pipefail
+          # Installs into a private directory, checks that the pnpm a PATH lookup finds is the pinned version,
+          # and puts it first on PATH for the following steps (GITHUB_PATH).
           bash .github/scripts/install-pnpm.sh
-          want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
-          got="$(pnpm --version)"
-          if [ "$got" != "$want" ]; then
-            echo "::error title=pnpm version::pnpm $got, but package.json pins $want"
-            exit 1
-          fi
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm --filter @chartmate/web build
         timeout-minutes: 10

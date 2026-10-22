@@ -18,11 +18,12 @@ WORKDIR /repo
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 COPY .github/scripts/install-pnpm.sh .github/scripts/
 COPY package.json pnpm-lock.yaml ./
-RUN bash .github/scripts/install-pnpm.sh \
- && want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")" \
+RUN bash .github/scripts/install-pnpm.sh /opt/pnpm && rm -rf .github
+# The script installed into /opt/pnpm and checked that its pnpm is the pinned version; later steps use it.
+ENV PATH=/opt/pnpm/bin:$PATH
+RUN want="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")" \
  && got="$(pnpm --version)" \
- && { [ "$got" = "$want" ] || { echo "pnpm $got, but package.json pins $want" >&2; exit 1; }; } \
- && rm -rf .github
+ && { [ "$got" = "$want" ] || { echo "pnpm $got, but package.json pins $want" >&2; exit 1; }; }
 # Manifests + lockfile first so the dependency layer is cached until they change.
 COPY pnpm-workspace.yaml .pnpmfile.cjs ./
 COPY patches ./patches
