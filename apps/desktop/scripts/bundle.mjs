@@ -5,10 +5,12 @@
 //   dist/updater.cjs — ONLY when the build is code-signed for the target platform (build/signing.cjs); unsigned
 //   builds do not contain the auto-updater at all (and main.cjs has the updater code path compiled out).
 //
-// Usage: node scripts/bundle.mjs [--dev] [--platform=darwin|win32] [--out=<dir>] [--test-inspectable]
+// Usage: node scripts/bundle.mjs [--dev] [--platform=darwin|win32] [--out=<dir>] [--web-dist=<dir>] [--test-inspectable]
 //   --dev               development bundle: unminified, source maps, and __DEV_BUNDLE__ = true, the only bundle that
 //                       runs unhardened when started unpackaged (src/lib/buildMode.ts). Never for release builds.
 //   --platform          target platform for the signing decision (default: the host platform)
+//   --web-dist          the web build to copy in (default: apps/web/dist); smoke/prepare-inspectable.mjs passes the
+//                       one inside the packaged app, so its TEST-ONLY copy carries exactly the shipped web UI
 //   --test-inspectable  TEST-ONLY variant used by smoke/prepare-inspectable.mjs: the command-line switch guard is
 //                       compiled out so a test harness can attach. Never packaged by electron-builder.
 import { build } from 'esbuild';
@@ -21,13 +23,13 @@ const require = createRequire(import.meta.url);
 const { signingFor } = require('../build/signing.cjs');
 const { releasesPageUrl } = require('../build/repository.cjs');
 
-const arg = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split('=')[1];
+const arg = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const dev = process.argv.includes('--dev');
 const testInspectable = process.argv.includes('--test-inspectable');
 const platform = arg('platform') ?? process.platform;
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const out = arg('out') ? resolve(arg('out')) : here('../dist');
-const webDist = here('../../web/dist');
+const webDist = arg('web-dist') ? resolve(arg('web-dist')) : here('../../web/dist');
 
 /**
  * Canonical form of `p` for containment checks: symlinks resolved (on the deepest existing ancestor, since `p` may
@@ -59,7 +61,7 @@ if (testInspectable && (!arg('out') || outCanon === distCanon || outCanon.starts
 }
 
 if (!existsSync(`${webDist}/index.html`)) {
-  console.error('apps/web/dist is missing: run `pnpm --filter @chartmate/web build` first');
+  console.error(arg('web-dist') ? `${webDist} has no index.html` : 'apps/web/dist is missing: run `pnpm --filter @chartmate/web build` first');
   process.exit(1);
 }
 

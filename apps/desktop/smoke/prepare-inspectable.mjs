@@ -41,15 +41,16 @@ cpSync(src, dst, { recursive: true, verbatimSymlinks: true });
 const resources = isMacApp ? join(dst, 'Contents', 'Resources') : join(dst, 'resources');
 const asarPath = join(resources, 'app.asar');
 
-// 2. Test-only bundle (switch guard compiled out), same sources otherwise.
+// 2. Test-only bundle (switch guard compiled out), same sources otherwise. Its web UI is the one already inside
+//    the packaged app, so the copy serves exactly what ships (and needs no separate web build).
 const work = mkdtempSync(join(tmpdir(), 'inspectable-'));
-const testDist = join(work, 'dist');
-execFileSync(process.execPath, [fileURLToPath(new URL('../scripts/bundle.mjs', import.meta.url)), '--test-inspectable', `--out=${testDist}`,
-  `--platform=${isMacApp ? 'darwin' : 'win32'}`], { stdio: 'inherit' });
-
-// 3. Rebuild app.asar with the test bundle.
 const unpacked = join(work, 'app');
 asar.extractAll(asarPath, unpacked);
+const testDist = join(work, 'dist');
+execFileSync(process.execPath, [fileURLToPath(new URL('../scripts/bundle.mjs', import.meta.url)), '--test-inspectable', `--out=${testDist}`,
+  `--web-dist=${join(unpacked, 'dist', 'web')}`, `--platform=${isMacApp ? 'darwin' : 'win32'}`], { stdio: 'inherit' });
+
+// 3. Rebuild app.asar with the test bundle.
 rmSync(join(unpacked, 'dist'), { recursive: true, force: true });
 cpSync(testDist, join(unpacked, 'dist'), { recursive: true });
 writeFileSync(join(unpacked, MARKER), markerText);
