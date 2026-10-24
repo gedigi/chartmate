@@ -5,6 +5,8 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+## [1.2.0] - 2026-10-24
+
 ### Everywhere
 
 - Stock charts show earnings, dividends and splits as small lettered badges under the bars (E, D, S). Earnings are
