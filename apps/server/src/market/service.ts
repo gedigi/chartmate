@@ -41,8 +41,8 @@ const MAX_FRESH = 5000;
 const SEARCH_TTL_MS = 10 * 60_000;
 /** Most search answers remembered at once. */
 const MAX_SEARCHES = 200;
-/** Corporate events change rarely: reused for 12 hours, and a failed refresh serves the last answer up to a week old. */
-const EVENTS_FRESH_MS = 12 * 3_600_000;
+/** Corporate events change rarely: reused for 24 hours, and a failed refresh serves the last answer up to a week old. */
+const EVENTS_FRESH_MS = 24 * 3_600_000;
 const EVENTS_STALE_MS = 7 * 86_400_000;
 const MAX_EVENTS = 500;
 

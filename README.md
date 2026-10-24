@@ -597,7 +597,7 @@ Where to read next:
   screen readers get the same list. Each kind is turned on or off in the picker's **Events** group (all on by
   default; they do not count against the indicator limit, and the choice is saved with the layout). Yahoo Finance
   provides the whole dividend and split history, but only the last four earnings reports plus the next date, so
-  older quarters have no **E**. The server caches events for 12 hours. Crypto and baskets have none.
+  older quarters have no **E**. The server caches events for 24 hours. Crypto and baskets have none.
 - **Your own**: an indicator is one file; see [Custom indicators](#custom-indicators) and
   [CONTRIBUTING.md](CONTRIBUTING.md#add-an-indicator).
 
