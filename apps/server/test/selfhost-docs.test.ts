@@ -28,10 +28,10 @@ describe('self-hosting docs use the published image', () => {
     expect(line).toBe(`docker run -d --name chartmate -p 127.0.0.1:8787:8787 -v chartmate-data:/data ${IMAGE}:latest`);
   });
 
-  it('the README downloads compose.yaml and the .env template from a pinned location, never over an existing .env', () => {
+  it('the README downloads compose.yaml and the .env template from the latest release, never over an existing .env', () => {
     const readme = read('README.md');
-    expect(readme).toContain(`curl -fsSLO ${RAW_MAIN}/compose.yaml\n`);
-    expect(readme).toContain(`curl -fsSL -o .env.example ${RAW_MAIN}/.env.example\n`);
+    expect(readme).toContain(`curl -fsSLO ${RELEASE_DOWNLOAD}/compose.yaml\n`);
+    expect(readme).toContain(`curl -fsSL -o .env.example ${RELEASE_DOWNLOAD}/env.example\n`);
     expect(readme).toContain('[ -e .env ] || install -m 600 .env.example .env');
     expect(readme).not.toMatch(/-o \.env(?:\s|$)/m);
     // Every download URL in the README is one of the two pinned locations.

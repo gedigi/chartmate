@@ -300,7 +300,8 @@ README's "Indicators" section (under "Using Chartmate") in the same pull request
 
 ## Releases
 
-A release is a pushed `vX.Y.Z` tag. The tag builds and publishes everything; nothing is uploaded by hand.
+A release is a `vX.Y.Z` tag, which `.github/workflows/release.yml` creates once a version bump passes CI on `main`.
+The tag builds and publishes everything; nothing is uploaded by hand.
 
 1. On `main`, rename the `## Unreleased` section at the top of [CHANGELOG.md](CHANGELOG.md) to
    `## [X.Y.Z] - YYYY-MM-DD` (pull requests record user-visible changes there in plain language as they land; add
@@ -315,11 +316,6 @@ A release is a pushed `vX.Y.Z` tag. The tag builds and publishes everything; not
    makes a pre-release. To re-run it (say, after fixing what stopped it), run the Release workflow from `main` in
    the Actions tab. Pushing a tag by hand (`git tag vX.Y.Z && git push origin vX.Y.Z`, on a commit on `main`)
    still works too. A `v*` tag ruleset must not restrict creations, or the workflow cannot tag (docs/desktop.md).
-4. **TODO (after the next release, the first one with the `compose.yaml` asset):** switch the README's
-   [Recommended install](README.md#recommended-install-docker-compose) from the `raw.githubusercontent.com/…/main`
-   URLs to the release assets (`https://github.com/<repository>/releases/latest/download/compose.yaml` and
-   `…/env.example`), and update `apps/server/test/selfhost-docs.test.ts`, which pins those URLs. Then delete
-   this step.
 
 What the tag runs:
 
@@ -360,12 +356,15 @@ After the first image is published, make the GHCR package public once (the packa
 
 On every pull request and push to `main`, `.github/workflows/ci.yml` runs `pnpm audit` (any known vulnerability in a
 runtime or build-time dependency fails it), typecheck, tests, an indicator scaffold check (`pnpm new:indicator`,
-then typecheck and the indicator tests), the web build, e2e and a Docker build. Every workflow defaults to a
-read-only token, pins each action to a commit SHA, gets corepack and pnpm from `.github/scripts/install-pnpm.sh`
+then typecheck and the indicator tests), the license gate, the web build, e2e, the server's DB suites on Postgres,
+a Docker build with the Trivy gate and, when the desktop app, the dependencies or the signing script change, a
+macOS signing dry run. Every workflow defaults to a read-only token and pins each action to a commit SHA; every one
+but `release.yml` (which only runs git, jq and `gh`) gets corepack and pnpm from `.github/scripts/install-pnpm.sh`
 (corepack, the pnpm wrapper and pnpm's native binary all hash-checked) and installs with `--ignore-scripts`; only
 `ci.yml` caches dependencies. The macOS signing secrets reach only jobs that run no dependency code; the Certum
-login runs first in the Windows job, before any dependency code. Dependabot opens weekly update pull requests for
-npm packages and the pinned actions (the Docker base image and the Compose Postgres image are tags pulled fresh, so
+login runs in the Windows job right after checkout and the Node.js setup, before any dependency code. Dependabot
+opens weekly update pull requests for npm packages and the pinned actions (the Docker base image and the Compose
+Postgres image are tags pulled fresh, so
 there is nothing to bump within a major), but never for a new Node or Postgres major: move to the next Node LTS
 (`.nvmrc`, the Dockerfile, `@types/node`) or Postgres major by hand.
 Dependabot does not see the corepack pin or the `# syntax=` frontend digest on the Dockerfile's first line either:

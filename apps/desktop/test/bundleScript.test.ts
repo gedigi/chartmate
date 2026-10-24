@@ -41,7 +41,7 @@ describe('bundle.mjs --test-inspectable', () => {
 });
 
 describe("the desktop build targets Electron's Node.js, not the development Node.js", () => {
-  // The main process and the embedded server run on the Node.js inside Electron (Electron 44: Node 24), which is
+  // The main process and the embedded server run on the Node.js inside Electron (Electron 45: Node 24), which is
   // older than the Node.js the workspace develops on. Electron's own @types/node range names its Node major.
   const read = (p: string) => JSON.parse(readFileSync(fileURLToPath(new URL(p, import.meta.url)), 'utf8'));
   const electronNode = Number(/^\^?(\d+)\./.exec(read('../node_modules/electron/package.json').dependencies['@types/node'])![1]);

@@ -60,7 +60,8 @@ function buildConfig(env = process.env) {
     removePackageScripts: true,
     removePackageKeywords: true,
     beforePack: writeThirdPartyNotices,
-    // macOS: keeps Electron's LICENSE and the Chromium credits in the app (electron-builder drops them).
+    // macOS: keeps Electron's LICENSE and the Chromium credits in the app (electron-builder 26.18 moves them there
+    // itself; older versions dropped them).
     afterExtract: './build/after-extract.cjs',
     afterPack: './build/after-pack.cjs',
     // The AGPL-3.0 text and the third-party notices, as plain files next to app.asar (Contents/Resources on
@@ -84,7 +85,8 @@ function buildConfig(env = process.env) {
       // null = do not sign (and do not pick up a random identity from the keychain) when no CSC_* secret is set.
       identity: mac.signed ? undefined : null,
       notarize: mac.notarize,
-      minimumSystemVersion: '12.0',
+      // Electron's own minimum (its LSMinimumSystemVersion is 13.0 since Electron 44): macOS 12 cannot run it.
+      minimumSystemVersion: '13.0',
     },
     // A signed build signs the dmg container too (Developer ID), so the CI packaging step can notarize and staple
     // it and Gatekeeper accepts the download itself (`spctl -a -t open --context context:primary-signature`).

@@ -1,7 +1,7 @@
 # Chartmate desktop app
 
 `apps/desktop` packages the Chartmate server and web UI as a desktop app (product name **Chartmate**) for macOS
-and Windows, built with Electron 44. The self-hosted server is unchanged; the desktop app embeds it. For users,
+and Windows, built with Electron 45. The self-hosted server is unchanged; the desktop app embeds it. For users,
 the [README](../README.md#desktop-app) covers downloading, the data location and the environment it honors; this
 page is for whoever builds, signs or changes the app. Paths are relative to `apps/desktop/` unless they say
 otherwise.
@@ -28,16 +28,16 @@ otherwise.
   - everything else is a read-only static file from the built web UI, with an SPA fallback for HTML navigations.
 
   The web client already uses relative `/api/...` URLs, so the same bundle works in the browser and on desktop.
-- **SQLite without a native module.** The desktop build uses Node's built-in `node:sqlite` (Node 24.21 inside
-  Electron 44, no flag needed) through a small adapter for Kysely's own `SqliteDialect`
+- **SQLite without a native module.** The desktop build uses Node's built-in `node:sqlite` (Node 24 inside
+  Electron 45, no flag needed) through a small adapter for Kysely's own `SqliteDialect`
   (`apps/desktop/src/lib/nodeSqlite.ts`). better-sqlite3 and pg are never bundled (the bundle script fails if
   they are). The server's DB-backed test suites also run against this dialect (`apps/desktop` `pnpm test`).
   The database holds the user's layouts, drawings, watchlists and baskets as well as the bar cache. It runs in WAL
   mode with `synchronous = NORMAL`: a committed change survives an app crash and the file never corrupts, but an
   OS crash or power loss can lose the last few commits. `FULL` would close that window with an fsync on every
   write, which layout and drawing autosaves make frequent; NORMAL is the chosen tradeoff.
-- **Electron's Node.js.** The main process and the embedded server run on the Node.js inside Electron (Node 24.21
-  in Electron 44), not on the Node 26 the workspace develops on. So `apps/desktop` typechecks against
+- **Electron's Node.js.** The main process and the embedded server run on the Node.js inside Electron (Node 24
+  in Electron 45), not on the Node 26 the workspace develops on. So `apps/desktop` typechecks against
   `@types/node` 24 (which covers the server code it imports), esbuild targets `node24`, and runtime libraries it
   bundles must support Node 24. A test keeps the target and the types on the
   Node major Electron declares; move them together when Electron moves to a new Node major.
@@ -59,7 +59,7 @@ node apps/desktop/node_modules/electron/install.js   # Electron binary (skipped 
 pnpm --filter @chartmate/desktop start      # build the web UI, dev bundle, run unpackaged (DevTools enabled)
 pnpm --filter @chartmate/desktop pack:dir   # unpacked app only, e.g. release/mac-arm64/Chartmate.app
 pnpm --filter @chartmate/desktop dist:mac   # release/Chartmate-<v>-mac-{arm64,x64}.{dmg,zip}
-pnpm --filter @chartmate/desktop dist:win   # release/Chartmate-<v>-win-{x64,arm64}.{exe,zip}; needs Windows or CI
+pnpm --filter @chartmate/desktop dist:win   # release/Chartmate-<v>-win{,-x64,-arm64}.exe, -win-{x64,arm64}.zip; Windows or CI
 pnpm --filter @chartmate/desktop test       # unit + security tests (protocol, guards, allowlist, fuses, workflows …)
 ```
 
@@ -165,7 +165,7 @@ Independently of that, provider requests never use Node's global dispatcher. The
 bundled root store (`tls.rootCertificates`). This restricts trust to that root store; it is not certificate
 pinning, so any certificate chaining to a bundled root is accepted. Real Node and Electron child processes prove
 this (`test/directFetch.test.ts`). The Agent speaks HTTP/1.1 only (`allowH2: false`; undici 8 would otherwise
-negotiate HTTP/2), and undici 8 needs Node 22.19 or later, which Electron 44's Node 24 satisfies.
+negotiate HTTP/2), and undici 8 needs Node 22.19 or later, which Electron 45's Node 24 satisfies.
 
 Provider traffic is therefore **direct-only**. Corporate HTTP proxies are not supported, and neither are
 TLS-inspecting middleboxes, which need their own root certificate. On such networks the desktop app cannot reach
@@ -185,7 +185,7 @@ The renderer is treated as untrusted web content, and the main process exposes n
   The guard also refuses API requests marked `Sec-Fetch-Site: cross-site` or `same-site`. Chromium sends no
   fetch-metadata header (and no `Origin`) on the renderer's app:// requests, so they pass; the handler forwards
   the header unchanged, and the test covers both cases.
-- **Window settings** (`src/lib/hardening.ts`, pinned by a snapshot test):
+- **Window settings** (`src/lib/hardening.ts`, pinned by an exact-match test):
   - `sandbox`, `contextIsolation` and `webSecurity` are on;
   - Node is off everywhere, including workers and subframes;
   - there is no preload script and no `webview`;
@@ -329,7 +329,7 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
       (Windows: **Restart now**; `quitAndInstall`) or **Later** (`autoInstallOnAppQuit`: installed when the app
       quits), with a plain-text summary of the release notes. "Ready" means downloaded on Windows; on macOS it
       means Squirrel.Mac has also fetched and verified the update (its own `update-downloaded`, which in
-      electron-updater 6.8.9 comes after electron-updater's), so a hand-over that fails (read-only or translocated
+      electron-updater 6.8 comes after electron-updater's), so a hand-over that fails (read-only or translocated
       app, unwritable `/Applications`, a signature that does not satisfy the designated requirement) never shows a
       **Restart Now** that does nothing. On macOS with no window open, the app asks for focus
       (`app.focus({ steal: false })`) before showing the dialog.
@@ -401,9 +401,10 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
   - **Release assets**: the packaging steps run with `CHARTMATE_PUBLISH=github`, so electron-builder writes
     `app-update.yml` (`provider: github`, owner and repository from `GITHUB_REPOSITORY`) into the app and
     `latest-mac.yml` / `latest.yml` next to the artifacts (`--dir` builds get no `app-update.yml`). On macOS the
-    zips, blockmaps and `latest-mac.yml` are computed from the signed, stapled apps (`--prepackaged`, one run per
-    architecture, merged by `scripts/merge-update-info.mjs`). The release job attaches the zips, the installers,
-    the blockmaps (for differential downloads) and `latest*.yml`. macOS updates install from the zip, never the
+    zips, blockmaps and `latest-mac.yml` are computed from the signed (and, when notarized, stapled) apps
+    (`--prepackaged`, one run per architecture, merged by `scripts/merge-update-info.mjs`). The release job attaches
+    the zips, the installers, the blockmaps (for differential downloads) and `latest*.yml`. macOS updates install
+    from the zip, never the
     dmg. The GitHub provider only sees published (not draft) releases.
   - **Licenses**: every build ships the AGPL-3.0 `LICENSE` and `THIRD_PARTY_NOTICES.txt` next to `app.asar`
     (`Contents/Resources` on macOS, `resources` on Windows). A `beforePack` hook in `build/builder-config.cjs`
@@ -445,11 +446,12 @@ run no dependency code, can read them:
    entitlements plists checked out: no Node.js setup, no package manager, no npm package. It imports the `.p12`
    into a temporary keychain with a random password, the key non-extractable (`security import -x`) and usable by
    `codesign` only. Before signing anything it checks every Mach-O file and bundle in the app against the
-   expected Electron layout (`expected_code` in the script: the main executable, the four helper apps, the
-   Electron, Squirrel, Mantle and ReactiveObjC frameworks, Electron's dylibs, the crashpad handler and
-   ShipIt) and refuses anything else, so it never signs code a build dependency added. An Electron upgrade that
-   adds a binary fails here first: check the file, then extend the list. `ci.yml`'s `mac-signing-dry-run` job runs
-   the same check on every pull request and push to `main` that touches the desktop app, the dependencies or the
+   expected Electron layout (`expected_code` in the script: the main executable, the four helper apps, the Electron,
+   Squirrel, Mantle and ReactiveObjC frameworks, Electron's dylibs, the crashpad handler, the app shim loader
+   (`app_shim_loader`, since Electron 45) and ShipIt) and refuses anything else, so it never signs code a build
+   dependency added. An Electron upgrade that adds a binary fails here first: check the file, then extend the list.
+   `ci.yml`'s `mac-signing-dry-run` job runs the same check on every pull request and push to `main` that touches
+   the desktop app, the dependencies or the
    script: it packages the arm64 app unsigned and signs a copy ad hoc (`IDENTITY=-`, no secrets), so a Dependabot
    Electron bump fails on its pull request rather than on the release tag. It signs the nested code inside-out
    (deepest first, then the app) with the hardened runtime, a secure timestamp and the entitlements from
@@ -503,9 +505,10 @@ Residual risk:
 ### Windows signing with Certum
 
 A Certum cloud certificate keeps its key in Certum's HSM. SimplySign Desktop exposes it while it is logged in,
-and you log it in with a one-time code from the SimplySign phone app. Each Windows build is signed in three
-places, each with SHA-256 and a Certum timestamp (`http://time.certum.pl`): `chartmate.exe`, the uninstaller and
-the installer. `latest.yml` and the blockmaps are computed from the signed files.
+and you log it in with a one-time code from the SimplySign phone app. Each Windows build is signed in four places,
+each with SHA-256 and a Certum timestamp (`http://time.certum.pl`): `chartmate.exe`, `elevate.exe` (the NSIS
+elevation helper), the uninstaller and the installer. `latest.yml` and the blockmaps are computed from the signed
+files.
 
 **1. Buy and activate (once a year).**
 
@@ -557,8 +560,8 @@ To get the SHA-256, download
 On Windows, check that **Properties, Digital Signatures** shows Asseco Data Systems S.A. Then run
 `Get-FileHash -Algorithm SHA256 <file>` (or `shasum -a 256 <file>` on a Mac).
 
-On a tag build, the first step of the Windows job runs `scripts/certum/login.ps1`, before any dependency is installed
-or any dependency code runs on that runner:
+On a tag build, right after checkout and the Node.js setup, the Windows job runs `scripts/certum/login.ps1`, before
+any dependency is installed or any dependency code runs on that runner:
 
 1. It downloads SimplySign Desktop and installs it only if the SHA-256 matches and the installer carries a valid,
    revocation-checked signature whose organization is exactly Asseco Data Systems S.A.
@@ -568,9 +571,9 @@ or any dependency code runs on that runner:
 
 The two login secrets exist only in that step's environment; the packaging step gets just the certificate
 thumbprint. `build/win-sign.cjs` signs with `signtool /sha1 <thumbprint>`; signtool gets a minimal environment.
-Then `scripts/verify-win-signatures.mjs` checks every signature, the SHA-256 digests, the uninstallers (from the
-hook's log), `app-update.yml`, `latest.yml` and the blockmaps, and SimplySign Desktop is closed right away, before
-the smoke tests run.
+SimplySign Desktop is closed as soon as electron-builder returns. Then `scripts/verify-win-signatures.mjs` checks
+every signature, the SHA-256 digests, the uninstallers (from the hook's log), `app-update.yml`, `latest.yml` and
+the blockmaps, before the smoke tests run.
 
 If the SimplySign login or the sign hook fails, the release is created as a **draft**:
 
@@ -609,7 +612,7 @@ Residual risk:
   - dependencies are installed with `--ignore-scripts` from the frozen lockfile;
   - `pnpm audit` runs before packaging;
   - Dependabot keeps dependencies current, a week after each release (cooldown);
-  - a required reviewer on `windows-signing` makes you approve each signing run.
+  - when you add a required reviewer to `windows-signing` (optional), you approve each signing run.
 - The Azure Trusted Signing and `.p12` (`WIN_CSC_*`) options, when configured, are read by the packaging step
   itself, next to the dependencies.
 - Only `chartmate.exe`, `elevate.exe` (the NSIS elevation helper, which electron-builder hands to the sign hook

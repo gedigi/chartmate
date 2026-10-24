@@ -17,6 +17,12 @@ app, the Docker image and the release tag share one version number.
 ### Desktop app
 
 - Runs on Electron 45 (from 44), with its Chromium security fixes.
+- macOS: the app now states its real minimum, macOS 13 Ventura (Electron 44 and later no longer run on macOS 12).
+
+### Self-hosting
+
+- The README's Compose install downloads `compose.yaml` and the `.env` template from the latest release instead of
+  the development branch, so they always match the latest image.
 
 ## [1.1.2] - 2026-10-20
 

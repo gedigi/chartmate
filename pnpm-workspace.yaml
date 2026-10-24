@@ -12,7 +12,8 @@ allowBuilds:
   electron-winstaller: false
   esbuild: false
 
-# Supply-chain policies, checked on every install, the frozen one included (CONTRIBUTING.md, "Dependencies").
+# Supply-chain policies, checked on every install, the frozen one included (CONTRIBUTING.md, "Pull requests",
+# "Release age and provenance").
 # A version must be 3 days old before it can be resolved (strict: an install fails instead of picking it).
 minimumReleaseAge: 4320
 minimumReleaseAgeExclude:

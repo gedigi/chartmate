@@ -27,18 +27,18 @@ hash-checks everything it downloads: corepack (version and sha512 pinned in the 
 `packageManager` sha512) and pnpm's native binary (`@pnpm/exe.<os>-<arch>`, against its sha512 in
 `pnpm-lock.yaml`). A plain `corepack enable` setup lets the wrapper download that binary on first use, checked
 only against npm's registry signature; run the script locally to get CI's checks. pnpm settings (`allowBuilds`,
-`patchedDependencies`, the `minimumReleaseAge` and `trustPolicy` supply-chain policies with their exceptions) live
-in `pnpm-workspace.yaml`; the install hook is `.pnpmfile.cjs`.
+`patchedDependencies` when a patch exists, the `minimumReleaseAge` and `trustPolicy` supply-chain policies with
+their exceptions) live in `pnpm-workspace.yaml`; the install hook is `.pnpmfile.cjs`.
 
 | Path | Package | Responsibility |
 | --- | --- | --- |
 | `packages/shared` | `@chartmate/shared` | Types shared by server and web, timeframes, NY time and session tagging, resampling, basket math, watchlist model, quote helpers. Pure, heavily tested. |
 | `apps/server` | `@chartmate/server` | Fastify 5 API + static web hosting; Kysely over SQLite (better-sqlite3) or Postgres; providers, bar cache with coverage tracking, baskets service, optional password auth. |
 | `apps/web` | `@chartmate/web` | React 19 + Vite 8 UI; charts through KLineChart 10. |
-| `apps/desktop` | `@chartmate/desktop` | Electron 44 app embedding the server (no listener) and the web build; hardened. |
+| `apps/desktop` | `@chartmate/desktop` | Electron 45 app embedding the server (no listener) and the web build; hardened. |
 | `e2e` | (root scripts) | Playwright end-to-end tests against the built server in fixture mode. |
 | `docs/desktop.md` | | Desktop app internals, security model, smoke tests, signing and notarization. |
-| `CHANGELOG.md` | | User-facing release notes; the release workflow copies the tag's section into the GitHub Release. |
+| `CHANGELOG.md` | | User-facing release notes; the desktop workflow (`desktop.yml`) copies the tag's section into the GitHub Release. |
 | `docs/superpowers` | | Original design spec and implementation plan. Historical: the code and the README win where they differ. |
 
 ## Architecture boundaries
@@ -58,7 +58,7 @@ in `pnpm-workspace.yaml`; the install hook is `.pnpmfile.cjs`.
 - Desktop: the window loads `app://chartmate/`; `/api/*` goes to `fastify.inject`, everything else is a static
   file of the web build (`apps/desktop/src/lib/protocol.ts`). There is no network listener
   (`listenGuard.ts`), no preload and no IPC.
-- Desktop runs the server on Electron's Node.js (Electron 44: Node 24), not Node 26: server and desktop code must
+- Desktop runs the server on Electron's Node.js (Electron 45: Node 24), not Node 26: server and desktop code must
   not use Node APIs newer than that. `apps/desktop` typechecks against `@types/node` 24 and esbuild targets
   `node24`; a test keeps both on Electron's Node major.
 - Every request first passes the Host / Origin guard (`apps/server/src/hostGuard.ts`, the first `onRequest`
@@ -116,13 +116,13 @@ hardened spec; it moves the real per-user data aside and back), `SMOKE_LIVE=1` (
 ## Testing
 
 - TDD: write the failing test first, then the code. Bugs get a regression test.
-- Run `pnpm typecheck` and `pnpm test` (and `pnpm e2e` when the UI flow changes) before every commit; all must
-  pass. After any dependency change run `pnpm audit`: it must report no known vulnerabilities (CI and the
-  release workflow fail otherwise). An unpatched advisory in a build-only dependency is removed (see
+- Run `pnpm typecheck` and `pnpm test` (and `pnpm e2e` when the UI flow changes) before every commit; all must pass.
+  After any dependency change run `pnpm audit`: it must report no known vulnerabilities (CI and the desktop and
+  Docker release workflows fail otherwise). An unpatched advisory in a build-only dependency is removed (see
   `.pnpmfile.cjs`) or replaced, never ignored.
-- Upstream bugs are patched with pnpm patches in `patches/` (`patchedDependencies` in `pnpm-workspace.yaml`); none
-  is needed today (app-builder-lib 26.18 fixed the macOS keychain password bug the last one patched). Re-check each
-  patch when bumping its dependency, and drop it once upstream has the fix.
+- Upstream bugs are patched with `pnpm patch`, which adds the patch under `patches/` and a `patchedDependencies`
+  entry in `pnpm-workspace.yaml`. There is none today (app-builder-lib 26.18 fixed the macOS keychain password bug
+  the last one patched). Re-check a patch when bumping its dependency, and drop it once upstream has the fix.
 - Unit tests never touch the network; providers are tested against recorded fixtures.
 - e2e uses its own database per port (`test-results/e2e-<port>.db`), so parallel worktrees just pick different
   `E2E_PORT`s.
@@ -150,18 +150,18 @@ hardened spec; it moves the real per-user data aside and back), `SMOKE_LIVE=1` (
 - License: the project is `AGPL-3.0-only` (`LICENSE`); new packages carry `"license": "AGPL-3.0-only"`. The
   Wyckoff indicator files keep their MPL-2.0 headers. Only add dependencies whose licenses are compatible with
   AGPL-3.0 (MIT, BSD, ISC, Apache-2.0, MPL-2.0 and similar). `scripts/third-party-notices.mjs` holds the
-  allowlist and writes `THIRD_PARTY_NOTICES.txt`; the Docker image (`/app`) and the desktop app (next to
-  `app.asar`) ship it with `LICENSE`. `pnpm licenses:check` (CI and the release workflows) and both builds fail on
-  a shipped dependency outside the allowlist or without a license text. A new license goes on the allowlist only
-  after checking its AGPL-3.0 compatibility.
+  allowlist and writes `THIRD_PARTY_NOTICES.txt`; the Docker image (`/app`) and the desktop app (next to `app.asar`)
+  ship it with `LICENSE`. `pnpm licenses:check` (CI, `desktop.yml` and `docker.yml`) and both builds fail on a
+  shipped dependency outside the allowlist or without a license text. A new license goes on the allowlist only after
+  checking its AGPL-3.0 compatibility.
 - Never hardcode the GitHub repository URL or owner: use relative links in docs and
   `github.repository` / `GITHUB_REPOSITORY` in workflows and build config. One exception: the docs (README,
   CONTRIBUTING, AGENTS, `docs/*.md`, `compose.yaml`, `.env.example`) may name the published image
-  `ghcr.io/gedigi/chartmate`, the `compose.yaml` / `.env.example` download URLs (raw `main` today,
-  `releases/latest/download` once a release carries them) and the attestation check's `--repo gedigi/chartmate`,
-  so a copy-paste install or verification works. `apps/server/test/selfhost-docs.test.ts` pins the image name,
-  the repository slug and both URL bases in constants and fails on any other mention of the owner in those
-  files, so a move is a change to those constants plus a search and replace.
+  `ghcr.io/gedigi/chartmate`, the `compose.yaml` / `.env.example` download URLs (`releases/latest/download`; raw
+  `main` is allowed too) and the attestation check's `--repo gedigi/chartmate`, so a copy-paste install or
+  verification works. `apps/server/test/selfhost-docs.test.ts` pins the image name, the repository slug and both URL
+  bases in constants and fails on any other mention of the owner in those files, so a move is a change to those
+  constants plus a search and replace.
 - Custom indicators: one file in `apps/web/src/chart/indicators/custom/` (start from `pnpm new:indicator`), colors
   only through palette slots (`lineSlots`) or `activeIndicatorColors()`; a test rejects color literals there.
 - Commits: small and logical, conventional style as in `git log`: `feat(web): …`, `fix(desktop): …`,
@@ -206,7 +206,7 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
 
 ## Releases
 
-- Before tagging: add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md` and set `"version"` in
+- Before merging the version bump: add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md` and set `"version"` in
   `apps/desktop/package.json` (the product version; a test requires a changelog entry for it), and the same
   version in `apps/web/package.json` and `apps/server/package.json` (a test keeps the three equal). The step-by-step
   list is in `CONTRIBUTING.md`, "Releases".
@@ -234,7 +234,7 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   `notarytool`, `stapler`, `spctl`. `sign-mac` refuses any Mach-O file outside the expected Electron layout
   (`expected_code`), and `notarize-mac-dmg` checks each dmg's app against the cdhash `sign-mac` recorded. `dist-mac`
   (no secrets) makes the dmgs, zips, blockmaps and `latest-mac.yml` from the signed apps (`electron-builder
-  --prepackaged`, one run per arch, merged by `scripts/merge-update-info.mjs`). The Apple secrets are
+  --prepackaged`, one run per arch, merged by `apps/desktop/scripts/merge-update-info.mjs`). The Apple secrets are
   `macos-signing` environment secrets only. Residual risk: the dependencies build the code that is signed. Changes
   to the signing script, those jobs or the secret scoping are security changes.
 - The same tag runs `.github/workflows/docker.yml`:
@@ -269,41 +269,44 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   `## [X.Y.Z] - YYYY-MM-DD` at release time (CONTRIBUTING, "Releases").
 - Windows signing uses a Certum SimplySign cloud certificate (`docs/desktop.md`, "Windows signing with Certum"):
   - `build/signing.cjs` picks the method.
-  - `build/win-sign.cjs` is electron-builder's sign hook. It signs `chartmate.exe`, the uninstaller and the
-    installer, using signtool by thumbprint or osslsigncode + PKCS#11.
-  - CI logs in with `scripts/certum/login.ps1`, on tag builds only, in the `windows-signing` environment, as the
-    first step of the job: before any dependency code runs there, and with the login secrets in no other step.
-  - `scripts/verify-win-signatures.mjs` gates the result. The packaging step ends the SimplySign session as soon as
-    electron-builder returns (before verification, a fallback rebuild or the smoke tests); a later `always()` step
-    closes it again as a backstop.
+  - `build/win-sign.cjs` is electron-builder's sign hook. It signs `chartmate.exe`, `elevate.exe`, the uninstaller
+    and the installer, using signtool by thumbprint or osslsigncode + PKCS#11.
+  - CI logs in with `apps/desktop/scripts/certum/login.ps1`, on tag builds only, in the `windows-signing`
+    environment, right after checkout and the Node.js setup: before any dependency code runs there, and with the
+    login secrets in no other step.
+  - `apps/desktop/scripts/verify-win-signatures.mjs` gates the result. The packaging step ends the SimplySign
+    session as soon as electron-builder returns (before verification, a fallback rebuild or the smoke tests); a
+    later `always()` step closes it again as a backstop.
   - If the login or the sign hook fails, Windows ships without Certum, the release notes say so, and the release
     is created as a draft, never marked Latest (the owner publishes it after `sign:win`). A failed verification
     fails the job, and so does a signing setting `build/signing.cjs` rejects.
   - The Certum secrets are `windows-signing` environment secrets only, never repository secrets.
   - Residual risk: the signing has not moved to a job without dependency code yet (the session is bound to the
     runner, and the uninstaller is signed in the middle of the NSIS build; `docs/desktop.md`, "Moving Windows
-    signing out of the build job", has the examined design and the one Windows run it still needs), so code
-    running in that job can use the live certificate session, and with administrator rights on the runner could reach the job's secrets.
-    `--ignore-scripts`, the frozen lockfile, `pnpm audit`, Dependabot and the environment's required reviewer are
-    what limit it. Electron's own DLLs are not signed individually (acceptable; see `docs/desktop.md`).
+    signing out of the build job", has the examined design and the one Windows run it still needs), so code running
+    in that job can use the live certificate session, and with administrator rights on the runner could reach the
+    job's secrets. `--ignore-scripts`, the frozen lockfile, `pnpm audit`, Dependabot and, when set, the
+    environment's required reviewer are what limit it. Electron's own DLLs are not signed individually (acceptable;
+    see `docs/desktop.md`).
   - `CHARTMATE_WIN_PUBLISHER_NAME` (the certificate CN) is required, because electron-updater pins it.
 - If CI cannot log in, the owner runs `pnpm --filter @chartmate/desktop sign:win` from a checkout of the tag. It
-  rebuilds, signs, verifies and replaces the Windows assets of that release. Changes to the signing hook, the
-  login script or the secret scoping are security changes.
-- `.github/workflows/ci.yml` runs `pnpm audit`, typecheck, tests, the license gate, the indicator scaffold check, the
-  web build, e2e, the Docker build and a macOS signing dry run (`mac-signing-dry-run`: the arm64 app signed ad hoc
-  through `macos-sign.sh`'s allowlist, when the desktop app, the dependencies or the script change) on pull
-  requests and pushes to `main`; the release workflows audit and check
-  licenses too. Every workflow gets Node from `.nvmrc`, then corepack and pnpm from `.github/scripts/install-pnpm.sh`
-  (corepack pinned by version and sha512, which Dependabot does not bump; pnpm by the `packageManager` sha512 and its
-  native binary by `pnpm-lock.yaml`); only `ci.yml` caches the pnpm store (no cache on a release path). ci.yml's
-  Docker job builds with `--pull` and runs the same Trivy gate. Dependabot (`.github/dependabot.yml`) opens weekly
-  update PRs for npm packages (7-day cooldown) and the pinned actions (3 days); the Docker base image and the
-  Compose Postgres image are floating tags pulled fresh on every build or `up`, so its docker entries only matter if
-  a version is pinned again. It never proposes a new major of Node (the base image, `@types/node`) or Postgres:
-  those are deliberate upgrades (Node: the next LTS, together with `.nvmrc` and the Dockerfile; Postgres: a dump and
-  restore, documented for users). `apps/desktop/test/workflows.test.ts` pins the workflows' rules (actions pinned to
-  SHAs, read-only default tokens, secrets only in the step that needs them, signing jobs without dependency code).
+  rebuilds, signs, verifies and replaces the Windows assets of that release. Changes to the signing hook, the login
+  script or the secret scoping are security changes.
+- `.github/workflows/ci.yml` runs `pnpm audit`, typecheck, tests, the license gate, the indicator scaffold check,
+  the web build, e2e, the Docker build and a macOS signing dry run (`mac-signing-dry-run`: the arm64 app signed ad
+  hoc through `macos-sign.sh`'s allowlist, when the desktop app, the dependencies or the script change) on pull
+  requests and pushes to `main`, plus the server's DB suites on Postgres; `desktop.yml` and `docker.yml` audit and
+  check licenses too. Every workflow but `release.yml` (git, jq and `gh` only) gets Node from `.nvmrc`, then
+  corepack and pnpm from `.github/scripts/install-pnpm.sh` (corepack pinned by version and sha512, which Dependabot
+  does not bump; pnpm by the `packageManager` sha512 and its native binary by `pnpm-lock.yaml`); only `ci.yml`
+  caches the pnpm store (no cache on a release path). ci.yml's Docker job builds with `--pull` and runs the same
+  Trivy gate. Dependabot (`.github/dependabot.yml`) opens weekly update PRs for npm packages (7-day cooldown) and
+  the pinned actions (3 days); the Docker base image and the Compose Postgres image are floating tags pulled fresh
+  on every build or `up`, so its docker entries only matter if a version is pinned again. It never proposes a new
+  major of Node (the base image, `@types/node`) or Postgres: those are deliberate upgrades (Node: the next LTS,
+  together with `.nvmrc` and the Dockerfile; Postgres: a dump and restore, documented for users).
+  `apps/desktop/test/workflows.test.ts` pins the workflows' rules (actions pinned to SHAs, read-only default tokens,
+  secrets only in the step that needs them, signing jobs without dependency code).
 
 ## Specs and plans
 

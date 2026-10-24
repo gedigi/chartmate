@@ -113,9 +113,9 @@ const LayoutSchema = z.object({
   // Color of new drawings: the last swatch picked, so a palette reference only (no layout ever stored a hex here).
   // Tolerant: an invalid value is dropped on its own.
   drawingColor: z.enum(DRAWING_COLOR_TOKENS).optional().catch(undefined),
-  // Event kinds hidden on stock charts. Tolerant: an invalid list is dropped on its own (all kinds shown again).
   // Style of new drawings (the last one set in a style bar). Tolerant: each invalid part is dropped on its own.
   drawingDefaults: DrawingDefaultsSchema.optional().catch(undefined),
+  // Event kinds hidden on stock charts. Tolerant: an invalid list is dropped on its own (all kinds shown again).
   hiddenEvents: z.array(z.enum(CORPORATE_EVENT_KINDS)).max(CORPORATE_EVENT_KINDS.length).optional().catch(undefined),
 }) satisfies z.ZodType<Layout, unknown>;
 

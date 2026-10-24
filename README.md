@@ -26,8 +26,8 @@ Get the latest version from [Releases](../../releases/latest):
 
 | System | File |
 | --- | --- |
-| macOS 12 or later, Apple silicon | `Chartmate-<version>-mac-arm64.dmg` |
-| macOS 12 or later, Intel | `Chartmate-<version>-mac-x64.dmg` |
+| macOS 13 or later, Apple silicon | `Chartmate-<version>-mac-arm64.dmg` |
+| macOS 13 or later, Intel | `Chartmate-<version>-mac-x64.dmg` |
 | Windows 10 or later, x64 | `Chartmate-<version>-win-x64.exe` |
 | Windows 10 or later, Arm | `Chartmate-<version>-win-arm64.exe` |
 
@@ -106,10 +106,10 @@ until you delete it with `docker volume rm chartmate-data`).
 
 ### Recommended install (Docker Compose)
 
-Download the Compose file, read it (it is short and commented), then start it:
+Download the latest release's Compose file, read it (it is short and commented), then start it:
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/gedigi/chartmate/main/compose.yaml
+curl -fsSLO https://github.com/gedigi/chartmate/releases/latest/download/compose.yaml
 docker compose up -d
 ```
 
@@ -125,11 +125,11 @@ needed. Create one only to set a password, change the port or use Postgres; fetc
 same way, copy it to `.env` (never over an existing one, readable by you only) and edit it:
 
 ```sh
-curl -fsSL -o .env.example https://raw.githubusercontent.com/gedigi/chartmate/main/.env.example
+curl -fsSL -o .env.example https://github.com/gedigi/chartmate/releases/latest/download/env.example
 [ -e .env ] || install -m 600 .env.example .env
 ```
 
-- Data lives in the `chartmate-data` volume (SQLite at `/data/chartmate.db`).
+- Data lives in the `chartmate_chartmate-data` volume (SQLite at `/data/chartmate.db`).
 - The port is published on `127.0.0.1` only, so other machines cannot reach it, but other containers on the
   same Docker network still can. To reach it from other machines, prefer a
   [reverse proxy](#behind-a-reverse-proxy-https) on the same host. Otherwise set a password first (see
@@ -137,7 +137,7 @@ curl -fsSL -o .env.example https://raw.githubusercontent.com/gedigi/chartmate/ma
   such as ufw, so `0.0.0.0` really is every interface. `CHARTMATE_PORT` changes the host port.
 - The container runs as a non-root user and writes only to `/data`, plus SQLite's temporary files (large
   sorts, `VACUUM`) to the `/tmp` tmpfs.
-- `CHARTMATE_IMAGE` overrides the image: pin a version (`ghcr.io/gedigi/chartmate:1.0.0`, or by digest, see
+- `CHARTMATE_IMAGE` overrides the image: pin a version (`ghcr.io/gedigi/chartmate:1.1.2`, or by digest, see
   [Security](#security)) or run your own build (`docker build -t chartmate:local .`, then
   `CHARTMATE_IMAGE=chartmate:local` and `CHARTMATE_PULL_POLICY=never`). A fork publishes under its own name;
   pulling a private package needs `docker login ghcr.io` with a token that has the `read:packages` scope.
@@ -161,8 +161,10 @@ quick-try container: `docker pull ghcr.io/gedigi/chartmate:latest && docker rm -
 same `docker run` line again (the volume keeps your data).
 
 Database migrations run at startup, and data saved by older versions stays loadable. To upgrade on your own
-schedule, pin a version (`CHARTMATE_IMAGE=ghcr.io/gedigi/chartmate:1.0.0` in `.env`, or a digest as in
-[Security](#security)) instead of `latest`, and take a backup first. `docker stop` (SIGTERM) shuts the server down
+schedule, pin a version (`CHARTMATE_IMAGE=ghcr.io/gedigi/chartmate:1.1.2` in `.env`, or a digest as in
+[Security](#security)) instead of `latest`, and take a backup first. Pin the version you run now or a newer one: an
+older version refuses a database a newer one has migrated (to go back, restore the backup taken before upgrading,
+or see [Troubleshooting](#troubleshooting)). `docker stop` (SIGTERM) shuts the server down
 cleanly.
 
 ### Backups
@@ -208,8 +210,9 @@ newest 18.x release, which reads the same data. Its volume (`chartmate_postgres-
 
 #### Upgrading from Postgres 17
 
-Before this release the bundled service was Postgres 17, with the volume mounted at `/var/lib/postgresql/data`.
-Postgres 18 cannot open Postgres 17 data: with the new `compose.yaml` the `postgres` container stops at start with
+Chartmate 1.0.0's `compose.yaml` ran Postgres 17, with the volume mounted at `/var/lib/postgresql/data` (1.1.0 moved
+to Postgres 18). Postgres 18 cannot open Postgres 17 data: with the new `compose.yaml` the `postgres` container
+stops at start with
 an error that names `/var/lib/postgresql` ("there appears to be PostgreSQL data in"), restarts, and never touches
 the old files. Chartmate cannot reach its database until you move the data over, once, with a dump and restore
 (a few seconds for a typical Chartmate database). Run these next to your `compose.yaml` and `.env`:
@@ -302,8 +305,9 @@ location / {
   served, unless `CHARTMATE_ALLOWED_HOSTS` is set, which is then enforced as well. Opening Chartmate by a LAN
   address or name without a password therefore needs that name in `CHARTMATE_ALLOWED_HOSTS`; for anything
   beyond your own machine, set a password.
-- **Same-origin writes.** With or without a password, a state-changing API request (anything but `GET`) that
-  carries an `Origin` is refused unless that is the request's own origin: same hostname and port as the host
+- **Same-origin writes.** With or without a password, a state-changing API request (anything but `GET`, `HEAD` or
+  `OPTIONS`) that carries an `Origin` is refused unless that is the request's own origin: same hostname and port as
+  the host
   it was sent to, or the browser marks it `Sec-Fetch-Site: same-origin`. For a loopback host, a loopback
   `Origin` on any port is accepted too, which is what `pnpm dev` needs (the page on port 5173, the API on 8787).
   Requests without an `Origin` (curl, scripts) are not affected.
@@ -323,8 +327,9 @@ location / {
   proxy's IP and they all share one rate-limit budget, and the session cookie is not marked `Secure`.
 - The session cookie lasts 30 days. Each cookie carries a keyed fingerprint of the password, so changing
   `CHARTMATE_PASSWORD` (or `CHARTMATE_SESSION_SECRET`, or deleting the generated `session_secret` row) signs
-  every session out. Over HTTPS the cookie is named `__Host-chartmate_session` (Secure, `Path=/`, no `Domain`,
-  so no other site or subdomain can set it); over plain HTTP it is `chartmate_session`. Logout clears both.
+  every session out. Over HTTPS the cookie is named `__Host-chartmate_session` (Secure, `Path=/`, no `Domain`, so no
+  other site or subdomain can set it); over plain HTTP it is `chartmate_session`. Logout clears the plain cookie,
+  and over HTTPS the `__Host-` one too.
 - **A fresh, scanned image.** Every image build pulls the newest `node:26-trixie-slim` and applies Debian's
   security updates. The base image's digest must be one Docker's official-images project recorded for that tag
   (checked against `docker-library/repo-info`), built within the last 60 days; it is in the workflow's log, in
@@ -338,16 +343,16 @@ location / {
   arrive through the fresh base image rather than through the scan. The bundled Postgres image is Docker's
   official `postgres:18-trixie` as the registry serves it; Chartmate's CI does not check it the same way. To scan
   an image yourself: `trivy image --ignore-unfixed --severity HIGH,CRITICAL ghcr.io/gedigi/chartmate:latest`.
-- **Pin the image.** `latest` follows every release, and each release's tags (`X.Y.Z` too) move to the weekly
-  rebuild. To run exactly the image you checked, look up the digest of a version, verify that digest itself, then
+- **Pin the image.** `latest` follows every release, and the latest release's tags (`X.Y.Z` too) move to each
+  weekly rebuild. To run exactly the image you checked, look up the digest of a version, verify that digest itself, then
   pin both in `.env`:
 
   ```sh
-  docker buildx imagetools inspect ghcr.io/gedigi/chartmate:1.0.0   # prints "Digest: sha256:…"
+  docker buildx imagetools inspect ghcr.io/gedigi/chartmate:1.1.2   # prints "Digest: sha256:…"
   gh attestation verify oci://ghcr.io/gedigi/chartmate@sha256:<digest> --repo gedigi/chartmate
   ```
 
-  then `CHARTMATE_IMAGE=ghcr.io/gedigi/chartmate:1.0.0@sha256:<digest>`. Docker then pulls that digest only
+  then `CHARTMATE_IMAGE=ghcr.io/gedigi/chartmate:1.1.2@sha256:<digest>`. Docker then pulls that digest only
   (the tag is just a label), and `docker compose pull` never moves it; upgrade by changing both.
   `gh attestation verify` checks the signed build provenance of exactly that digest: that it was built from
   this repository by its release workflow (`docker.yml`, run on the version's tag) or by its weekly rebuild
@@ -482,8 +487,8 @@ Where to read next:
 - **Theme**: the sun / moon button in the top bar switches between the dark theme (the default) and the light
   one. The choice is stored per browser (localStorage `chartmate.theme`) and applied before the page paints;
   each theme keeps its own chart appearance (see below).
-- **Toggle watchlist**: the button at the right end of the top bar shows or hides the watchlist sidebar, giving
-  the chart the full width.
+- **Toggle watchlist**: the watchlist button at the right of the top bar (before **Log out** when a password is set)
+  shows or hides the watchlist sidebar, giving the chart the full width.
 - **Timeframes** 1m … 1M, chart types candles / bars / line / area, light and dark themes. The look is flat:
   the chart sits on its own rounded sheet, chrome is solid panels with hairline edges (no glass, glow or drop
   shadows), and every font is the system sans-serif (no web fonts). Time axis ticks (and the vertical grid lines)
@@ -586,7 +591,7 @@ Where to read next:
   at midnight UTC for crypto and for baskets holding crypto (whose intraday bars use the UTC grid). On 1D and
   longer timeframes it spans the whole loaded series.
 - **Events (stocks)**: earnings, dividends and splits appear as small lettered badges at the bottom of the price
-  pane, on the bar each falls in (several on one bar stack up):
+  pane, on the bar each falls in (one badge per kind; different kinds on one bar stack up, earnings at the bottom):
   - **E** earnings, in the up color when the report beat the EPS estimate, the down color when it missed, the
     accent when there are no figures, and as a hollow accent ring for the next scheduled report (drawn right of
     the last bar).
@@ -656,8 +661,8 @@ Where to read next:
   drawings are read-only. Only the price changes (the time anchor is kept). Horizontal lines placed or dragged
   with the mouse are rounded to the symbol's price precision.
 - **Price labels**: price lines and horizontal lines have **On line** (price text on the line) and **On axis**
-  (price label on the right axis) toggles in the style bar; defaults: price line both on, horizontal line
-  axis only. Saved with the drawing.
+  (price label on the right axis) toggles in the style bar; defaults (until you change them, see above): price line
+  both on, horizontal line axis only. Saved with the drawing.
 - **⌘ magnet**: hold **⌘** (macOS) or **Ctrl** (other systems) while placing or dragging a drawing to snap
   it to the nearest open/high/low/close (strong magnet); releasing the key returns to the toolbar's magnet
   setting.
@@ -667,8 +672,8 @@ Where to read next:
   free. Combined with ⌘/Ctrl, the snap picks the anchor price and Shift keeps the line flat.
 - **Undo and redo**: **⌘Z** undoes the last drawing change (drawing, moving, restyling, locking, deleting, clear
   all, paste) and **⌘⇧Z** redoes it; on other systems **Ctrl+Z** and **Ctrl+Shift+Z** or **Ctrl+Y**. Each undo is
-  saved like any edit. While a drawing is being placed, ⌘Z cancels it. The history belongs to the symbol on screen:
-  switching symbols or reloading starts a new one.
+  saved like any edit. While a drawing is being placed, ⌘Z cancels it. The history keeps the last 100 changes and
+  belongs to the symbol on screen: switching symbols or reloading starts a new one.
 - **Copy and paste**: **⌘C** / **⌘V** (macOS) or **Ctrl+C** / **Ctrl+V** (other systems) copy the selected
   drawing and paste a copy, which is selected and saved like a newly drawn drawing. Every drawing type works,
   with its style and options (channel extend, rectangle fill, price labels, text, position prices). The clipboard lives in
@@ -699,7 +704,8 @@ Where to read next:
   midline or the fill selects (and drags) the channel; clicking beyond its ends does not. A right click inside
   the fill is ignored (a right click on a line removes the channel, as for other unlocked drawings).
   - **Extend left / Extend right** (style bar) extend the lines, midline and fill to the
-    chart's left / right edge; both on gives an infinite channel. Both are off for new channels.
+    chart's left / right edge; both on gives an infinite channel. Both are off for new channels until you
+    change them (new channels then start with your last choice).
   - **Stored** as `parallelChannel` drawings (three points) with optional `styles.extend` (`left` / `right`;
     only the sides that differ from the default are saved).
   - **Legacy channels** (`parallelStraightLine`, drawn by older versions as infinite channels) still look exactly
@@ -740,10 +746,10 @@ R:R and the outcome in %, with no account, risk, quantity or money amounts.
   ⌘/Ctrl snaps it to OHLC). Target and stop start at the default distances, ±2 % unless changed with "Use as
   default" (long: target above, stop below; short inverted), and
   the box is about 20 bars wide (counted on the loaded bars, extrapolated with the timeframe past the last bar).
-- **Chart**: a profit zone (entry → target) and a loss zone (entry → stop) as translucent tints of the
-  candle up / down colors, light enough that candles inside keep their colors (both zones equally strong on
-  either theme, at most 12 % opacity; hue-locked where the background allows it), the entry line,
-  and labels `Target: <price> (<±%>)`, `Stop: <price> (<±%>)` and `<Long|Short> · R:R <ratio>` (the % is the position's
+- **Chart**: a profit zone (entry → target) and a loss zone (entry → stop) as translucent tints of the candle up /
+  down colors, light enough that candles inside keep their colors (both zones equally strong on either theme, at
+  most 12 % opacity, 14 % for the traversed part; hue-locked where the background allows it), the entry line, and
+  labels `Target: <price> (<±%>)`, `Stop: <price> (<±%>)` and `<Long|Short> · R:R <ratio>` (the % is the position's
   gain / loss at that level, in % of the entry; label text is white or dark, whichever reads on its color). Labels
   are centered on the visible part of the box and stay inside the chart (a box wider than the screen still shows
   them); the center / outcome labels move to the right of a box narrower than them, the outcome label moves
@@ -799,7 +805,8 @@ With no drawing tool active, hold **Shift** and drag on the price pane to measur
 tinted in the up color (end price at or above the start) or the down color, with the price change and percent, the
 number of bars and the time span (e.g. "12 bars, 3d 4h"), and the volume over those bars when the symbol has volume.
 **Shift**-click without dragging starts a measure whose end follows the mouse until the next click. It stays until the
-next click without Shift, **Escape**, the next measure, a new drawing tool or a symbol / timeframe change. Points snap
+next click without Shift, **Escape**, the next measure, a new drawing tool, an undo / redo or a symbol / timeframe
+change. Points snap
 like drawings (the magnet, or ⌘ / Ctrl held). Bars are the chart's actual bars (sessions, weekends and baskets
 included); the span is calendar time. A measure is never a drawing: it is not saved, copied, locked or counted, and
 Clear all leaves it alone. Shift on a drawing still drags it (kept horizontal), and indicator panes and the axes ignore
@@ -1117,7 +1124,7 @@ JSON over `/api` (the web client uses nothing else). With `CHARTMATE_PASSWORD` s
 | `GET /api/symbols/:id` | Symbol info (name, exchange, price precision). |
 | `GET /api/bars?symbol=&tf=&session=rth\|eth&from=&to=` | Bars in a range (ms timestamps), with `stale`, notices and markers. |
 | `GET /api/latest?symbol=&tf=&session=` | The latest bar. |
-| `GET /api/events?symbol=` | A stock's earnings, dividends and splits (`[]` for crypto and baskets). |
+| `GET /api/events?symbol=` | A stock's earnings, dividends and splits (`{ symbol, events }`; `events` is empty for crypto and baskets). |
 | `GET /api/quotes?symbols=` / `GET /api/sparklines?symbols=` | Watchlist quotes / sparklines (comma-separated ids, at most 50). |
 | `GET`, `POST /api/baskets`; `GET`, `PUT`, `DELETE /api/baskets/:id`; `POST /api/baskets/:id/versions` | Baskets and their versions (at most 50 constituents per version, 100 versions and 100 distinct symbols per basket). Appending a version is atomic; one that loses a race with another edit three times gets a 409. |
 | `GET`, `PUT /api/watchlist` | The watchlist (see [Watchlist and sections](#watchlist-and-sections)). |
