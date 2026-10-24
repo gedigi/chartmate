@@ -91,6 +91,7 @@ describe('macos-sign.sh sign-app (only the expected Electron code is signed)', (
     write(`${fw}/Versions/A/Electron Framework`, 'LIB');
     write(`${fw}/Versions/A/Libraries/libffmpeg.dylib`, 'LIB');
     write(`${fw}/Versions/A/Helpers/chrome_crashpad_handler`, 'EXE');
+    write(`${fw}/Versions/A/Helpers/app_shim_loader`, 'EXE'); // since Electron 45
     symlinkSync('A', join(app, fw, 'Versions/Current'));
     write('Contents/Frameworks/Squirrel.framework/Versions/A/Squirrel', 'LIB');
     write('Contents/Frameworks/Squirrel.framework/Versions/A/Resources/ShipIt', 'EXE');
@@ -107,7 +108,7 @@ describe('macos-sign.sh sign-app (only the expected Electron code is signed)', (
     expect(r.status).toBe(0);
     const order = signed(r.calls);
     expect(order.at(-1)).toBe('Chartmate.app');
-    expect(order).toHaveLength(17); // 16 nested items (6 Mach-O files, 4 helper executables and their 4 apps, 2 frameworks) + the app
+    expect(order).toHaveLength(18); // 17 nested items (7 Mach-O files, 4 helper executables and their 4 apps, 2 frameworks) + the app
     expect(order.indexOf('Chartmate.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libffmpeg.dylib'))
       .toBeLessThan(order.indexOf('Chartmate.app/Contents/Frameworks/Electron Framework.framework'));
     const main = r.calls.filter((c) => c.startsWith('codesign --force')).at(-1)!;
@@ -121,6 +122,7 @@ describe('macos-sign.sh sign-app (only the expected Electron code is signed)', (
     ['a native module', 'Contents/Resources/app.asar.unpacked/addon.node', 'LIB'],
     ['an extra executable next to the main one', 'Contents/MacOS/helper', 'EXE'],
     ['an unknown framework', 'Contents/Frameworks/Extra.framework/Versions/A/Extra', 'LIB'],
+    ['an unknown helper in the Electron framework', 'Contents/Frameworks/Electron Framework.framework/Versions/A/Helpers/extra_loader', 'EXE'],
   ] as const) {
     it(`refuses ${what} before signing anything`, () => {
       write(rel, kind);

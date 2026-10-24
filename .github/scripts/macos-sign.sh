@@ -111,7 +111,9 @@ expected_code() {
   for f in libEGL.dylib libGLESv2.dylib libffmpeg.dylib libvk_swiftshader.dylib; do
     printf '%s\n' "Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/$f"
   done
+  # app_shim_loader: Chromium's app shim loader, in the Electron framework since Electron 45.
   printf '%s\n' "Contents/Frameworks/Electron Framework.framework/Versions/A/Helpers/chrome_crashpad_handler" \
+    "Contents/Frameworks/Electron Framework.framework/Versions/A/Helpers/app_shim_loader" \
     "Contents/Frameworks/Squirrel.framework/Versions/A/Resources/ShipIt"
 }
 
