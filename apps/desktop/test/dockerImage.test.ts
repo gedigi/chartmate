@@ -23,6 +23,13 @@ describe('Dockerfile', () => {
   const stages = froms(text);
   const image = (words: string[]) => words.find((w) => !w.startsWith('--'))!;
 
+  it('copies only paths that exist in the repository (a removed folder fails here, not in the Docker build)', () => {
+    const copies = text.split('\n').filter((l) => /^COPY\s/.test(l) && !/--from=/.test(l))
+      .flatMap((l) => l.trim().split(/\s+/).slice(1, -1).filter((w) => !w.startsWith('--')));
+    expect(copies.length).toBeGreaterThan(3);
+    for (const src of copies) expect(existsSync(path(src)), src).toBe(true);
+  });
+
   it('builds both stages on the newest Node LTS line of .nvmrc, Debian trixie slim, by tag (no digest pin)', () => {
     const major = root('.nvmrc').trim().split('.')[0];
     expect(stages.map((w) => w.at(-1))).toEqual(['build', 'runtime']);

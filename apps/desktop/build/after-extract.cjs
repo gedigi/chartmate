@@ -1,7 +1,8 @@
-// electron-builder afterExtract hook: keeps Electron's license and the Chromium credits in the macOS app.
-// Electron's macOS zip has LICENSE and LICENSES.chromium.html next to Electron.app; electron-builder deletes both
-// when it turns Electron.app into Chartmate.app, so they are copied into Contents/Resources first (as
-// LICENSE.electron.txt and LICENSES.chromium.html, the names the Windows build keeps next to chartmate.exe).
+// electron-builder afterExtract hook: makes sure Electron's license and the Chromium credits ship in the macOS app.
+// Electron's macOS zip has LICENSE and LICENSES.chromium.html next to Electron.app, outside the bundle. Since 26.18
+// electron-builder moves both into Contents/Resources itself (as LICENSE.electron.txt and LICENSES.chromium.html, the
+// names the Windows build keeps next to chartmate.exe); older versions deleted them, so a file still next to the app
+// is copied there. Either way the build fails when one is in neither place.
 const { copyFileSync, existsSync, readdirSync } = require('node:fs');
 const { join } = require('node:path');
 
@@ -14,8 +15,9 @@ async function afterExtract({ appOutDir, electronPlatformName }) {
   const files = [['LICENSE', 'LICENSE.electron.txt'], ['LICENSES.chromium.html', 'LICENSES.chromium.html']];
   for (const [from, to] of files) {
     const src = join(appOutDir, from);
-    if (!existsSync(src)) throw new Error(`after-extract: ${from} is missing from the Electron distribution`);
-    copyFileSync(src, join(resources, to));
+    const dest = join(resources, to);
+    if (existsSync(src)) copyFileSync(src, dest);
+    else if (!existsSync(dest)) throw new Error(`after-extract: ${from} is missing from the Electron distribution`);
   }
 }
 

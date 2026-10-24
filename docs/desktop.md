@@ -414,8 +414,9 @@ platform, whether a build is signed. Without the secrets, the build is unsigned 
     license file was distributed, followed by the standard license text labeled as such (no copyright line is made
     up).
   - **Electron and Chromium credits**: Windows builds keep Electron's `LICENSE.electron.txt` and
-    `LICENSES.chromium.html` next to `chartmate.exe`. electron-builder drops both on macOS, so the `afterExtract`
-    hook (`build/after-extract.cjs`) copies them into `Contents/Resources` first and fails the build without them.
+    `LICENSES.chromium.html` next to `chartmate.exe`. On macOS electron-builder 26.18 and later move both into
+    `Contents/Resources` (older versions dropped them); the `afterExtract` hook (`build/after-extract.cjs`) copies a
+    file still next to the app there and fails the build when one is in neither place.
   - **1.0.0 shipped with `autoUpdate: false`**, so 1.0.0 installs never check for updates: their users install
     the next version once by hand, and update automatically from then on.
   - **Untestable without a real signed release**: the GitHub feed lookup, the Squirrel.Mac hand-over and

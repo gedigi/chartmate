@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -31,6 +31,22 @@ describe('afterExtract: Electron and Chromium credits ship in the macOS app', ()
   });
 
   it('fails the build when the distribution lacks them', async () => {
+    rmSync(join(out, 'LICENSES.chromium.html'));
+    await expect(afterExtract({ appOutDir: out, electronPlatformName: 'darwin' })).rejects.toThrow(/LICENSES\.chromium\.html/);
+  });
+
+  it('accepts them already moved into Contents/Resources (electron-builder 26.18 and later do that themselves)', async () => {
+    const res = join(out, 'Electron.app', 'Contents', 'Resources');
+    renameSync(join(out, 'LICENSE'), join(res, 'LICENSE.electron.txt'));
+    renameSync(join(out, 'LICENSES.chromium.html'), join(res, 'LICENSES.chromium.html'));
+    await afterExtract({ appOutDir: out, electronPlatformName: 'darwin' });
+    expect(readFileSync(join(res, 'LICENSE.electron.txt'), 'utf8')).toContain('Electron contributors');
+    expect(readFileSync(join(res, 'LICENSES.chromium.html'), 'utf8')).toContain('Chromium credits');
+  });
+
+  it('fails when a file is in neither place', async () => {
+    const res = join(out, 'Electron.app', 'Contents', 'Resources');
+    renameSync(join(out, 'LICENSE'), join(res, 'LICENSE.electron.txt'));
     rmSync(join(out, 'LICENSES.chromium.html'));
     await expect(afterExtract({ appOutDir: out, electronPlatformName: 'darwin' })).rejects.toThrow(/LICENSES\.chromium\.html/);
   });

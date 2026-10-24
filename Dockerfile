@@ -25,7 +25,6 @@ RUN bash .github/scripts/install-pnpm.sh \
  && rm -rf .github
 # Manifests + lockfile first so the dependency layer is cached until they change.
 COPY pnpm-workspace.yaml .pnpmfile.cjs ./
-COPY patches ./patches
 COPY packages/shared/package.json packages/shared/
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
