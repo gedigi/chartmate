@@ -19,10 +19,14 @@ import { fileURLToPath } from 'node:url';
 
 export const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** SPDX ids whose terms are compatible with distributing the combined work under AGPL-3.0-only. */
+/**
+ * SPDX ids whose terms are compatible with distributing the combined work under AGPL-3.0-only. PSF-2.0 is the Python
+ * Software Foundation License 2.0 alone (Python-2.0 is that license with Python's historical ones), GPL-compatible
+ * per the FSF; argparse 3 (under js-yaml 5) declares it.
+ */
 export const ALLOWED_LICENSES = new Set([
   '0BSD', 'Apache-2.0', 'BlueOak-1.0.0', 'BSD-2-Clause', 'BSD-3-Clause', 'CC0-1.0', 'ISC', 'MIT', 'MIT-0', 'MPL-2.0',
-  'Python-2.0', 'Unlicense', 'Zlib',
+  'PSF-2.0', 'Python-2.0', 'Unlicense', 'Zlib',
 ]);
 
 /**

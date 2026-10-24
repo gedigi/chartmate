@@ -18,7 +18,7 @@ Visual beauty is the core value proposition. A change that works but looks worse
 
 ## Repo layout
 
-pnpm 12 workspace (12.11.2, pinned with its sha512 in the root `package.json` `packageManager`; `corepack enable`
+pnpm 12 workspace (12.15.0, pinned with its sha512 in the root `package.json` `packageManager`; `corepack enable`
 uses it, and so does CI), Node 26 (the exact version in `.nvmrc`, used by every workflow), TypeScript 7 (the native
 `tsc`, for typechecking and the shared/server builds; Vite, Vitest, tsx and esbuild strip types themselves, and
 nothing uses the compiler's JavaScript API), Vitest everywhere. Node 25 and later no longer bundle corepack:
@@ -120,10 +120,9 @@ hardened spec; it moves the real per-user data aside and back), `SMOKE_LIVE=1` (
   pass. After any dependency change run `pnpm audit`: it must report no known vulnerabilities (CI and the
   release workflow fail otherwise). An unpatched advisory in a build-only dependency is removed (see
   `.pnpmfile.cjs`) or replaced, never ignored.
-- `patches/` holds pnpm patches for upstream bugs (`patchedDependencies` in `pnpm-workspace.yaml`):
-  `app-builder-lib` passes the keychain password to `security set-key-partition-list` (upstream passes the
-  `.p12` password, which breaks electron-builder's macOS signing with `CSC_LINK`, as a local `dist:mac` uses it;
-  CI signs with `.github/scripts/macos-sign.sh` instead). Re-check each patch when bumping that dependency.
+- Upstream bugs are patched with pnpm patches in `patches/` (`patchedDependencies` in `pnpm-workspace.yaml`); none
+  is needed today (app-builder-lib 26.18 fixed the macOS keychain password bug the last one patched). Re-check each
+  patch when bumping its dependency, and drop it once upstream has the fix.
 - Unit tests never touch the network; providers are tested against recorded fixtures.
 - e2e uses its own database per port (`test-results/e2e-<port>.db`), so parallel worktrees just pick different
   `E2E_PORT`s.

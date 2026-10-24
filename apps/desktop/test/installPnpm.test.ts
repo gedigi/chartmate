@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const SCRIPT = fileURLToPath(new URL('../../../.github/scripts/install-pnpm.sh', import.meta.url));
 const REAL = readFileSync(SCRIPT, 'utf8');
-const PNPM = '12.11.2';
+const PNPM = '12.15.0';
 const target = `${process.platform}-${process.arch}`;
 const exeName = process.platform === 'win32' ? 'pnpm.exe' : 'pnpm';
 const nativeName = process.platform === 'win32' ? 'pnpm-native.exe' : 'pnpm-native';

@@ -18,7 +18,7 @@ const { licenseAllowed, declaredLicense, collect, problems, render, licenseTexts
 
 describe('license allowlist (AGPL-3.0-compatible)', () => {
   it('accepts permissive and weak-copyleft licenses', () => {
-    for (const l of ['MIT', 'ISC', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0', 'MPL-2.0', '0BSD', 'BlueOak-1.0.0', 'CC0-1.0', 'Unlicense', 'Python-2.0']) {
+    for (const l of ['MIT', 'ISC', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0', 'MPL-2.0', '0BSD', 'BlueOak-1.0.0', 'CC0-1.0', 'Unlicense', 'Python-2.0', 'PSF-2.0']) {
       expect(licenseAllowed(l), l).toBe(true);
     }
   });

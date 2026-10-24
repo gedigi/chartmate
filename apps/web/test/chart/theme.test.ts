@@ -99,7 +99,9 @@ describe('candleStyles', () => {
     expect(candleStyles('candle', 'dark', { dark: { candleBody: 'hollow_down' } }).type).toBe('candle_down_stroke');
     const ohlc = candleStyles('ohlc', 'light', { light: { candleBody: 'hollow', upColor: '#010203' } });
     expect(ohlc.type).toBe('ohlc');
-    expect(ohlc.bar?.upColor).toBe('#010203');
+    const bar = ohlc.bar;
+    expect(typeof bar).toBe('object'); // KLineChart also takes a color callback here; Chartmate never sets one
+    expect(typeof bar === 'object' ? bar.upColor : undefined).toBe('#010203');
   });
 
   it('line/area use the appearance line color and width; defaults follow the theme accent', () => {

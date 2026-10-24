@@ -12,6 +12,11 @@ app, the Docker image and the release tag share one version number.
   the date and figures. The **Indicators** picker has an **Events** group to turn each kind on or off.
 - New drawings start with the whole style last set in a drawing's style bar, not just its color: line width and
   dash, text size, rectangle fill, channel extend and the price-label toggles.
+- Dependencies updated to their latest releases, including security fixes (body-parser, undici, fast-uri).
+
+### Desktop app
+
+- Runs on Electron 45 (from 44), with its Chromium security fixes.
 
 ## [1.1.2] - 2026-10-20
 
