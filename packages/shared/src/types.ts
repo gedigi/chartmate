@@ -104,8 +104,32 @@ export interface Layout {
    * the appearance's default drawing color). A DrawingColorToken, so one value suits both themes.
    */
   drawingColor?: string;
+  /**
+   * The rest of the style new drawings start with, as last set in a drawing's style bar (missing parts → the
+   * appearance's default drawing style and each tool's own defaults). The color is `drawingColor`.
+   */
+  drawingDefaults?: DrawingDefaults;
   /** Corporate event kinds hidden on stock charts (missing or empty → earnings, dividends and splits all shown). */
   hiddenEvents?: CorporateEventKind[];
+}
+
+/** Drawings with price-label toggles (their own defaults differ, so each keeps its own last choice). */
+export const LABELED_DRAWINGS = ['priceLine', 'horizontalStraightLine'] as const;
+export type LabeledDrawing = typeof LABELED_DRAWINGS[number];
+
+/** Style choices new drawings start with (see Layout.drawingDefaults); every field optional. */
+export interface DrawingDefaults {
+  /** Line width (px) and dash of line drawings (trend lines, rays, channels, rectangles, Fibonacci, …). */
+  size?: number;
+  style?: LineStyleKind;
+  /** Font size of text annotations. */
+  textSize?: number;
+  /** Whether rectangles are filled. */
+  fill?: boolean;
+  /** Whether channels extend left / right. */
+  extend?: { left: boolean; right: boolean };
+  /** Price labels of price lines and horizontal lines, per tool. */
+  labels?: Partial<Record<LabeledDrawing, { onLine: boolean; onAxis: boolean }>>;
 }
 
 /** Long / short position drawing tools. */

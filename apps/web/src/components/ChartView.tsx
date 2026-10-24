@@ -1,4 +1,4 @@
-import { isIntraday, parseSymbolId, type CorporateEvent, type CorporateEventKind, type DrawingState, type IndicatorState, type Layout, type SessionMode, type SymbolId, type SymbolInfo, type Timeframe } from '@chartmate/shared';
+import { isIntraday, parseSymbolId, type CorporateEvent, type CorporateEventKind, type DrawingDefaults, type DrawingState, type IndicatorState, type Layout, type SessionMode, type SymbolId, type SymbolInfo, type Timeframe } from '@chartmate/shared';
 import { memo, useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import { api, errorMessage, isPermanentError } from '../api/client';
 import { ChartAdapter, type EventHover, type IndicatorSpec, type ShownRange } from '../chart/ChartAdapter';
@@ -166,6 +166,11 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
   useEffect(() => {
     adapter?.setNewDrawingColor(layout.drawingColor);
   }, [adapter, layout.drawingColor]);
+  // The rest of their style (width, dash, font size, fill, extend, price labels): the last set in a style bar.
+  const drawingDefaultsJson = JSON.stringify(layout.drawingDefaults ?? null);
+  useEffect(() => {
+    adapter?.setNewDrawingDefaults(JSON.parse(drawingDefaultsJson) ?? undefined);
+  }, [adapter, drawingDefaultsJson]);
 
   // Data: (re)load on symbol / timeframe / session change. Without info for the current symbol (loading or
   // failed) the chart is blanked and the previous symbol's loader stops: its data must not sit under the new header.
@@ -432,6 +437,7 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
             controls={adapter} onUsePositionDefaults={(positionDefaults) => setLayout((l) => ({ ...l, positionDefaults }))}
             onPickColor={(drawingColor) => setLayout((l) => (l.drawingColor === drawingColor ? l : { ...l, drawingColor }))}
             onResetColor={() => setLayout(({ drawingColor: _reset, ...l }) => l)}
+            onStyleDefaults={(patch) => setLayout((l) => ({ ...l, drawingDefaults: mergeDrawingDefaults(l.drawingDefaults, patch) }))}
           />
           {initError && <div className="center-message chart-init-error" role="alert">Chart failed to start: {initError}</div>}
           {symbolFailed && symbolDeleted && (
@@ -489,6 +495,13 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
       </div>
     </div>
   );
+}
+
+/** `cur` with `patch` applied (price labels merged per tool). */
+export function mergeDrawingDefaults(cur: DrawingDefaults | undefined, patch: DrawingDefaults): DrawingDefaults {
+  const out: DrawingDefaults = { ...cur, ...patch };
+  if (patch.labels) out.labels = { ...cur?.labels, ...patch.labels };
+  return out;
 }
 
 /** "Dividend, Aug 10, 2026: $0.27 per share" (the screen-reader list). */

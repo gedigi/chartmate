@@ -56,6 +56,7 @@ const fake = vi.hoisted(() => {
     onPriceEditRequest = vi.fn(() => () => {});
     setPositionDefaults = vi.fn();
     setNewDrawingColor = vi.fn();
+    setNewDrawingDefaults = vi.fn();
     drawingSwatches = vi.fn(() => [
       { token: 'accent', color: '#7cc4ff', name: 'Sky' }, { token: 'text', color: '#e9ecf4', name: 'White' },
       { token: 'muted', color: '#8f97ab', name: 'Gray' }, { token: 'up', color: '#3ccfd0', name: 'Up color' },
@@ -76,7 +77,7 @@ const fake = vi.hoisted(() => {
 
 vi.mock('../src/chart/ChartAdapter', () => ({ ChartAdapter: fake.FakeAdapter }));
 
-const { ChartView } = await import('../src/components/ChartView');
+const { ChartView, mergeDrawingDefaults } = await import('../src/components/ChartView');
 const { DrawingsSavers } = await import('../src/components/DrawingsSave');
 const { drawingsStore } = await import('../src/state/drawingsStore');
 
@@ -602,7 +603,7 @@ describe('ChartView', () => {
     const { rerender } = render(<ChartView layout={LAYOUT} setLayout={setLayout} symbolInfo={AAPL} theme="dark" />);
     await flush();
     expect(adapter().setNewDrawingColor).toHaveBeenLastCalledWith(undefined);
-    act(() => adapter().selectionCb?.({ id: 'a', kind: 'line', style: { color: 'accent', size: 1, style: 'solid' }, locked: false, ownLock: false }));
+    act(() => adapter().selectionCb?.({ id: 'a', kind: 'line', name: 'segment', style: { color: 'accent', size: 1, style: 'solid' }, locked: false, ownLock: false }));
     fireEvent.click(screen.getByRole('button', { name: 'Drawing color' }));
     fireEvent.click(screen.getByRole('option', { name: 'Gold' }));
     const pick = setLayout.mock.calls.at(-1)![0] as (l: Layout) => Layout;
@@ -620,7 +621,7 @@ describe('ChartView', () => {
     const setLayout = vi.fn();
     render(<ChartView layout={LAYOUT} setLayout={setLayout} symbolInfo={AAPL} theme="dark" />);
     await flush();
-    act(() => adapter().selectionCb?.({ id: 'a', kind: 'line', style: { color: 'palette:0', size: 1, style: 'solid' }, locked: false, ownLock: false }));
+    act(() => adapter().selectionCb?.({ id: 'a', kind: 'line', name: 'segment', style: { color: 'palette:0', size: 1, style: 'solid' }, locked: false, ownLock: false }));
     fireEvent.click(screen.getByRole('button', { name: 'Drawing color' }));
     fireEvent.click(screen.getByRole('option', { name: 'Gold' }));
     expect(adapter().setSelectedStyle).not.toHaveBeenCalled();
@@ -662,7 +663,7 @@ describe('ChartView', () => {
     renderView();
     await flush();
     expect(screen.queryByRole('toolbar', { name: 'Drawing style' })).not.toBeInTheDocument();
-    act(() => adapter().selectionCb!({ id: 'ov_1', kind: 'line', style: { color: '#ff0000', size: 2, style: 'solid' } }));
+    act(() => adapter().selectionCb!({ id: 'ov_1', kind: 'line', name: 'segment', style: { color: '#ff0000', size: 2, style: 'solid' } }));
     const bar = screen.getByRole('toolbar', { name: 'Drawing style' });
     expect(bar).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Drawing color' }));
@@ -929,5 +930,28 @@ describe('ChartView corporate events', () => {
     expect(tip.style.top).toBe('400px');
     act(() => adapter().eventHoverCb!(null));
     expect(document.querySelector('.event-tooltip')).toBeNull();
+  });
+});
+
+describe('sticky drawing style', () => {
+  it('hands the layout\'s drawing defaults to the chart (again only when they change)', async () => {
+    const drawingDefaults = { size: 3, style: 'dashed' as const };
+    const { rerenderWith } = renderView({ ...LAYOUT, drawingDefaults });
+    await flush();
+    expect(adapter().setNewDrawingDefaults).toHaveBeenLastCalledWith(drawingDefaults);
+    const calls = adapter().setNewDrawingDefaults.mock.calls.length;
+    rerenderWith({ ...LAYOUT, drawingDefaults: { ...drawingDefaults } });
+    expect(adapter().setNewDrawingDefaults).toHaveBeenCalledTimes(calls);
+    rerenderWith({ ...LAYOUT });
+    expect(adapter().setNewDrawingDefaults).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it('mergeDrawingDefaults merges a patch, price labels per tool', () => {
+    const cur = { size: 2, labels: { priceLine: { onLine: false, onAxis: true } } };
+    expect(mergeDrawingDefaults(cur, { style: 'dotted' })).toEqual({ ...cur, style: 'dotted' });
+    expect(mergeDrawingDefaults(cur, { labels: { horizontalStraightLine: { onLine: true, onAxis: true } } })).toEqual({
+      size: 2, labels: { priceLine: { onLine: false, onAxis: true }, horizontalStraightLine: { onLine: true, onAxis: true } },
+    });
+    expect(mergeDrawingDefaults(undefined, { fill: false })).toEqual({ fill: false });
   });
 });

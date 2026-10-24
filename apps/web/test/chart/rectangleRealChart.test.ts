@@ -90,9 +90,9 @@ describe('rectangle with the real KLineChart', () => {
 
     i.selectOverlay(o.id);
     const sel = a.getSelectedDrawing();
-    expect(sel).toMatchObject({ kind: 'line', fill: true });
+    expect(sel).toMatchObject({ kind: 'line', name: 'rectangle', fill: true });
     a.setSelectedFill(false);
-    expect(a.getSelectedDrawing()).toMatchObject({ kind: 'line', fill: false });
+    expect(a.getSelectedDrawing()).toMatchObject({ kind: 'line', name: 'rectangle', fill: false });
     expect(a.serializeDrawings()[0]!.styles).toEqual({ fill: false });
     // A style change keeps the fill option.
     a.setSelectedStyle({ color: 'palette:2', size: 3, style: 'dotted' });

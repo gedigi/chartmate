@@ -7,7 +7,7 @@ import { api } from '../src/api/client';
 vi.mock('../src/chart/ChartAdapter', () => ({
   ChartAdapter: class {
     seq = 0;
-    load = vi.fn(); setTheme = vi.fn(); setChartType = vi.fn(); setSessionShading = vi.fn(); setMarkers = vi.fn(); setEvents = vi.fn(); onEventHover = vi.fn(() => () => {}); onEventsShown = vi.fn(() => () => {});
+    load = vi.fn(); setTheme = vi.fn(); setChartType = vi.fn(); setSessionShading = vi.fn(); setMarkers = vi.fn(); setNewDrawingDefaults = vi.fn(); setEvents = vi.fn(); onEventHover = vi.fn(() => () => {}); onEventsShown = vi.fn(() => () => {});
     addIndicator = vi.fn(() => `ind_${++this.seq}`); updateIndicator = vi.fn(); removeIndicator = vi.fn();
     restoreDrawings = vi.fn(); serializeDrawings = vi.fn(() => []); onDrawingsChange = vi.fn(() => () => {}); onLockAllChange = vi.fn(() => () => {});
     resize = vi.fn(); destroy = vi.fn(); clear = vi.fn();

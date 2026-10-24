@@ -219,6 +219,24 @@ describe('layout appearance + indicator styles + drawing styles validation', () 
     expect((await putLayout(layout)).json()).toEqual(layout);
   });
 
+  it('layout drawingDefaults: kept when valid; each invalid part is dropped on its own', async () => {
+    const drawingDefaults = {
+      size: 3, style: 'dotted', textSize: 18, fill: false, extend: { left: true, right: false },
+      labels: { priceLine: { onLine: false, onAxis: true }, horizontalStraightLine: { onLine: true, onAxis: false } },
+    };
+    const ok = await putLayout({ ...layout, drawingDefaults });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toEqual({ ...layout, drawingDefaults });
+    const bad = await putLayout({ ...layout, drawingDefaults: {
+      size: 9, style: 'wavy', textSize: 3, fill: 'yes', extend: { left: 1 }, labels: { priceLine: { onLine: true }, horizontalStraightLine: { onLine: true, onAxis: true } },
+    } });
+    expect(bad.statusCode).toBe(200);
+    expect(bad.json().drawingDefaults).toEqual({ labels: { horizontalStraightLine: { onLine: true, onAxis: true } } });
+    expect((await putLayout({ ...layout, drawingDefaults: 'x' })).json()).not.toHaveProperty('drawingDefaults');
+    // A layout saved before the field existed still loads as it was.
+    expect((await putLayout(layout)).json()).toEqual(layout);
+  });
+
   it('layout hiddenEvents: known kinds only; an invalid list is dropped without failing the save', async () => {
     for (const hiddenEvents of [['earnings'], ['dividend', 'split'], []]) {
       const r = await putLayout({ ...layout, hiddenEvents });

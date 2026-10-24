@@ -10,6 +10,8 @@ app, the Docker image and the release tag share one version number.
 - Stock charts show earnings, dividends and splits as small lettered badges under the bars (E, D, S). Earnings are
   colored by whether they beat or missed the estimate, and the next report shows ahead of time. Hover a badge for
   the date and figures. The **Indicators** picker has an **Events** group to turn each kind on or off.
+- New drawings start with the whole style last set in a drawing's style bar, not just its color: line width and
+  dash, text size, rectangle fill, channel extend and the price-label toggles.
 
 ## [1.1.2] - 2026-10-20
 

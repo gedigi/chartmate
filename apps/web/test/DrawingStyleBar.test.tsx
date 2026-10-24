@@ -43,7 +43,7 @@ describe('DrawingStyleBar', () => {
   it('line kind: color, widths 1–4 and solid/dashed', () => {
     const { c, emit } = makeControls();
     render(<DrawingStyleBar controls={c} />);
-    emit({ id: 'a', kind: 'line', style: { color: '#123456', size: 3, style: 'dashed' }, locked: false, ownLock: false });
+    emit({ id: 'a', kind: 'line', name: 'segment', style: { color: '#123456', size: 3, style: 'dashed' }, locked: false, ownLock: false });
     expect(screen.getByRole('button', { name: 'Drawing color' })).toHaveAttribute('title', 'Color: Custom #123456');
     const width = screen.getByLabelText('Line width');
     expect(width).toHaveValue('3');
@@ -77,7 +77,7 @@ describe('DrawingStyleBar', () => {
   it('drawings locked by "Lock all" are shown read-only, with the lock toggle still available', () => {
     const { c, emit } = makeControls();
     render(<DrawingStyleBar controls={c} />);
-    emit({ id: 'a', kind: 'line', style: { color: '#123456', size: 1, style: 'solid' }, locked: true, ownLock: false });
+    emit({ id: 'a', kind: 'line', name: 'segment', style: { color: '#123456', size: 1, style: 'solid' }, locked: true, ownLock: false });
     expect(bar()).not.toHaveAttribute('aria-disabled'); // the lock toggle inside stays operable
     expect(screen.getByRole('status')).toHaveTextContent('All drawings locked');
     for (const label of ['Line width', 'Line style']) expect(screen.getByLabelText(label)).toBeDisabled();
@@ -90,7 +90,7 @@ describe('DrawingStyleBar', () => {
   it('the lock toggle locks / unlocks the selected drawing; a locked drawing is read-only except the toggle', () => {
     const { c, emit } = makeControls();
     render(<DrawingStyleBar controls={c} />);
-    const line = { id: 'a', kind: 'line' as const, style: { color: '#123456', size: 1, style: 'solid' as const } };
+    const line = { id: 'a', kind: 'line' as const, name: 'segment', style: { color: '#123456', size: 1, style: 'solid' as const } };
     emit({ ...line, locked: false, ownLock: false });
     const lock = screen.getByRole('button', { name: 'Lock drawing' });
     expect(lock).toHaveAttribute('aria-pressed', 'false');
@@ -127,7 +127,7 @@ describe('DrawingStyleBar', () => {
   });
 
   describe('price of horizontal drawings', () => {
-    const LINE = { id: 'h', kind: 'line' as const, style: { color: '#123456', size: 1, style: 'solid' as const }, locked: false, ownLock: false };
+    const LINE = { id: 'h', kind: 'line' as const, name: 'segment', style: { color: '#123456', size: 1, style: 'solid' as const }, locked: false, ownLock: false };
     const price = () => screen.getByLabelText('Price') as HTMLInputElement;
 
     it('shows a Price field only for horizontal drawings, formatted to the symbol precision with a matching step', () => {
@@ -252,7 +252,7 @@ describe('DrawingStyleBar', () => {
   });
 
   describe('price label toggles (price line / horizontal line)', () => {
-    const LINE = { id: 'p', kind: 'line' as const, style: { color: '#123456', size: 1, style: 'solid' as const }, locked: false, ownLock: false, price: { value: 5, precision: 2 } };
+    const LINE = { id: 'p', kind: 'line' as const, name: 'segment', style: { color: '#123456', size: 1, style: 'solid' as const }, locked: false, ownLock: false, price: { value: 5, precision: 2 } };
 
     it('shows "Price on line" / "Price on axis" only when the drawing has label options, reflecting them', () => {
       const { c, emit } = makeControls();
@@ -278,7 +278,7 @@ describe('DrawingStyleBar', () => {
   });
 
   describe('channel extend toggles', () => {
-    const CH = { id: 'c', kind: 'line' as const, style: { color: '#123456', size: 1, style: 'solid' as const }, locked: false, ownLock: false };
+    const CH = { id: 'c', kind: 'line' as const, name: 'segment', style: { color: '#123456', size: 1, style: 'solid' as const }, locked: false, ownLock: false };
 
     it('shows "Extend left" / "Extend right" only for channels, reflecting them', () => {
       const { c, emit } = makeControls();
@@ -305,7 +305,7 @@ describe('DrawingStyleBar', () => {
   });
 
   describe('rectangle fill toggle', () => {
-    const RECT = { id: 'r', kind: 'line' as const, style: { color: 'palette:2', size: 1, style: 'solid' as const }, locked: false, ownLock: false };
+    const RECT = { id: 'r', kind: 'line' as const, name: 'segment', style: { color: 'palette:2', size: 1, style: 'solid' as const }, locked: false, ownLock: false };
 
     it('shows "Fill" only for rectangles (with width and line style), reflecting and changing it', () => {
       const { c, emit } = makeControls();
@@ -330,7 +330,7 @@ describe('DrawingStyleBar', () => {
     });
   });
   describe('color swatches', () => {
-    const LINE = { id: 'a', kind: 'line' as const, style: { color: 'accent', size: 1, style: 'solid' as const }, locked: false, ownLock: false };
+    const LINE = { id: 'a', kind: 'line' as const, name: 'segment', style: { color: 'accent', size: 1, style: 'solid' as const }, locked: false, ownLock: false };
     const trigger = () => screen.getByRole('button', { name: 'Drawing color' });
     const list = () => screen.queryByRole('listbox', { name: 'Drawing color' });
     const setup = (sel: SelectedDrawing = LINE) => {
@@ -502,6 +502,50 @@ describe('DrawingStyleBar', () => {
       expect(screen.getByRole('option', { name: 'Up color' })).toHaveAttribute('aria-selected', 'true');
       fireEvent.click(screen.getByRole('option', { name: 'Down color' }));
       expect(c.setSelectedStyle).toHaveBeenLastCalledWith({ color: 'down' });
+    });
+  });
+
+  describe('sticky style of new drawings', () => {
+    const setup = (sel: SelectedDrawing) => {
+      const m = makeControls();
+      const onStyleDefaults = vi.fn();
+      render(<DrawingStyleBar controls={m.c} onStyleDefaults={onStyleDefaults} />);
+      m.emit(sel);
+      return { ...m, onStyleDefaults };
+    };
+    const line = (extra: object = {}): SelectedDrawing =>
+      ({ id: 'a', kind: 'line', name: 'segment', style: { color: 'accent', size: 1, style: 'solid' }, locked: false, ownLock: false, ...extra }) as SelectedDrawing;
+
+    it('width and dash become the defaults of new drawings', () => {
+      const { onStyleDefaults } = setup(line());
+      fireEvent.change(screen.getByLabelText('Line width'), { target: { value: '3' } });
+      expect(onStyleDefaults).toHaveBeenLastCalledWith({ size: 3 });
+      fireEvent.change(screen.getByLabelText('Line style'), { target: { value: 'dotted' } });
+      expect(onStyleDefaults).toHaveBeenLastCalledWith({ style: 'dotted' });
+    });
+
+    it('font size, fill, extend and (per tool) price labels too', () => {
+      const text = setup({ id: 't', kind: 'text', style: { color: 'accent', size: 14 }, locked: false, ownLock: false });
+      fireEvent.change(screen.getByLabelText('Font size'), { target: { value: '18' } });
+      expect(text.onStyleDefaults).toHaveBeenLastCalledWith({ textSize: 18 });
+    });
+
+    it('rectangle fill', () => {
+      const { onStyleDefaults } = setup(line({ name: 'rectangle', fill: true }));
+      fireEvent.click(screen.getByLabelText('Fill'));
+      expect(onStyleDefaults).toHaveBeenLastCalledWith({ fill: false });
+    });
+
+    it('channel extend', () => {
+      const { onStyleDefaults } = setup(line({ name: 'parallelChannel', extend: { left: false, right: false } }));
+      fireEvent.click(screen.getByLabelText('Extend right'));
+      expect(onStyleDefaults).toHaveBeenLastCalledWith({ extend: { left: false, right: true } });
+    });
+
+    it('price labels, kept per tool', () => {
+      const { onStyleDefaults } = setup(line({ name: 'priceLine', label: { onLine: true, onAxis: true }, price: { value: 10, precision: 2 } }));
+      fireEvent.click(screen.getByLabelText('Price on axis'));
+      expect(onStyleDefaults).toHaveBeenLastCalledWith({ labels: { priceLine: { onLine: true, onAxis: false } } });
     });
   });
 });

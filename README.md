@@ -624,14 +624,17 @@ Where to read next:
   solid/dashed/dotted; text annotations: color and font size). Styles are saved with the drawing; drawings
   without their own style follow the default drawing style. Legacy drawings with non-hex colors (or other
   unsupported style values) fall back to the default style on their next save.
+- **The style sticks**: whatever you set in a drawing's style bar is what the next drawing starts with, also
+  after a reload: the color (see below), the line width and solid / dashed / dotted, the font size of text, a
+  rectangle's fill, a channel's extend left / right, and the price-label toggles (remembered separately for price
+  lines and horizontal lines, whose defaults differ). Until you set them, new drawings follow the default drawing
+  style in Chart appearance. Long / short positions are not affected (they use their own defaults).
 - **Drawing colors**: the color button opens a small set of swatches taken from the theme: sky (the accent),
   white / black, gray, the candle up and down colors, and the six indicator hues (pink, cyan, orange, gold,
   violet, blue). A drawing stores the swatch it uses, not a fixed color, so it recolors when you switch between
   the dark and light themes (up / down follow your own candle colors). Arrow keys move between swatches, Enter or
   Space picks, Escape closes. The swatch you pick, even the one the drawing already has, becomes the color of
-  every new drawing (all tools, both themes) until you choose **Reset to default** in the popover. New drawings
-  (and drawings you only recolor) store just the color: their width and line style keep following the default
-  drawing style in Chart appearance until you change them on the drawing itself. **Reset to default** returns
+  every new drawing (all tools, both themes) until you choose **Reset to default** in the popover. **Reset to default** returns
   the drawing to the default drawing color (sky, or the one set in Chart appearance) and new drawings to it as
   well. A drawing saved with a plain color before swatches existed keeps it exactly, shown as a marked
   **Custom** swatch until you pick another; a Chart appearance drawing color equal to a swatch of the theme is

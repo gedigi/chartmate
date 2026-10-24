@@ -1182,7 +1182,7 @@ describe('ChartAdapter', () => {
       const o = userOverlays()[0]!;
       expect(o.styles).toEqual({ line: { color: '#ff0000', size: 3, style: 'dashed', dashedValue: [6, 4], lineCap: 'butt' } });
       o.onSelected?.({ overlay: o });
-      expect(selection).toHaveBeenLastCalledWith({ id: o.id, kind: 'line', style: { color: '#ff0000', size: 3, style: 'dashed' }, locked: false, ownLock: false });
+      expect(selection).toHaveBeenLastCalledWith({ id: o.id, kind: 'line', name: 'segment', style: { color: '#ff0000', size: 3, style: 'dashed' }, locked: false, ownLock: false });
       a.setSelectedStyle({ color: '#00ff00' });
       expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: o.id, styles: { line: { color: '#00ff00', size: 3, style: 'dashed', dashedValue: [6, 4], lineCap: 'butt' } } });
       expect(changed).toHaveBeenCalledTimes(1);
@@ -1226,7 +1226,7 @@ describe('ChartAdapter', () => {
       a.restoreDrawings([seg, { name: 'simpleAnnotation', points: [{ timestamp: DAY, value: 1 }], lock: false, text: 'hi' }]);
       const [line, text] = userOverlays();
       line!.onSelected?.({ overlay: line });
-      expect(selection).toHaveBeenLastCalledWith({ id: line!.id, kind: 'line', style: drawing, locked: false, ownLock: false });
+      expect(selection).toHaveBeenLastCalledWith({ id: line!.id, kind: 'line', name: 'segment', style: drawing, locked: false, ownLock: false });
       text!.onSelected?.({ overlay: text });
       expect(selection).toHaveBeenLastCalledWith({ id: text!.id, kind: 'text', style: { color: '#abcdef', size: 12 }, locked: false, ownLock: false });
       a.setSelectedStyle({ size: 18 });
@@ -1423,7 +1423,7 @@ describe('ChartAdapter', () => {
       expect(selection).toHaveBeenLastCalledWith(null);
       o.points = [{ timestamp: DAY, value: 1 }, { timestamp: 2 * DAY, value: 2 }];
       o.onDrawEnd?.({ overlay: o });
-      expect(selection).toHaveBeenLastCalledWith(expect.objectContaining({ id: o.id, kind: 'line', locked: false }));
+      expect(selection).toHaveBeenLastCalledWith(expect.objectContaining({ id: o.id, kind: 'line', name: 'segment', locked: false }));
       a.setLockAll(true);
       expect(selection).toHaveBeenLastCalledWith(expect.objectContaining({ id: o.id, locked: true }));
       chart().overrideOverlay.mockClear();
@@ -1985,7 +1985,7 @@ describe('ChartAdapter Shift constraint and price labels', () => {
     const [n, l, r, s] = userOverlays();
     expect(r!.styles).toEqual({ chartmateExtend: { right: true } });
     n!.onSelected?.({ overlay: n });
-    expect(a.getSelectedDrawing()).toMatchObject({ kind: 'line', extend: { left: false, right: false } });
+    expect(a.getSelectedDrawing()).toMatchObject({ kind: 'line', name: 'parallelChannel', extend: { left: false, right: false } });
     l!.onSelected?.({ overlay: l });
     expect(a.getSelectedDrawing()).toMatchObject({ extend: { left: true, right: true } });
     r!.onSelected?.({ overlay: r });

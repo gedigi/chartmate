@@ -5,7 +5,7 @@ import {
 } from 'klinecharts';
 import {
   isDrawingColorToken, isIntraday, isPositionTool, nyToUtc, resolvePositionDefaults, tfMs,
-  type ChartType, type CorporateEvent, type CorporateEventKind, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker, type PositionDefaults,
+  type ChartType, type CorporateEvent, type DrawingDefaults, type CorporateEventKind, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker, type PositionDefaults,
   type ThemedAppearance, type SessionMode, type SymbolInfo, type Timeframe,
 } from '@chartmate/shared';
 import {
@@ -13,7 +13,7 @@ import {
   type TextStyle,
 } from './drawingStyles';
 import {
-  drawingConstraint, drawingContext, EXTEND_STYLE_KEY, extendOptions, FILL_STYLE_KEY, fillOption, flattenBase, LABEL_STYLE_KEY, labelOptions, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
+  drawingConstraint, drawingContext, EXTEND_DEFAULTS, EXTEND_STYLE_KEY, extendOptions, FILL_DEFAULTS, FILL_STYLE_KEY, fillOption, flattenBase, LABEL_STYLE_KEY, labelOptions, registerDrawingTemplates, roundPrice, SHIFT_TOOLS,
   type ExtendOptions, type LabelOptions,
 } from './drawingTemplates';
 import {
@@ -93,6 +93,8 @@ interface SelectedLock { locked: boolean; ownLock: boolean }
 export type SelectedDrawing = SelectedLock & (
   | {
     id: string; kind: 'line'; style: DrawingLineStyle;
+    /** The drawing tool (overlay name), e.g. 'priceLine': price-label choices are remembered per tool. */
+    name: string;
     /** Horizontal drawings only: their price and the symbol's price precision. */
     price?: { value: number; precision: number };
     /** Price / horizontal lines only: effective price-label options (price text on the line, label on the axis). */
@@ -1241,7 +1243,7 @@ export class ChartAdapter {
       };
     }
     const style = readLine(o.styles) ?? { ...d, color: readOwnColor(o.styles) ?? d.color };
-    const sel: SelectedDrawing = { id: o.id, kind: 'line', style, ...this.lockOf(o) };
+    const sel: SelectedDrawing = { id: o.id, kind: 'line', name: o.name, style, ...this.lockOf(o) };
     const value = o.points[0]?.value;
     if (HORIZONTAL_DRAWINGS.has(o.name) && typeof value === 'number') sel.price = { value, precision: this.pricePrecision };
     const label = labelOptions(o.name, o.styles);
@@ -1440,14 +1442,40 @@ export class ChartAdapter {
     this.newDrawingColor = isDrawingColorToken(c) ? c : undefined;
   }
 
+  /** The rest of the style new drawings start with (layout `drawingDefaults`); undefined = none set. */
+  private newDrawingDefaults: DrawingDefaults | undefined;
+
+  /** Sets the width / dash, font size and toggles new drawings start with: the last ones set in a style bar. */
+  setNewDrawingDefaults(d: DrawingDefaults | undefined): void {
+    this.newDrawingDefaults = d;
+  }
+
   /**
-   * Own styles of a new drawing of `tool`: only the sticky color (DrawingStyles.color), so its width / dash (font size)
-   * keep following the default drawing style; none for positions.
+   * Own styles of a new drawing of `tool`, from the sticky choices (none for positions):
+   * - a line drawing with a sticky width or dash gets a full line style (the sticky color, else the default drawing
+   *   color as stored); with only a sticky color, just that color (DrawingStyles.color), so its width / dash keep
+   *   following the default drawing style; likewise the font size of text;
+   * - its tool's toggles: a rectangle's fill, a channel's extend, a price / horizontal line's labels (per tool).
    */
   private newDrawingStyles(tool: string): DeepPartial<OverlayStyle> | undefined {
+    if (isPositionTool(tool)) return undefined;
     const color = this.newDrawingColor;
-    if (!color || isPositionTool(tool)) return undefined;
-    return colorToOverlay(color, this.resolveColor);
+    const d = this.newDrawingDefaults ?? {};
+    let styles: Record<string, unknown> = {};
+    if (tool === TEXT_TOOL ? d.textSize !== undefined : d.size !== undefined || d.style !== undefined) {
+      const base = this.storedDefaultDrawing();
+      const own = color ?? base.color;
+      styles = (tool === TEXT_TOOL
+        ? textToOverlay({ color: own, size: d.textSize! }, this.resolveColor)
+        : lineToOverlay({ color: own, size: d.size ?? base.size, style: d.style ?? base.style }, this.resolveColor)) as Record<string, unknown>;
+    } else if (color) {
+      styles = colorToOverlay(color, this.resolveColor) as Record<string, unknown>;
+    }
+    if (FILL_DEFAULTS[tool] !== undefined && d.fill !== undefined) styles[FILL_STYLE_KEY] = d.fill;
+    if (EXTEND_DEFAULTS[tool] && d.extend) styles[EXTEND_STYLE_KEY] = { ...d.extend };
+    const label = (d.labels as Record<string, LabelOptions | undefined> | undefined)?.[tool];
+    if (label) styles[LABEL_STYLE_KEY] = { ...label };
+    return Object.keys(styles).length > 0 ? styles as DeepPartial<OverlayStyle> : undefined;
   }
 
   private emitChange(): void {

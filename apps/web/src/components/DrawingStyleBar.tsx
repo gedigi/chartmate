@@ -1,7 +1,8 @@
-import { MAX_LINE_WIDTH, MIN_LINE_WIDTH, type PositionDefaults } from '@chartmate/shared';
+import { LABELED_DRAWINGS, MAX_LINE_WIDTH, MIN_LINE_WIDTH, type DrawingDefaults, type PositionDefaults } from '@chartmate/shared';
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react';
 import { MAX_PRICE_DECIMALS, type ChartAdapter, type SelectedDrawing } from '../chart/ChartAdapter';
 import { LINE_STYLES, parseLineStyle } from '../chart/drawingStyles';
+import type { ExtendOptions, LabelOptions } from '../chart/drawingTemplates';
 import { PaletteColorPicker } from './PaletteColorPicker';
 import { DrawingLockToggle } from './LockIcon';
 import { PositionStyleBar, type PositionControls } from './PositionStyleBar';
@@ -100,12 +101,17 @@ const FONT_SIZES = [10, 12, 14, 16, 18, 20, 22, 24];
  * "Extend left / right" of parallel channels, "Fill" of rectangles; long / short positions get their own settings bar. Every bar ends with the drawing's own lock toggle; locked drawings (own lock
  * or "Lock all drawings") are read-only except that toggle. Hidden while a drawing is being placed. Changes go through the adapter (overrideOverlay) and are saved with the drawings.
  */
-export function DrawingStyleBar({ controls, onUsePositionDefaults, onPickColor, onResetColor }: {
+export function DrawingStyleBar({ controls, onUsePositionDefaults, onPickColor, onResetColor, onStyleDefaults }: {
   controls: DrawingStyleControls | null;
   /** A swatch was picked for the selected drawing: it becomes the color of new drawings. */
   onPickColor?: (token: string) => void;
   /** "Reset to default" in the color popover: new drawings go back to the default color. */
   onResetColor?: () => void;
+  /**
+   * Any other style choice (width, dash, font size, fill, extend, price labels): it becomes what new drawings start
+   * with, like a picked color. Price labels are per tool.
+   */
+  onStyleDefaults?: (patch: DrawingDefaults) => void;
   /** "Use as default" of a long / short position: its target / stop distances (%) become the defaults of new positions. */
   onUsePositionDefaults?: (d: PositionDefaults) => void;
 }): JSX.Element | null {
@@ -122,6 +128,16 @@ export function DrawingStyleBar({ controls, onUsePositionDefaults, onPickColor, 
   if (sel.kind === 'position') return <PositionStyleBar controls={controls} sel={sel} onUseAsDefault={onUsePositionDefaults} />;
 
   const locked = sel.locked;
+  const setLabel = (patch: Partial<LabelOptions>) => {
+    if (sel.kind !== 'line' || !sel.label) return;
+    controls.setSelectedLabel(patch);
+    if ((LABELED_DRAWINGS as readonly string[]).includes(sel.name)) onStyleDefaults?.({ labels: { [sel.name]: { ...sel.label, ...patch } } });
+  };
+  const setExtend = (patch: Partial<ExtendOptions>) => {
+    if (sel.kind !== 'line' || !sel.extend) return;
+    controls.setSelectedExtend(patch);
+    onStyleDefaults?.({ extend: { ...sel.extend, ...patch } });
+  };
   const sizes = sel.kind === 'text' && !FONT_SIZES.includes(sel.style.size) ? [...FONT_SIZES, sel.style.size].sort((a, b) => a - b) : FONT_SIZES;
   return (
     <div className="drawing-style-bar" role="toolbar" aria-label="Drawing style">
@@ -137,17 +153,17 @@ export function DrawingStyleBar({ controls, onUsePositionDefaults, onPickColor, 
       {sel.kind === 'line' ? (
         <>
           <select aria-label="Line width" title="Width" value={sel.style.size} disabled={locked}
-            onChange={(e) => controls.setSelectedStyle({ size: Number(e.target.value) })}>
+            onChange={(e) => { const size = Number(e.target.value); controls.setSelectedStyle({ size }); onStyleDefaults?.({ size }); }}>
             {WIDTHS.map((w) => <option key={w} value={w}>{w}px</option>)}
           </select>
           <select aria-label="Line style" title="Style" value={sel.style.style} disabled={locked}
-            onChange={(e) => controls.setSelectedStyle({ style: parseLineStyle(e.target.value) })}>
+            onChange={(e) => { const style = parseLineStyle(e.target.value); controls.setSelectedStyle({ style }); onStyleDefaults?.({ style }); }}>
             {LINE_STYLES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </>
       ) : (
         <select aria-label="Font size" title="Font size" value={sel.style.size} disabled={locked}
-          onChange={(e) => controls.setSelectedStyle({ size: Number(e.target.value) })}>
+          onChange={(e) => { const size = Number(e.target.value); controls.setSelectedStyle({ size }); onStyleDefaults?.({ textSize: size }); }}>
           {sizes.map((s) => <option key={s} value={s}>{s}px</option>)}
         </select>
       )}
@@ -159,12 +175,12 @@ export function DrawingStyleBar({ controls, onUsePositionDefaults, onPickColor, 
         <>
           <label className="drawing-style-toggle" title="Show the price on the line">
             <input type="checkbox" aria-label="Price on line" checked={sel.label.onLine} disabled={locked}
-              onChange={(e) => controls.setSelectedLabel({ onLine: e.target.checked })} />
+              onChange={(e) => setLabel({ onLine: e.target.checked })} />
             On line
           </label>
           <label className="drawing-style-toggle" title="Show the price label on the price axis">
             <input type="checkbox" aria-label="Price on axis" checked={sel.label.onAxis} disabled={locked}
-              onChange={(e) => controls.setSelectedLabel({ onAxis: e.target.checked })} />
+              onChange={(e) => setLabel({ onAxis: e.target.checked })} />
             On axis
           </label>
         </>
@@ -173,12 +189,12 @@ export function DrawingStyleBar({ controls, onUsePositionDefaults, onPickColor, 
         <>
           <label className="drawing-style-toggle" title="Extend the channel to the left edge">
             <input type="checkbox" aria-label="Extend left" checked={sel.extend.left} disabled={locked}
-              onChange={(e) => controls.setSelectedExtend({ left: e.target.checked })} />
+              onChange={(e) => setExtend({ left: e.target.checked })} />
             Extend left
           </label>
           <label className="drawing-style-toggle" title="Extend the channel to the right edge">
             <input type="checkbox" aria-label="Extend right" checked={sel.extend.right} disabled={locked}
-              onChange={(e) => controls.setSelectedExtend({ right: e.target.checked })} />
+              onChange={(e) => setExtend({ right: e.target.checked })} />
             Extend right
           </label>
         </>
@@ -186,7 +202,7 @@ export function DrawingStyleBar({ controls, onUsePositionDefaults, onPickColor, 
       {sel.kind === 'line' && sel.fill !== undefined && (
         <label className="drawing-style-toggle" title="Tint the inside of the rectangle">
           <input type="checkbox" aria-label="Fill" checked={sel.fill} disabled={locked}
-            onChange={(e) => controls.setSelectedFill(e.target.checked)} />
+            onChange={(e) => { controls.setSelectedFill(e.target.checked); onStyleDefaults?.({ fill: e.target.checked }); }} />
           Fill
         </label>
       )}

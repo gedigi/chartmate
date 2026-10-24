@@ -2,7 +2,7 @@ import {
   CORPORATE_EVENT_KINDS, DRAWING_COLOR_RE, DRAWING_COLOR_TOKENS, HEX_COLOR_RE, MAX_INDICATOR_LEVEL, MAX_INDICATOR_LEVELS, MAX_INDICATORS, MAX_LINE_WIDTH, MAX_POSITION_PCT, MAX_SECTION_TITLE,
   MAX_TEXT_SIZE, MAX_WATCHLIST_SECTIONS, MAX_WATCHLIST_SYMBOLS, MIN_LINE_WIDTH, MIN_TEXT_SIZE, migrateAppearance, TIMEFRAMES,
   mergeLegacyWatchlist, normalizeSymbolId, tryNormalizeSymbolId, WATCHLIST_STORED_HEADER, watchlistProblem,
-  type DrawingState, type Layout, type Timeframe, type WatchlistEntry,
+  type DrawingDefaults, type DrawingState, type Layout, type Timeframe, type WatchlistEntry,
 } from '@chartmate/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -88,6 +88,18 @@ const IndicatorSchema = z.object({
   levels: z.array(z.number().finite().min(-MAX_INDICATOR_LEVEL).max(MAX_INDICATOR_LEVEL)).max(MAX_INDICATOR_LEVELS).optional(),
   showLevels: z.boolean().optional(),
 });
+const LabelToggles = z.object({ onLine: z.boolean(), onAxis: z.boolean() });
+const DrawingDefaultsSchema = z.object({
+  size: LineWidth.optional().catch(undefined),
+  style: LineStyle.optional().catch(undefined),
+  textSize: z.number().int().min(MIN_TEXT_SIZE).max(MAX_TEXT_SIZE).optional().catch(undefined),
+  fill: z.boolean().optional().catch(undefined),
+  extend: z.object({ left: z.boolean(), right: z.boolean() }).optional().catch(undefined),
+  labels: z.object({
+    priceLine: LabelToggles.optional().catch(undefined),
+    horizontalStraightLine: LabelToggles.optional().catch(undefined),
+  }).optional().catch(undefined),
+}) satisfies z.ZodType<DrawingDefaults, unknown>;
 const LayoutSchema = z.object({
   symbol: SymbolIdSchema,
   tf: z.enum(TIMEFRAMES as unknown as [Timeframe, ...Timeframe[]]),
@@ -102,6 +114,8 @@ const LayoutSchema = z.object({
   // Tolerant: an invalid value is dropped on its own.
   drawingColor: z.enum(DRAWING_COLOR_TOKENS).optional().catch(undefined),
   // Event kinds hidden on stock charts. Tolerant: an invalid list is dropped on its own (all kinds shown again).
+  // Style of new drawings (the last one set in a style bar). Tolerant: each invalid part is dropped on its own.
+  drawingDefaults: DrawingDefaultsSchema.optional().catch(undefined),
   hiddenEvents: z.array(z.enum(CORPORATE_EVENT_KINDS)).max(CORPORATE_EVENT_KINDS.length).optional().catch(undefined),
 }) satisfies z.ZodType<Layout, unknown>;
 
