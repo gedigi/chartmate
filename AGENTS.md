@@ -176,7 +176,9 @@ hardened spec; it moves the real per-user data aside and back), `SMOKE_LIVE=1` (
 - Soft tones are opaque and hue-locked (`softTone` / `tintFill` in `apps/web/src/chart/color.ts`), never an
   `rgba()` of the strong color (pink on white, brown on dark).
 - Every color must work on both themes; the chart typeface is the UI's (`CHART_FONT`).
-- UI changes: check both themes and include screenshots of both (dark and light) in the review.
+- UI changes: check both themes and include screenshots of both (dark and light) in the review. Check phone width
+  too (390 px): up to 640 px (`COMPACT_QUERY` in `apps/web/src/state/useCompact.ts`, matched by the 640px rules in
+  `styles.css` and `Modal.css`) the app uses its compact layout (tab bar, watchlist view, tool strip, bottom sheets).
 
 ## Desktop security model
 

@@ -1,12 +1,15 @@
 import type { ChartAppearance, Layout, SymbolId, SymbolInfo, ThemedAppearance } from '@chartmate/shared';
 import { useState, type JSX } from 'react';
+import { scrollFade, useScrollEdges } from '../state/useScrollEdges';
 import { AboutDialog } from './AboutDialog';
 import { ChartAppearanceDialog } from './ChartAppearanceDialog';
 import { IndicatorButton } from './IndicatorButton';
+import { Modal } from './Modal';
 import { SymbolSearch } from './SymbolSearch';
 import { TimeframeBar } from './TimeframeBar';
 
-export type View = 'chart' | 'baskets';
+/** The watchlist is a view of its own only at phone width (the bottom tab bar); wider, it is the chart's sidebar. */
+export type View = 'chart' | 'watchlist' | 'baskets';
 export type Theme = 'dark' | 'light';
 
 /** `l` with `theme`'s appearance replaced (undefined = that theme's defaults); the other theme is kept. */
@@ -35,12 +38,114 @@ export interface TopBarProps {
   controlsDisabled?: boolean;
   /** Shown only when the server requires a password. */
   onLogout?: () => void;
+  /**
+   * Phone width: the views move to the bottom tab bar; the search fills the bar; the theme, chart appearance and log
+   * out move into a "More" sheet; the timeframes get a row of their own.
+   */
+  compact?: boolean;
 }
+
+const THEME_ICON: Record<Theme, JSX.Element> = {
+  dark: (
+    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true" focusable="false">
+      <circle cx="10" cy="10" r="3.4" />
+      <path d="M10 2v1.8M10 16.2V18M2 10h1.8M16.2 10H18M4.3 4.3l1.3 1.3M14.4 14.4l1.3 1.3M4.3 15.7l1.3-1.3M14.4 5.6l1.3-1.3" />
+    </svg>
+  ),
+  light: (
+    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M16.5 12.3A7 7 0 0 1 7.7 3.5a7 7 0 1 0 8.8 8.8z" />
+    </svg>
+  ),
+};
+
+const APPEARANCE_ICON = (
+  <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true" focusable="false">
+    <circle cx="10" cy="10" r="2.6" />
+    <path d="M10 1.8v2.4M10 15.8v2.4M1.8 10h2.4M15.8 10h2.4M4.2 4.2l1.7 1.7M14.1 14.1l1.7 1.7M4.2 15.8l1.7-1.7M14.1 5.9l1.7-1.7" />
+    <circle cx="10" cy="10" r="5.6" />
+  </svg>
+);
 
 export function TopBar(p: TopBarProps): JSX.Element {
   const { layout, setLayout, symbolInfo } = p;
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [stripRef, stripEdges] = useScrollEdges();
+  const { compact } = p;
+  const timeframes = (
+    <TimeframeBar
+      tf={layout.tf}
+      onTf={(tf) => setLayout((l) => ({ ...l, tf }))}
+      session={layout.session}
+      onSession={(session) => setLayout((l) => ({ ...l, session }))}
+      showSession={p.showSession}
+      chartType={layout.chartType}
+      onChartType={(chartType) => setLayout((l) => ({ ...l, chartType }))}
+      disabled={p.controlsDisabled}
+    />
+  );
+  const dialogs = (
+    <>
+      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
+      {appearanceOpen && (
+        <ChartAppearanceDialog
+          appearance={layout.appearance?.[p.theme]}
+          theme={p.theme}
+          chartType={layout.chartType}
+          onChange={(a) => setLayout((l) => withThemeAppearance(l, p.theme, a))}
+          onClose={() => setAppearanceOpen(false)}
+        />
+      )}
+    </>
+  );
+
+  if (compact) {
+    // Each sheet action closes the sheet first; a dialog it opens returns the focus to the More button.
+    const fromSheet = (fn: () => void) => () => { setMoreOpen(false); fn(); };
+    return (
+      <header className="top-bar top-bar-compact">
+        <button type="button" className="brand" onClick={() => setAboutOpen(true)} aria-label="About Chartmate" title="About Chartmate">
+          <img src="/favicon.svg" alt="" width={22} height={22} />
+        </button>
+        {/* The watchlist has its own add field and the baskets page its own title: no search there. */}
+        {p.view === 'chart'
+          ? <SymbolSearch onSelect={p.onSelectSymbol} disabled={p.controlsDisabled} />
+          : <span className="top-bar-grow" aria-hidden="true" />}
+        {p.view === 'chart' && <IndicatorButton layout={layout} setLayout={setLayout} disabled={p.controlsDisabled} iconOnly />}
+        <button type="button" className="icon-button" aria-haspopup="dialog" aria-expanded={moreOpen} aria-label="More"
+          onClick={() => setMoreOpen(true)}>
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" focusable="false">
+            <circle cx="4.5" cy="10" r="1.5" /><circle cx="10" cy="10" r="1.5" /><circle cx="15.5" cy="10" r="1.5" />
+          </svg>
+        </button>
+        {p.view === 'chart' && (
+          <div className="top-bar-strip edge-fade" ref={stripRef} data-fade={scrollFade(stripEdges)}>{timeframes}</div>
+        )}
+        {moreOpen && (
+          <Modal title="More" onClose={() => setMoreOpen(false)} className="action-sheet">
+            <div className="action-list">
+              <button type="button" onClick={fromSheet(p.onToggleTheme)}>
+                {THEME_ICON[p.theme]}{p.theme === 'dark' ? 'Light theme' : 'Dark theme'}
+              </button>
+              {p.view === 'chart' && (
+                <button type="button" onClick={fromSheet(() => setAppearanceOpen(true))} disabled={p.controlsDisabled}>
+                  {APPEARANCE_ICON}Chart appearance
+                </button>
+              )}
+              <button type="button" onClick={fromSheet(() => setAboutOpen(true))}>
+                <img src="/favicon.svg" alt="" width={16} height={16} />About Chartmate
+              </button>
+              {p.onLogout && <button type="button" onClick={fromSheet(p.onLogout)}>Log out</button>}
+            </div>
+          </Modal>
+        )}
+        {dialogs}
+      </header>
+    );
+  }
+
   return (
     <header className="top-bar">
       {/* The brand opens About Chartmate (version, source code, license). */}
@@ -65,16 +170,7 @@ export function TopBar(p: TopBarProps): JSX.Element {
               && <span className="symbol-name">{symbolInfo.name}</span>}
           </div>
           <span className="top-bar-grow" aria-hidden="true" />
-          <TimeframeBar
-            tf={layout.tf}
-            onTf={(tf) => setLayout((l) => ({ ...l, tf }))}
-            session={layout.session}
-            onSession={(session) => setLayout((l) => ({ ...l, session }))}
-            showSession={p.showSession}
-            chartType={layout.chartType}
-            onChartType={(chartType) => setLayout((l) => ({ ...l, chartType }))}
-            disabled={p.controlsDisabled}
-          />
+          {timeframes}
           <IndicatorButton layout={layout} setLayout={setLayout} disabled={p.controlsDisabled} />
         </>
       )}
@@ -83,25 +179,12 @@ export function TopBar(p: TopBarProps): JSX.Element {
         <span className="top-bar-sep" aria-hidden="true" />
         <button type="button" className="icon-button" onClick={p.onToggleTheme}
           aria-label={p.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
-          {p.theme === 'dark' ? (
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true" focusable="false">
-              <circle cx="10" cy="10" r="3.4" />
-              <path d="M10 2v1.8M10 16.2V18M2 10h1.8M16.2 10H18M4.3 4.3l1.3 1.3M14.4 14.4l1.3 1.3M4.3 15.7l1.3-1.3M14.4 5.6l1.3-1.3" />
-            </svg>
-          ) : (
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" aria-hidden="true" focusable="false">
-              <path d="M16.5 12.3A7 7 0 0 1 7.7 3.5a7 7 0 1 0 8.8 8.8z" />
-            </svg>
-          )}
+          {THEME_ICON[p.theme]}
         </button>
         {p.view === 'chart' && (
           <button type="button" className="icon-button" onClick={() => setAppearanceOpen(true)} disabled={p.controlsDisabled}
             aria-label="Chart appearance" title="Chart appearance">
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true" focusable="false">
-              <circle cx="10" cy="10" r="2.6" />
-              <path d="M10 1.8v2.4M10 15.8v2.4M1.8 10h2.4M15.8 10h2.4M4.2 4.2l1.7 1.7M14.1 14.1l1.7 1.7M4.2 15.8l1.7-1.7M14.1 5.9l1.7-1.7" />
-              <circle cx="10" cy="10" r="5.6" />
-            </svg>
+            {APPEARANCE_ICON}
           </button>
         )}
         {p.view === 'chart' && (
@@ -115,16 +198,7 @@ export function TopBar(p: TopBarProps): JSX.Element {
         )}
         {p.onLogout && <button type="button" onClick={p.onLogout}>Log out</button>}
       </div>
-      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
-      {appearanceOpen && (
-        <ChartAppearanceDialog
-          appearance={layout.appearance?.[p.theme]}
-          theme={p.theme}
-          chartType={layout.chartType}
-          onChange={(a) => setLayout((l) => withThemeAppearance(l, p.theme, a))}
-          onClose={() => setAppearanceOpen(false)}
-        />
-      )}
+      {dialogs}
     </header>
   );
 }

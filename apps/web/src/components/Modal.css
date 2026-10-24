@@ -35,3 +35,34 @@
 .modal-close:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
 
 
+
+/*
+ * Phone width (COMPACT_QUERY in src/state/useCompact.ts): a dialog is a bottom sheet — full width, rising from the
+ * bottom edge in thumb reach, its top corners rounded, clear of the home indicator. The grabber is decoration only
+ * (Close, Escape and the backdrop close the sheet).
+ */
+@media (max-width: 640px) {
+  .modal-backdrop { align-items: flex-end; padding: 0; }
+  .modal-backdrop > .modal {
+    width: 100%;
+    max-width: none;
+    max-height: 88dvh;
+    padding: 8px max(16px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    border-width: 1px 0 0;
+    border-radius: 16px 16px 0 0;
+    animation: modal-sheet-in 220ms var(--ease);
+  }
+  .modal-backdrop > .modal::before {
+    content: '';
+    flex: none;
+    align-self: center;
+    width: 36px;
+    height: 4px;
+    margin-bottom: 2px;
+    border-radius: 2px;
+    background: var(--border-strong);
+  }
+  .modal-close { width: 36px; height: 36px; }
+}
+@keyframes modal-sheet-in { from { transform: translateY(32px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .modal-backdrop > .modal { animation: none; } }

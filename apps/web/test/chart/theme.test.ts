@@ -6,7 +6,7 @@ import { contrastRatio, DARK_TEXT, LIGHT_TEXT } from '../../src/chart/contrast';
 import { textToOverlay } from '../../src/chart/drawingStyles';
 import { markerStyles } from '../../src/chart/markers';
 import {
-  candleStyles, CHART_FONT, chartStyles, defaultAppearance, defaultBarColors, effectiveBarColors, INDICATOR_PALETTE, defaultIndicatorBars, hexToRgba, indicatorLevelColor, overlayStyles, themeSoftTone, refreshThemeTokens, resolveAppearance, THEME_CSS_VARS, THEME_TOKENS, themeTokens,
+  candleLegend, candleStyles, CHART_FONT, chartStyles, defaultAppearance, defaultBarColors, effectiveBarColors, INDICATOR_PALETTE, defaultIndicatorBars, hexToRgba, indicatorLevelColor, overlayStyles, themeSoftTone, refreshThemeTokens, resolveAppearance, THEME_CSS_VARS, THEME_TOKENS, themeTokens,
 } from '../../src/chart/theme';
 
 describe('effectiveBarColors with palette references', () => {
@@ -356,5 +356,21 @@ describe('theme tokens from CSS custom properties', () => {
         expect(vars[theme][cssVar], `${theme} ${cssVar}`).toBe(THEME_TOKENS[theme][key as keyof typeof THEME_TOKENS.dark]);
       }
     }
+  });
+});
+
+describe('chartStyles at phone width', () => {
+  it('uses a smaller legend, and the candle legend leaves out volume', () => {
+    const t = THEME_TOKENS.dark;
+    const wide = chartStyles('dark');
+    const compact = chartStyles('dark', { compact: true });
+    expect(wide.candle?.tooltip?.legend?.size).toBe(12);
+    expect(compact.candle?.tooltip?.legend?.size).toBe(11);
+    expect(compact.indicator?.tooltip?.legend?.size).toBe(11);
+    expect(wide.indicator?.tooltip?.showRule).toBe('always');
+    expect(compact.indicator?.tooltip?.showRule).toBe('follow_cross');
+    const bars = { prev: { open: 9, close: 10 }, current: { open: 10, close: 11 } };
+    expect(candleLegend(t)(bars).map((i) => i.title.text)).toEqual(['O ', 'H ', 'L ', 'C ', '', 'Vol ']);
+    expect(candleLegend(t, { volume: false })(bars).map((i) => i.title.text)).toEqual(['O ', 'H ', 'L ', 'C ', '']);
   });
 });

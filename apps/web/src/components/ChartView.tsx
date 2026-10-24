@@ -14,6 +14,7 @@ import { DrawingsNote } from './DrawingsSave';
 import { SaveNote, type SaveNoteState } from './SaveNote';
 import { loadWithRetry, retryDelayMs } from '../state/retry';
 import { scrollFade, useScrollEdges } from '../state/useScrollEdges';
+import { useCompact } from '../state/useCompact';
 import { DrawingStyleBar } from './DrawingStyleBar';
 import { DrawingToolbar } from './DrawingToolbar';
 import { IndicatorChips } from './IndicatorChips';
@@ -150,7 +151,9 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
     };
   }, []);
 
+  const compact = useCompact();
   useEffect(() => { adapter?.setTheme(theme); }, [adapter, theme]);
+  useEffect(() => { adapter?.setCompact(compact); }, [adapter, compact]);
   useEffect(() => { adapter?.setChartType(chartType); }, [adapter, chartType]);
   // Global appearance (candle colors, line width, default drawing style); re-applied only on a change by value.
   const appearanceJson = JSON.stringify(layout.appearance ?? null);
@@ -411,7 +414,7 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
   return (
     <div className="chart-view" data-testid="chart-view">
       <div className="left-toolbar">
-        <DrawingToolbar controls={adapter} disabled={!drawingReady} ticker={info?.ticker ?? symbol} />
+        <DrawingToolbar controls={adapter} disabled={!drawingReady} ticker={info?.ticker ?? symbol} compact={compact} />
       </div>
       <div className="chart-area">
         {/* Top row, outside the plot: the indicator chips (hidden while the symbol failed: they belong to a chart) and,

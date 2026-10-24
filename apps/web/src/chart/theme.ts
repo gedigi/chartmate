@@ -437,7 +437,7 @@ export function lastPriceTextColor(up: string, down: string, noChange: string): 
  * grid shimmers while panning), no tick marks, small muted axis type in the UI typeface, a thin dashed crosshair with
  * ink chips, hairline pane separators, an O / H / L / C legend, opaque histogram bars in the exact candle colors.
  */
-export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
+export function chartStyles(theme: ThemeName, { compact = false }: { compact?: boolean } = {}): DeepPartial<Styles> {
   const t = themeTokens(theme);
   const tickText = { color: t.muted, family: CHART_FONT, size: 11, weight: '500' };
   const axis = {
@@ -451,7 +451,8 @@ export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
   };
   const crossLine = () => ({ show: true, style: 'dashed' as const, dashedValue: [3, 3], size: 1, color: t.crosshair });
   const gridLine = { show: true, size: 1, style: 'solid', color: t.grid } as const;
-  const legend = { family: CHART_FONT, size: 12, color: t.muted, marginLeft: 10, marginTop: 4, marginRight: 2, marginBottom: 4 };
+  // Phone width: a smaller legend, the candle one without volume (the volume pane has it), so it wraps less.
+  const legend = { family: CHART_FONT, size: compact ? 11 : 12, color: t.muted, marginLeft: compact ? 8 : 10, marginTop: 4, marginRight: 2, marginBottom: 4 };
   const priceExtreme = { color: t.muted, textFamily: CHART_FONT, textSize: 11 };
   return {
     grid: { show: true, horizontal: gridLine, vertical: gridLine },
@@ -467,8 +468,8 @@ export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
         last: lastPriceMark(theme, defaultAppearance(theme).lastPriceLine, t.up, t.down),
       },
       tooltip: {
-        title: { color: t.text, family: CHART_FONT, size: 15, weight: '650', template: '{displayName} · {tf}', marginLeft: 10, marginTop: 8, marginBottom: 2 },
-        legend: { ...legend, template: candleLegend(t) },
+        title: { color: t.text, family: CHART_FONT, size: compact ? 14 : 15, weight: '650', template: '{displayName} · {tf}', marginLeft: legend.marginLeft, marginTop: 8, marginBottom: 2 },
+        legend: { ...legend, template: candleLegend(t, { volume: !compact }) },
       },
     },
     indicator: {
@@ -480,7 +481,12 @@ export function chartStyles(theme: ThemeName): DeepPartial<Styles> {
       circles: [defaultIndicatorCircles(theme)],
       ohlc: defaultIndicatorBars(theme),
       texts: [{ color: t.text, family: CHART_FONT }],
-      tooltip: { title: { color: t.text, family: CHART_FONT, size: 12, weight: '600', marginLeft: 10 }, legend },
+      // Phone width: an indicator pane is short and its legend wraps, so it shows only while the crosshair is up
+      // (a tap, or press and hold); the chips above the chart name the indicators.
+      tooltip: {
+        showRule: compact ? 'follow_cross' : 'always',
+        title: { color: t.text, family: CHART_FONT, size: legend.size, weight: '600', marginLeft: legend.marginLeft }, legend,
+      },
       lastValueMark: { show: false },
     },
     xAxis: axis,
@@ -498,9 +504,10 @@ type LegendBar = { open: number; close: number };
 
 /**
  * The candle legend: "O 172.28  H 172.91  L 169.51  C 170.64  −0.96%  Vol 43.31M" — muted letters, values in the text
- * color, the change vs the previous close in the theme's up / down TEXT colors (readable as small text).
+ * color, the change vs the previous close in the theme's up / down TEXT colors (readable as small text). Without
+ * `volume` (phone width) it ends at the change.
  */
-export function candleLegend(t: ThemeTokens): (data: { prev: LegendBar | null; current: LegendBar | null }) => LegendItem[] {
+export function candleLegend(t: ThemeTokens, { volume = true }: { volume?: boolean } = {}): (data: { prev: LegendBar | null; current: LegendBar | null }) => LegendItem[] {
   return ({ prev, current }) => {
     const item = (title: string, value: string, color: string = t.text): LegendItem => ({ title: { text: title, color: t.muted }, value: { text: value, color } });
     const out = [item('O ', '{open}'), item('H ', '{high}'), item('L ', '{low}'), item('C ', '{close}')];
@@ -510,7 +517,7 @@ export function candleLegend(t: ThemeTokens): (data: { prev: LegendBar | null; c
       const text = pct === 0 ? '0.00%' : `${pct > 0 ? '+' : '−'}${Math.abs(pct).toFixed(2)}%`;
       out.push(item('', text, pct > 0 ? t.upFg : pct < 0 ? t.downFg : t.muted));
     }
-    out.push(item('Vol ', '{volume}'));
+    if (volume) out.push(item('Vol ', '{volume}'));
     return out;
   };
 }

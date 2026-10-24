@@ -5,6 +5,14 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+### Everywhere
+
+- A layout made for phones: in a browser window up to 640 px wide, the views move to a tab bar at the bottom
+  (Chart, Watchlist, Baskets), the symbol search fills the top bar, the theme and chart appearance move into a
+  **More** sheet, and the drawing tools become a strip under the chart with **Undo** and **Redo** buttons. Drawing
+  works by tapping, dialogs open as sheets from the bottom, and the chart legend no longer covers the bars. Wider
+  windows keep the layout they had.
+
 ## [1.2.0] - 2026-10-24
 
 ### Everywhere

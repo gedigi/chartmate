@@ -127,6 +127,14 @@ export interface LoadParams {
 }
 
 const CANDLE_PANE = 'candle_pane';
+/**
+ * Phone width: the candle legend wraps onto a second line there (title, then two legend lines, about 65px with the
+ * high-price mark under them), so the bars start lower. KLineChart widens the price range by this many pixels' worth
+ * before adding the bottom gap, which leaves the highest bar about 80px down on a phone's candle pane. Wider,
+ * KLineChart's default 20 % of the pane.
+ */
+export const COMPACT_CANDLE_TOP_GAP_PX = 120;
+const DEFAULT_CANDLE_GAP = { top: 0.2, bottom: 0.1 };
 /** Gap (px) after the latest bar when a date range is shown: KLineChart's default right offset. */
 const RANGE_RIGHT_MARGIN_PX = 80;
 /** KLineChart's double-click window and distance (Delay.ResetClick, ManhattanDistance.DoubleClick). */
@@ -227,6 +235,7 @@ export class ChartAdapter {
   private readonly el: HTMLElement;
   private readonly chart: Chart;
   private theme: ThemeName;
+  private compact = false;
   private chartType: ChartType = 'candle';
   private tf: Timeframe | null = null;
   private loader: DataLoaderImpl | null = null;
@@ -288,7 +297,7 @@ export class ChartAdapter {
   }
 
   private styles(): DeepPartial<Styles> {
-    const base = chartStyles(this.theme);
+    const base = chartStyles(this.theme, { compact: this.compact });
     const countdown = this.tf !== null && this.assetClass !== null && hasCountdown(this.tf, this.assetClass);
     const candle = candleStyles(this.chartType, this.theme, this.appearance, countdown);
     return {
@@ -494,6 +503,14 @@ export class ChartAdapter {
   }
 
   // ── appearance ────────────────────────────────────────────────────────────
+
+  /** Phone width (see COMPACT_CANDLE_TOP_GAP_PX and chartStyles): a smaller legend with room above the bars. */
+  setCompact(compact: boolean): void {
+    if (compact === this.compact) return;
+    this.compact = compact;
+    this.chart.setStyles(this.styles());
+    this.chart.overrideYAxis({ paneId: CANDLE_PANE, gap: compact ? { top: COMPACT_CANDLE_TOP_GAP_PX, bottom: DEFAULT_CANDLE_GAP.bottom } : DEFAULT_CANDLE_GAP });
+  }
 
   setTheme(t: ThemeName): void {
     this.theme = t;

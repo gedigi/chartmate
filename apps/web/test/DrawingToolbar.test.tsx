@@ -870,3 +870,32 @@ describe('DrawingToolbar undo / redo (⌘Z / ⌘⇧Z on Apple platforms, Ctrl+Z 
     expect(c.undo).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('DrawingToolbar at phone width (compact)', () => {
+  it('is a horizontal strip led by Undo and Redo buttons', async () => {
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" compact />);
+    const bar = screen.getByRole('toolbar', { name: 'Drawing tools' });
+    expect(bar).toHaveAttribute('aria-orientation', 'horizontal');
+    const buttons = Array.from(bar.querySelectorAll('button')).map((b) => b.getAttribute('aria-label'));
+    expect(buttons.slice(0, 3)).toEqual(['Undo', 'Redo', 'Trend line']);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(c.undo).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Redo' }));
+    expect(c.redo).toHaveBeenCalledTimes(1);
+  });
+
+  it('wide, it stays a vertical column without undo / redo buttons (⌘Z does that)', () => {
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    expect(screen.getByRole('toolbar', { name: 'Drawing tools' })).toHaveAttribute('aria-orientation', 'vertical');
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+  });
+
+  it('disables Undo and Redo while the toolbar is disabled', () => {
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" compact disabled />);
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+  });
+});

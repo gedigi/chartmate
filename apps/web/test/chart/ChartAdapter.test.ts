@@ -24,7 +24,7 @@ const k = vi.hoisted(() => {
     const data: Array<{ timestamp: number; high: number }> = [];
     const chart = {
       overlays, indicators, data,
-      setStyles: vi.fn(), setFormatter: vi.fn(), overrideXAxis: vi.fn(), setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(), setTimezone: vi.fn(), resetData: vi.fn(),
+      setStyles: vi.fn(), setFormatter: vi.fn(), overrideXAxis: vi.fn(), overrideYAxis: vi.fn(), setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(), setTimezone: vi.fn(), resetData: vi.fn(),
       getBarSpace: vi.fn(() => ({ bar: 10, halfBar: 5, gapBar: 8, halfGapBar: 4 })),
       convertToPixel: vi.fn((p: { dataIndex?: number }) => (p.dataIndex === undefined ? {} : { x: p.dataIndex * 10 })),
       resize: vi.fn(), getDataList: vi.fn(() => data),
@@ -100,7 +100,7 @@ vi.mock('klinecharts', () => ({
   getSupportedIndicators: () => k.state.registered,
 }));
 
-const { ChartAdapter } = await import('../../src/chart/ChartAdapter');
+const { ChartAdapter, COMPACT_CANDLE_TOP_GAP_PX } = await import('../../src/chart/ChartAdapter');
 const { api } = await import('../../src/api/client');
 const { softTone } = await import('../../src/chart/color');
 const { THEME_TOKENS } = await import('../../src/chart/theme');
@@ -347,6 +347,22 @@ describe('ChartAdapter', () => {
     const a = make();
     a.setChartType(t);
     expect(chart().setStyles).toHaveBeenLastCalledWith(expect.objectContaining({ candle: expect.objectContaining({ type }) }));
+  });
+
+  it('setCompact (phone width): a smaller legend without volume, and room above the candles for it to wrap', () => {
+    const a = make();
+    a.setCompact(true);
+    let styles = chart().setStyles.mock.calls.at(-1)![0];
+    expect(styles.candle.tooltip.legend.size).toBe(11);
+    expect(styles.indicator.tooltip.legend.size).toBe(11);
+    expect(chart().overrideYAxis).toHaveBeenLastCalledWith({ paneId: 'candle_pane', gap: { top: COMPACT_CANDLE_TOP_GAP_PX, bottom: 0.1 } });
+    // Later style updates keep the compact legend.
+    a.setTheme('light');
+    expect(chart().setStyles.mock.calls.at(-1)![0].candle.tooltip.legend.size).toBe(11);
+    a.setCompact(false);
+    styles = chart().setStyles.mock.calls.at(-1)![0];
+    expect(styles.candle.tooltip.legend.size).toBe(12);
+    expect(chart().overrideYAxis).toHaveBeenLastCalledWith({ paneId: 'candle_pane', gap: { top: 0.2, bottom: 0.1 } });
   });
 
   it('setChartType(line) uses a transparent area fill', () => {

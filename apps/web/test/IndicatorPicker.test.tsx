@@ -19,6 +19,16 @@ describe('IndicatorPicker', () => {
     expect(within(dialog).getByRole('button', { name: /Average true range/ })).toBeInTheDocument();
   });
 
+  it('on a touch screen the dialog takes the focus, not the search box (its keyboard would cover the sheet)', () => {
+    vi.stubGlobal('matchMedia', (media: string) => ({ matches: media === '(pointer: coarse)', media, addEventListener() {}, removeEventListener() {} }));
+    try {
+      render(<IndicatorPicker count={0} onAdd={() => {}} onClose={() => {}} />);
+      expect(screen.getByRole('dialog', { name: /indicators/i })).toHaveFocus();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('filtering "rsi" shows RSI only; clicking adds it with default params', async () => {
     const onAdd = vi.fn();
     render(<IndicatorPicker count={0} onAdd={onAdd} onClose={() => {}} />);

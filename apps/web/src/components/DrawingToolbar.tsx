@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX, type ReactNode } from 'react';
 import type { ChartAdapter, DrawingTool } from '../chart/ChartAdapter';
 import { clipboardShortcut, hasTextSelection, isApplePlatform, isInPopup, isModalOpen, undoShortcut } from '../keyboard';
+import { scrollFade, useScrollEdges } from '../state/useScrollEdges';
 import { LockIcon } from './LockIcon';
 import './DrawingToolbar.css';
 
@@ -18,6 +19,8 @@ export interface DrawingToolbarProps {
   disabled?: boolean;
   /** Shown in the "clear all" confirmation. */
   ticker: string;
+  /** Phone width: a horizontal strip under the chart, led by undo and redo buttons (touch has no ⌘Z). */
+  compact?: boolean;
 }
 
 function Icon({ children }: { children: ReactNode }): JSX.Element {
@@ -51,6 +54,8 @@ const MAGNET_ICON = <Icon><path d="M5 3v7a5 5 0 0 0 10 0V3h-3v7a2 2 0 0 1-4 0V3z
 const LOCK_ICON = <LockIcon locked />;
 const UNLOCK_ICON = <LockIcon locked={false} />;
 const DELETE_ICON = <Icon><path d="M5 5l10 10M15 5L5 15" /></Icon>;
+const UNDO_ICON = <Icon><path d="M7.5 5.5 4 9l3.5 3.5" /><path d="M4.5 9H12a4 4 0 0 1 0 8h-2" /></Icon>;
+const REDO_ICON = <Icon><path d="M12.5 5.5 16 9l-3.5 3.5" /><path d="M15.5 9H8a4 4 0 0 0 0 8h2" /></Icon>;
 const CLEAR_ICON = <Icon><path d="M3 5h14M8 5V3h4v2M5 5l1 12h8l1-12M8.5 8.5v5.5M11.5 8.5v5.5" /></Icon>;
 
 type Active = DrawingTool | null;
@@ -135,7 +140,7 @@ function isOtherWidget(target: EventTarget | null): boolean {
  * horizontal line and Option/Alt+R a rectangle (see TOOL_SHORTCUTS), holding Shift keeps trend lines / rays / extended lines / channels horizontal.
  * With no tool active, a Shift press on the chart measures (handled by the adapter); Escape removes the measure.
  */
-export function DrawingToolbar({ controls, disabled: disabledProp = false, ticker }: DrawingToolbarProps): JSX.Element {
+export function DrawingToolbar({ controls, disabled: disabledProp = false, ticker, compact = false }: DrawingToolbarProps): JSX.Element {
   const [active, setActiveState] = useState<Active>(null);
   const activeRef = useRef<Active>(null);
   const setActive = (a: Active) => { activeRef.current = a; setActiveState(a); };
@@ -146,6 +151,7 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
   const [textPrompt, setTextPrompt] = useState<{ top: number } | null>(null);
   const [text, setText] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
+  const [stripRef, stripEdges] = useScrollEdges();
   const controlsRef = useRef(controls);
   controlsRef.current = controls;
   const disabled = !controls || disabledProp;
@@ -376,8 +382,16 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
   };
 
   return (
-    <div className="drawing-toolbar" ref={rootRef}>
-      <div className="dt-scroll" role="toolbar" aria-orientation="vertical" aria-label="Drawing tools">
+    <div className={`drawing-toolbar${compact ? ' drawing-toolbar-compact' : ''}`} ref={rootRef}>
+      <div className={`dt-scroll${compact ? ' edge-fade' : ''}`} ref={compact ? stripRef : undefined} data-fade={compact ? scrollFade(stripEdges) : undefined}
+        role="toolbar" aria-orientation={compact ? 'horizontal' : 'vertical'} aria-label="Drawing tools">
+        {compact && (
+          <>
+            <button type="button" className="dt-btn" aria-label="Undo" title="Undo" disabled={disabled} onClick={() => controls?.undo()}>{UNDO_ICON}</button>
+            <button type="button" className="dt-btn" aria-label="Redo" title="Redo" disabled={disabled} onClick={() => controls?.redo()}>{REDO_ICON}</button>
+            <div className="dt-sep" role="separator" />
+          </>
+        )}
         {TOOLS.map(({ tool, label, icon }) => toolButton(tool, label, icon, () => toggleTool(tool)))}
         {toolButton('simpleAnnotation', 'Text', TEXT_ICON, (btn) => {
           if (active === 'simpleAnnotation') cancel();
@@ -417,7 +431,7 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
         >{CLEAR_ICON}</button>
       </div>
       {textPrompt && (
-        <form className="dt-popover" style={{ top: textPrompt.top }} onSubmit={submitText}
+        <form className="dt-popover" style={compact ? undefined : { top: textPrompt.top }} onSubmit={submitText}
           onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setTextPrompt(null); } }}>
           <input
             autoFocus type="text" aria-label="Annotation text" placeholder="Text" maxLength={200}

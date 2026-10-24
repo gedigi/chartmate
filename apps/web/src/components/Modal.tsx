@@ -6,6 +6,10 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 
 const focusables = (root: HTMLElement) => Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE));
 
+const isTextField = (el: Element): boolean =>
+  el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && !['checkbox', 'radio', 'color', 'range', 'button', 'submit'].includes(el.type));
+const isTouchScreen = (): boolean => typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+
 export interface ModalProps {
   title: string;
   onClose: () => void;
@@ -17,7 +21,8 @@ export interface ModalProps {
  * Accessible modal dialog rendered into document.body: role=dialog + aria-modal, labeled by its title,
  * Escape and backdrop click close it, Tab is trapped inside, and focus returns to the previously focused
  * element when it unmounts. Initial focus goes to the first element marked `data-autofocus`, else the
- * first focusable element.
+ * first focusable element; on a touch screen not to a text field (its keyboard would cover the sheet): the dialog
+ * itself takes the focus then.
  */
 export function Modal({ title, onClose, children, className }: ModalProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -26,7 +31,10 @@ export function Modal({ title, onClose, children, className }: ModalProps): JSX.
   useEffect(() => {
     const prev = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const el = ref.current;
-    if (el) (el.querySelector<HTMLElement>('[data-autofocus]') ?? focusables(el)[0] ?? el).focus();
+    if (el) {
+      const target = el.querySelector<HTMLElement>('[data-autofocus]') ?? focusables(el)[0] ?? el;
+      (isTouchScreen() && isTextField(target) ? el : target).focus();
+    }
     return () => { if (prev?.isConnected) prev.focus(); };
   }, []);
 

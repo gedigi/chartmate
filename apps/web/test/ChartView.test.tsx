@@ -15,6 +15,7 @@ const fake = vi.hoisted(() => {
     changeCb: (() => void) | null = null;
     load = vi.fn((_p: unknown, ev: LoaderEvents) => { this.events = ev; });
     setTheme = vi.fn();
+    setCompact = vi.fn();
     setChartType = vi.fn();
     setSessionShading = vi.fn();
     setMarkers = vi.fn();

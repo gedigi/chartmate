@@ -2,6 +2,7 @@ import { parseSymbolId, type SymbolId, type SymbolInfo } from '@chartmate/shared
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type RefObject } from 'react';
 import { api, ApiError, errorMessage, isPermanentError, setUnauthorizedHandler } from './api/client';
 import { BasketsPage } from './components/BasketsPage';
+import { BottomNav } from './components/BottomNav';
 import { ChartView } from './components/ChartView';
 import { Login } from './components/Login';
 import { DrawingsNote, DrawingsSavers } from './components/DrawingsSave';
@@ -15,6 +16,7 @@ import { onBasketChanged, onBasketDeleted } from './state/useBaskets';
 import { DEFAULT_LAYOUT, useLayout } from './state/useLayout';
 import { loadWithRetry, retryDelayMs } from './state/retry';
 import { useSidebarWidth } from './state/sidebarWidth';
+import { useCompact } from './state/useCompact';
 import { readStored, writeStored } from './state/storage';
 
 /** Stored as `chartmate.theme` (see state/storage.ts; public/theme-init.js reads the same key before first paint). */
@@ -37,7 +39,11 @@ function useTheme(): [Theme, () => void] {
   return [theme, toggle];
 }
 
-const viewFromHash = (): View => (window.location.hash === '#/baskets' ? 'baskets' : 'chart');
+const VIEW_HASH: Record<View, string> = { chart: '#/', watchlist: '#/watchlist', baskets: '#/baskets' };
+const viewFromHash = (): View => {
+  const h = window.location.hash;
+  return h === VIEW_HASH.baskets ? 'baskets' : h === VIEW_HASH.watchlist ? 'watchlist' : 'chart';
+};
 
 function useHashView(): [View, (v: View) => void] {
   const [view, setViewState] = useState<View>(viewFromHash);
@@ -48,7 +54,7 @@ function useHashView(): [View, (v: View) => void] {
   }, []);
   const setView = useCallback((v: View) => {
     setViewState(v);
-    const hash = v === 'baskets' ? '#/baskets' : '#/';
+    const hash = VIEW_HASH[v];
     if (window.location.hash !== hash) window.location.hash = hash;
   }, []);
   return [view, setView];
@@ -127,7 +133,10 @@ function useShowSession(symbol: SymbolId): boolean {
 
 function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme: () => void; onLogout?: () => void }): JSX.Element {
   const { layout, setLayout, selectSymbol: selectLayoutSymbol, loaded, loadError, retry: retryLayout, saveError: layoutSaveError, saveStalled: layoutSaveStalled, savePermanent: layoutSavePermanent, retrySave: retryLayoutSave } = useLayout();
-  const [view, setView] = useHashView();
+  const [hashView, setView] = useHashView();
+  const compact = useCompact();
+  // The watchlist is a view of its own only at phone width; wider, it is the chart's sidebar.
+  const view: View = !compact && hashView === 'watchlist' ? 'chart' : hashView;
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= SIDEBAR_BREAKPOINT);
   const sidebar = useSidebarWidth();
   const { state: symbolInfoState, retry: retrySymbolInfo } = useSymbolInfo(layout.symbol);
@@ -164,7 +173,7 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
   }), [layoutSaveError, layoutSavePermanent, layoutSaveStalled, retryLayoutSave]);
 
   return (
-    <div className={`app-shell view-${view}${sidebarOpen && view === 'chart' ? '' : ' sidebar-collapsed'}`}
+    <div className={`app-shell view-${view}${compact ? ' compact' : ''}${sidebarOpen && view === 'chart' && !compact ? '' : ' sidebar-collapsed'}`}
       ref={sidebar.shellRef as RefObject<HTMLDivElement | null>} style={{ '--sidebar-w': `${sidebar.width}px` } as CSSProperties}>
       <TopBar
         view={view}
@@ -174,17 +183,18 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
         symbolInfo={symbolInfo}
         symbolDeleted={symbolDeleted}
         showSession={showSession}
-        onSelectSymbol={selectSymbol}
+        onSelectSymbol={openChart}
         theme={theme}
         onToggleTheme={onToggleTheme}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((o) => !o)}
         onLogout={onLogout}
         controlsDisabled={!loaded}
+        compact={compact}
       />
       {/* Retried with backoff; once the retries give up (a tab left open must not keep writing an old layout over
           newer changes) a manual Retry. In the chart view the note sits in the chart's note stack; elsewhere here. */}
-      {view !== 'chart' && (
+      {view === 'baskets' && (
         <div className="save-status">
           {layoutSaveError !== null && (
             <SaveNote thing="Layout" state={layoutSavePermanent ? 'failed' : layoutSaveStalled ? 'stalled' : 'retrying'}
@@ -195,9 +205,10 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
       )}
       {/* Drawings savers live here, above the view switch: unsaved drawings keep being retried on the Baskets page. */}
       <DrawingsSavers />
-      {view === 'chart' ? (
+      {view !== 'baskets' ? (
         <>
-          <main className="chart-main">
+          {/* Hidden, not unmounted, behind the phone's watchlist view: coming back shows the chart as it was. */}
+          <main className="chart-main" data-testid="chart-main" hidden={view === 'watchlist'}>
             {loaded && (
               <ChartView layout={layout} setLayout={setLayout} symbolInfo={symbolInfo} symbolError={symbolError}
                 symbolDeleted={symbolDeleted} onRetrySymbol={retrySymbolInfo} theme={theme}
@@ -211,7 +222,13 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
             )}
             {!loaded && !layoutBlocked && <div className="center-message">Loading layout…</div>}
           </main>
-          {sidebarOpen && !layoutBlocked && (
+          {compact && view === 'watchlist' && !layoutBlocked && (
+            <main className="watchlist-main">
+              <Watchlist currentSymbol={layout.symbol} onSelect={openChart} />
+              {loaded && <SymbolDetails symbol={layout.symbol} info={symbolInfo} />}
+            </main>
+          )}
+          {!compact && sidebarOpen && !layoutBlocked && (
             <>
               <SidebarResizer width={sidebar.width} min={sidebar.min} max={sidebar.max}
                 onPreview={sidebar.preview} onCommit={sidebar.commit} onReset={sidebar.reset} />
@@ -227,6 +244,7 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
           <BasketsPage onOpenChart={openChart} />
         </main>
       )}
+      {compact && <BottomNav view={view} onView={setView} />}
     </div>
   );
 }

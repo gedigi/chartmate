@@ -480,6 +480,28 @@ Where to read next:
 
 ## Using Chartmate
 
+### On a phone
+
+In a browser window up to 640 px wide (a phone held upright), Chartmate switches to a layout made for touch; wider
+windows, including a phone turned sideways and tablets, keep the full layout described below.
+
+- **Tab bar**: **Chart**, **Watchlist** and **Baskets** sit at the bottom of the screen. The watchlist is a view
+  of its own (with the symbol details under it): tap a symbol to chart it. The chart stays as it was while you look
+  at the watchlist.
+- **Top bar**: the symbol search fills it on the chart; **Indicators** is the curve button next to it, and **More**
+  (⋯) opens a sheet with the theme switch, **Chart appearance**, **About Chartmate** and **Log out** (when a
+  password is set). The timeframes, RTH / ETH and the chart type are on a row under it that scrolls sideways.
+- **Drawing tools**: a strip under the chart that scrolls sideways, led by **Undo** and **Redo** buttons. Tap a
+  tool, then tap the chart for each point (a trend line: two taps). The selected drawing's style bar spans the
+  top of the chart.
+- **The chart**: drag to scroll, pinch to zoom, tap (or press and hold, then drag) for the crosshair. The candle
+  legend is smaller and leaves out volume (the volume pane has it), with room above the bars so it never covers
+  them; indicator legends show only while the crosshair is up (the chips above the chart name the indicators).
+- **Dialogs** open as sheets from the bottom of the screen; text fields use 16 px type, so iOS does not zoom in
+  when you type. Opening a sheet does not raise the keyboard (tap its search field for that).
+
+Keyboard shortcuts, hover tooltips and right-clicks need a keyboard or a mouse; everything else works by touch.
+
 ### Charts
 
 - **About Chartmate**: click the Chartmate mark at the left of the top bar for the version and the source code
