@@ -5,6 +5,8 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+## [1.3.0] - 2026-10-25
+
 ### Everywhere
 
 - A layout made for phones: in a browser window up to 640 px wide, the views move to a tab bar at the bottom

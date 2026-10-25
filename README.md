@@ -137,7 +137,7 @@ curl -fsSL -o .env.example https://github.com/gedigi/chartmate/releases/latest/d
   such as ufw, so `0.0.0.0` really is every interface. `CHARTMATE_PORT` changes the host port.
 - The container runs as a non-root user and writes only to `/data`, plus SQLite's temporary files (large
   sorts, `VACUUM`) to the `/tmp` tmpfs.
-- `CHARTMATE_IMAGE` overrides the image: pin a version (`ghcr.io/gedigi/chartmate:1.2.0`, or by digest, see
+- `CHARTMATE_IMAGE` overrides the image: pin a version (`ghcr.io/gedigi/chartmate:1.3.0`, or by digest, see
   [Security](#security)) or run your own build (`docker build -t chartmate:local .`, then
   `CHARTMATE_IMAGE=chartmate:local` and `CHARTMATE_PULL_POLICY=never`). A fork publishes under its own name;
   pulling a private package needs `docker login ghcr.io` with a token that has the `read:packages` scope.
@@ -161,7 +161,7 @@ quick-try container: `docker pull ghcr.io/gedigi/chartmate:latest && docker rm -
 same `docker run` line again (the volume keeps your data).
 
 Database migrations run at startup, and data saved by older versions stays loadable. To upgrade on your own
-schedule, pin a version (`CHARTMATE_IMAGE=ghcr.io/gedigi/chartmate:1.2.0` in `.env`, or a digest as in
+schedule, pin a version (`CHARTMATE_IMAGE=ghcr.io/gedigi/chartmate:1.3.0` in `.env`, or a digest as in
 [Security](#security)) instead of `latest`, and take a backup first. Pin the version you run now or a newer one: an
 older version refuses a database a newer one has migrated (to go back, restore the backup taken before upgrading,
 or see [Troubleshooting](#troubleshooting)). `docker stop` (SIGTERM) shuts the server down
@@ -348,11 +348,11 @@ location / {
   pin both in `.env`:
 
   ```sh
-  docker buildx imagetools inspect ghcr.io/gedigi/chartmate:1.2.0   # prints "Digest: sha256:…"
+  docker buildx imagetools inspect ghcr.io/gedigi/chartmate:1.3.0   # prints "Digest: sha256:…"
   gh attestation verify oci://ghcr.io/gedigi/chartmate@sha256:<digest> --repo gedigi/chartmate
   ```
 
-  then `CHARTMATE_IMAGE=ghcr.io/gedigi/chartmate:1.2.0@sha256:<digest>`. Docker then pulls that digest only
+  then `CHARTMATE_IMAGE=ghcr.io/gedigi/chartmate:1.3.0@sha256:<digest>`. Docker then pulls that digest only
   (the tag is just a label), and `docker compose pull` never moves it; upgrade by changing both.
   `gh attestation verify` checks the signed build provenance of exactly that digest: that it was built from
   this repository by its release workflow (`docker.yml`, run on the version's tag) or by its weekly rebuild
