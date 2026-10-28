@@ -5,6 +5,10 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+### Everywhere
+
+- **⌘J** (Ctrl+J on Windows and Linux) starts a price line, like its button in the drawing tools (again: cancel).
+
 ## [1.3.0] - 2026-10-25
 
 ### Everywhere

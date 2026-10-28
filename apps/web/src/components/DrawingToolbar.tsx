@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX, type ReactNode } from 'react';
 import type { ChartAdapter, DrawingTool } from '../chart/ChartAdapter';
-import { clipboardShortcut, hasTextSelection, isApplePlatform, isInPopup, isModalOpen, undoShortcut } from '../keyboard';
+import { clipboardShortcut, hasCommandModifier, hasTextSelection, isApplePlatform, isInPopup, isModalOpen, undoShortcut } from '../keyboard';
 import { scrollFade, useScrollEdges } from '../state/useScrollEdges';
 import { LockIcon } from './LockIcon';
 import './DrawingToolbar.css';
@@ -75,25 +75,37 @@ function clearQuestion({ total, locked }: { total: number; locked: number }, tic
 }
 
 /**
- * Tool shortcuts: Option (macOS) / Alt + the physical key. Matched by `event.code`: on macOS Option+T types
- * '†', so `event.key` would never be 'T'. Add an entry here to give another tool a shortcut.
+ * Tool shortcuts: a modifier alone + the physical key. `alt` is Option (macOS) / Alt, `command` is ⌘ (macOS) / Ctrl.
+ * Matched by `event.code`: on macOS Option+T types '†', so `event.key` would never be 'T'. Add an entry here to give
+ * another tool a shortcut.
  */
-export const TOOL_SHORTCUTS: Readonly<Partial<Record<DrawingTool, { code: string; key: string }>>> = {
-  segment: { code: 'KeyT', key: 'T' },
-  horizontalStraightLine: { code: 'KeyH', key: 'H' },
-  rectangle: { code: 'KeyR', key: 'R' },
+export const TOOL_SHORTCUTS: Readonly<Partial<Record<DrawingTool, { code: string; key: string; modifier: 'alt' | 'command' }>>> = {
+  segment: { code: 'KeyT', key: 'T', modifier: 'alt' },
+  horizontalStraightLine: { code: 'KeyH', key: 'H', modifier: 'alt' },
+  rectangle: { code: 'KeyR', key: 'R', modifier: 'alt' },
+  priceLine: { code: 'KeyJ', key: 'J', modifier: 'command' },
 };
 
-/** The tool whose shortcut `e` is (Alt alone + its key), or null. */
+/** The tool whose shortcut `e` is (its modifier alone + its key), or null. */
 function shortcutTool(e: KeyboardEvent): DrawingTool | null {
-  if (!e.altKey || e.metaKey || e.ctrlKey) return null;
-  for (const [tool, s] of Object.entries(TOOL_SHORTCUTS)) if (s.code === e.code) return tool as DrawingTool;
+  // ⌘ / Ctrl shortcuts without Shift (⌘⇧J and the like are the browser's).
+  const modifier = e.altKey
+    ? (e.metaKey || e.ctrlKey ? null : 'alt')
+    : hasCommandModifier(e) && !e.shiftKey ? 'command' : null;
+  if (!modifier) return null;
+  for (const [tool, s] of Object.entries(TOOL_SHORTCUTS)) if (s.code === e.code && s.modifier === modifier) return tool as DrawingTool;
   return null;
 }
 
-/** "⌥T" on Apple platforms, "Alt+T" elsewhere. */
-function shortcutLabel(key: string): string {
-  return isApplePlatform() ? `⌥${key}` : `Alt+${key}`;
+/** "⌥T" / "⌘J" on Apple platforms, "Alt+T" / "Ctrl+J" elsewhere. */
+function shortcutLabel({ key, modifier }: { key: string; modifier: 'alt' | 'command' }): string {
+  if (isApplePlatform()) return `${modifier === 'alt' ? '⌥' : '⌘'}${key}`;
+  return `${modifier === 'alt' ? 'Alt' : 'Ctrl'}+${key}`;
+}
+
+/** The `aria-keyshortcuts` value: "Alt+T", or "Meta+J" (Apple platforms) / "Control+J". */
+function ariaShortcut({ key, modifier }: { key: string; modifier: 'alt' | 'command' }): string {
+  return `${modifier === 'alt' ? 'Alt' : isApplePlatform() ? 'Meta' : 'Control'}+${key}`;
 }
 
 /** A copy / paste event this soon after the key press that caused it belongs to that press. */
@@ -137,7 +149,7 @@ function isOtherWidget(target: EventTarget | null): boolean {
  * own undo), Delete/Backspace removes the selected drawing, ⌘C / ⌘V (Ctrl+C / Ctrl+V elsewhere) copies it / pastes
  * the copy (in-app clipboard), Escape cancels the active tool, holding ⌘ (macOS) / Ctrl
  * snaps the drawing being placed or dragged to OHLC values, Option/Alt+T starts a trend line, Option/Alt+H a
- * horizontal line and Option/Alt+R a rectangle (see TOOL_SHORTCUTS), holding Shift keeps trend lines / rays / extended lines / channels horizontal.
+ * horizontal line, Option/Alt+R a rectangle and ⌘J / Ctrl+J a price line (see TOOL_SHORTCUTS), holding Shift keeps trend lines / rays / extended lines / channels horizontal.
  * With no tool active, a Shift press on the chart measures (handled by the adapter); Escape removes the measure.
  */
 export function DrawingToolbar({ controls, disabled: disabledProp = false, ticker, compact = false }: DrawingToolbarProps): JSX.Element {
@@ -371,9 +383,9 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
       key={tool}
       type="button"
       className="dt-btn"
-      title={shortcut ? `${label} (${shortcutLabel(shortcut.key)})` : label}
+      title={shortcut ? `${label} (${shortcutLabel(shortcut)})` : label}
       aria-label={label}
-      aria-keyshortcuts={shortcut ? `Alt+${shortcut.key}` : undefined}
+      aria-keyshortcuts={shortcut ? ariaShortcut(shortcut) : undefined}
       aria-pressed={active === tool}
       disabled={disabled}
       onClick={(e) => onClick(e.currentTarget)}

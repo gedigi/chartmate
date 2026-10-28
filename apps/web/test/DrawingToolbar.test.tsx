@@ -529,6 +529,40 @@ describe('DrawingToolbar keyboard shortcuts (Option/Alt+T trend line, Option/Alt
     expect(screen.getByRole('button', { name: 'Horizontal line' })).toHaveAttribute('aria-keyshortcuts', 'Alt+H');
   });
 
+  it('⌘J (Apple platforms) / Ctrl+J (others) starts a price line; again: cancel; shown in its title', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    const { unmount } = render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    const btn = screen.getByRole('button', { name: 'Price line' });
+    expect(btn).toHaveAttribute('title', 'Price line (⌘J)');
+    expect(btn).toHaveAttribute('aria-keyshortcuts', 'Meta+J');
+    // Not the other platform's modifier, nor with Shift / Option added.
+    expect(fireEvent.keyDown(document.body, { key: 'j', code: 'KeyJ', ctrlKey: true })).toBe(true);
+    expect(fireEvent.keyDown(document.body, { key: 'J', code: 'KeyJ', metaKey: true, shiftKey: true })).toBe(true);
+    expect(fireEvent.keyDown(document.body, { key: '∆', code: 'KeyJ', metaKey: true, altKey: true })).toBe(true);
+    expect(fireEvent.keyDown(document.body, { key: '∆', code: 'KeyJ', altKey: true })).toBe(true);
+    expect(c.startDrawing).not.toHaveBeenCalled();
+    expect(fireEvent.keyDown(document.body, { key: 'j', code: 'KeyJ', metaKey: true })).toBe(false);
+    expect(c.startDrawing).toHaveBeenLastCalledWith('priceLine', expect.objectContaining({ onEnd: expect.any(Function) }));
+    expect(btn).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.keyDown(document.body, { key: 'j', code: 'KeyJ', metaKey: true });
+    expect(c.cancelDrawing).toHaveBeenCalledTimes(1);
+    expect(btn).toHaveAttribute('aria-pressed', 'false');
+    // Ignored while typing.
+    unmount();
+    setPlatform('Win32');
+    render(<><DrawingToolbar controls={c} ticker="AAPL" /><input aria-label="field" /></>);
+    const win = screen.getByRole('button', { name: 'Price line' });
+    expect(win).toHaveAttribute('title', 'Price line (Ctrl+J)');
+    expect(win).toHaveAttribute('aria-keyshortcuts', 'Control+J');
+    expect(fireEvent.keyDown(screen.getByLabelText('field'), { key: 'j', code: 'KeyJ', ctrlKey: true })).toBe(true);
+    expect(fireEvent.keyDown(document.body, { key: 'j', code: 'KeyJ', metaKey: true })).toBe(true);
+    expect(c.startDrawing).toHaveBeenCalledTimes(1);
+    expect(fireEvent.keyDown(document.body, { key: 'j', code: 'KeyJ', ctrlKey: true })).toBe(false);
+    expect(c.startDrawing).toHaveBeenCalledTimes(2);
+    expect(c.startDrawing).toHaveBeenLastCalledWith('priceLine', expect.anything());
+  });
+
   it('closes the text prompt like a click on the tool would', async () => {
     const { c } = makeControls();
     render(<DrawingToolbar controls={c} ticker="AAPL" />);

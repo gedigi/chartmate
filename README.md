@@ -842,6 +842,7 @@ it.
 | --- | --- |
 | ⌘K | Focus the symbol search |
 | ⌥T / ⌥H / ⌥R | Start a trend line / a horizontal line / a rectangle (again: cancel) |
+| ⌘J | Start a price line (again: cancel) |
 | Delete, Backspace | Delete the selected drawing (unless locked) |
 | Escape | Cancel the drawing tool, deselect the drawing, end the measure |
 | ⌘C / ⌘V | Copy the selected drawing / paste it |
