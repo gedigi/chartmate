@@ -201,7 +201,7 @@ describe('FixtureProvider', () => {
     expect(await stock().splitsSince('AAPL', 0)).toEqual([]);
   });
 
-  it('events: quarterly dividends, the last four earnings plus the next (upcoming), an MSFT split; none for SPY earnings or crypto', async () => {
+  it('events: quarterly dividends, the last four earnings plus the next (upcoming, two days out), an MSFT split; none for SPY earnings or crypto', async () => {
     const now = Date.UTC(2026, 9, 20, 12);
     const stock = new FixtureProvider({ assetClass: 'stock', now: () => now });
     const msft = await stock.events('MSFT');
@@ -210,7 +210,13 @@ describe('FixtureProvider', () => {
     const earnings = kinds('earnings');
     expect(earnings).toHaveLength(5);
     expect(earnings.slice(0, 4).every((e) => e.ts <= now && 'epsActual' in e)).toBe(true);
-    expect(earnings[4]).toMatchObject({ ts: Date.UTC(2026, 9, 25, 20, 30), upcoming: true });
+    expect(earnings[3]!.ts).toBe(Date.UTC(2026, 6, 25, 21, 30)); // after the close (17:30 New York in summer)
+    expect(earnings[4]).toMatchObject({ ts: Date.UTC(2026, 9, 22, 21, 30), upcoming: true });
+    // In winter too (16:30 New York), and two days out whatever the date (here a day after a quarterly report).
+    const winter = await new FixtureProvider({ assetClass: 'stock', now: () => Date.UTC(2027, 0, 26, 12) }).events('AAPL');
+    const winterEarnings = winter.filter((e) => e.kind === 'earnings');
+    expect(winterEarnings.at(-2)!.ts).toBe(Date.UTC(2027, 0, 25, 21, 30));
+    expect(winterEarnings.at(-1)).toMatchObject({ ts: Date.UTC(2027, 0, 28, 21, 30), upcoming: true });
     expect(kinds('dividend').at(-1)!.ts).toBe(Date.UTC(2026, 7, 10, 13, 30));
     expect(kinds('split')).toEqual([{ kind: 'split', ts: Date.UTC(2018, 1, 14, 14, 30), ratio: '2:1' }]);
     expect((await stock.events('SPY')).some((e) => e.kind === 'earnings')).toBe(false);

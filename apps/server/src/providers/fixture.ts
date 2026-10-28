@@ -127,8 +127,9 @@ export class FixtureProvider implements MarketDataProvider {
 
   /**
    * Deterministic events for stocks (none for crypto): a quarterly dividend (ex-date the 10th of Feb, May, Aug, Nov,
-   * 09:30 New York) since the first bar, earnings on the 25th of Jan, Apr, Jul and Oct after the close for the last
-   * four quarters plus the next one (upcoming), and one MSFT split. SPY, a fund, reports no earnings.
+   * 09:30 New York) since the first bar, earnings on the 25th of Jan, Apr, Jul and Oct for the last four quarters, and
+   * the next report two days from today, so it is always on the chart, whatever the date. Reports are at 21:30 UTC,
+   * after the close in summer and winter time alike. One MSFT split. SPY, a fund, reports no earnings.
    */
   async events(code: string): Promise<CorporateEvent[]> {
     const sym = this.lookup(code);
@@ -146,15 +147,15 @@ export class FixtureProvider implements MarketDataProvider {
       const reports: number[] = [];
       for (let y = new Date(now).getUTCFullYear() - 2, m = 0; reports.length < 5 || reports[reports.length - 1]! <= now; m += 3) {
         if (m > 11) { y += 1; m -= 12; }
-        const ts = Date.UTC(y, m, 25, 20, 30);
-        reports.push(ts);
+        reports.push(Date.UTC(y, m, 25, 21, 30));
       }
       const past = reports.filter((ts) => ts <= now).slice(-4);
       past.forEach((ts, i) => {
         const epsEstimate = round(sym.base / 100 + 0.1 * i);
         out.push({ kind: 'earnings', ts, epsActual: round(epsEstimate * (i % 2 === 0 ? 1.05 : 0.97)), epsEstimate });
       });
-      const next = reports.find((ts) => ts > now)!;
+      const today = new Date(now);
+      const next = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + 2, 21, 30);
       out.push({ kind: 'earnings', ts: next, epsEstimate: round(sym.base / 100 + 0.4), upcoming: true });
     }
     if (code === 'MSFT') out.push({ kind: 'split', ts: Date.UTC(2018, 1, 14, 14, 30), ratio: '2:1' });
