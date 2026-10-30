@@ -13,6 +13,8 @@ function makeControls() {
     setSelectedLabel: vi.fn(), setSelectedExtend: vi.fn(), setSelectedFill: vi.fn(),
     onPriceEditRequest: vi.fn(() => () => {}),
     setSelectedLock: vi.fn((_locked: boolean) => true),
+    arrangeSelected: vi.fn((_how: string) => true),
+    selectedOrder: vi.fn((): { atFront: boolean; atBack: boolean } | null => ({ atFront: false, atBack: false })),
     setSelectedPositionPrices: vi.fn((_p: { entry?: number; target?: number; stop?: number }): string | null => null),
   };
   return { c: c as typeof c & DrawingStyleControls, emit: (s: SelectedDrawing | null) => act(() => cb?.(s)) };

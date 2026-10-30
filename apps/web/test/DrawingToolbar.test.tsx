@@ -25,6 +25,7 @@ function makeControls() {
     clearMeasure: vi.fn(),
     undo: vi.fn(() => true),
     redo: vi.fn(() => true),
+    arrangeSelected: vi.fn((_how: string) => true),
     onLockAllChange: vi.fn((cb: (locked: boolean) => void) => { lockCb = cb; return () => { lockCb = null; }; }),
     onSelectionChange: vi.fn((cb: (s: { locked: boolean } | null) => void) => { selCb = cb; return () => { selCb = null; }; }),
   };
@@ -931,5 +932,52 @@ describe('DrawingToolbar at phone width (compact)', () => {
     render(<DrawingToolbar controls={c} ticker="AAPL" compact disabled />);
     expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+  });
+});
+
+describe('arrange shortcuts: ⌘] / ⌘[ (Ctrl elsewhere) forward / backward, with Shift to the front / back', () => {
+  const setPlatform = (p: string) => vi.spyOn(navigator, 'platform', 'get').mockReturnValue(p);
+  const press = (target: Element | Document, init: KeyboardEventInit) => fireEvent.keyDown(target, init);
+
+  it('arranges the selected drawing, matched by the physical key', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    expect(press(document.body, { key: ']', code: 'BracketRight', metaKey: true })).toBe(false);
+    expect(c.arrangeSelected).toHaveBeenLastCalledWith('forward');
+    expect(press(document.body, { key: '}', code: 'BracketRight', metaKey: true, shiftKey: true })).toBe(false);
+    expect(c.arrangeSelected).toHaveBeenLastCalledWith('front');
+    expect(press(document.body, { key: '[', code: 'BracketLeft', metaKey: true })).toBe(false);
+    expect(c.arrangeSelected).toHaveBeenLastCalledWith('backward');
+    expect(press(document.body, { key: '{', code: 'BracketLeft', metaKey: true, shiftKey: true })).toBe(false);
+    expect(c.arrangeSelected).toHaveBeenLastCalledWith('back');
+    // Ctrl on a Mac, Alt added, or no modifier: not the shortcut.
+    expect(press(document.body, { key: ']', code: 'BracketRight', ctrlKey: true })).toBe(true);
+    expect(press(document.body, { key: '‘', code: 'BracketRight', metaKey: true, altKey: true })).toBe(true);
+    expect(press(document.body, { key: ']', code: 'BracketRight' })).toBe(true);
+    expect(c.arrangeSelected).toHaveBeenCalledTimes(4);
+  });
+
+  it('Ctrl off Apple platforms; with a drawing selected the key is kept even when nothing moves (⌘[ is history back)', () => {
+    setPlatform('Win32');
+    const { c } = makeControls();
+    c.arrangeSelected.mockReturnValue(false); // already at the back
+    render(<DrawingToolbar controls={c} ticker="AAPL" />);
+    expect(press(document.body, { key: '[', code: 'BracketLeft', ctrlKey: true })).toBe(false);
+    expect(c.arrangeSelected).toHaveBeenCalledWith('backward');
+  });
+
+  it('nothing selected, typing, inside a dialog or disabled: left to the browser', () => {
+    setPlatform('MacIntel');
+    const { c } = makeControls();
+    c.getSelectedDrawing.mockReturnValue(null);
+    const { rerender } = render(<><DrawingToolbar controls={c} ticker="AAPL" /><input aria-label="field" /><div role="dialog"><button type="button">in</button></div></>);
+    expect(press(document.body, { key: ']', code: 'BracketRight', metaKey: true })).toBe(true);
+    c.getSelectedDrawing.mockReturnValue({ id: 'ov_1' });
+    expect(press(screen.getByLabelText('field'), { key: ']', code: 'BracketRight', metaKey: true })).toBe(true);
+    expect(press(screen.getByRole('button', { name: 'in' }), { key: ']', code: 'BracketRight', metaKey: true })).toBe(true);
+    rerender(<DrawingToolbar controls={c} ticker="AAPL" disabled />);
+    expect(press(document.body, { key: ']', code: 'BracketRight', metaKey: true })).toBe(true);
+    expect(c.arrangeSelected).not.toHaveBeenCalled();
   });
 });

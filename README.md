@@ -692,10 +692,15 @@ Keyboard shortcuts, hover tooltips and right-clicks need a keyboard or a mouse; 
   channel to keep it perfectly horizontal: every point takes the anchor's price (the first point while drawing,
   the fixed end while dragging one end), rounded to the symbol's price precision. A channel's width point stays
   free. Combined with ⌘/Ctrl, the snap picks the anchor price and Shift keeps the line flat.
-- **Undo and redo**: **⌘Z** undoes the last drawing change (drawing, moving, restyling, locking, deleting, clear
-  all, paste) and **⌘⇧Z** redoes it; on other systems **Ctrl+Z** and **Ctrl+Shift+Z** or **Ctrl+Y**. Each undo is
-  saved like any edit. While a drawing is being placed, ⌘Z cancels it. The history keeps the last 100 changes and
-  belongs to the symbol on screen: switching symbols or reloading starts a new one.
+- **Arrange**: where drawings overlap, the top-most one is the one a click selects and a drag moves (newer drawings
+  sit on top; hovering never lifts one above the others). **Arrange** in the style bar (the two-squares button
+  before the lock) brings the selected drawing to the front or one step forward, or sends it one step backward or
+  to the back; **⌘]** / **⌘[** (Ctrl on other systems) do the same one step at a time, with **Shift** all the way.
+  The order is saved with the drawings and can be undone. Locked drawings keep their place.
+- **Undo and redo**: **⌘Z** undoes the last drawing change (drawing, moving, restyling, arranging, locking,
+  deleting, clear all, paste) and **⌘⇧Z** redoes it; on other systems **Ctrl+Z** and **Ctrl+Shift+Z** or **Ctrl+Y**.
+  Each undo is saved like any edit. While a drawing is being placed, ⌘Z cancels it. The history keeps the last 100
+  changes and belongs to the symbol on screen: switching symbols or reloading starts a new one.
 - **Copy and paste**: **⌘C** / **⌘V** (macOS) or **Ctrl+C** / **Ctrl+V** (other systems) copy the selected
   drawing and paste a copy, which is selected and saved like a newly drawn drawing. Every drawing type works,
   with its style and options (channel extend, rectangle fill, price labels, text, position prices). The clipboard lives in
@@ -843,6 +848,7 @@ it.
 | ⌘K | Focus the symbol search |
 | ⌥T / ⌥H / ⌥R | Start a trend line / a horizontal line / a rectangle (again: cancel) |
 | ⌘J | Start a price line (again: cancel) |
+| ⌘] / ⌘[ (⇧ added: all the way) | Bring the selected drawing forward / send it backward (to the front / back) |
 | Delete, Backspace | Delete the selected drawing (unless locked) |
 | Escape | Cancel the drawing tool, deselect the drawing, end the measure |
 | ⌘C / ⌘V | Copy the selected drawing / paste it |

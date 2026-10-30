@@ -64,6 +64,8 @@ const fake = vi.hoisted(() => {
       { token: 'down', color: '#e76a88', name: 'Down color' }, { token: 'palette:0', color: '#f2b861', name: 'Gold' },
     ]);
     resetSelectedColor = vi.fn();
+    arrangeSelected = vi.fn(() => true);
+    selectedOrder = vi.fn(() => ({ atFront: false, atBack: false }));
     setSelectedPositionPrices = vi.fn(() => null);
     showRange = vi.fn();
     rangeCanceledCb: (() => void) | null = null;

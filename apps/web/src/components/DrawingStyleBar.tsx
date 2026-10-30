@@ -3,12 +3,13 @@ import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react
 import { MAX_PRICE_DECIMALS, type ChartAdapter, type SelectedDrawing } from '../chart/ChartAdapter';
 import { LINE_STYLES, parseLineStyle } from '../chart/drawingStyles';
 import type { ExtendOptions, LabelOptions } from '../chart/drawingTemplates';
+import { ArrangeMenu, type ArrangeControls } from './ArrangeMenu';
 import { PaletteColorPicker } from './PaletteColorPicker';
 import { DrawingLockToggle } from './LockIcon';
 import { PositionStyleBar, type PositionControls } from './PositionStyleBar';
 
 export type DrawingStyleControls = Pick<ChartAdapter, 'onSelectionChange' | 'setSelectedStyle' | 'setSelectedPrice' | 'setSelectedLabel' | 'setSelectedExtend' | 'setSelectedFill' | 'onPriceEditRequest' | 'setSelectedLock' | 'drawingSwatches' | 'resetSelectedColor'>
-  & PositionControls;
+  & PositionControls & ArrangeControls;
 
 /** `value` with the symbol precision, or with its own decimals (≤ MAX_PRICE_DECIMALS) when it is finer. */
 export function formatPrice(value: number, precision: number): string {
@@ -98,7 +99,8 @@ const FONT_SIZES = [10, 12, 14, 16, 18, 20, 22, 24];
  * Floating style bar for the selected drawing: color (theme palette swatches; the pick becomes the color of new
  * drawings), width and solid/dashed/dotted for lines; color and font size
  * for text annotations, plus the exact price of horizontal lines, price-label toggles of price / horizontal lines and
- * "Extend left / right" of parallel channels, "Fill" of rectangles; long / short positions get their own settings bar. Every bar ends with the drawing's own lock toggle; locked drawings (own lock
+ * "Extend left / right" of parallel channels, "Fill" of rectangles; long / short positions get their own settings bar. Every bar ends with
+ * "Arrange" (bring to front … send to back) and the drawing's own lock toggle; locked drawings (own lock
  * or "Lock all drawings") are read-only except that toggle. Hidden while a drawing is being placed. Changes go through the adapter (overrideOverlay) and are saved with the drawings.
  */
 export function DrawingStyleBar({ controls, onUsePositionDefaults, onPickColor, onResetColor, onStyleDefaults }: {
@@ -207,6 +209,7 @@ export function DrawingStyleBar({ controls, onUsePositionDefaults, onPickColor, 
         </label>
       )}
       <span className="drawing-style-sep" role="separator" aria-orientation="vertical" />
+      <ArrangeMenu controls={controls} locked={locked} />
       <DrawingLockToggle locked={locked} ownLock={sel.ownLock} onToggle={(v) => controls.setSelectedLock(v)} />
     </div>
   );

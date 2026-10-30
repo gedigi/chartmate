@@ -39,7 +39,7 @@ describe('dotted line style', () => {
 
   it('the drawing style bar offers Dotted', () => {
     let cb: ((s: SelectedDrawing | null) => void) | null = null;
-    const c = { onSelectionChange: vi.fn((f: typeof cb) => { cb = f; return () => {}; }), setSelectedStyle: vi.fn(), setSelectedPrice: vi.fn(), setSelectedLabel: vi.fn(), setSelectedExtend: vi.fn(), setSelectedFill: vi.fn(), onPriceEditRequest: vi.fn(() => () => {}), drawingSwatches: vi.fn(() => []), resetSelectedColor: vi.fn() };
+    const c = { onSelectionChange: vi.fn((f: typeof cb) => { cb = f; return () => {}; }), setSelectedStyle: vi.fn(), setSelectedPrice: vi.fn(), setSelectedLabel: vi.fn(), setSelectedExtend: vi.fn(), setSelectedFill: vi.fn(), onPriceEditRequest: vi.fn(() => () => {}), drawingSwatches: vi.fn(() => []), resetSelectedColor: vi.fn(), arrangeSelected: vi.fn(), selectedOrder: vi.fn(() => null) };
     render(<DrawingStyleBar controls={c as unknown as DrawingStyleControls} />);
     act(() => cb?.({ id: 'a', kind: 'line', name: 'segment', style: { color: '#123456', size: 2, style: 'dotted' }, locked: false, ownLock: false }));
     const sel = screen.getByLabelText('Line style');

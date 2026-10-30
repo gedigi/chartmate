@@ -15,6 +15,8 @@ function makeControls() {
     setSelectedExtend: vi.fn(),
     setSelectedFill: vi.fn(),
     setSelectedLock: vi.fn((_locked: boolean) => true),
+    arrangeSelected: vi.fn((_how: string) => true),
+    selectedOrder: vi.fn((): { atFront: boolean; atBack: boolean } | null => ({ atFront: false, atBack: false })),
     onPriceEditRequest: vi.fn((f: (id: string) => void) => { editCb = f; return () => { editCb = null; }; }),
     drawingSwatches: vi.fn(() => drawingSwatches('dark')),
     resetSelectedColor: vi.fn(),

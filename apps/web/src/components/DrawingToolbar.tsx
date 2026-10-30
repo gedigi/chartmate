@@ -9,7 +9,7 @@ import './DrawingToolbar.css';
 export type DrawingControls = Pick<
   ChartAdapter,
   'startDrawing' | 'cancelDrawing' | 'clearDrawings' | 'drawingCount' | 'removeSelected' | 'copySelected' | 'pasteDrawing' | 'canPaste' | 'getSelectedDrawing' | 'setMagnet' | 'setLockAll' | 'onLockAllChange'
-  | 'setMagnetOverride' | 'setShiftConstraint' | 'deselect' | 'onSelectionChange' | 'clearMeasure' | 'undo' | 'redo'
+  | 'setMagnetOverride' | 'setShiftConstraint' | 'deselect' | 'onSelectionChange' | 'clearMeasure' | 'undo' | 'redo' | 'arrangeSelected'
 >;
 
 export interface DrawingToolbarProps {
@@ -149,7 +149,8 @@ function isOtherWidget(target: EventTarget | null): boolean {
  * own undo), Delete/Backspace removes the selected drawing, ⌘C / ⌘V (Ctrl+C / Ctrl+V elsewhere) copies it / pastes
  * the copy (in-app clipboard), Escape cancels the active tool, holding ⌘ (macOS) / Ctrl
  * snaps the drawing being placed or dragged to OHLC values, Option/Alt+T starts a trend line, Option/Alt+H a
- * horizontal line, Option/Alt+R a rectangle and ⌘J / Ctrl+J a price line (see TOOL_SHORTCUTS), holding Shift keeps trend lines / rays / extended lines / channels horizontal.
+ * horizontal line, Option/Alt+R a rectangle and ⌘J / Ctrl+J a price line (see TOOL_SHORTCUTS), ⌘] / ⌘[ (Ctrl
+ * elsewhere) brings the selected drawing forward / sends it backward (with Shift: to the front / back), holding Shift keeps trend lines / rays / extended lines / channels horizontal.
  * With no tool active, a Shift press on the chart measures (handled by the adapter); Escape removes the measure.
  */
 export function DrawingToolbar({ controls, disabled: disabledProp = false, ticker, compact = false }: DrawingToolbarProps): JSX.Element {
@@ -253,6 +254,22 @@ export function DrawingToolbar({ controls, disabled: disabledProp = false, ticke
       document.removeEventListener('copy', onClipboard);
       document.removeEventListener('paste', onClipboard);
     };
+  }, []);
+
+  // Arranging the selected drawing: ⌘] / ⌘[ (Ctrl elsewhere) one step forward / backward, with Shift to the front /
+  // back (ARRANGE_ITEMS in ArrangeMenu). Matched by the physical key. While a drawing is selected the key is always
+  // taken, even when it is already there: ⌘[ / ⌘] would otherwise go back / forward in the browser's history.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey || !hasCommandModifier(e) || (e.code !== 'BracketLeft' && e.code !== 'BracketRight')) return;
+      if (e.defaultPrevented || isTyping(e.target) || isInPopup(e.target) || isModalOpen() || disabledRef.current) return;
+      const c = controlsRef.current;
+      if (!c?.getSelectedDrawing()) return;
+      e.preventDefault();
+      c.arrangeSelected(e.code === 'BracketRight' ? (e.shiftKey ? 'front' : 'forward') : (e.shiftKey ? 'back' : 'backward'));
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
   }, []);
 
   // Undo / redo of drawing edits. Text fields keep their own undo; dialogs, popups and modals keep the keys. With

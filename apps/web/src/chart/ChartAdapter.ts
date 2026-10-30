@@ -141,6 +141,17 @@ const RANGE_RIGHT_MARGIN_PX = 80;
 const DOUBLE_CLICK_MS = 500;
 const DOUBLE_CLICK_PX = 5;
 const MARKERS = 'markers';
+/**
+ * Stacking of user drawings: zLevel DRAWING_Z_BASE + their place (0 = at the back), above the chart's own overlays
+ * (markers, event badges: KLineChart's default levels are small counts) and under the measure. They keep it while
+ * hovered (fixedZLevel): the top-most drawing under the mouse is the one a click or drag takes, and the arrange
+ * actions decide which that is.
+ */
+const DRAWING_Z_BASE = 1000;
+const MEASURE_Z = 1_000_000_000;
+
+/** Where arrangeSelected moves the selected drawing in the stack. */
+export type ArrangeAction = 'front' | 'forward' | 'backward' | 'back';
 /** Overlay group of the corporate event badges (never user drawings). */
 const EVENTS = 'events';
 /** Group of the Shift measure overlay (never a user drawing). */
@@ -1575,8 +1586,55 @@ export class ChartAdapter {
     try { fn(); } finally { this.silent--; }
   }
 
+  /** The user's drawings, back to front (in their stacking order, which is also the order they are saved in). */
   private userOverlays(): Overlay[] {
-    return this.chart.getOverlays().filter((o) => o.groupId !== MARKERS && o.groupId !== EVENTS && o.groupId !== MEASURE && !this.removing.has(o.id));
+    return this.chart.getOverlays()
+      .filter((o) => o.groupId !== MARKERS && o.groupId !== EVENTS && o.groupId !== MEASURE && !this.removing.has(o.id))
+      .sort((a, b) => a.zLevel - b.zLevel);
+  }
+
+  /** The stacking level of a new drawing: on top of every other one. */
+  private nextDrawingZ(): number {
+    let top = DRAWING_Z_BASE - 1;
+    for (const o of this.userOverlays()) if (o.id !== this.drawing?.id) top = Math.max(top, o.zLevel);
+    return top + 1;
+  }
+
+  /** The finished drawings back to front, and the selected one's place among them (null: nothing arrangeable). */
+  private stackOfSelected(): { stack: Overlay[]; index: number } | null {
+    const sel = this.getSelectedDrawing();
+    if (!sel) return null;
+    const stack = this.userOverlays().filter((o) => o.id !== this.drawing?.id);
+    const index = stack.findIndex((o) => o.id === sel.id);
+    return index < 0 ? null : { stack, index };
+  }
+
+  /** Whether the selected drawing is on top of / under every other one; null while nothing is selected. */
+  selectedOrder(): { atFront: boolean; atBack: boolean } | null {
+    const s = this.stackOfSelected();
+    return s ? { atFront: s.index === s.stack.length - 1, atBack: s.index === 0 } : null;
+  }
+
+  /**
+   * Moves the selected drawing to the front / one step forward / one step backward / to the back of the drawings
+   * (the top-most one under the mouse is the one a click takes). Saved and undoable like any edit. False when nothing
+   * changes: nothing selected, the drawing locked, or already there.
+   */
+  arrangeSelected(how: ArrangeAction): boolean {
+    const s = this.stackOfSelected();
+    if (!s || s.stack[s.index]!.lock) return false;
+    const { stack, index } = s;
+    const last = stack.length - 1;
+    const to = how === 'front' ? last : how === 'back' ? 0 : how === 'forward' ? Math.min(last, index + 1) : Math.max(0, index - 1);
+    if (to === index) return false;
+    const [moved] = stack.splice(index, 1);
+    stack.splice(to, 0, moved!);
+    stack.forEach((o, i) => {
+      if (o.zLevel !== DRAWING_Z_BASE + i) this.chart.overrideOverlay({ id: o.id, zLevel: DRAWING_Z_BASE + i });
+    });
+    this.emitChange();
+    this.emitSelection();
+    return true;
   }
 
   /**
@@ -1586,7 +1644,9 @@ export class ChartAdapter {
   startDrawing(tool: DrawingTool, opts?: { text?: string; onEnd?: () => void }): void {
     this.cancelDrawing();
     this.clearMeasure();
-    const create: OverlayCreate = { name: tool, mode: this.strongMagnet ? 'strong_magnet' : this.baseMode(), ...this.handlers };
+    const create: OverlayCreate = {
+      name: tool, mode: this.strongMagnet ? 'strong_magnet' : this.baseMode(), zLevel: this.nextDrawingZ(), fixedZLevel: true, ...this.handlers,
+    };
     if (opts?.text !== undefined) create.extendData = opts.text;
     const styles = this.newDrawingStyles(tool);
     if (styles) create.styles = styles;
@@ -1695,7 +1755,9 @@ export class ChartAdapter {
     let id: string | null = null;
     // Silent like a restore: the creation and selection fire nothing; one explicit change below.
     this.withSilence(() => {
-      const create: OverlayCreate = { name: clip.name, points, lock: this.lockAll, mode: this.baseMode(), ...this.handlers };
+      const create: OverlayCreate = {
+        name: clip.name, points, lock: this.lockAll, mode: this.baseMode(), zLevel: this.nextDrawingZ(), fixedZLevel: true, ...this.handlers,
+      };
       if (clip.text !== undefined) create.extendData = clip.text;
       const styles = toOverlayStyles(sanitizeDrawingStyles(clip.styles), this.resolveColor);
       if (this.lockAll) create.styles = { ...styles, point: this.lockedPoint() };
@@ -1915,11 +1977,12 @@ export class ChartAdapter {
   private createDrawings(drawings: DrawingState[]): void {
     this.withSilence(() => {
       const remap = this.mapsDailyAnchors();
-      for (const d of drawings) {
+      const base = this.nextDrawingZ();
+      for (const [i, d] of drawings.entries()) {
         const display = d.anchorTf && remap ? d.points.map((p) => ({ ...p, timestamp: toSessionOpen(p.timestamp) })) : d.points;
         const own = ChartAdapter.ownLock(d, this.lockAll);
         const lock = this.lockAll || own;
-        const create: OverlayCreate = { name: d.name, points: display, lock, ...this.handlers };
+        const create: OverlayCreate = { name: d.name, points: display, lock, zLevel: base + i, fixedZLevel: true, ...this.handlers };
         if (d.text !== undefined) create.extendData = d.text;
         const styles = toOverlayStyles(sanitizeDrawingStyles(d.styles), this.resolveColor);
         if (lock) create.styles = { ...styles, point: this.lockedPoint() };
@@ -2066,7 +2129,7 @@ export class ChartAdapter {
     this.removeMeasure();
     const start = this.measurePoint(p);
     const id = this.chart.createOverlay({
-      name: MEASURE_OVERLAY, groupId: MEASURE, lock: true, mode: 'normal',
+      name: MEASURE_OVERLAY, groupId: MEASURE, lock: true, mode: 'normal', zLevel: MEASURE_Z,
       points: [{ timestamp: start.timestamp, value: start.value }, { timestamp: start.timestamp, value: start.value }],
       extendData: this.measureView({ start, end: start }),
     });

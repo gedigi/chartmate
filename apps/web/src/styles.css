@@ -634,6 +634,8 @@ kbd {
 .app-shell.compact .drawing-style-bar :is(button, select, input:not([type='checkbox'])) { min-height: 36px; }
 .app-shell.compact .drawing-style-bar select { padding-top: 0; padding-bottom: 0; }
 .app-shell.compact .drawing-style-bar .color-picker-button { width: 36px; height: 36px; }
+.app-shell.compact .drawing-style-bar :is(.arrange-button, .drawing-style-lock) { width: 36px; height: 36px; }
+.app-shell.compact .drawing-style-bar .arrange-menu button { min-height: 44px; font-size: 15px; }
 
 /* "More" sheet: one row per action, icon then label. */
 .action-list { display: flex; flex-direction: column; gap: 2px; margin: 0 -8px; }
