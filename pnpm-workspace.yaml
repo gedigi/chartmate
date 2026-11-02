@@ -16,10 +16,6 @@ allowBuilds:
 # "Release age and provenance").
 # A version must be 3 days old before it can be resolved (strict: an install fails instead of picking it).
 minimumReleaseAge: 4320
-minimumReleaseAgeExclude:
-  # body-parser 2.4.0 (2026-10-22) fixes a high-severity denial of service (CVE-2026-111181) in the version under
-  # yahoo-finance2; remove after 2026-10-25.
-  - body-parser@2.4.0
 # Refuse a version published with weaker provenance than an earlier one (a possible account takeover).
 trustPolicy: no-downgrade
 trustPolicyExclude:
@@ -28,3 +24,15 @@ trustPolicyExclude:
   - semver@5.7.2
   - semver@6.3.1
   - undici-types@6.21.0
+
+# Patched majors where only those exist (both moderate, October 2026): glob 14.0.2+ (GHSA-3g3m-2fjr-6pw4,
+# @fastify/static at runtime, @electron/asar at build time) and minimatch 11.0.1+ (GHSA-g3hv-75wg-m249). Their
+# callers use what the new majors keep (glob's promise API; minimatch's named exports and match()). electron-builder's
+# app-builder-lib pins @electron/asar 3.4.1, which calls minimatch 3's default export; it loads asar with a dynamic
+# import and uses only createPackageFromStreams and statFile, which asar 4 has. Re-check (and drop each entry once
+# its dependents require a fixed version) at every update of @fastify/static or electron-builder.
+overrides:
+  '@electron/asar@3': 4.3.1
+  glob@13: 14.0.3
+  minimatch@10: 11.0.3
+  minimatch@5: 11.0.3
