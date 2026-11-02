@@ -5,16 +5,17 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
-### Everywhere
+## [1.4.0] - 2026-11-02
 
-- Dependencies: glob and minimatch moved to their patched versions (two moderate advisories); the desktop build
-  drops two packaging tools it never uses.
+### Everywhere
 
 - **⌘J** (Ctrl+J on Windows and Linux) starts a price line, like its button in the drawing tools (again: cancel).
 - Overlapping drawings: **Arrange** in the style bar brings the selected drawing to the front or forward, or sends it
   backward or to the back (also **⌘]** / **⌘[**, with **Shift** all the way; Ctrl on Windows and Linux). The
   top-most drawing is the one a click selects or a drag moves, and hovering no longer lifts a drawing above the
   others, so which one you grab stays predictable. The order is saved with the drawings and can be undone.
+- Dependencies: glob and minimatch moved to their patched versions (two moderate advisories); the desktop build
+  drops two packaging tools it never uses.
 
 ## [1.3.0] - 2026-10-25
 
