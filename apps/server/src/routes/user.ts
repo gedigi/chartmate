@@ -100,7 +100,7 @@ const DrawingDefaultsSchema = z.object({
     horizontalStraightLine: LabelToggles.optional().catch(undefined),
   }).optional().catch(undefined),
 }) satisfies z.ZodType<DrawingDefaults, unknown>;
-const LayoutSchema = z.object({
+export const LayoutSchema = z.object({
   symbol: SymbolIdSchema,
   tf: z.enum(TIMEFRAMES as unknown as [Timeframe, ...Timeframe[]]),
   session: z.enum(['rth', 'eth']),
@@ -154,16 +154,18 @@ const WatchlistEntrySchema = z.discriminatedUnion('type', [
  * The watchlist: an entry array (symbols and section headers), or the legacy symbol id array (duplicates dropped),
  * which is merged into the stored list so its sections survive (see `mergeLegacyWatchlist`).
  */
+/** A watchlist as entries (what the sync file holds). */
+export const WatchlistEntries = z.array(WatchlistEntrySchema).max(MAX_WATCHLIST_SYMBOLS + MAX_WATCHLIST_SECTIONS).superRefine((entries, ctx) => {
+  const problem = watchlistProblem(entries);
+  if (problem) ctx.addIssue({ code: 'custom', message: problem });
+});
 const WatchlistBody = z.union([
   z.array(SymbolIdSchema).max(MAX_WATCHLIST_SYMBOLS).transform((ids) => ({ legacy: ids })),
-  z.array(WatchlistEntrySchema).max(MAX_WATCHLIST_SYMBOLS + MAX_WATCHLIST_SECTIONS).superRefine((entries, ctx) => {
-    const problem = watchlistProblem(entries);
-    if (problem) ctx.addIssue({ code: 'custom', message: problem });
-  }).transform((entries) => ({ entries })),
+  WatchlistEntries.transform((entries) => ({ entries })),
 ]);
 // A drawing without points (never drawable; older clients could store one) is dropped on its own, not the whole list.
-const DrawingsBody = z.array(z.unknown()).max(500).transform((ds) => ds.filter((d) => { const points = (d as { points?: unknown } | null)?.points; return !(Array.isArray(points) && points.length === 0); })).pipe(z.array(DrawingSchema));
-const LayoutKey = z.object({
+export const DrawingsBody = z.array(z.unknown()).max(500).transform((ds) => ds.filter((d) => { const points = (d as { points?: unknown } | null)?.points; return !(Array.isArray(points) && points.length === 0); })).pipe(z.array(DrawingSchema));
+export const LayoutKey = z.object({
   key: z.string().max(110).refine((k) => k === 'default' || (k.startsWith('sym:') && isSymbolId(k.slice(4))), {
     message: "layout key must be 'default' or 'sym:<symbol id>'",
   }).transform((k) => (k === 'default' ? k : `sym:${normalizeSymbolId(k.slice(4))}`)),

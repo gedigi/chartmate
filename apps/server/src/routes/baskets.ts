@@ -25,7 +25,7 @@ function normalizeWeightKeys(w: Record<string, number>): Record<string, number> 
   }
   return out;
 }
-const Versions = z.array(VersionSchema).max(MAX_BASKET_VERSIONS, { message: `A basket may have at most ${MAX_BASKET_VERSIONS} versions` })
+export const Versions = z.array(VersionSchema).max(MAX_BASKET_VERSIONS, { message: `A basket may have at most ${MAX_BASKET_VERSIONS} versions` })
   .refine((vs) => new Set(vs.flatMap((v) => Object.keys(v.weights))).size <= MAX_BASKET_SYMBOLS, {
     message: `A basket may hold at most ${MAX_BASKET_SYMBOLS} different symbols across its versions`,
   });

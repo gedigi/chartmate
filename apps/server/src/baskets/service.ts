@@ -146,6 +146,24 @@ export class BasketService {
     this.rev++;
   }
 
+  /**
+   * Writes baskets as the sync file has them (stamps kept) and deletes those deleted on another device. No market
+   * check: they were validated where they were saved, and their units are computed on read like any basket's.
+   */
+  async applySynced(put: Basket[], remove: string[]): Promise<void> {
+    for (const b of put) {
+      await this.repos.baskets.putSynced(b);
+      this.unitsCache.delete(b.id);
+      this.dailyCache.delete(b.id);
+    }
+    for (const id of remove) {
+      await this.repos.baskets.delete(id, true);
+      this.unitsCache.delete(id);
+      this.dailyCache.delete(id);
+    }
+    if (put.length > 0 || remove.length > 0) this.rev++;
+  }
+
   async getBars(a: BasketBarsArgs): Promise<BarsResponseCore> {
     const { unseeded: _u, realInWindow: _r, ...core } = await this.buildBars(a);
     return core;

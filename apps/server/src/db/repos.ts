@@ -231,8 +231,28 @@ export class SymbolRepo {
   }
 }
 
+/**
+ * Local edits of synced user data (layouts, drawings, the watchlist, baskets): the sync service listens to push them.
+ * Writes that come from the sync itself pass a stamp (`SyncedWrite`) and are not announced.
+ */
+export class UserDataChanges {
+  private readonly listeners = new Set<() => void>();
+
+  on(cb: () => void): () => void {
+    this.listeners.add(cb);
+    return () => { this.listeners.delete(cb); };
+  }
+
+  emit(): void {
+    for (const cb of this.listeners) cb();
+  }
+}
+
+/** A write from the sync: the document keeps the stamp it has in the sync file, and the write is not announced. */
+export interface SyncedWrite { at: number }
+
 export class BasketRepo {
-  constructor(private db: Kysely<Database>, private now: () => number = () => Date.now()) {}
+  constructor(private db: Kysely<Database>, private now: () => number = () => Date.now(), private changes = new UserDataChanges()) {}
 
   /** All baskets (created_at, id order) with their versions, read in a single joined query (atomic snapshot). */
   async list(): Promise<Basket[]> {
@@ -265,11 +285,21 @@ export class BasketRepo {
       await trx.insertInto('baskets').values({ id: b.id, name: b.name, base_value: b.baseValue, created_at: now, updated_at: now }).execute();
       await insertVersions(trx, b.id, b.versions);
     });
+    this.changes.emit();
     return { ...b, createdAt: now, updatedAt: now };
   }
 
+  /** Creates or replaces a basket as the sync file has it (its own stamps). */
+  async putSynced(b: Basket): Promise<void> {
+    await this.db.transaction().execute(async trx => {
+      await trx.deleteFrom('baskets').where('id', '=', b.id).execute();
+      await trx.insertInto('baskets').values({ id: b.id, name: b.name, base_value: b.baseValue, created_at: b.createdAt, updated_at: b.updatedAt }).execute();
+      await insertVersions(trx, b.id, b.versions);
+    });
+  }
+
   async update(id: string, patch: { name?: string; versions?: BasketVersion[] }): Promise<Basket | null> {
-    return this.db.transaction().execute(async trx => {
+    const out = await this.db.transaction().execute(async trx => {
       const exists = await trx.selectFrom('baskets').select('id').where('id', '=', id).executeTakeFirst();
       if (!exists) return null;
       const set: { updated_at: number; name?: string } = { updated_at: this.now() };
@@ -281,6 +311,8 @@ export class BasketRepo {
       }
       return getBasket(trx, id);
     });
+    if (out) this.changes.emit();
+    return out;
   }
 
   /**
@@ -288,7 +320,7 @@ export class BasketRepo {
    * the caller validated the new list against): null = no such basket, 'conflict' = the versions changed meanwhile.
    */
   async appendVersion(id: string, v: BasketVersion, expected: BasketVersion[]): Promise<Basket | null | 'conflict'> {
-    return this.db.transaction().execute(async trx => {
+    const out = await this.db.transaction().execute(async trx => {
       // Touching the row first locks it (Postgres), so a concurrent append waits here and then reads the
       // committed versions; SQLite runs one transaction at a time anyway.
       const touched = await trx.updateTable('baskets').set({ updated_at: this.now() }).where('id', '=', id).executeTakeFirst();
@@ -300,11 +332,16 @@ export class BasketRepo {
         .execute();
       return getBasket(trx, id);
     });
+    if (out && out !== 'conflict') this.changes.emit();
+    return out;
   }
 
-  async delete(id: string): Promise<boolean> {
+  /** Deletes a basket; `synced`: the deletion came from the sync (not announced). */
+  async delete(id: string, synced?: boolean): Promise<boolean> {
     const res = await this.db.deleteFrom('baskets').where('id', '=', id).executeTakeFirst();
-    return Number(res.numDeletedRows) > 0;
+    const deleted = Number(res.numDeletedRows) > 0;
+    if (deleted && !synced) this.changes.emit();
+    return deleted;
   }
 }
 
@@ -332,9 +369,18 @@ function toBasket(r: Database['baskets'], versions: BasketVersion[]): Basket {
 
 /** `settings` key marking that a watchlist was saved at least once (an emptied list is still a stored one). */
 const WATCHLIST_STORED_KEY = 'watchlist_stored';
+/** `settings` key: when the watchlist last changed (ms), for the sync. */
+const WATCHLIST_UPDATED_KEY = 'watchlist_updated_at';
 
 export class WatchlistRepo {
-  constructor(private db: Kysely<Database>) {}
+  constructor(private db: Kysely<Database>, private changes = new UserDataChanges()) {}
+
+  /** When the watchlist last changed (ms); 0 when it never was saved since the stamp existed. */
+  async updatedAt(): Promise<number> {
+    const r = await this.db.selectFrom('settings').select('value').where('key', '=', WATCHLIST_UPDATED_KEY).executeTakeFirst();
+    const t = Number(r?.value);
+    return Number.isFinite(t) ? t : 0;
+  }
 
   /**
    * Whether a watchlist was ever saved, so a client seeds its defaults only into a database that never had one.
@@ -367,7 +413,7 @@ export class WatchlistRepo {
   }
 
   /** Replaces the whole list; a repeated symbol or section id keeps its first occurrence. */
-  async replace(entries: WatchlistEntry[]): Promise<void> {
+  async replace(entries: WatchlistEntry[], synced?: SyncedWrite): Promise<void> {
     const symbols = new Set<string>();
     const sections = new Set<string>();
     const unique = entries.filter(e => {
@@ -388,39 +434,57 @@ export class WatchlistRepo {
       if (legacy.length > 0) await trx.insertInto('watchlist').values(legacy).execute();
       await trx.insertInto('settings').values({ key: WATCHLIST_STORED_KEY, value: '1' })
         .onConflict(oc => oc.column('key').doNothing()).execute();
+      const value = String(synced?.at ?? Date.now());
+      await trx.insertInto('settings').values({ key: WATCHLIST_UPDATED_KEY, value })
+        .onConflict(oc => oc.column('key').doUpdateSet({ value })).execute();
     });
+    if (!synced) this.changes.emit();
   }
 }
 
 export class LayoutRepo {
-  constructor(private db: Kysely<Database>) {}
+  constructor(private db: Kysely<Database>, private changes = new UserDataChanges()) {}
+
+  /** Every stored layout with its stamp (ms). */
+  async list(): Promise<Array<{ key: string; layout: Layout; updatedAt: number }>> {
+    const rows = await this.db.selectFrom('layouts').selectAll().orderBy('key').execute();
+    return rows.map(r => ({ key: r.key, layout: parseJson<Layout>(r.json, `layouts key=${r.key}`), updatedAt: Number(r.updated_at) }));
+  }
 
   async get(key: string): Promise<Layout | null> {
     const r = await this.db.selectFrom('layouts').select('json').where('key', '=', key).executeTakeFirst();
     return r ? parseJson<Layout>(r.json, `layouts key=${key}`) : null;
   }
 
-  async put(key: string, l: Layout): Promise<void> {
+  async put(key: string, l: Layout, synced?: SyncedWrite): Promise<void> {
     const json = JSON.stringify(l);
-    const updated_at = Date.now();
+    const updated_at = synced?.at ?? Date.now();
     await this.db.insertInto('layouts').values({ key, json, updated_at })
       .onConflict(oc => oc.column('key').doUpdateSet({ json, updated_at })).execute();
+    if (!synced) this.changes.emit();
   }
 }
 
 export class DrawingRepo {
-  constructor(private db: Kysely<Database>) {}
+  constructor(private db: Kysely<Database>, private changes = new UserDataChanges()) {}
+
+  /** Every symbol's stored drawings with their stamp (ms). */
+  async list(): Promise<Array<{ symbol: SymbolId; drawings: DrawingState[]; updatedAt: number }>> {
+    const rows = await this.db.selectFrom('drawings').selectAll().orderBy('symbol').execute();
+    return rows.map(r => ({ symbol: r.symbol as SymbolId, drawings: parseJson<DrawingState[]>(r.json, `drawings symbol=${r.symbol}`), updatedAt: Number(r.updated_at) }));
+  }
 
   async get(symbol: SymbolId): Promise<DrawingState[]> {
     const r = await this.db.selectFrom('drawings').select('json').where('symbol', '=', symbol).executeTakeFirst();
     return r ? parseJson<DrawingState[]>(r.json, `drawings symbol=${symbol}`) : [];
   }
 
-  async put(symbol: SymbolId, d: DrawingState[]): Promise<void> {
+  async put(symbol: SymbolId, d: DrawingState[], synced?: SyncedWrite): Promise<void> {
     const json = JSON.stringify(d);
-    const updated_at = Date.now();
+    const updated_at = synced?.at ?? Date.now();
     await this.db.insertInto('drawings').values({ symbol, json, updated_at })
       .onConflict(oc => oc.column('symbol').doUpdateSet({ json, updated_at })).execute();
+    if (!synced) this.changes.emit();
   }
 }
 
@@ -430,6 +494,14 @@ export class SettingsRepo {
   async get(key: string): Promise<string | null> {
     const r = await this.db.selectFrom('settings').select('value').where('key', '=', key).executeTakeFirst();
     return r?.value ?? null;
+  }
+
+  async set(key: string, value: string): Promise<void> {
+    await this.db.insertInto('settings').values({ key, value }).onConflict(oc => oc.column('key').doUpdateSet({ value })).execute();
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.db.deleteFrom('settings').where('key', '=', key).execute();
   }
 
   /** The stored value of `key`, storing `make()` first when there is none (the first writer wins). */
@@ -455,19 +527,23 @@ export interface Repos {
   layouts: LayoutRepo;
   drawings: DrawingRepo;
   settings: SettingsRepo;
+  /** Local edits of synced user data. */
+  userDataChanges: UserDataChanges;
 }
 
 /** `opts.now`: clock for the baskets' created / updated stamps (tests). */
 export function createRepos(db: Kysely<Database>, dialect?: Dialect, opts: { now?: () => number } = {}): Repos {
   const d: Dialect = dialect ?? (db.getExecutor().adapter instanceof PostgresAdapter ? 'postgres' : 'sqlite');
+  const changes = new UserDataChanges();
   return {
     bars: new BarRepo(db, d),
     coverage: new CoverageRepo(db, d),
     symbols: new SymbolRepo(db),
-    baskets: new BasketRepo(db, opts.now),
-    watchlist: new WatchlistRepo(db),
-    layouts: new LayoutRepo(db),
-    drawings: new DrawingRepo(db),
+    baskets: new BasketRepo(db, opts.now, changes),
+    watchlist: new WatchlistRepo(db, changes),
+    layouts: new LayoutRepo(db, changes),
+    drawings: new DrawingRepo(db, changes),
     settings: new SettingsRepo(db),
+    userDataChanges: changes,
   };
 }
