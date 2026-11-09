@@ -18,6 +18,7 @@ import { loadWithRetry, retryDelayMs } from './state/retry';
 import { useSidebarWidth } from './state/sidebarWidth';
 import { useCompact } from './state/useCompact';
 import { readStored, writeStored } from './state/storage';
+import { reloadPage, startupSync, useRemoteNewer } from './state/sync';
 
 /** Stored as `chartmate.theme` (see state/storage.ts; public/theme-init.js reads the same key before first paint). */
 const THEME_KEY = 'theme';
@@ -165,6 +166,7 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
   }), [selectLayoutSymbol]);
   const openChart = useCallback((id: SymbolId) => { selectSymbol(id); setView('chart'); }, [selectSymbol, setView]);
 
+  const remote = useRemoteNewer();
   const layoutBlocked = !loaded && loadError !== null;
   // Memoized: ChartView is memoized and must not re-render on every shell render.
   const layoutSaveNote = useMemo(() => (layoutSaveError === null ? null : {
@@ -245,6 +247,13 @@ function Shell({ theme, onToggleTheme, onLogout }: { theme: Theme; onToggleTheme
         </main>
       )}
       {compact && <BottomNav view={view} onView={setView} />}
+      {remote.newer && (
+        <div className="sync-banner" role="status">
+          <span className="sync-banner-text">Newer data from another device</span>
+          <button type="button" className="primary" onClick={reloadPage}>Reload</button>
+          <button type="button" className="sync-banner-close" onClick={remote.dismiss} aria-label="Not now" title="Not now">×</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -257,6 +266,15 @@ type SessionState =
 export function App(): JSX.Element {
   const [theme, toggleTheme] = useTheme();
   const [session, setSession] = useState<SessionState>({ status: 'loading' });
+  // Sync brings other devices' changes in before the shell reads any data (see state/sync.ts).
+  const [synced, setSynced] = useState(false);
+  const signedIn = session.status === 'ready' && (!session.authRequired || session.authenticated);
+  useEffect(() => {
+    if (!signedIn || synced) return;
+    let live = true;
+    void startupSync().then(() => { if (live) setSynced(true); });
+    return () => { live = false; };
+  }, [signedIn, synced]);
 
   const checking = useRef(false);
   /** A check was requested while one was in flight (e.g. a 401 arrived meanwhile): run one more afterwards. */
@@ -297,5 +315,6 @@ export function App(): JSX.Element {
     );
   }
   if (session.authRequired && !session.authenticated) return <Login onSuccess={loadSession} />;
+  if (!synced) return <div className="center-message">Loading…</div>;
   return <Shell theme={theme} onToggleTheme={toggleTheme} onLogout={session.authRequired ? logout : undefined} />;
 }

@@ -120,6 +120,15 @@ async function nullOn404<T>(p: Promise<T>): Promise<T | null> {
   }
 }
 
+/** Sync with a private GitHub repository (see the server's sync service). The token is never sent back. */
+export interface SyncStatus {
+  /** 'env': set by the server's environment; 'app': connected here; null: off. */
+  source: 'env' | 'app' | null;
+  repo: string | null;
+  lastSyncAt: number | null;
+  lastError: string | null;
+}
+
 export interface BarsParams { symbol: SymbolId; tf: Timeframe; session: SessionMode; from: number; to: number }
 export interface LatestParams { symbol: SymbolId; tf: Timeframe; session: SessionMode }
 
@@ -165,6 +174,17 @@ export const api = {
   layouts: {
     get: (key: string) => nullOn404(get<Layout>(`/layouts/${enc(key)}`)),
     put: async (key: string, l: Layout): Promise<void> => { await request<unknown>('PUT', `/layouts/${enc(key)}`, l); },
+  },
+  sync: {
+    /** null: a server without sync (an older version). */
+    status: () => nullOn404(get<SyncStatus>('/sync')),
+    /** Runs a first sync, then keeps the settings; `applied`: documents it brought here. */
+    configure: (repo: string, token: string) => request<SyncStatus & { applied: number }>('PUT', '/sync', { repo, token }),
+    disconnect: async (): Promise<void> => { await request<void>('DELETE', '/sync'); },
+    /** A full sync; null when sync is off. */
+    run: () => request<{ applied: number; pushed: boolean } | null>('POST', '/sync/run'),
+    /** Whether another device saved newer data; null when sync is off. */
+    check: () => request<{ remoteNewer: boolean } | null>('GET', '/sync/check'),
   },
   drawings: {
     get: (s: SymbolId) => get<DrawingState[]>(`/drawings/${enc(s)}`),

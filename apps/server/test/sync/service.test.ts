@@ -4,35 +4,9 @@ import { BasketService } from '../../src/baskets/service.js';
 import { migrate } from '../../src/db/migrations.js';
 import { createRepos, type Repos } from '../../src/db/repos.js';
 import type { MarketDataService } from '../../src/market/service.js';
-import type { RemoteFile } from '../../src/sync/github.js';
-import { SyncService, type RemoteStore } from '../../src/sync/service.js';
+import { SyncService } from '../../src/sync/service.js';
+import { FakeRepo } from '../helpers/fakeSyncRepo.js';
 import { createTestDb, type TestDb } from '../helpers/testDb.js';
-
-/** A sync file with GitHub's rules: a write must name the sha it replaces. */
-class FakeRepo {
-  file: RemoteFile | null = null;
-  private n = 0;
-  writes = 0;
-  /** Runs before the next write lands (to simulate another device writing in between). */
-  beforeWrite: (() => void) | null = null;
-  store(): RemoteStore {
-    return {
-      read: async () => (this.file ? { ...this.file } : null),
-      write: async (text, sha) => {
-        const hook = this.beforeWrite;
-        this.beforeWrite = null;
-        hook?.();
-        if ((this.file?.sha ?? null) !== sha) return 'conflict';
-        this.writes++;
-        this.file = { text, sha: `s${++this.n}` };
-        return { sha: this.file.sha };
-      },
-    };
-  }
-  docs(): Record<string, { t: number; v?: unknown; deleted?: true }> {
-    return this.file ? (JSON.parse(this.file.text) as { docs: Record<string, { t: number }> }).docs : {};
-  }
-}
 
 const layout = (symbol: string): Layout => ({ symbol: symbol as Layout['symbol'], tf: '1D', session: 'rth', chartType: 'candle', indicators: [] });
 const segment = { name: 'segment', points: [{ timestamp: 1, value: 2 }, { timestamp: 3, value: 4 }], lock: false };
@@ -82,7 +56,7 @@ describe('SyncService', () => {
     const b = await device();
     await a.repos.drawings.put('crypto:BTC', [segment]);
     await a.sync.configure('me/chartmate-data', 'tok');
-    await b.sync.configure('me/chartmate-data', 'tok');
+    expect(await b.sync.configure('me/chartmate-data', 'tok')).toMatchObject({ applied: 1 });
     expect(await b.repos.drawings.get('crypto:BTC')).toEqual([segment]);
 
     clock = 2_000;
@@ -207,6 +181,13 @@ describe('SyncService', () => {
     const envSync = new SyncService({ repos, baskets, env: { repo: 'me/other', token: 'envtok' }, remote: () => remote.store() });
     expect(await envSync.status()).toMatchObject({ source: 'env', repo: 'me/other' });
     await expect(envSync.configure('me/x', 't')).rejects.toThrow(/set by the server/);
+    // A token encrypted elsewhere (a copied database, a reset keychain) is a readable error, never sent as is.
+    const noKey = new SyncService({ repos, baskets, now: () => clock, remote: (t) => { seen.push(t.token); return remote.store(); }, cipher: { encrypt: () => { throw new Error('no keychain'); }, decrypt: () => { throw new Error('bad'); } } });
+    await expect(noKey.sync('full')).rejects.toThrow(/cannot be read on this device/);
+    await expect(new SyncService({ repos, baskets, remote: () => remote.store() }).sync('full')).rejects.toThrow(/cannot be read on this device/);
+    expect(seen).toEqual(['tok', 'tok']);
+    await sync.disconnect();
+    await expect(noKey.configure('me/chartmate-data', 'tok')).rejects.toThrow(/stored securely/);
     await h.close();
   });
 });

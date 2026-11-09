@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { parseAllowedHosts } from './hostGuard.js';
+import { REPO_RE, type GitHubTarget } from './sync/github.js';
 
 export interface Config {
   port: number;
@@ -33,6 +34,11 @@ export interface Config {
    * CHARTMATE_BIND); only used for the startup warning about running without a password. Unset = `host`.
    */
   publishedBind?: string | null;
+  /**
+   * Sync through a private GitHub repository set by the environment (`CHARTMATE_SYNC_REPO` + `CHARTMATE_SYNC_TOKEN`);
+   * null or absent = set in the app (or off). The desktop app never takes it from the environment.
+   */
+  sync?: GitHubTarget | null;
 }
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -68,6 +74,15 @@ const EnvSchema = z.object({
   CHARTMATE_TRUST_PROXY: z.preprocess(blankToUndefined, z.string().optional()),
   CHARTMATE_ALLOWED_HOSTS: z.preprocess(blankToUndefined, z.string().optional()),
   CHARTMATE_PUBLISHED_BIND: z.preprocess(blankToUndefined, z.string().trim().optional()),
+  CHARTMATE_SYNC_REPO: z.preprocess(blankToUndefined, z.string().trim().regex(REPO_RE, 'must be owner/name').optional()),
+  CHARTMATE_SYNC_TOKEN: z.preprocess(blankToUndefined, z.string().trim().optional()),
+}).superRefine((e, ctx) => {
+  if (e.CHARTMATE_SYNC_REPO !== undefined && e.CHARTMATE_SYNC_TOKEN === undefined) {
+    ctx.addIssue({ code: 'custom', path: ['CHARTMATE_SYNC_TOKEN'], message: 'is required with CHARTMATE_SYNC_REPO' });
+  }
+  if (e.CHARTMATE_SYNC_TOKEN !== undefined && e.CHARTMATE_SYNC_REPO === undefined) {
+    ctx.addIssue({ code: 'custom', path: ['CHARTMATE_SYNC_REPO'], message: 'is required with CHARTMATE_SYNC_TOKEN' });
+  }
 });
 
 function parseTrustProxy(v: string | undefined): boolean | number | string {
@@ -123,6 +138,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     allowedHosts: parseAllowedHosts(e.CHARTMATE_ALLOWED_HOSTS),
     allowedOrigins: [],
     publishedBind: e.CHARTMATE_PUBLISHED_BIND ?? null,
+    sync: e.CHARTMATE_SYNC_REPO !== undefined && e.CHARTMATE_SYNC_TOKEN !== undefined
+      ? { repo: e.CHARTMATE_SYNC_REPO, token: e.CHARTMATE_SYNC_TOKEN } : null,
     webDist: existsSync(join(webDistCandidate, 'index.html')) ? webDistCandidate : null,
   };
 }

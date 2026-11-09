@@ -54,6 +54,12 @@ install hook is `.pnpmfile.cjs`.
   `packages/shared/src/types.ts`).
 - Basket math (units at the prior close, chained versions, simulated pre-start history) lives in
   `packages/shared/src/basket.ts`; `apps/server/src/baskets/service.ts` feeds it bars.
+- Sync (`apps/server/src/sync/`): user data as documents (`docs.ts`) merged per document against the last agreed
+  state (`merge.ts`) and stored as one file in a private GitHub repository through the contents API with sha checks
+  (`github.ts`); `service.ts` runs it (a full sync at page load, a push 5 s after local edits through the repos'
+  `userDataChanges`). Anything read from the file is validated with the routes' own zod schemas before it is written.
+  The token never goes back to the client; the desktop app encrypts it (`safeStorage`) and gives sync its own
+  one-host fetch guard (`SYNC_HOST`).
 - The web client only uses relative `/api/...` URLs, so the same bundle runs behind Vite's proxy, from the
   server, and on desktop.
 - Desktop: the window loads `app://chartmate/`; `/api/*` goes to `fastify.inject`, everything else is a static

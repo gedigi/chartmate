@@ -5,7 +5,7 @@ import { hardened } from './boot.js'; // MUST stay first: command-line switch gu
 import net from 'node:net';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { app, BrowserWindow, dialog, Menu, protocol, screen, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, protocol, safeStorage, screen, session, shell } from 'electron';
 import product from '../product.json' with { type: 'json' };
 import { BasketService } from '../../server/src/baskets/service.js';
 import { buildApp } from '../../server/src/app.js';
@@ -13,6 +13,7 @@ import { migrate } from '../../server/src/db/migrations.js';
 import { createRepos } from '../../server/src/db/repos.js';
 import { MarketDataService } from '../../server/src/market/service.js';
 import { createRegistry } from '../../server/src/providers/registry.js';
+import { GitHubFile } from '../../server/src/sync/github.js';
 import { configOrExit, DB_FILE_NAME, desktopConfig, resolveUserDataDir } from './lib/desktopConfig.js';
 import {
   APP_ENTRY_URL, APP_HOST, APP_SCHEME, hardenAllSessions, hardenApp, isAppUrl, PRIVILEGED_SCHEMES, secureWebPreferences,
@@ -23,10 +24,11 @@ import { serverLoggerOptions } from './lib/serverLog.js';
 import { createRateLimiter, createRotatingLog } from './lib/logger.js';
 import { menuTemplate } from './lib/menu.js';
 import { createDirectFetch } from './lib/directFetch.js';
-import { createGuardedFetch, installFetchAllowlist, providerHosts } from './lib/netAllowlist.js';
+import { createGuardedFetch, installFetchAllowlist, providerHosts, SYNC_HOST } from './lib/netAllowlist.js';
 import { createNodeSqliteDb, type NodeSqliteHandle } from './lib/nodeSqlite.js';
 import { createAppProtocolHandler } from './lib/protocol.js';
 import { ensurePrivateDir, migrateLegacyUserData, restrictFiles } from './lib/storage.js';
+import { createSyncCipher } from './lib/syncCipher.js';
 import { frameOptions, themeFromThemeColor, titleBarOverlay } from './lib/titleBar.js';
 import { isAllowedReleasesUrl } from './lib/releasesPage.js';
 import type { UpdateController } from './lib/updateController.js';
@@ -133,8 +135,12 @@ async function start(): Promise<void> {
   });
   const market = new MarketDataService({ repos, registry });
   const baskets = new BasketService({ repos, market });
+  // Sync: its own guarded fetch for the GitHub API host alone (netAllowlist.ts), and the token encrypted with the OS keychain.
+  const syncFetch = createGuardedFetch(directFetch, [SYNC_HOST], { onBlocked });
   const server = await buildApp({
     config, repos, market, baskets,
+    syncRemote: (t) => new GitHubFile(t, syncFetch),
+    syncCipher: createSyncCipher(safeStorage),
     // The embedded server is the app: GET /api/about reports the app's version.
     version: app.getVersion(),
     // Warnings and errors only; no stacks, headers, query strings or absolute paths (see serverLog.ts).

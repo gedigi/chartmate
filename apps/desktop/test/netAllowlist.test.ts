@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  BlockedRequestError, createGuardedFetch, installFetchAllowlist, isAllowedUrl, providerHosts, YAHOO_HOSTS,
+  BlockedRequestError, createGuardedFetch, installFetchAllowlist, isAllowedUrl, providerHosts, SYNC_HOST, YAHOO_HOSTS,
 } from '../src/lib/netAllowlist.js';
 
 const HOSTS = new Set(['query1.finance.yahoo.com', 'data-api.binance.vision']);
@@ -176,5 +177,24 @@ describe('providerHosts', () => {
       'consent.yahoo.com', 'finance.yahoo.com', 'guce.yahoo.com',
       'query1.finance.yahoo.com', 'query2.finance.yahoo.com',
     ]);
+  });
+});
+
+describe('sync host', () => {
+  it('is api.github.com only, and never on the providers’ list', () => {
+    expect(SYNC_HOST).toBe('api.github.com');
+    for (const cryptoProvider of ['binance', 'coinbase'] as const) {
+      expect(providerHosts({ providers: 'live', cryptoProvider, binanceBaseUrl: 'https://api.binance.com' })).not.toContain(SYNC_HOST);
+    }
+  });
+});
+
+describe('sync wiring (main.ts)', () => {
+  it('sync gets its own guarded fetch for SYNC_HOST alone, on the direct transport, and an OS-keychain cipher', () => {
+    const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+    expect(main).toMatch(/const syncFetch = createGuardedFetch\(directFetch, \[SYNC_HOST\], \{ onBlocked \}\);/);
+    expect(main).toMatch(/syncRemote: \(t\) => new GitHubFile\(t, syncFetch\),/);
+    expect(main).toMatch(/syncCipher: createSyncCipher\(safeStorage\),/);
+    expect(main.match(/SYNC_HOST/g)).toHaveLength(2); // the import and that one guard
   });
 });

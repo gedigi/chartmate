@@ -22,6 +22,13 @@ export const YAHOO_HOSTS: readonly string[] = Object.freeze([
 
 export const COINBASE_HOST = 'api.exchange.coinbase.com';
 
+/**
+ * Sync (a private GitHub repository the user connects) talks to the REST API host only. It gets its own guarded fetch
+ * with this single host: it is not on the global list, so provider code can never reach GitHub, and sync can reach
+ * nothing else.
+ */
+export const SYNC_HOST = 'api.github.com';
+
 export interface ProviderNetConfig {
   providers: 'live' | 'fixture';
   cryptoProvider: 'binance' | 'coinbase';

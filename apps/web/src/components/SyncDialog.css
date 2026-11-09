@@ -1,0 +1,44 @@
+/* Sync (SyncDialog.tsx): a short intro and numbered steps, the two fields, then hairline-ruled facts once connected. */
+.sync-dialog { gap: 14px; }
+.sync-form { display: flex; flex-direction: column; gap: 12px; }
+.sync-text, .sync-hint { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-muted); text-wrap: pretty; }
+.sync-hint { font-size: 12px; }
+.sync-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.45; }
+.sync-steps li::marker { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.sync-steps strong { font-weight: 600; }
+.sync-steps a { color: var(--accent-fg); text-decoration: none; border-radius: 3px; }
+.sync-steps a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.sync-form .field input { width: 100%; max-width: none; min-height: 32px; }
+/* Desktop: the address as text to copy (the app opens no links). */
+.sync-url { user-select: all; -webkit-user-select: all; cursor: text; overflow-wrap: anywhere; color: var(--text); }
+.sync-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.sync-actions button { min-height: 32px; }
+
+.sync-facts { margin: 0; border-top: 1px solid var(--border); }
+.sync-facts > div {
+  display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 9px 0;
+  border-bottom: 1px solid var(--border); font-size: 13px; line-height: 1.4;
+}
+.sync-facts dt { color: var(--text-muted); }
+.sync-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.sync-facts .sync-error { color: var(--error); }
+
+/*
+ * Newer data from another device (App.tsx): a calm pill at the top center, just under the bars, over the chart's
+ * indicator row (never over the drawing tools, the range buttons or the phone's tool strip and tab bar).
+ */
+.sync-banner {
+  position: fixed; left: 50%; top: 52px; z-index: 60; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 10px; max-width: calc(100vw - 32px);
+  padding: 5px 5px 5px 14px; border-radius: 999px; font-size: 12.5px; line-height: 18px;
+  background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border-strong); box-shadow: var(--shadow-md);
+  animation: sync-banner-in 160ms var(--ease);
+}
+@keyframes sync-banner-in { from { opacity: 0; transform: translate(-50%, -6px); } }
+.sync-banner-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-banner button { min-height: 26px; padding: 0 12px; border-radius: 999px; font-size: 12px; }
+.sync-banner .sync-banner-close { padding: 0; width: 26px; color: var(--text-muted); background: none; border: none; font-size: 15px; }
+.sync-banner .sync-banner-close:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
+@media (max-width: 640px) {
+  .sync-banner { top: calc(92px + env(safe-area-inset-top)); }
+}

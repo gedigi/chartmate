@@ -17,7 +17,10 @@ import { decodedPath, isApiPath, looksLikeApi } from './paths.js';
 import { authRoutes } from './routes/auth.js';
 import { basketRoutes } from './routes/baskets.js';
 import { marketRoutes } from './routes/market.js';
+import { syncRoutes } from './routes/sync.js';
 import { userRoutes } from './routes/user.js';
+import type { GitHubTarget } from './sync/github.js';
+import { SyncService, type RemoteStore, type SecretCipher } from './sync/service.js';
 
 const BODY_LIMIT = 1024 * 1024;
 const IMMUTABLE = 'public, max-age=31536000, immutable';
@@ -44,6 +47,10 @@ export interface AppDeps {
   now?: () => number;
   /** The version `GET /api/about` reports (the server's own, or the desktop app's); null/absent = unknown. */
   version?: string | null;
+  /** Encrypts the stored sync token (the desktop app: the OS keychain); absent = stored as is. */
+  syncCipher?: SecretCipher | null;
+  /** The sync file's store (tests: a fake); absent = the GitHub repository. */
+  syncRemote?: (t: GitHubTarget) => RemoteStore;
 }
 
 function zodMessage(err: ZodError): string {
@@ -155,6 +162,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(marketRoutes, { market, baskets, ...(deps.now ? { now: deps.now } : {}) });
   await app.register(basketRoutes, { baskets });
   await app.register(userRoutes, { repos });
+  const sync = new SyncService({
+    repos, baskets, env: config.sync ?? null, cipher: deps.syncCipher ?? null,
+    ...(deps.syncRemote ? { remote: deps.syncRemote } : {}), ...(deps.now ? { now: deps.now } : {}),
+  });
+  sync.start();
+  app.addHook('onClose', async () => sync.stop());
+  await app.register(syncRoutes, { sync });
 
   const webDist = config.webDist;
   const indexHtml = webDist ? new IndexHtml(join(webDist, 'index.html')) : null;

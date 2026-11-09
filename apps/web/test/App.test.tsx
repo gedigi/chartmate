@@ -39,6 +39,22 @@ describe('App', () => {
     expect(session).toHaveBeenCalledTimes(2);
   });
 
+  it('runs the load-time sync before the shell reads any data', async () => {
+    vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
+    const order: string[] = [];
+    let finish: (v: { applied: number; pushed: boolean }) => void = () => {};
+    vi.spyOn(api.sync, 'run').mockImplementation(() => { order.push('sync'); return new Promise((r) => { finish = r; }); });
+    vi.mocked(api.layouts.get).mockImplementation(async () => { order.push('layout'); return null; });
+    render(<App />);
+    await waitFor(() => expect(order).toEqual(['sync']));
+    expect(screen.queryByTestId('chart-view')).not.toBeInTheDocument();
+    act(() => finish({ applied: 1, pushed: false }));
+    expect(await screen.findByTestId('chart-view')).toBeInTheDocument();
+    expect(order.slice(0, 2)).toEqual(['sync', 'layout']);
+    // Applied before the page read anything: no reload offer.
+    expect(screen.queryByText('Newer data from another device')).not.toBeInTheDocument();
+  });
+
   it('renders the chart shell when no auth is required, loading the saved default layout', async () => {
     vi.spyOn(api, 'session').mockResolvedValue({ authRequired: false, authenticated: true });
     const saved: Layout = { symbol: 'stock:AAPL', tf: '1h', session: 'eth', chartType: 'line', indicators: [] };

@@ -247,7 +247,14 @@ The renderer is treated as untrusted web content, and the main process exposes n
   - `guce.yahoo.com` and `consent.yahoo.com`, for the EU consent flow (from the yahoo-finance2 source);
   - the configured Binance host (one of the three above in a hardened build), or `api.exchange.coinbase.com`.
 
-  Fixture mode allows nothing.
+  Fixture mode allows nothing. Sync (a private GitHub repository the user connects) does not use that list: it gets
+  its own guarded fetch on the same transport, for `api.github.com` alone (`SYNC_HOST`), so provider code can never
+  reach GitHub and sync can reach nothing else. The same redirect checks apply, so the token never follows a
+  redirect off that host.
+- **Sync token**: the fine-grained GitHub token is encrypted with Electron `safeStorage` (Keychain on macOS, DPAPI on
+  Windows; `src/lib/syncCipher.ts`) before it is written to the database, and it is never returned to the renderer
+  (`GET /api/sync` reports the repository, the last sync time and the last error only). Without OS encryption the
+  token is refused, never stored in plain text; a database copied to another machine cannot use it.
 - **Fuses** (flipped in the `afterPack` hook with `@electron/fuses`):
   - RunAsNode: off;
   - EnableCookieEncryption: on;

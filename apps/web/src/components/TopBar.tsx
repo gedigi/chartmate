@@ -2,6 +2,7 @@ import type { ChartAppearance, Layout, SymbolId, SymbolInfo, ThemedAppearance } 
 import { useState, type JSX } from 'react';
 import { scrollFade, useScrollEdges } from '../state/useScrollEdges';
 import { AboutDialog } from './AboutDialog';
+import { SyncDialog } from './SyncDialog';
 import { ChartAppearanceDialog } from './ChartAppearanceDialog';
 import { IndicatorButton } from './IndicatorButton';
 import { Modal } from './Modal';
@@ -59,6 +60,16 @@ const THEME_ICON: Record<Theme, JSX.Element> = {
   ),
 };
 
+/** Two arrows chasing each other: sync with the other devices. */
+const SYNC_ICON = (
+  <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+    <path d="M16.2 8.2A6.4 6.4 0 0 0 4.6 6.1" />
+    <path d="M4.3 2.9v3.4h3.4" />
+    <path d="M3.8 11.8a6.4 6.4 0 0 0 11.6 2.1" />
+    <path d="M15.7 17.1v-3.4h-3.4" />
+  </svg>
+);
+
 const APPEARANCE_ICON = (
   <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true" focusable="false">
     <circle cx="10" cy="10" r="2.6" />
@@ -71,6 +82,7 @@ export function TopBar(p: TopBarProps): JSX.Element {
   const { layout, setLayout, symbolInfo } = p;
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [stripRef, stripEdges] = useScrollEdges();
   const { compact } = p;
@@ -89,6 +101,7 @@ export function TopBar(p: TopBarProps): JSX.Element {
   const dialogs = (
     <>
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
+      {syncOpen && <SyncDialog onClose={() => setSyncOpen(false)} />}
       {appearanceOpen && (
         <ChartAppearanceDialog
           appearance={layout.appearance?.[p.theme]}
@@ -134,6 +147,9 @@ export function TopBar(p: TopBarProps): JSX.Element {
                   {APPEARANCE_ICON}Chart appearance
                 </button>
               )}
+              <button type="button" onClick={fromSheet(() => setSyncOpen(true))}>
+                {SYNC_ICON}Sync
+              </button>
               <button type="button" onClick={fromSheet(() => setAboutOpen(true))}>
                 <img src="/favicon.svg" alt="" width={16} height={16} />About Chartmate
               </button>
@@ -180,6 +196,10 @@ export function TopBar(p: TopBarProps): JSX.Element {
         <button type="button" className="icon-button" onClick={p.onToggleTheme}
           aria-label={p.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
           {THEME_ICON[p.theme]}
+        </button>
+        <button type="button" className="icon-button" onClick={() => setSyncOpen(true)} aria-haspopup="dialog"
+          aria-label="Sync" title="Sync">
+          {SYNC_ICON}
         </button>
         {p.view === 'chart' && (
           <button type="button" className="icon-button" onClick={() => setAppearanceOpen(true)} disabled={p.controlsDisabled}

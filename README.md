@@ -424,6 +424,7 @@ created if missing).
 | `CHARTMATE_SESSION_SECRET` | generated once, stored in the database | Cookie signing secret, min 16 chars. Set it to keep sessions across a restore into a fresh database. |
 | `CHARTMATE_TRUST_PROXY` | unset (`false`) | `true`, a hop count (e.g. `1`), or an IP/CIDR list of trusted proxies. |
 | `CHARTMATE_ALLOWED_HOSTS` | unset | Comma-separated hostnames or IP addresses (no scheme or port; IPv6 in brackets) served besides `localhost`, `127.0.0.1` and `[::1]`. Enforced without a password, and with one when set; see [Security](#security). |
+| `CHARTMATE_SYNC_REPO`, `CHARTMATE_SYNC_TOKEN` | unset (set in the app, or off) | Sync through a private GitHub repository (`owner/name`) with a fine-grained token limited to it (Contents: read and write); both or neither. Overrides the **Sync** dialog. See [Sync across devices](#sync-across-devices). |
 | `CHARTMATE_PUBLISHED_BIND` | unset (Compose: `CHARTMATE_BIND`) | Address the port is published on outside the container. Only used to decide whether to warn about running without a password; `compose.yaml` sets it, you never need to. |
 | `CRYPTO_PROVIDER` | `binance` | `binance` or `coinbase`. |
 | `BINANCE_BASE_URL` | `https://data-api.binance.vision` | Alternate Binance-compatible endpoint (`https://` only, no credentials, query or fragment). |
@@ -983,6 +984,37 @@ Baskets page, the symbol search or the watchlist.
   cleanup failed or another tab still lists it) shows as "Deleted basket" in the watchlist and on the chart,
   and is not reloaded over and over.
 
+### Sync across devices
+
+Your watchlist, layouts, drawings and baskets can follow you between devices (say, the desktop app on two
+computers and a self-hosted server) through a **private GitHub repository you own**. There is no Chartmate
+service in between: each device reads and writes one file, `chartmate-sync.json`, in that repository.
+
+1. Create a private repository on GitHub (empty is fine), e.g. `you/chartmate-data`.
+2. Create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new) with
+   access to **that repository only** and the **Contents: Read and write** permission (nothing else). Give it an
+   expiry you are happy to renew.
+3. In Chartmate, open **Sync** (the two-arrows button in the top bar; on a phone, **⋯** → **Sync**), enter the
+   repository as `owner/name` and the token, and choose **Connect**. A first sync runs before anything is saved,
+   so a wrong token or repository is reported right away. Do the same on every other device.
+
+How it behaves:
+
+- Each change is sent a few seconds after you make it. Other devices' changes come in when Chartmate opens (it
+  waits up to 5 seconds for them, then shows what it has). While a window is open, coming back to it checks for
+  newer data and offers **Reload** instead of changing the chart under you.
+- Each layout, symbol's drawings, basket and the watchlist syncs on its own: edits to different things on two
+  devices are both kept. When the same thing was changed on both, the later change wins. A basket deleted on one
+  device is deleted on the others.
+- **Sync now** syncs at once; the dialog shows the last sync and the last problem (an expired token, no network).
+  **Disconnect** stops syncing on that device only; the data stays on the device and in the repository.
+- Once entered, the token is only ever sent to GitHub: the page cannot read it back. The desktop app
+  stores it encrypted with the system keychain (Keychain on macOS, DPAPI on Windows); a self-hosted server keeps it
+  in its database, or takes it from `CHARTMATE_SYNC_REPO` and `CHARTMATE_SYNC_TOKEN` (then the dialog shows it as set
+  by the server, and it cannot be changed or disconnected there).
+- The repository keeps every version of the file in its history, a free backup of your setup. Market data is not
+  synced; each device fetches its own.
+
 ## Data sources and caveats
 
 Stocks come from Yahoo Finance's free endpoints, which limit how far back intraday data goes:
@@ -1158,6 +1190,8 @@ JSON over `/api` (the web client uses nothing else). With `CHARTMATE_PASSWORD` s
 | `GET`, `PUT /api/watchlist` | The watchlist (see [Watchlist and sections](#watchlist-and-sections)). |
 | `GET`, `PUT /api/layouts/:key` | Chart layout; `default` is the one the app uses. |
 | `GET`, `PUT /api/drawings/:symbol` | Drawings of a symbol. |
+| `GET`, `PUT`, `DELETE /api/sync` | Sync status (`{ source, repo, lastSyncAt, lastError }`, never the token); connect (`{ repo, token }`, runs a first sync, 400 `sync_failed` on failure); disconnect. |
+| `POST /api/sync/run`; `GET /api/sync/check` | A full sync (`{ applied, pushed }`, 502 `sync_failed` on failure); whether another device saved newer data (`{ remoteNewer }`). Both `null` while sync is off. |
 
 Symbol ids are `stock:<TICKER>`, `crypto:<BASE>` or `basket:<uuid>`; timeframes are `1m 5m 15m 30m 1h 2h 4h 1D
 1W 1M`. Ids are case-insensitive and normalized (`crypto:btc` is `crypto:BTC`; basket UUIDs are lowercase), and

@@ -10,6 +10,8 @@ import { createRepos, type Repos } from '../../src/db/repos.js';
 import { MarketDataService } from '../../src/market/service.js';
 import { RequestQueue } from '../../src/providers/queue.js';
 import { createRegistry } from '../../src/providers/registry.js';
+import type { GitHubTarget } from '../../src/sync/github.js';
+import type { RemoteStore } from '../../src/sync/service.js';
 
 export const DAY = 86_400_000;
 
@@ -42,7 +44,9 @@ export interface TestApp {
   close(): Promise<void>;
 }
 
-export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () => number; version?: string } = {}): Promise<TestApp> {
+export async function makeApp(
+  overrides: Partial<Config> = {}, opts: { now?: () => number; version?: string; syncRemote?: (t: GitHubTarget) => RemoteStore } = {},
+): Promise<TestApp> {
   const h = await createTestDb();
   await migrate(h.db);
   const repos = createRepos(h.db, h.dialect);
@@ -54,7 +58,9 @@ export async function makeApp(overrides: Partial<Config> = {}, opts: { now?: () 
   const market = new MarketDataService({ repos, registry, queues, ...(opts.now ? { now: opts.now } : {}) });
   const baskets = new BasketService({ repos, market, ...(opts.now ? { now: opts.now } : {}) });
   const config: Config = { ...testConfig(), ...overrides };
-  const app = await buildApp({ config, repos, market, baskets, logger: false, now: opts.now, version: opts.version });
+  const app = await buildApp({
+    config, repos, market, baskets, logger: false, now: opts.now, version: opts.version, ...(opts.syncRemote ? { syncRemote: opts.syncRemote } : {}),
+  });
   return {
     app,
     market,

@@ -68,7 +68,7 @@ describe('App at phone width', () => {
 });
 
 describe('the More sheet at phone width', () => {
-  it('holds the theme switch, chart appearance, About and Log out', async () => {
+  it('holds the theme switch, chart appearance, Sync, About and Log out', async () => {
     vi.mocked(api.session).mockResolvedValue({ authRequired: true, authenticated: true });
     const logout = vi.spyOn(api, 'logout').mockResolvedValue(undefined);
     render(<App />);
@@ -81,7 +81,7 @@ describe('the More sheet at phone width', () => {
 
     await userEvent.click(within(bar).getByRole('button', { name: 'More' }));
     let sheet = screen.getByRole('dialog', { name: 'More' });
-    expect(within(sheet).getAllByRole('button').map((b) => b.textContent)).toEqual(['×', 'Light theme', 'Chart appearance', 'About Chartmate', 'Log out']);
+    expect(within(sheet).getAllByRole('button').map((b) => b.textContent)).toEqual(['×', 'Light theme', 'Chart appearance', 'Sync', 'About Chartmate', 'Log out']);
     await userEvent.click(within(sheet).getByRole('button', { name: 'Light theme' }));
     expect(screen.queryByRole('dialog', { name: 'More' })).not.toBeInTheDocument();
     expect(document.documentElement.dataset.theme).toBe('light');

@@ -96,17 +96,19 @@ export class SyncService {
    * Turns sync on with this repository and token: a full sync runs first, and the settings are kept only when it
    * succeeds (so a wrong token or repository is reported and nothing is saved).
    */
-  async configure(repo: string, token: string): Promise<SyncStatus> {
+  async configure(repo: string, token: string): Promise<SyncStatus & { applied: number }> {
     if (this.env) throw new SyncRemoteError('Sync is set by the server (CHARTMATE_SYNC_REPO)');
     const target = { repo: repo.trim(), token: token.trim() };
     if (!REPO_RE.test(target.repo)) throw new SyncRemoteError('The repository must be written as owner/name');
     if (target.token === '') throw new SyncRemoteError('Enter a token');
-    await this.exclusive(async () => {
+    // `applied`: documents the repository brought here (the page reloads to show them).
+    const applied = await this.exclusive(async () => {
       await this.repos.settings.delete(BASE_KEY); // a new repository: no agreed state yet, nothing is a deletion
-      await this.run(target, 'full');
+      const r = await this.run(target, 'full');
       await this.repos.settings.set(CONFIG_KEY, JSON.stringify(this.encode(target)));
+      return r.applied;
     });
-    return this.status();
+    return { ...(await this.status()), applied };
   }
 
   /** Turns sync off here (the repository and the data on both sides stay as they are). */
@@ -184,7 +186,16 @@ export class SyncService {
   private async target(): Promise<GitHubTarget | null> {
     if (this.env) return this.env;
     const cfg = await this.storedConfig();
-    return cfg ? { repo: cfg.repo, token: cfg.encrypted && this.cipher ? this.cipher.decrypt(cfg.token) : cfg.token } : null;
+    if (!cfg) return null;
+    if (!cfg.encrypted) return { repo: cfg.repo, token: cfg.token };
+    // Encrypted by the desktop app's OS keychain: unreadable elsewhere (a copied database) or after a keychain reset.
+    const unreadable = new SyncRemoteError('The saved GitHub token cannot be read on this device; connect again');
+    if (!this.cipher) throw unreadable;
+    try {
+      return { repo: cfg.repo, token: this.cipher.decrypt(cfg.token) };
+    } catch {
+      throw unreadable;
+    }
   }
 
   private async storedConfig(): Promise<StoredConfig | null> {
@@ -199,7 +210,12 @@ export class SyncService {
   }
 
   private encode(t: GitHubTarget): StoredConfig {
-    return this.cipher ? { repo: t.repo, token: this.cipher.encrypt(t.token), encrypted: true } : { repo: t.repo, token: t.token, encrypted: false };
+    if (!this.cipher) return { repo: t.repo, token: t.token, encrypted: false };
+    try {
+      return { repo: t.repo, token: this.cipher.encrypt(t.token), encrypted: true };
+    } catch {
+      throw new SyncRemoteError('The token could not be stored securely (the system keychain is unavailable)');
+    }
   }
 
   private async base(): Promise<Base> {

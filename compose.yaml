@@ -33,6 +33,8 @@ services:
       CHARTMATE_PROVIDERS: ${CHARTMATE_PROVIDERS:-live}
       CRYPTO_PROVIDER: ${CRYPTO_PROVIDER:-binance}
       BINANCE_BASE_URL: ${BINANCE_BASE_URL:-}
+      CHARTMATE_SYNC_REPO: ${CHARTMATE_SYNC_REPO:-}
+      CHARTMATE_SYNC_TOKEN: ${CHARTMATE_SYNC_TOKEN:-}
     volumes:
       - chartmate-data:/data
     # Persistent writes go only to /data; SQLite's temp files (large sorts, VACUUM) to the /tmp tmpfs.

@@ -18,6 +18,15 @@ describe('loadConfig', () => {
     expect(loadConfig({ CHARTMATE_PASSWORD: 'pw', CHARTMATE_SESSION_SECRET: 's'.repeat(40) }).sessionSecret).toBe('s'.repeat(40));
   });
 
+  it('sync through a GitHub repository: CHARTMATE_SYNC_REPO and CHARTMATE_SYNC_TOKEN together, or neither', () => {
+    expect(loadConfig({}).sync).toBeNull();
+    expect(loadConfig({ CHARTMATE_SYNC_REPO: ' me/chartmate-data ', CHARTMATE_SYNC_TOKEN: 'github_pat_x' }).sync)
+      .toEqual({ repo: 'me/chartmate-data', token: 'github_pat_x' });
+    expect(() => loadConfig({ CHARTMATE_SYNC_REPO: 'me/chartmate-data' })).toThrow(/CHARTMATE_SYNC_TOKEN/);
+    expect(() => loadConfig({ CHARTMATE_SYNC_TOKEN: 't' })).toThrow(/CHARTMATE_SYNC_REPO/);
+    expect(() => loadConfig({ CHARTMATE_SYNC_REPO: 'not a repo', CHARTMATE_SYNC_TOKEN: 't' })).toThrow(/owner\/name/);
+  });
+
   it('refuses a password of only whitespace instead of silently disabling auth', () => {
     for (const pw of [' ', '\t', '  \n ']) expect(() => loadConfig({ CHARTMATE_PASSWORD: pw }), JSON.stringify(pw)).toThrow(/CHARTMATE_PASSWORD/);
     expect(loadConfig({ CHARTMATE_PASSWORD: ' a b ' }).password).toBe(' a b ');
