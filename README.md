@@ -846,8 +846,7 @@ it.
 | Keys | Action |
 | --- | --- |
 | ⌘K | Focus the symbol search |
-| ⌥T / ⌥H / ⌥R | Start a trend line / a horizontal line / a rectangle (again: cancel) |
-| ⌘J | Start a price line (again: cancel) |
+| ⌥T / ⌥H / ⌥R / ⌥J | Start a trend line / a horizontal line / a rectangle / a price line (again: cancel) |
 | ⌘] / ⌘[ (⇧ added: all the way) | Bring the selected drawing forward / send it backward (to the front / back) |
 | Delete, Backspace | Delete the selected drawing (unless locked) |
 | Escape | Cancel the drawing tool, deselect the drawing, end the measure |

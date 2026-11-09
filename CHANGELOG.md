@@ -5,6 +5,11 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+### Everywhere
+
+- The price line shortcut is now **⌥J** (Alt+J on Windows and Linux), like ⌥T, ⌥H and ⌥R for the other tools; ⌘J
+  (Ctrl+J) no longer starts it.
+
 ## [1.4.0] - 2026-11-02
 
 ### Everywhere
