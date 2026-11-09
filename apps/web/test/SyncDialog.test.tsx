@@ -7,16 +7,88 @@ import { startupSync, useRemoteNewer } from '../src/state/sync';
 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
-const off: SyncStatus = { source: null, repo: null, lastSyncAt: null, lastError: null };
-const on: SyncStatus = { source: 'app', repo: 'me/chartmate-data', lastSyncAt: Date.now() - 120_000, lastError: null };
+const off: SyncStatus = { source: null, repo: null, auth: null, account: null, lastSyncAt: null, lastError: null };
+const on: SyncStatus = { source: 'app', repo: 'me/chartmate-data', auth: 'token', account: null, lastSyncAt: Date.now() - 120_000, lastError: null };
+const signedIn: SyncStatus = { ...on, auth: 'app', account: 'octocat', repo: 'octocat/chartmate-data' };
+const INSTALL = 'https://github.com/apps/chartmate-sync/installations/new';
+const code = { userCode: 'WDJB-MJHT', verificationUri: 'https://github.com/login/device', expiresAt: Date.now() + 900_000, interval: 0 };
 
-describe('SyncDialog', () => {
-  it('off: explains the steps, links the token page, and connects with the repository and token', async () => {
+describe('SyncDialog: sign in with GitHub', () => {
+  it('shows the code to enter on GitHub, waits for approval, then connects the only private repository', async () => {
+    vi.spyOn(api.sync, 'status').mockResolvedValueOnce(off).mockResolvedValue(signedIn);
+    vi.spyOn(api.sync.signIn, 'start').mockResolvedValue(code);
+    const poll = vi.spyOn(api.sync.signIn, 'poll')
+      .mockResolvedValueOnce({ state: 'pending', interval: 0 })
+      .mockResolvedValue({ state: 'ready', account: 'octocat', installUrl: INSTALL, repos: [{ repo: 'octocat/site', private: false }, { repo: 'octocat/chartmate-data', private: true }] });
+    const connect = vi.spyOn(api.sync.signIn, 'connect').mockResolvedValue({ ...signedIn, applied: 0 });
+    render(<SyncDialog onClose={() => {}} desktop={false} onApplied={vi.fn()} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign in with GitHub' }));
+    expect(await screen.findByLabelText('Code')).toHaveTextContent('WDJB-MJHT');
+    expect(screen.getByRole('link', { name: 'github.com/login/device' })).toHaveAttribute('href', 'https://github.com/login/device');
+    expect(await screen.findByText('@octocat')).toBeInTheDocument();
+    expect(poll).toHaveBeenCalledTimes(2);
+    // Public repositories are never offered; the only private one is chosen.
+    expect(screen.queryByRole('radio', { name: 'octocat/site' })).not.toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'octocat/chartmate-data' })).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    expect(connect).toHaveBeenCalledWith('octocat/chartmate-data');
+    expect(await screen.findByText('octocat/chartmate-data')).toBeInTheDocument();
+    expect(screen.getByText('@octocat')).toBeInTheDocument();
+  });
+
+  it('no repository yet: how to install the app on one, then check again', async () => {
+    vi.spyOn(api.sync, 'status').mockResolvedValue(off);
+    vi.spyOn(api.sync.signIn, 'start').mockResolvedValue(code);
+    vi.spyOn(api.sync.signIn, 'poll')
+      .mockResolvedValueOnce({ state: 'ready', account: 'octocat', installUrl: INSTALL, repos: [] })
+      .mockResolvedValueOnce({ state: 'ready', account: 'octocat', installUrl: INSTALL, repos: [{ repo: 'octocat/chartmate-data', private: true }] });
+    render(<SyncDialog onClose={() => {}} desktop={false} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign in with GitHub' }));
+    expect(await screen.findByRole('link', { name: 'Chartmate Sync' })).toHaveAttribute('href', INSTALL);
+    await userEvent.click(screen.getByRole('button', { name: 'I’ve installed it' }));
+    expect(await screen.findByRole('radio', { name: 'octocat/chartmate-data' })).toBeChecked();
+  });
+
+  it('a declined sign-in says so; Cancel stops waiting', async () => {
+    vi.spyOn(api.sync, 'status').mockResolvedValue(off);
+    vi.spyOn(api.sync.signIn, 'start').mockResolvedValue(code);
+    const poll = vi.spyOn(api.sync.signIn, 'poll').mockResolvedValueOnce({ state: 'denied' });
+    render(<SyncDialog onClose={() => {}} desktop={false} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign in with GitHub' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('declined');
+    poll.mockResolvedValue({ state: 'pending', interval: 60 });
+    vi.mocked(api.sync.signIn.start).mockResolvedValue({ ...code, interval: 60 });
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in with GitHub' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('button', { name: 'Sign in with GitHub' })).toBeInTheDocument();
+  });
+
+  it('desktop: GitHub’s addresses are selectable text, not links (the app opens no links)', async () => {
+    vi.spyOn(api.sync, 'status').mockResolvedValue(off);
+    vi.spyOn(api.sync.signIn, 'start').mockResolvedValue({ ...code, interval: 60 });
+    vi.spyOn(api.sync.signIn, 'poll').mockResolvedValue({ state: 'pending', interval: 60 });
+    render(<SyncDialog onClose={() => {}} desktop />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign in with GitHub' }));
+    expect(await screen.findByText('github.com/login/device')).toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Copy' })).not.toBeInTheDocument();
+  });
+
+  it('signed out by GitHub: Sign in again instead of Sync now', async () => {
+    vi.spyOn(api.sync, 'status').mockResolvedValue({ ...signedIn, lastError: 'GitHub signed this device out; sign in again' });
+    render(<SyncDialog onClose={() => {}} desktop={false} />);
+    expect(await screen.findByRole('button', { name: 'Sign in again' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sync now' })).not.toBeInTheDocument();
+  });
+});
+
+describe('SyncDialog: token and status', () => {
+  it('“Use a token instead”: the steps, the token page, and connecting with the repository and token', async () => {
     vi.spyOn(api.sync, 'status').mockResolvedValueOnce(off).mockResolvedValue(on);
     const configure = vi.spyOn(api.sync, 'configure').mockResolvedValue({ ...on, applied: 0 });
-    const onApplied = vi.fn();
-    render(<SyncDialog onClose={() => {}} desktop={false} onApplied={onApplied} />);
+    render(<SyncDialog onClose={() => {}} desktop={false} onApplied={vi.fn()} />);
     expect(await screen.findByText(/private GitHub repository you own/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Use a token instead' }));
     expect(screen.getByRole('link', { name: 'a fine-grained token' })).toHaveAttribute('href', NEW_TOKEN_URL);
     const connect = screen.getByRole('button', { name: 'Connect' });
     expect(connect).toBeDisabled();
@@ -27,7 +99,18 @@ describe('SyncDialog', () => {
     expect(configure).toHaveBeenCalledWith('me/chartmate-data', 'github_pat_x');
     expect(await screen.findByText('me/chartmate-data')).toBeInTheDocument();
     expect(screen.getByText('2 min ago')).toBeInTheDocument();
-    expect(onApplied).not.toHaveBeenCalled();
+  });
+
+  it('switching steps keeps the focus in the dialog, so Escape still closes it', async () => {
+    vi.spyOn(api.sync, 'status').mockResolvedValue(off);
+    const onClose = vi.fn();
+    render(<SyncDialog onClose={onClose} desktop={false} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Use a token instead' }));
+    expect(screen.getByLabelText('Repository')).toHaveFocus();
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByRole('button', { name: 'Sign in with GitHub' })).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalled();
   });
 
   it('a first sync that brought data in reloads the page; a failure shows the server’s message', async () => {
@@ -37,20 +120,16 @@ describe('SyncDialog', () => {
       .mockResolvedValueOnce({ ...on, applied: 3 });
     const onApplied = vi.fn();
     render(<SyncDialog onClose={() => {}} desktop={false} onApplied={onApplied} />);
-    await userEvent.type(await screen.findByLabelText('Repository'), 'me/x');
+    await userEvent.click(await screen.findByRole('button', { name: 'Use a token instead' }));
+    await userEvent.type(screen.getByLabelText('Repository'), 'me/x');
     await userEvent.type(screen.getByLabelText('Token'), 't');
     await userEvent.click(screen.getByRole('button', { name: 'Connect' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('refused the token');
+    // The form stays, with what was typed, for another try.
+    expect(screen.getByLabelText('Repository')).toHaveValue('me/x');
     await userEvent.click(screen.getByRole('button', { name: 'Connect' }));
     await waitFor(() => expect(onApplied).toHaveBeenCalled());
     expect(configure).toHaveBeenCalledTimes(2);
-  });
-
-  it('desktop: the token page is selectable text, not a link (the app opens no links)', async () => {
-    vi.spyOn(api.sync, 'status').mockResolvedValue(off);
-    render(<SyncDialog onClose={() => {}} desktop />);
-    expect(await screen.findByText('github.com/settings/personal-access-tokens/new')).toBeInTheDocument();
-    expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 
   it('on: shows the last error, syncs now, and disconnects', async () => {
@@ -64,7 +143,7 @@ describe('SyncDialog', () => {
     await waitFor(() => expect(screen.queryByText('Could not reach GitHub')).not.toBeInTheDocument());
     await userEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
     expect(disconnect).toHaveBeenCalled();
-    expect(await screen.findByLabelText('Repository')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Sign in with GitHub' })).toBeInTheDocument();
   });
 
   it('set by the server: no Disconnect; an older server says sync is not supported', async () => {

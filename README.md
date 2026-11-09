@@ -991,12 +991,23 @@ computers and a self-hosted server) through a **private GitHub repository you ow
 service in between: each device reads and writes one file, `chartmate-sync.json`, in that repository.
 
 1. Create a private repository on GitHub (empty is fine), e.g. `you/chartmate-data`.
-2. Create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new) with
-   access to **that repository only** and the **Contents: Read and write** permission (nothing else). Give it an
-   expiry you are happy to renew.
-3. In Chartmate, open **Sync** (the two-arrows button in the top bar; on a phone, **⋯** → **Sync**), enter the
-   repository as `owner/name` and the token, and choose **Connect**. A first sync runs before anything is saved,
-   so a wrong token or repository is reported right away. Do the same on every other device.
+2. In Chartmate, open **Sync** (the two-arrows button in the top bar; on a phone, **⋯** → **Sync**) and choose
+   **Sign in with GitHub**. Chartmate shows a short code: open `github.com/login/device`, enter it and approve
+   **Chartmate Sync**. (In the desktop app, which opens no links, copy the address into your browser.)
+3. The first time, install Chartmate Sync on your repository: the dialog links to its install page, where you choose
+   **Only select repositories** and pick that one. Then **I've installed it**, pick the repository, and **Connect**.
+   A first sync runs before anything is saved, so a problem is reported right away.
+4. On every other device, just sign in and connect: the app is already installed on the repository.
+
+Chartmate Sync is a GitHub App that can only read and write the contents of the repositories you install it on
+(nothing else in your account), and only private ones are offered. There is no Chartmate server: the sign-in is
+GitHub's device flow, between your device and GitHub. Each device's sign-in lasts 8 hours and renews itself;
+a device unused for about 6 months asks you to sign in again. Remove its access any time under GitHub's
+**Settings → Applications**.
+
+**With a token instead** (**Use a token instead** in the dialog): create a
+[fine-grained personal access token](https://github.com/settings/personal-access-tokens/new) with access to that
+repository only and the **Contents: Read and write** permission, and enter it with the repository as `owner/name`.
 
 How it behaves:
 
@@ -1006,10 +1017,11 @@ How it behaves:
 - Each layout, symbol's drawings, basket and the watchlist syncs on its own: edits to different things on two
   devices are both kept. When the same thing was changed on both, the later change wins. A basket deleted on one
   device is deleted on the others.
-- **Sync now** syncs at once; the dialog shows the last sync and the last problem (an expired token, no network).
+- **Sync now** syncs at once; the dialog shows the account, the last sync and the last problem (no network, an
+  expired token). When GitHub has signed the device out, **Sign in again** replaces it.
   **Disconnect** stops syncing on that device only; the data stays on the device and in the repository.
-- Once entered, the token is only ever sent to GitHub: the page cannot read it back. The desktop app
-  stores it encrypted with the system keychain (Keychain on macOS, DPAPI on Windows); a self-hosted server keeps it
+- The tokens are only ever sent to GitHub: the page cannot read them back. The desktop app
+  stores them encrypted with the system keychain (Keychain on macOS, DPAPI on Windows); a self-hosted server keeps it
   in its database, or takes it from `CHARTMATE_SYNC_REPO` and `CHARTMATE_SYNC_TOKEN` (then the dialog shows it as set
   by the server, and it cannot be changed or disconnected there).
 - The repository keeps every version of the file in its history, a free backup of your setup. Market data is not
@@ -1191,6 +1203,7 @@ JSON over `/api` (the web client uses nothing else). With `CHARTMATE_PASSWORD` s
 | `GET`, `PUT /api/layouts/:key` | Chart layout; `default` is the one the app uses. |
 | `GET`, `PUT /api/drawings/:symbol` | Drawings of a symbol. |
 | `GET`, `PUT`, `DELETE /api/sync` | Sync status (`{ source, repo, lastSyncAt, lastError }`, never the token); connect (`{ repo, token }`, runs a first sync, 400 `sync_failed` on failure); disconnect. |
+| `POST /api/sync/github/start`, `POST /api/sync/github/poll`, `PUT /api/sync/github` | Sign in with GitHub: the device code to enter (`{ userCode, verificationUri, expiresAt, interval }`), its progress (`pending`, `denied`, `expired`, or `ready` with the account and the repositories the app may use), then connect one (`{ repo }`, private only). |
 | `POST /api/sync/run`; `GET /api/sync/check` | A full sync (`{ applied, pushed }`, 502 `sync_failed` on failure); whether another device saved newer data (`{ remoteNewer }`). Both `null` while sync is off. |
 
 Symbol ids are `stock:<TICKER>`, `crypto:<BASE>` or `basket:<uuid>`; timeframes are `1m 5m 15m 30m 1h 2h 4h 1D

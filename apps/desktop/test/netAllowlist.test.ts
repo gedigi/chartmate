@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  BlockedRequestError, createGuardedFetch, installFetchAllowlist, isAllowedUrl, providerHosts, SYNC_HOST, YAHOO_HOSTS,
+  BlockedRequestError, createGuardedFetch, installFetchAllowlist, isAllowedUrl, providerHosts, SYNC_HOSTS, YAHOO_HOSTS,
 } from '../src/lib/netAllowlist.js';
 
 const HOSTS = new Set(['query1.finance.yahoo.com', 'data-api.binance.vision']);
@@ -181,20 +181,22 @@ describe('providerHosts', () => {
 });
 
 describe('sync host', () => {
-  it('is api.github.com only, and never on the providers’ list', () => {
-    expect(SYNC_HOST).toBe('api.github.com');
+  it('is GitHub’s API and sign-in hosts only, and never on the providers’ list', () => {
+    expect([...SYNC_HOSTS]).toEqual(['api.github.com', 'github.com']);
     for (const cryptoProvider of ['binance', 'coinbase'] as const) {
-      expect(providerHosts({ providers: 'live', cryptoProvider, binanceBaseUrl: 'https://api.binance.com' })).not.toContain(SYNC_HOST);
+      const hosts = providerHosts({ providers: 'live', cryptoProvider, binanceBaseUrl: 'https://api.binance.com' });
+      for (const h of SYNC_HOSTS) expect(hosts).not.toContain(h);
     }
   });
 });
 
 describe('sync wiring (main.ts)', () => {
-  it('sync gets its own guarded fetch for SYNC_HOST alone, on the direct transport, and an OS-keychain cipher', () => {
+  it('sync gets its own guarded fetch for SYNC_HOSTS alone, on the direct transport, and an OS-keychain cipher', () => {
     const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
-    expect(main).toMatch(/const syncFetch = createGuardedFetch\(directFetch, \[SYNC_HOST\], \{ onBlocked \}\);/);
+    expect(main).toMatch(/const syncFetch = createGuardedFetch\(directFetch, SYNC_HOSTS, \{ onBlocked \}\);/);
     expect(main).toMatch(/syncRemote: \(t\) => new GitHubFile\(t, syncFetch\),/);
+    expect(main).toMatch(/syncAuth: new GitHubAppAuth\(syncFetch\),/);
     expect(main).toMatch(/syncCipher: createSyncCipher\(safeStorage\),/);
-    expect(main.match(/SYNC_HOST/g)).toHaveLength(2); // the import and that one guard
+    expect(main.match(/SYNC_HOSTS/g)).toHaveLength(2); // the import and that one guard
   });
 });

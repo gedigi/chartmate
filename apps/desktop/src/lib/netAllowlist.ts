@@ -23,11 +23,11 @@ export const YAHOO_HOSTS: readonly string[] = Object.freeze([
 export const COINBASE_HOST = 'api.exchange.coinbase.com';
 
 /**
- * Sync (a private GitHub repository the user connects) talks to the REST API host only. It gets its own guarded fetch
- * with this single host: it is not on the global list, so provider code can never reach GitHub, and sync can reach
- * nothing else.
+ * Sync (a private GitHub repository the user connects) talks to GitHub only: the REST API for the sync file, and
+ * github.com for signing in (the device flow's code and token endpoints). It gets its own guarded fetch with these two
+ * hosts: they are not on the global list, so provider code can never reach GitHub, and sync can reach nothing else.
  */
-export const SYNC_HOST = 'api.github.com';
+export const SYNC_HOSTS: readonly string[] = Object.freeze(['api.github.com', 'github.com']);
 
 export interface ProviderNetConfig {
   providers: 'live' | 'fixture';

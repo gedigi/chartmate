@@ -8,7 +8,8 @@ app, the Docker image and the release tag share one version number.
 ### Everywhere
 
 - **Sync across devices**: keep your watchlist, layouts, drawings and baskets the same on every device through a
-  private GitHub repository you own (top bar → **Sync**, or **⋯** → **Sync** on a phone). Changes are sent a few
+  private GitHub repository you own (top bar → **Sync**, or **⋯** → **Sync** on a phone): **Sign in with GitHub**
+  with a short code, no token to create (a fine-grained token still works). Changes are sent a few
   seconds after you make them and arrive when Chartmate opens; an open window offers **Reload** when another device
   saved something newer. Self-hosted servers can set it with `CHARTMATE_SYNC_REPO` and `CHARTMATE_SYNC_TOKEN`; the
   desktop app keeps the token encrypted with the system keychain.

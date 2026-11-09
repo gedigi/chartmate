@@ -2,6 +2,7 @@ import type { BasketService } from '../baskets/service.js';
 import type { Repos } from '../db/repos.js';
 import { applyRemote, collectLocal, isSyncKey } from './docs.js';
 import { GitHubFile, REPO_RE, SyncRemoteError, type GitHubTarget, type RemoteFile } from './github.js';
+import { GitHubAppAuth, installUrl, type AppAuth, type AppCredentials, type DeviceCode, type RepoChoice } from './githubAuth.js';
 import { mergeDocs, type Base, type Docs } from './merge.js';
 
 /**
@@ -21,9 +22,21 @@ export interface SyncStatus {
   /** 'env': set by CHARTMATE_SYNC_REPO / CHARTMATE_SYNC_TOKEN (not editable here); 'app': set in the app; null: off. */
   source: 'env' | 'app' | null;
   repo: string | null;
+  /** How this device reaches GitHub: signed in with the Chartmate Sync app, or a personal access token. */
+  auth: 'app' | 'token' | null;
+  /** The GitHub account signed in (app sign-in only). */
+  account: string | null;
   lastSyncAt: number | null;
   lastError: string | null;
 }
+
+/** The sign-in in progress, as the page shows it. */
+export interface SignInStart { userCode: string; verificationUri: string; expiresAt: number; interval: number }
+export type SignInPoll =
+  | { state: 'pending'; interval: number }
+  | { state: 'denied' }
+  | { state: 'expired' }
+  | { state: 'ready'; account: string; repos: RepoChoice[]; installUrl: string };
 
 const CONFIG_KEY = 'sync_config';
 const BASE_KEY = 'sync_base';
@@ -32,7 +45,14 @@ const FILE_FORMAT = 1;
 const MAX_ATTEMPTS = 4;
 export const PUSH_DELAY_MS = 5_000;
 
-interface StoredConfig { repo: string; token: string; encrypted: boolean }
+/** `token`: the personal access token, or (kind 'app') the JSON of the app's credentials; encrypted by the cipher. */
+interface StoredConfig { repo: string; token: string; encrypted: boolean; kind: 'token' | 'app'; account: string | null }
+interface Target extends GitHubTarget { kind: 'token' | 'app' }
+
+/** An access token is refreshed when it has less than this left (a run must not outlive it). */
+const REFRESH_MARGIN_MS = 5 * 60_000;
+
+interface SignIn { code: DeviceCode; nextPollAt: number; interval: number; credentials: AppCredentials | null; account: string | null }
 
 export class SyncService {
   private readonly repos: Repos;
@@ -46,16 +66,20 @@ export class SyncService {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private lastError: string | null = null;
   private off: (() => void) | null = null;
+  private readonly auth: AppAuth;
+  /** The GitHub sign-in in progress (kept in memory only: a restart means signing in again). */
+  private signIn: SignIn | null = null;
 
   constructor(deps: {
     repos: Repos; baskets: BasketService; env?: GitHubTarget | null; cipher?: SecretCipher | null;
-    remote?: (t: GitHubTarget) => RemoteStore; now?: () => number; pushDelayMs?: number;
+    remote?: (t: GitHubTarget) => RemoteStore; now?: () => number; pushDelayMs?: number; auth?: AppAuth;
   }) {
     this.repos = deps.repos;
     this.baskets = deps.baskets;
     this.env = deps.env ?? null;
     this.cipher = deps.cipher ?? null;
     this.makeRemote = deps.remote ?? ((t) => new GitHubFile(t));
+    this.auth = deps.auth ?? new GitHubAppAuth();
     this.now = deps.now ?? Date.now;
     this.pushDelayMs = deps.pushDelayMs ?? PUSH_DELAY_MS;
   }
@@ -76,7 +100,7 @@ export class SyncService {
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = null;
-      void this.target().then((t) => (t ? this.sync('push') : undefined)).catch(() => { /* kept in lastError */ });
+      void this.isOn().then((on) => (on ? this.sync('push') : undefined)).catch(() => { /* kept in lastError */ });
     }, this.pushDelayMs);
     this.timer.unref?.();
   }
@@ -87,6 +111,8 @@ export class SyncService {
     return {
       source: this.env ? 'env' : cfg ? 'app' : null,
       repo: this.env?.repo ?? cfg?.repo ?? null,
+      auth: this.env ? 'token' : cfg?.kind ?? null,
+      account: this.env ? null : cfg?.account ?? null,
       lastSyncAt: last === null ? null : Number(last),
       lastError: this.lastError,
     };
@@ -104,8 +130,67 @@ export class SyncService {
     // `applied`: documents the repository brought here (the page reloads to show them).
     const applied = await this.exclusive(async () => {
       await this.repos.settings.delete(BASE_KEY); // a new repository: no agreed state yet, nothing is a deletion
-      const r = await this.run(target, 'full');
-      await this.repos.settings.set(CONFIG_KEY, JSON.stringify(this.encode(target)));
+      const r = await this.run({ ...target, kind: 'token' }, 'full');
+      await this.saveConfig({ repo: target.repo, kind: 'token', account: null }, target.token);
+      this.signIn = null;
+      return r.applied;
+    });
+    return { ...(await this.status()), applied };
+  }
+
+  /** Starts signing in with GitHub (the device flow): the code the user enters at `verificationUri`. */
+  async startSignIn(): Promise<SignInStart> {
+    if (this.env) throw new SyncRemoteError('Sync is set by the server (CHARTMATE_SYNC_REPO)');
+    const code = await this.auth.startDeviceFlow();
+    this.signIn = { code, nextPollAt: this.now() + code.interval * 1000, interval: code.interval, credentials: null, account: null };
+    return { userCode: code.userCode, verificationUri: code.verificationUri, expiresAt: code.expiresAt, interval: code.interval };
+  }
+
+  /**
+   * The sign-in's progress: GitHub is asked at most once per interval it set. Once approved, the repositories the
+   * app may use (asking again lists them again, after the user installed the app on one).
+   */
+  async pollSignIn(): Promise<SignInPoll> {
+    const s = this.signIn;
+    if (!s) throw new SyncRemoteError('Start signing in again');
+    if (!s.credentials) {
+      if (this.now() >= s.code.expiresAt) {
+        this.signIn = null;
+        return { state: 'expired' };
+      }
+      if (this.now() < s.nextPollAt) return { state: 'pending', interval: s.interval };
+      const r = await this.auth.pollDeviceFlow(s.code.deviceCode);
+      if (this.signIn !== s) throw new SyncRemoteError('Start signing in again');
+      if (r.state === 'pending') {
+        if (r.interval > s.interval) s.interval = r.interval;
+        s.nextPollAt = this.now() + s.interval * 1000;
+        return { state: 'pending', interval: s.interval };
+      }
+      if (r.state !== 'ok') {
+        this.signIn = null;
+        return r;
+      }
+      s.account = await this.auth.account(r.credentials.access);
+      s.credentials = r.credentials;
+    }
+    const repos = await this.auth.repositories(s.credentials.access);
+    return { state: 'ready', account: s.account ?? '', repos, installUrl: installUrl() };
+  }
+
+  /** Turns sync on with the signed-in account and one of its repositories (a first sync runs before it is saved). */
+  async connectSignedIn(repo: string): Promise<SyncStatus & { applied: number }> {
+    if (this.env) throw new SyncRemoteError('Sync is set by the server (CHARTMATE_SYNC_REPO)');
+    const s = this.signIn;
+    if (!s?.credentials) throw new SyncRemoteError('Sign in with GitHub first');
+    const credentials = s.credentials;
+    const choice = (await this.auth.repositories(credentials.access)).find((r) => r.repo === repo);
+    if (!choice) throw new SyncRemoteError('Chartmate Sync cannot use that repository; choose it on GitHub first');
+    if (!choice.private) throw new SyncRemoteError('Choose a private repository: anyone can read a public one');
+    const applied = await this.exclusive(async () => {
+      await this.repos.settings.delete(BASE_KEY);
+      const r = await this.run({ repo, token: credentials.access, kind: 'app' }, 'full');
+      await this.saveConfig({ repo, kind: 'app', account: s.account }, JSON.stringify(credentials));
+      if (this.signIn === s) this.signIn = null;
       return r.applied;
     });
     return { ...(await this.status()), applied };
@@ -119,13 +204,14 @@ export class SyncService {
       await this.repos.settings.delete(BASE_KEY);
       await this.repos.settings.delete(LAST_SYNC_KEY);
       this.lastError = null;
+      this.signIn = null;
     });
   }
 
   /** A sync run; null when sync is off. 'full' applies newer remote data here, 'push' only sends local edits. */
   async sync(mode: 'full' | 'push'): Promise<{ applied: number; pushed: boolean } | null> {
     return this.exclusive(async () => {
-      const target = await this.target();
+      const target = await this.target().catch((e: unknown) => { this.lastError = message(e); throw e; });
       return target ? this.run(target, mode) : null;
     });
   }
@@ -133,7 +219,7 @@ export class SyncService {
   /** Whether the sync file holds data newer than this device's (a reload would bring it in). */
   async check(): Promise<{ remoteNewer: boolean } | null> {
     return this.exclusive(async () => {
-      const target = await this.target();
+      const target = await this.target().catch((e: unknown) => { this.lastError = message(e); throw e; });
       if (!target) return null;
       try {
         const file = await this.makeRemote(target).read();
@@ -147,7 +233,7 @@ export class SyncService {
     });
   }
 
-  private async run(target: GitHubTarget, mode: 'full' | 'push'): Promise<{ applied: number; pushed: boolean }> {
+  private async run(target: Target, mode: 'full' | 'push'): Promise<{ applied: number; pushed: boolean }> {
     try {
       const remote = this.makeRemote(target);
       for (let attempt = 1; ; attempt++) {
@@ -172,8 +258,10 @@ export class SyncService {
         return { applied, pushed };
       }
     } catch (e) {
-      this.lastError = message(e);
-      throw e;
+      const err = target.kind === 'app' && e instanceof SyncRemoteError && e.status === 401
+        ? new SyncRemoteError('GitHub signed this device out; sign in again', 401) : e;
+      this.lastError = message(err);
+      throw err;
     }
   }
 
@@ -183,16 +271,42 @@ export class SyncService {
     return next;
   }
 
-  private async target(): Promise<GitHubTarget | null> {
-    if (this.env) return this.env;
+  private async isOn(): Promise<boolean> {
+    return this.env !== null || (await this.storedConfig()) !== null;
+  }
+
+  /** The repository and a usable token. Refreshes an app token about to expire: call it inside `exclusive` only. */
+  private async target(): Promise<Target | null> {
+    if (this.env) return { ...this.env, kind: 'token' };
     const cfg = await this.storedConfig();
     if (!cfg) return null;
-    if (!cfg.encrypted) return { repo: cfg.repo, token: cfg.token };
+    const secret = this.secret(cfg);
+    if (cfg.kind === 'token') return { repo: cfg.repo, token: secret, kind: 'token' };
+    let c: AppCredentials;
+    try {
+      c = JSON.parse(secret) as AppCredentials;
+      if (typeof c.access !== 'string') throw new Error('bad');
+    } catch {
+      throw new SyncRemoteError('The saved GitHub sign-in cannot be read; sign in again');
+    }
+    if (c.accessExpiresAt !== null && c.accessExpiresAt - this.now() < REFRESH_MARGIN_MS) {
+      if (!c.refresh || (c.refreshExpiresAt !== null && c.refreshExpiresAt <= this.now())) {
+        throw new SyncRemoteError('GitHub signed this device out; sign in again', 401);
+      }
+      c = await this.auth.refresh(c.refresh);
+      // The old refresh token is spent: keep the new one at once, whatever the run does next.
+      await this.saveConfig(cfg, JSON.stringify(c));
+    }
+    return { repo: cfg.repo, token: c.access, kind: 'app' };
+  }
+
+  private secret(cfg: StoredConfig): string {
+    if (!cfg.encrypted) return cfg.token;
     // Encrypted by the desktop app's OS keychain: unreadable elsewhere (a copied database) or after a keychain reset.
     const unreadable = new SyncRemoteError('The saved GitHub token cannot be read on this device; connect again');
     if (!this.cipher) throw unreadable;
     try {
-      return { repo: cfg.repo, token: this.cipher.decrypt(cfg.token) };
+      return this.cipher.decrypt(cfg.token);
     } catch {
       throw unreadable;
     }
@@ -203,19 +317,27 @@ export class SyncService {
     if (raw === null) return null;
     try {
       const c = JSON.parse(raw) as Partial<StoredConfig>;
-      return typeof c.repo === 'string' && typeof c.token === 'string' ? { repo: c.repo, token: c.token, encrypted: c.encrypted === true } : null;
+      if (typeof c.repo !== 'string' || typeof c.token !== 'string') return null;
+      return {
+        repo: c.repo, token: c.token, encrypted: c.encrypted === true,
+        kind: c.kind === 'app' ? 'app' : 'token', account: typeof c.account === 'string' ? c.account : null,
+      };
     } catch {
       return null;
     }
   }
 
-  private encode(t: GitHubTarget): StoredConfig {
-    if (!this.cipher) return { repo: t.repo, token: t.token, encrypted: false };
-    try {
-      return { repo: t.repo, token: this.cipher.encrypt(t.token), encrypted: true };
-    } catch {
-      throw new SyncRemoteError('The token could not be stored securely (the system keychain is unavailable)');
+  private async saveConfig(c: Pick<StoredConfig, 'repo' | 'kind' | 'account'>, secret: string): Promise<void> {
+    let stored: StoredConfig;
+    if (!this.cipher) stored = { repo: c.repo, kind: c.kind, account: c.account, token: secret, encrypted: false };
+    else {
+      try {
+        stored = { repo: c.repo, kind: c.kind, account: c.account, token: this.cipher.encrypt(secret), encrypted: true };
+      } catch {
+        throw new SyncRemoteError('The token could not be stored securely (the system keychain is unavailable)');
+      }
     }
+    await this.repos.settings.set(CONFIG_KEY, JSON.stringify(stored));
   }
 
   private async base(): Promise<Base> {

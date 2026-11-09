@@ -20,6 +20,7 @@ import { marketRoutes } from './routes/market.js';
 import { syncRoutes } from './routes/sync.js';
 import { userRoutes } from './routes/user.js';
 import type { GitHubTarget } from './sync/github.js';
+import type { AppAuth } from './sync/githubAuth.js';
 import { SyncService, type RemoteStore, type SecretCipher } from './sync/service.js';
 
 const BODY_LIMIT = 1024 * 1024;
@@ -51,6 +52,8 @@ export interface AppDeps {
   syncCipher?: SecretCipher | null;
   /** The sync file's store (tests: a fake); absent = the GitHub repository. */
   syncRemote?: (t: GitHubTarget) => RemoteStore;
+  /** GitHub sign-in for sync (tests: a fake; the desktop app: one on its sync-only fetch); absent = GitHub. */
+  syncAuth?: AppAuth;
 }
 
 function zodMessage(err: ZodError): string {
@@ -164,7 +167,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(userRoutes, { repos });
   const sync = new SyncService({
     repos, baskets, env: config.sync ?? null, cipher: deps.syncCipher ?? null,
-    ...(deps.syncRemote ? { remote: deps.syncRemote } : {}), ...(deps.now ? { now: deps.now } : {}),
+    ...(deps.syncRemote ? { remote: deps.syncRemote } : {}), ...(deps.syncAuth ? { auth: deps.syncAuth } : {}), ...(deps.now ? { now: deps.now } : {}),
   });
   sync.start();
   app.addHook('onClose', async () => sync.stop());

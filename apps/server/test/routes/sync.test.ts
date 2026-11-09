@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { SyncRemoteError } from '../../src/sync/github.js';
-import { FakeRepo } from '../helpers/fakeSyncRepo.js';
+import { FakeAuth, FakeRepo } from '../helpers/fakeSyncRepo.js';
 import { makeApp, type TestApp } from './helpers.js';
 
 describe('/api/sync', () => {
@@ -11,7 +11,7 @@ describe('/api/sync', () => {
     const remote = new FakeRepo();
     t = await makeApp({}, { syncRemote: () => remote.store() });
     const get = () => t!.app.inject({ method: 'GET', url: '/api/sync' });
-    expect((await get()).json()).toEqual({ source: null, repo: null, lastSyncAt: null, lastError: null });
+    expect((await get()).json()).toEqual({ source: null, repo: null, auth: null, account: null, lastSyncAt: null, lastError: null });
     expect((await t.app.inject({ method: 'POST', url: '/api/sync/run' })).json()).toBeNull();
     expect((await t.app.inject({ method: 'GET', url: '/api/sync/check' })).json()).toBeNull();
 
@@ -65,9 +65,32 @@ describe('/api/sync', () => {
     expect((await t.app.inject({ method: 'DELETE', url: '/api/sync' })).statusCode).toBe(400);
   });
 
+  it('sign in with GitHub: start, poll until ready with the repositories, connect; no token ever in an answer', async () => {
+    const remote = new FakeRepo();
+    let clock = 1_000_000;
+    const auth = new FakeAuth(() => clock);
+    auth.polls = [];
+    auth.repos = [{ repo: 'octocat/chartmate-data', private: true }];
+    t = await makeApp({}, { syncRemote: () => remote.store(), syncAuth: auth, now: () => clock });
+    const connect = () => t!.app.inject({ method: 'PUT', url: '/api/sync/github', payload: { repo: 'octocat/chartmate-data' } });
+    expect((await connect()).json()).toMatchObject({ code: 'sync_failed', message: 'Sign in with GitHub first' });
+    const start = await t.app.inject({ method: 'POST', url: '/api/sync/github/start' });
+    expect(start.json()).toMatchObject({ userCode: 'ABCD-1234', verificationUri: 'https://github.com/login/device' });
+    expect(start.json()).not.toHaveProperty('deviceCode'); // the device code stays on the server
+    expect((await t.app.inject({ method: 'POST', url: '/api/sync/github/poll' })).json()).toEqual({ state: 'pending', interval: 5 });
+    clock += 5_000;
+    const ready = await t.app.inject({ method: 'POST', url: '/api/sync/github/poll' });
+    expect(ready.json()).toMatchObject({ state: 'ready', account: 'octocat', repos: [{ repo: 'octocat/chartmate-data', private: true }] });
+    const done = await connect();
+    expect(done.json()).toMatchObject({ source: 'app', auth: 'app', account: 'octocat', repo: 'octocat/chartmate-data' });
+    for (const body of [start.body, ready.body, done.body, (await t.app.inject({ method: 'GET', url: '/api/sync' })).body]) {
+      expect(body).not.toMatch(/gh[ur]_/);
+    }
+  });
+
   it('needs the login when a password is set', async () => {
     t = await makeApp({ password: 'correct-horse-battery' }, { syncRemote: () => new FakeRepo().store() });
-    for (const [method, url] of [['GET', '/api/sync'], ['PUT', '/api/sync'], ['DELETE', '/api/sync'], ['POST', '/api/sync/run'], ['GET', '/api/sync/check']] as const) {
+    for (const [method, url] of [['GET', '/api/sync'], ['PUT', '/api/sync'], ['DELETE', '/api/sync'], ['POST', '/api/sync/run'], ['GET', '/api/sync/check'], ['POST', '/api/sync/github/start'], ['POST', '/api/sync/github/poll'], ['PUT', '/api/sync/github']] as const) {
       expect((await t.app.inject({ method, url, payload: method === 'PUT' ? { repo: 'me/x', token: 't' } : undefined })).statusCode, `${method} ${url}`).toBe(401);
     }
   });

@@ -42,7 +42,7 @@ describe('SyncService', () => {
 
   it('is off until configured; configuring runs a first sync that uploads this device’s data', async () => {
     const a = await device();
-    expect(await a.sync.status()).toEqual({ source: null, repo: null, lastSyncAt: null, lastError: null });
+    expect(await a.sync.status()).toEqual({ source: null, repo: null, auth: null, account: null, lastSyncAt: null, lastError: null });
     expect(await a.sync.sync('full')).toBeNull();
     await a.repos.layouts.put('default', layout('crypto:BTC'));
     await a.repos.watchlist.replace([{ type: 'symbol', id: 'stock:AAPL' }]);
@@ -159,7 +159,7 @@ describe('SyncService', () => {
     remote.file = null;
     await a.sync.configure('me/chartmate-data', 'tok');
     await a.sync.disconnect();
-    expect(await a.sync.status()).toEqual({ source: null, repo: null, lastSyncAt: null, lastError: null });
+    expect(await a.sync.status()).toEqual({ source: null, repo: null, auth: null, account: null, lastSyncAt: null, lastError: null });
     await expect(a.sync.configure('not a repo', 'tok')).rejects.toThrow(/owner\/name/);
   });
 

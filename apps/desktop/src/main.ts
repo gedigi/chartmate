@@ -14,6 +14,7 @@ import { createRepos } from '../../server/src/db/repos.js';
 import { MarketDataService } from '../../server/src/market/service.js';
 import { createRegistry } from '../../server/src/providers/registry.js';
 import { GitHubFile } from '../../server/src/sync/github.js';
+import { GitHubAppAuth } from '../../server/src/sync/githubAuth.js';
 import { configOrExit, DB_FILE_NAME, desktopConfig, resolveUserDataDir } from './lib/desktopConfig.js';
 import {
   APP_ENTRY_URL, APP_HOST, APP_SCHEME, hardenAllSessions, hardenApp, isAppUrl, PRIVILEGED_SCHEMES, secureWebPreferences,
@@ -24,7 +25,7 @@ import { serverLoggerOptions } from './lib/serverLog.js';
 import { createRateLimiter, createRotatingLog } from './lib/logger.js';
 import { menuTemplate } from './lib/menu.js';
 import { createDirectFetch } from './lib/directFetch.js';
-import { createGuardedFetch, installFetchAllowlist, providerHosts, SYNC_HOST } from './lib/netAllowlist.js';
+import { createGuardedFetch, installFetchAllowlist, providerHosts, SYNC_HOSTS } from './lib/netAllowlist.js';
 import { createNodeSqliteDb, type NodeSqliteHandle } from './lib/nodeSqlite.js';
 import { createAppProtocolHandler } from './lib/protocol.js';
 import { ensurePrivateDir, migrateLegacyUserData, restrictFiles } from './lib/storage.js';
@@ -135,11 +136,12 @@ async function start(): Promise<void> {
   });
   const market = new MarketDataService({ repos, registry });
   const baskets = new BasketService({ repos, market });
-  // Sync: its own guarded fetch for the GitHub API host alone (netAllowlist.ts), and the token encrypted with the OS keychain.
-  const syncFetch = createGuardedFetch(directFetch, [SYNC_HOST], { onBlocked });
+  // Sync: its own guarded fetch for GitHub's two hosts alone (netAllowlist.ts), and the token encrypted with the OS keychain.
+  const syncFetch = createGuardedFetch(directFetch, SYNC_HOSTS, { onBlocked });
   const server = await buildApp({
     config, repos, market, baskets,
     syncRemote: (t) => new GitHubFile(t, syncFetch),
+    syncAuth: new GitHubAppAuth(syncFetch),
     syncCipher: createSyncCipher(safeStorage),
     // The embedded server is the app: GET /api/about reports the app's version.
     version: app.getVersion(),

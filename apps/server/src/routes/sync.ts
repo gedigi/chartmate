@@ -6,6 +6,7 @@ import type { SyncService } from '../sync/service.js';
 import { parse } from './validation.js';
 
 const ConfigureBody = z.object({ repo: z.string().max(200), token: z.string().max(500) });
+const ConnectBody = z.object({ repo: z.string().max(200) });
 
 /**
  * Sync settings and runs. The token goes in once (PUT) and never comes back out: status reports the repository, the
@@ -28,6 +29,14 @@ export async function syncRoutes(app: FastifyInstance, deps: { sync: SyncService
   app.delete('/api/sync', async (_request, reply) => {
     await sync.disconnect().catch((e: unknown) => failed(e, 400));
     return reply.code(204).send();
+  });
+
+  // Sign in with GitHub (device flow): start, then poll until approved (it then lists the repositories), then connect.
+  app.post('/api/sync/github/start', async () => sync.startSignIn().catch((e: unknown) => failed(e)));
+  app.post('/api/sync/github/poll', async () => sync.pollSignIn().catch((e: unknown) => failed(e)));
+  app.put('/api/sync/github', async (request) => {
+    const { repo } = parse(ConnectBody, request.body);
+    return sync.connectSignedIn(repo).catch((e: unknown) => failed(e, 400));
   });
 
   // A full sync (the web app runs it as it loads, before it reads the data). null: sync is off.

@@ -125,9 +125,21 @@ export interface SyncStatus {
   /** 'env': set by the server's environment; 'app': connected here; null: off. */
   source: 'env' | 'app' | null;
   repo: string | null;
+  /** 'app': signed in with GitHub (the Chartmate Sync app); 'token': a personal access token. */
+  auth: 'app' | 'token' | null;
+  /** The GitHub account signed in. */
+  account: string | null;
   lastSyncAt: number | null;
   lastError: string | null;
 }
+
+/** Signing in with GitHub (device flow): the code to enter on GitHub's page. */
+export interface SyncSignIn { userCode: string; verificationUri: string; expiresAt: number; interval: number }
+export type SyncSignInPoll =
+  | { state: 'pending'; interval: number }
+  | { state: 'denied' }
+  | { state: 'expired' }
+  | { state: 'ready'; account: string; repos: { repo: string; private: boolean }[]; installUrl: string };
 
 export interface BarsParams { symbol: SymbolId; tf: Timeframe; session: SessionMode; from: number; to: number }
 export interface LatestParams { symbol: SymbolId; tf: Timeframe; session: SessionMode }
@@ -181,6 +193,12 @@ export const api = {
     /** Runs a first sync, then keeps the settings; `applied`: documents it brought here. */
     configure: (repo: string, token: string) => request<SyncStatus & { applied: number }>('PUT', '/sync', { repo, token }),
     disconnect: async (): Promise<void> => { await request<void>('DELETE', '/sync'); },
+    /** Sign in with GitHub: start, poll until ready (then it lists the repositories), connect one. */
+    signIn: {
+      start: () => request<SyncSignIn>('POST', '/sync/github/start'),
+      poll: () => request<SyncSignInPoll>('POST', '/sync/github/poll'),
+      connect: (repo: string) => request<SyncStatus & { applied: number }>('PUT', '/sync/github', { repo }),
+    },
     /** A full sync; null when sync is off. */
     run: () => request<{ applied: number; pushed: boolean } | null>('POST', '/sync/run'),
     /** Whether another device saved newer data; null when sync is off. */

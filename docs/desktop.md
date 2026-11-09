@@ -248,13 +248,16 @@ The renderer is treated as untrusted web content, and the main process exposes n
   - the configured Binance host (one of the three above in a hardened build), or `api.exchange.coinbase.com`.
 
   Fixture mode allows nothing. Sync (a private GitHub repository the user connects) does not use that list: it gets
-  its own guarded fetch on the same transport, for `api.github.com` alone (`SYNC_HOST`), so provider code can never
-  reach GitHub and sync can reach nothing else. The same redirect checks apply, so the token never follows a
-  redirect off that host.
-- **Sync token**: the fine-grained GitHub token is encrypted with Electron `safeStorage` (Keychain on macOS, DPAPI on
-  Windows; `src/lib/syncCipher.ts`) before it is written to the database, and it is never returned to the renderer
-  (`GET /api/sync` reports the repository, the last sync time and the last error only). Without OS encryption the
-  token is refused, never stored in plain text; a database copied to another machine cannot use it.
+  its own guarded fetch on the same transport, for `api.github.com` (the sync file) and `github.com` (signing in with
+  the device flow) alone (`SYNC_HOSTS`), so provider code can never reach GitHub and sync can reach nothing else. The
+  same redirect checks apply, so a token never follows a redirect off those hosts.
+- **Sync token**: the GitHub credentials (the Chartmate Sync app's user token and refresh token after signing in, or a
+  fine-grained token) are encrypted with Electron `safeStorage` (Keychain on macOS, DPAPI on
+  Windows; `src/lib/syncCipher.ts`) before they are written to the database, and they are never returned to the
+  renderer (`GET /api/sync` reports the repository, the account, the last sync time and the last error only; the
+  device flow's device code stays in the main process too). Without OS encryption they are refused, never stored in
+  plain text; a database copied to another machine cannot use them. Signing in needs no client secret (the device
+  flow and its token refresh use the app's public client ID), so the app ships none.
 - **Fuses** (flipped in the `afterPack` hook with `@electron/fuses`):
   - RunAsNode: off;
   - EnableCookieEncryption: on;
