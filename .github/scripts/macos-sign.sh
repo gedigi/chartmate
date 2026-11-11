@@ -64,7 +64,9 @@ cmd_import() {
   # normally adds it; make sure). `cleanup` deletes the keychain, which also drops it from the list.
   # shellcheck disable=SC2046
   security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
-  security find-identity -v -p codesigning "$KEYCHAIN" | grep -qF "\"$IDENTITY\"" \
+  # Here-strings, never `cmd | grep -q`: under pipefail, grep -q exiting at its first match can kill the writer with
+  # SIGPIPE and fail the pipeline although the line was there.
+  grep -qF -- "\"$IDENTITY\"" <<<"$(security find-identity -v -p codesigning "$KEYCHAIN")" \
     || die "no valid identity \"$IDENTITY\" in the .p12 (wrong CHARTMATE_MAC_SIGN_IDENTITY, or an untrusted" \
       "chain: export the .p12 with its certificate chain)"
   echo "imported \"$IDENTITY\" into a temporary keychain (key not extractable)"
@@ -129,9 +131,9 @@ cmd_sign_app() {
   local items=() unexpected=()
   while IFS= read -r -d '' f; do
     [[ "$f" == *$'\n'* ]] && die "file name with a newline: $f"
-    if [ -d "$f" ] || file -b "$f" | grep -q '^Mach-O'; then
+    if [ -d "$f" ] || [[ "$(file -b "$f")" == Mach-O* ]]; then
       rel="${f#"$app"/}"
-      if printf '%s\n' "$allowed" | grep -Fxq -- "$rel"; then items+=("$f"); else unexpected+=("$rel"); fi
+      if grep -Fxq -- "$rel" <<<"$allowed"; then items+=("$f"); else unexpected+=("$rel"); fi
     fi
   done < <(find "$app/Contents" \( -type f -o -type d \( -name '*.app' -o -name '*.framework' \) \) -print0)
   if [ "${#unexpected[@]}" -gt 0 ]; then
@@ -147,7 +149,7 @@ cmd_sign_app() {
     )
   fi
   for f in ${sorted[@]+"${sorted[@]}"}; do
-    if [[ "$f" == *.framework ]] || { [ -f "$f" ] && ! file -b "$f" | grep -q 'executable'; }; then
+    if [[ "$f" == *.framework ]] || { [ -f "$f" ] && [[ "$(file -b "$f")" != *executable* ]]; }; then
       sign "$f"                                # frameworks and dylibs: no entitlements
     else
       sign --entitlements "$inherit" "$f"      # helper apps and helper executables (JIT only)

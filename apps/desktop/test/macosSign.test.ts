@@ -45,6 +45,13 @@ exit 0`);
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
+describe('macos-sign.sh robustness', () => {
+  it('never pipes into grep -q (under pipefail its early exit can fail a matching check with SIGPIPE)', () => {
+    const code = readFileSync(SCRIPT, 'utf8').split('\n').filter((l) => !l.trim().startsWith('#'));
+    expect(code.filter((l) => /\|\s*grep\b[^|]*-\w*q/.test(l))).toEqual([]);
+  });
+});
+
 describe('macos-sign.sh import', () => {
   const env = { CSC_LINK: 'cDEy', CSC_KEY_PASSWORD: 'secret', IDENTITY };
 
