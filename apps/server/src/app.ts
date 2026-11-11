@@ -18,6 +18,8 @@ import { authRoutes } from './routes/auth.js';
 import { basketRoutes } from './routes/baskets.js';
 import { marketRoutes } from './routes/market.js';
 import { syncRoutes } from './routes/sync.js';
+import { alertRoutes } from './routes/alerts.js';
+import { AlertService, type AlertNotification } from './alerts/service.js';
 import { userRoutes } from './routes/user.js';
 import type { GitHubTarget } from './sync/github.js';
 import type { AppAuth } from './sync/githubAuth.js';
@@ -54,6 +56,10 @@ export interface AppDeps {
   syncRemote?: (t: GitHubTarget) => RemoteStore;
   /** GitHub sign-in for sync (tests: a fake; the desktop app: one on its sync-only fetch); absent = GitHub. */
   syncAuth?: AppAuth;
+  /** Shows an alert to the user (the desktop app: a native notification). Absent: alerts are not checked here. */
+  alertNotify?: (n: AlertNotification) => void;
+  /** How often alerts are checked (tests). */
+  alertIntervalMs?: number;
 }
 
 function zodMessage(err: ZodError): string {
@@ -172,6 +178,16 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   sync.start();
   app.addHook('onClose', async () => sync.stop());
   await app.register(syncRoutes, { sync });
+
+  const alerts = deps.alertNotify
+    ? new AlertService({
+      repos, market, baskets, notify: deps.alertNotify,
+      ...(deps.now ? { now: deps.now } : {}), ...(deps.alertIntervalMs ? { intervalMs: deps.alertIntervalMs } : {}),
+    })
+    : null;
+  alerts?.start();
+  app.addHook('onClose', async () => alerts?.stop());
+  await app.register(alertRoutes, { alerts });
 
   const webDist = config.webDist;
   const indexHtml = webDist ? new IndexHtml(join(webDist, 'index.html')) : null;

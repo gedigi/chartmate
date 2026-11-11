@@ -119,6 +119,19 @@ export const LayoutSchema = z.object({
   hiddenEvents: z.array(z.enum(CORPORATE_EVENT_KINDS)).max(CORPORATE_EVENT_KINDS.length).optional().catch(undefined),
 }) satisfies z.ZodType<Layout, unknown>;
 
+/** An alert on a drawing (see @chartmate/shared alerts.ts). Only the lists the drawing's kind uses matter. */
+const AlertSchema = z.object({
+  id: z.string().min(1).max(64),
+  on: z.boolean(),
+  tf: z.enum(TIMEFRAMES as unknown as [Timeframe, ...Timeframe[]]),
+  session: z.enum(['rth', 'eth']),
+  cross: z.array(z.enum(['up', 'down'])).max(2).optional(),
+  zone: z.array(z.enum(['enter', 'exitUp', 'exitDown'])).max(3).optional(),
+  levels: z.array(z.number().finite()).max(7).optional(),
+  position: z.array(z.enum(['entry', 'target', 'stop'])).max(3).optional(),
+  extend: z.boolean().optional(),
+});
+
 const DrawingSchema = z.object({
   name: z.string().max(40),
   points: z.array(z.object({ timestamp: z.number(), value: z.number() })).min(1).max(10),
@@ -128,6 +141,8 @@ const DrawingSchema = z.object({
   text: z.string().max(500).optional(), anchorTf: z.enum(['1D', '1W', '1M']).optional(),
   // Tolerant: invalid / legacy styles are dropped (the drawing itself is still saved).
   styles: DrawingStylesSchema.optional().catch(undefined),
+  // Tolerant too: an invalid alert is dropped on its own.
+  alert: AlertSchema.optional().catch(undefined),
 }).superRefine((d, ctx) => {
   // A rectangle is its two opposite corners (the web app derives its other handles from them).
   if (d.name === 'rectangle' && (d.points.length !== 2 || !d.points.every((p) => Number.isFinite(p.timestamp) && Number.isFinite(p.value)))) {

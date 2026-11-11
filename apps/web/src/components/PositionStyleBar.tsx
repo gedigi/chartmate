@@ -3,10 +3,11 @@ import { useEffect, useId, useState, type JSX, type KeyboardEvent } from 'react'
 import type { ChartAdapter, SelectedDrawing } from '../chart/ChartAdapter';
 import { distanceTicks, outcomeLabel, priceFromPct, priceFromTicks, validatePrices } from '../chart/position';
 import { positionContext } from '../chart/positionOverlay';
+import { AlertButton, type AlertControls } from './AlertButton';
 import { ArrangeMenu, type ArrangeControls } from './ArrangeMenu';
 import { DrawingLockToggle } from './LockIcon';
 
-export type PositionControls = Pick<ChartAdapter, 'setSelectedPositionPrices' | 'setSelectedLock'> & ArrangeControls;
+export type PositionControls = Pick<ChartAdapter, 'setSelectedPositionPrices' | 'setSelectedLock'> & ArrangeControls & Partial<AlertControls>;
 export type SelectedPosition = Extract<SelectedDrawing, { kind: 'position' }>;
 
 type Parsed<T> = { value: T } | { error: string };
@@ -132,6 +133,7 @@ export function PositionStyleBar({ controls, sel, onUseAsDefault }: {
           title={validDefaults ? 'Use these target / stop distances (%) for new positions' : 'Distances must be at most 99 % to be used as defaults'}>Use as default</button>
         {outcome && <span className="position-outcome" data-testid="position-outcome">{outcome}</span>}
         <span className="position-lock">
+          <AlertButton controls={controls} name={sel.side === 'long' ? 'longPosition' : 'shortPosition'} alert={sel.alert ?? null} />
           <ArrangeMenu controls={controls} locked={locked} />
           <DrawingLockToggle locked={locked} ownLock={ownLock} onToggle={(v) => controls.setSelectedLock(v)} />
         </span>

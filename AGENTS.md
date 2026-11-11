@@ -61,6 +61,12 @@ install hook is `.pnpmfile.cjs`.
   `userDataChanges`). Anything read from the file is validated with the routes' own zod schemas before it is written.
   The token never goes back to the client; the desktop app encrypts it (`safeStorage`) and gives sync its own
   fetch guard for GitHub's two hosts (`SYNC_HOSTS`).
+- Alerts on drawings: the rules are pure in `packages/shared/src/alerts.ts` (what each drawing watches, lines
+  measured per bar as the chart draws them, crossings, zones, a position's lifecycle); `apps/server/src/alerts/
+  service.ts` checks them every 30 s when the host gives a notifier (only the desktop app: `alertNotify`, native
+  notifications from the main process, `apps/desktop/src/lib/alertNotifier.ts`) and keeps each alert's memory in
+  the settings by alert id. The alert is a field of the drawing (saved, synced); `/api/alerts` reports `supported`,
+  and the web bell (`AlertButton.tsx`) is hidden without it.
 - The web client only uses relative `/api/...` URLs, so the same bundle runs behind Vite's proxy, from the
   server, and on desktop.
 - Desktop: the window loads `app://chartmate/`; `/api/*` goes to `fastify.inject`, everything else is a static

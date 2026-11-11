@@ -307,6 +307,41 @@
 .arrange-menu button:disabled { color: var(--text-subtle); opacity: 1; }
 .arrange-menu kbd { border: 0; background: none; padding: 0; color: var(--text-subtle); font-size: 11.5px; }
 @media (prefers-reduced-motion: reduce) { .arrange-menu { animation: none; } }
+
+/* Alert on a drawing (AlertButton.tsx): a bell like the Arrange button, a dot when armed, and a small panel. */
+.alert-control { position: relative; display: inline-flex; }
+.alert-button {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; min-height: 0; padding: 0;
+  border: 1px solid transparent; border-radius: 7px; background: none; color: var(--text-muted);
+}
+.alert-button:hover:not(:disabled), .alert-button[aria-expanded='true'] { background: var(--bg-hover); border-color: transparent; color: var(--text); }
+.alert-button[data-armed] { color: var(--accent-fg); }
+.alert-button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.alert-dot {
+  position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 1.5px var(--bg-elevated);
+}
+.alert-panel {
+  position: absolute; top: calc(100% + 11px); right: -6px; z-index: 5;
+  display: flex; flex-direction: column; gap: 8px; width: 248px; padding: 10px 12px 12px;
+  background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: 12px;
+  font-size: 12.5px; color: var(--text); text-align: left; white-space: normal; outline: none;
+  animation: color-picker-in 110ms ease-out;
+}
+.alert-option { display: flex; align-items: center; gap: 7px; min-height: 22px; cursor: pointer; }
+.alert-option:has(input:disabled) { color: var(--text-subtle); cursor: default; }
+.alert-option input { margin: 0; accent-color: var(--accent); }
+.alert-option input:focus:not(:focus-visible) { box-shadow: none; outline: none; }
+.alert-switch { font-weight: 600; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.alert-options { display: flex; flex-direction: column; gap: 2px; }
+.alert-levels { display: grid; grid-template-columns: repeat(3, auto); gap: 2px 10px; justify-content: start; }
+.alert-status {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px;
+  border-top: 1px solid var(--border); color: var(--text-muted); line-height: 1.4;
+}
+.drawing-style-bar .alert-rearm, .position-lock .alert-rearm { flex: none; min-height: 24px; padding: 0 10px; font-size: 12px; }
+.alert-note { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--text-subtle); }
+@media (prefers-reduced-motion: reduce) { .alert-panel { animation: none; } }
 .drawing-style-price { position: relative; display: inline-flex; }
 .drawing-style-toggle { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; white-space: nowrap; cursor: pointer; }
 .drawing-style-price input { width: 110px; height: 26px; font-variant-numeric: tabular-nums; }

@@ -5,6 +5,14 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+### Desktop app
+
+- **Alerts on drawings**: the bell in a drawing's style bar sends a notification when the price crosses a line (up,
+  down or either), breaks out of or re-enters a channel, enters or leaves a rectangle, crosses a Fibonacci level, or
+  reaches a position's entry, target or stop; a vertical line can remind you of its time. Checked every 30 seconds
+  while Chartmate is running, measured on the timeframe the alert was set on; each alert notifies once, then can be
+  re-armed. Alerts are saved and synced with the drawings.
+
 ## [1.5.0] - 2026-11-09
 
 ### Everywhere

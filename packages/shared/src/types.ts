@@ -1,3 +1,4 @@
+import type { DrawingAlert } from './alerts.js';
 export type Timeframe = '1m'|'5m'|'15m'|'30m'|'1h'|'2h'|'4h'|'1D'|'1W'|'1M';
 export type Session = 'pre'|'regular'|'post';
 export type SessionMode = 'rth'|'eth';
@@ -209,6 +210,8 @@ export interface DrawingStyles {
 export interface DrawingState {
   name: string; points: { timestamp: number; value: number }[]; lock: boolean; locked?: boolean;
   text?: string; styles?: DrawingStyles; anchorTf?: '1D'|'1W'|'1M';
+  /** An alert on the drawing (alerts.ts); the desktop app checks it and notifies. */
+  alert?: DrawingAlert;
 }
 export interface WatchlistItem { id: SymbolId; position: number }
 

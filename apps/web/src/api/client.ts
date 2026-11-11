@@ -120,6 +120,14 @@ async function nullOn404<T>(p: Promise<T>): Promise<T | null> {
   }
 }
 
+/** How an alert on a drawing stands (the desktop app checks them). */
+export interface AlertStatus {
+  /** armed: watching; open: a position's entry was reached; fired: done until re-armed. */
+  status: 'armed' | 'open' | 'fired';
+  at: number | null;
+  message: string | null;
+}
+
 /** Sync with a private GitHub repository (see the server's sync service). The token is never sent back. */
 export interface SyncStatus {
   /** 'env': set by the server's environment; 'app': connected here; null: off. */
@@ -186,6 +194,11 @@ export const api = {
   layouts: {
     get: (key: string) => nullOn404(get<Layout>(`/layouts/${enc(key)}`)),
     put: async (key: string, l: Layout): Promise<void> => { await request<unknown>('PUT', `/layouts/${enc(key)}`, l); },
+  },
+  alerts: {
+    /** Whether this app checks alerts (the desktop app) and how each stands; null from an older server. */
+    get: () => nullOn404(get<{ supported: boolean; alerts: Record<string, AlertStatus> }>('/alerts')),
+    rearm: async (id: string): Promise<void> => { await request<void>('POST', `/alerts/${enc(id)}/rearm`); },
   },
   sync: {
     /** null: a server without sync (an older version). */

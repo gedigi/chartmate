@@ -5,7 +5,7 @@ import { hardened } from './boot.js'; // MUST stay first: command-line switch gu
 import net from 'node:net';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { app, BrowserWindow, dialog, Menu, protocol, safeStorage, screen, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, Notification, protocol, safeStorage, screen, session, shell } from 'electron';
 import product from '../product.json' with { type: 'json' };
 import { BasketService } from '../../server/src/baskets/service.js';
 import { buildApp } from '../../server/src/app.js';
@@ -30,6 +30,7 @@ import { createNodeSqliteDb, type NodeSqliteHandle } from './lib/nodeSqlite.js';
 import { createAppProtocolHandler } from './lib/protocol.js';
 import { ensurePrivateDir, migrateLegacyUserData, restrictFiles } from './lib/storage.js';
 import { createSyncCipher } from './lib/syncCipher.js';
+import { createAlertNotifier } from './lib/alertNotifier.js';
 import { frameOptions, themeFromThemeColor, titleBarOverlay } from './lib/titleBar.js';
 import { isAllowedReleasesUrl } from './lib/releasesPage.js';
 import type { UpdateController } from './lib/updateController.js';
@@ -104,6 +105,10 @@ let started = false;
 let shutdown: (() => Promise<void>) | null = null;
 const stateFile = join(userData, 'window-state.json');
 
+// Windows shows notifications only for an app with an Application User Model ID: the one the installer's shortcut
+// carries (electron-builder sets it to the appId).
+if (process.platform === 'win32') app.setAppUserModelId(product.appId);
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -142,6 +147,12 @@ async function start(): Promise<void> {
     config, repos, market, baskets,
     syncRemote: (t) => new GitHubFile(t, syncFetch),
     syncAuth: new GitHubAppAuth(syncFetch),
+    // Alerts on drawings: native notifications from this (main) process; a click brings the window back.
+    alertNotify: createAlertNotifier({
+      Notification,
+      focus: () => focusOrCreateWindow(mainWindow, { ready: started, create: createWindow }),
+      onError: (err) => log.error('alert notification failed', err),
+    }),
     syncCipher: createSyncCipher(safeStorage),
     // The embedded server is the app: GET /api/about reports the app's version.
     version: app.getVersion(),

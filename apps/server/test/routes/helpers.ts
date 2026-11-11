@@ -12,6 +12,7 @@ import { RequestQueue } from '../../src/providers/queue.js';
 import { createRegistry } from '../../src/providers/registry.js';
 import type { GitHubTarget } from '../../src/sync/github.js';
 import type { AppAuth } from '../../src/sync/githubAuth.js';
+import type { AlertNotification } from '../../src/alerts/service.js';
 import type { RemoteStore } from '../../src/sync/service.js';
 
 export const DAY = 86_400_000;
@@ -46,7 +47,7 @@ export interface TestApp {
 }
 
 export async function makeApp(
-  overrides: Partial<Config> = {}, opts: { now?: () => number; version?: string; syncRemote?: (t: GitHubTarget) => RemoteStore; syncAuth?: AppAuth } = {},
+  overrides: Partial<Config> = {}, opts: { now?: () => number; version?: string; syncRemote?: (t: GitHubTarget) => RemoteStore; syncAuth?: AppAuth; alertNotify?: (n: AlertNotification) => void } = {},
 ): Promise<TestApp> {
   const h = await createTestDb();
   await migrate(h.db);
@@ -60,7 +61,7 @@ export async function makeApp(
   const baskets = new BasketService({ repos, market, ...(opts.now ? { now: opts.now } : {}) });
   const config: Config = { ...testConfig(), ...overrides };
   const app = await buildApp({
-    config, repos, market, baskets, logger: false, now: opts.now, version: opts.version, ...(opts.syncRemote ? { syncRemote: opts.syncRemote } : {}), ...(opts.syncAuth ? { syncAuth: opts.syncAuth } : {}),
+    config, repos, market, baskets, logger: false, now: opts.now, version: opts.version, ...(opts.syncRemote ? { syncRemote: opts.syncRemote } : {}), ...(opts.syncAuth ? { syncAuth: opts.syncAuth } : {}), ...(opts.alertNotify ? { alertNotify: opts.alertNotify, alertIntervalMs: 3_600_000 } : {}),
   });
   return {
     app,

@@ -630,6 +630,34 @@ describe('ChartAdapter', () => {
         expect(a.setSelectedLock(true)).toBe(false); // nothing selected
       });
 
+      it('alerts: a new one takes the chart\'s timeframe and session; saved, restored, edited, removed; locked drawings too', async () => {
+        const a = await loaded();
+        const changed = vi.fn();
+        a.onDrawingsChange(changed);
+        a.restoreDrawings([seg({ lock: true, locked: true }), { name: 'simpleAnnotation', points: [{ timestamp: DAY, value: 1 }], lock: false, text: 'x' }]);
+        const [line, text] = userOverlays();
+        select(line!);
+        expect(a.getSelectedDrawing()).toEqual(expect.objectContaining({ alert: null }));
+        expect(a.setSelectedAlert('new')).toBe(true);
+        const created = a.serializeDrawings()[0]!.alert!;
+        expect(created).toEqual({ id: expect.any(String), on: true, tf: '1D', session: 'rth', cross: ['up', 'down'], extend: true });
+        expect(changed).toHaveBeenCalledTimes(1);
+        expect(a.getSelectedDrawing()).toEqual(expect.objectContaining({ alert: created }));
+        expect(a.setSelectedAlert({ ...created, cross: ['up'] })).toBe(true);
+        expect(a.serializeDrawings()[0]!.alert?.cross).toEqual(['up']);
+        // Restored with the drawings (the id is kept: the desktop app's memory of it stays valid).
+        const saved = a.serializeDrawings();
+        a.restoreDrawings(saved);
+        expect(a.serializeDrawings()[0]!.alert).toEqual({ ...created, cross: ['up'] });
+        select(userOverlays()[0]!);
+        expect(a.setSelectedAlert(null)).toBe(true);
+        expect(a.serializeDrawings()[0]).not.toHaveProperty('alert');
+        // Text has no alert.
+        select(userOverlays()[1]!);
+        expect(a.setSelectedAlert('new')).toBe(false);
+        void text;
+      });
+
       it('a drawing\'s own lock outlives "Lock all" being turned off; lock all combines with it', async () => {
         const a = await loaded();
         const lockAll = vi.fn();
@@ -1198,7 +1226,7 @@ describe('ChartAdapter', () => {
       const o = userOverlays()[0]!;
       expect(o.styles).toEqual({ line: { color: '#ff0000', size: 3, style: 'dashed', dashedValue: [6, 4], lineCap: 'butt' } });
       o.onSelected?.({ overlay: o });
-      expect(selection).toHaveBeenLastCalledWith({ id: o.id, kind: 'line', name: 'segment', style: { color: '#ff0000', size: 3, style: 'dashed' }, locked: false, ownLock: false });
+      expect(selection).toHaveBeenLastCalledWith({ id: o.id, kind: 'line', name: 'segment', style: { color: '#ff0000', size: 3, style: 'dashed' }, locked: false, ownLock: false, alert: null });
       a.setSelectedStyle({ color: '#00ff00' });
       expect(chart().overrideOverlay).toHaveBeenLastCalledWith({ id: o.id, styles: { line: { color: '#00ff00', size: 3, style: 'dashed', dashedValue: [6, 4], lineCap: 'butt' } } });
       expect(changed).toHaveBeenCalledTimes(1);
@@ -1242,7 +1270,7 @@ describe('ChartAdapter', () => {
       a.restoreDrawings([seg, { name: 'simpleAnnotation', points: [{ timestamp: DAY, value: 1 }], lock: false, text: 'hi' }]);
       const [line, text] = userOverlays();
       line!.onSelected?.({ overlay: line });
-      expect(selection).toHaveBeenLastCalledWith({ id: line!.id, kind: 'line', name: 'segment', style: drawing, locked: false, ownLock: false });
+      expect(selection).toHaveBeenLastCalledWith({ id: line!.id, kind: 'line', name: 'segment', style: drawing, locked: false, ownLock: false, alert: null });
       text!.onSelected?.({ overlay: text });
       expect(selection).toHaveBeenLastCalledWith({ id: text!.id, kind: 'text', style: { color: '#abcdef', size: 12 }, locked: false, ownLock: false });
       a.setSelectedStyle({ size: 18 });

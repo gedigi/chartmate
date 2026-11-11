@@ -827,6 +827,32 @@ R:R and the outcome in %, with no account, risk, quantity or money amounts.
   load: their `styles.position` / `accountSize`, `riskMode`, `riskValue`, `currency` are ignored and dropped on
   the next save.
 
+### Alerts
+
+In the desktop app, a drawing can tell you when the price reaches it. Select the drawing and click the **bell** in
+its style bar, then **Notify me**. What it watches depends on the drawing:
+
+| Drawing | Alert |
+| --- | --- |
+| Trend line, ray, extended line, horizontal line, price line | Crosses up, crosses down (either or both) |
+| Parallel channel | Breaks above, breaks below, re-enters |
+| Rectangle | Enters, leaves above, leaves below |
+| Fibonacci retracement | Crosses the levels you tick (61.8 % by default) |
+| Long / short position | Entry reached, then target hit or stop hit (with the result in R) |
+| Vertical line | Its time arrives |
+
+- A native notification (macOS Notification Center, Windows notifications) tells you once; clicking it brings
+  Chartmate to the front. The alert then shows as triggered in its panel, with **Re-arm** to watch again.
+- Sloped lines are measured the way the chart draws them, per bar of the timeframe the alert was set on (shown in the
+  panel), so a trend line across a weekend alerts where you see it. Trend lines, channels and rectangles keep
+  watching past their right end (**Keep watching past its end**, on by default).
+- The price is checked every 30 seconds on that timeframe's latest bar, while Chartmate is running (including with
+  its window closed on macOS). A quick spike between two checks can be missed. Drawing a line never alerts at once:
+  the first check only notes which side the price is on.
+- Moving the drawing or changing its alert re-arms it. Alerts are saved and synced with the drawings; each device
+  that runs the desktop app checks them on its own.
+- The self-hosted web app saves alerts with the drawings but does not check them yet (the bell is hidden there).
+
 ### Measure
 
 With no drawing tool active, hold **Shift** and drag on the price pane to measure from the press to the cursor: a box
@@ -1201,7 +1227,8 @@ JSON over `/api` (the web client uses nothing else). With `CHARTMATE_PASSWORD` s
 | `GET`, `POST /api/baskets`; `GET`, `PUT`, `DELETE /api/baskets/:id`; `POST /api/baskets/:id/versions` | Baskets and their versions (at most 50 constituents per version, 100 versions and 100 distinct symbols per basket). Appending a version is atomic; one that loses a race with another edit three times gets a 409. |
 | `GET`, `PUT /api/watchlist` | The watchlist (see [Watchlist and sections](#watchlist-and-sections)). |
 | `GET`, `PUT /api/layouts/:key` | Chart layout; `default` is the one the app uses. |
-| `GET`, `PUT /api/drawings/:symbol` | Drawings of a symbol. |
+| `GET`, `PUT /api/drawings/:symbol` | Drawings of a symbol (each may carry an `alert`). |
+| `GET /api/alerts`; `POST /api/alerts/:id/rearm` | Whether this app checks alerts (`supported`: the desktop app) and how each stands (`armed`, `open`, `fired`, with when and what); re-arm a fired one. |
 | `GET`, `PUT`, `DELETE /api/sync` | Sync status (`{ source, repo, lastSyncAt, lastError }`, never the token); connect (`{ repo, token }`, runs a first sync, 400 `sync_failed` on failure); disconnect. |
 | `POST /api/sync/github/start`, `POST /api/sync/github/poll`, `PUT /api/sync/github` | Sign in with GitHub: the device code to enter (`{ userCode, verificationUri, expiresAt, interval }`), its progress (`pending`, `denied`, `expired`, or `ready` with the account and the repositories the app may use), then connect one (`{ repo }`, private only). |
 | `POST /api/sync/run`; `GET /api/sync/check` | A full sync (`{ applied, pushed }`, 502 `sync_failed` on failure); whether another device saved newer data (`{ remoteNewer }`). Both `null` while sync is off. |

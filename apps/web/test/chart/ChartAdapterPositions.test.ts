@@ -210,7 +210,7 @@ describe('ChartAdapter long / short positions', () => {
       id: userOverlays()[0]!.id, kind: 'position', side: 'long', locked: false, ownLock: false, entry: 100, target: 100.5, stop: 98, precision: 2,
       metrics: { rr: 0.25, targetPct: 0.5, stopPct: 2 },
       // Filled on the start bar (it touches 100); bar 2 (high 101) then reaches the target.
-      outcome: { kind: 'target', fillTs: D1, ts: D1 + DAY, price: 100.5, pnlPct: 0.5 },
+      outcome: { kind: 'target', fillTs: D1, ts: D1 + DAY, price: 100.5, pnlPct: 0.5 }, alert: null,
     });
   });
 

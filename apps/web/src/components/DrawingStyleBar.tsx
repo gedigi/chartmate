@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react
 import { MAX_PRICE_DECIMALS, type ChartAdapter, type SelectedDrawing } from '../chart/ChartAdapter';
 import { LINE_STYLES, parseLineStyle } from '../chart/drawingStyles';
 import type { ExtendOptions, LabelOptions } from '../chart/drawingTemplates';
+import { AlertButton } from './AlertButton';
 import { ArrangeMenu, type ArrangeControls } from './ArrangeMenu';
 import { PaletteColorPicker } from './PaletteColorPicker';
 import { DrawingLockToggle } from './LockIcon';
@@ -209,6 +210,7 @@ export function DrawingStyleBar({ controls, onUsePositionDefaults, onPickColor, 
         </label>
       )}
       <span className="drawing-style-sep" role="separator" aria-orientation="vertical" />
+      {sel.kind === 'line' && <AlertButton controls={controls} name={sel.name} alert={sel.alert ?? null} />}
       <ArrangeMenu controls={controls} locked={locked} />
       <DrawingLockToggle locked={locked} ownLock={sel.ownLock} onToggle={(v) => controls.setSelectedLock(v)} />
     </div>

@@ -4,8 +4,8 @@ import {
   type Coordinate, type OverlayMode, type OverlayStyle, type Point as KPoint, type Styles,
 } from 'klinecharts';
 import {
-  isDrawingColorToken, isIntraday, isPositionTool, nyToUtc, resolvePositionDefaults, tfMs,
-  type ChartType, type CorporateEvent, type DrawingDefaults, type CorporateEventKind, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker, type PositionDefaults,
+  alertKind, defaultAlert, isDrawingColorToken, isIntraday, isPositionTool, nyToUtc, resolvePositionDefaults, tfMs,
+  type ChartType, type DrawingAlert, type CorporateEvent, type DrawingDefaults, type CorporateEventKind, type DrawingLineStyle, type DrawingState, type IndicatorState, type Marker, type PositionDefaults,
   type ThemedAppearance, type SessionMode, type SymbolInfo, type Timeframe,
 } from '@chartmate/shared';
 import {
@@ -103,6 +103,8 @@ export type SelectedDrawing = SelectedLock & (
     extend?: ExtendOptions;
     /** Rectangles only: whether the inside is tinted. */
     fill?: boolean;
+    /** Its alert (null or absent: none; see setSelectedAlert). */
+    alert?: DrawingAlert | null;
   }
   | { id: string; kind: 'text'; style: TextStyle }
   | {
@@ -110,6 +112,7 @@ export type SelectedDrawing = SelectedLock & (
     entry: number; target: number; stop: number; precision: number;
     /** The derived numbers (R:R, % distances) and the outcome so far. */
     metrics: PositionMetrics; outcome: PositionOutcome;
+    alert?: DrawingAlert | null;
   });
 
 const INDICATOR_DASH = [4, 4];
@@ -208,6 +211,12 @@ function toSessionOpen(ts: number): number {
   return nyToUtc(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), 9, 30);
 }
 
+/** A new alert's id (its memory on the desktop app is kept under it). */
+function newAlertId(): string {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID() : `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
 /** Undo steps kept (per restored set of drawings). */
 const MAX_UNDO = 100;
 
@@ -249,6 +258,8 @@ export class ChartAdapter {
   private compact = false;
   private chartType: ChartType = 'candle';
   private tf: Timeframe | null = null;
+  /** The chart's session (a new alert watches the drawing on this timeframe and session). */
+  private session: SessionMode = 'rth';
   private loader: DataLoaderImpl | null = null;
   private markers: Marker[] = [];
   /** Corporate events of the charted stock and the kinds hidden (see setEvents). */
@@ -416,6 +427,7 @@ export class ChartAdapter {
     });
     this.loader = loader;
     this.tf = p.tf;
+    this.session = p.session;
     this.assetClass = p.symbol.assetClass;
     this.pricePrecision = p.symbol.pricePrecision;
     drawingConstraint.precision = p.symbol.pricePrecision;
@@ -988,6 +1000,7 @@ export class ChartAdapter {
       if (drawingConstraint.draggingId === overlay.id) drawingConstraint.draggingId = null;
       this.strongIds.delete(overlay.id);
       this.ownLocks.delete(overlay.id);
+      this.alerts.delete(overlay.id);
       this.anchors.delete(overlay.id);
       this.pressedPoints.delete(overlay.id);
       this.removing.add(overlay.id);
@@ -1140,6 +1153,8 @@ export class ChartAdapter {
 
   /** Per user overlay: its anchor and, while shown remapped, the stored points and the displayed ones. */
   private readonly anchors = new Map<string, { anchorTf: AnchorTf; original?: Point[]; display?: Point[] }>();
+  /** Alerts on drawings, by overlay id (saved with the drawings; the desktop app checks them). */
+  private readonly alerts = new Map<string, DrawingAlert>();
   /** Points of an overlay when a press on it started (a press without movement changes nothing). */
   private readonly pressedPoints = new Map<string, Point[] | null>();
 
@@ -1267,11 +1282,11 @@ export class ChartAdapter {
       });
       return {
         id: o.id, kind: 'position', side, ...this.lockOf(o), entry: g.entry, target: g.target, stop: g.stop, precision: this.pricePrecision,
-        metrics, outcome,
+        metrics, outcome, alert: this.alerts.get(o.id) ?? null,
       };
     }
     const style = readLine(o.styles) ?? { ...d, color: readOwnColor(o.styles) ?? d.color };
-    const sel: SelectedDrawing = { id: o.id, kind: 'line', name: o.name, style, ...this.lockOf(o) };
+    const sel: SelectedDrawing = { id: o.id, kind: 'line', name: o.name, style, ...this.lockOf(o), alert: this.alerts.get(o.id) ?? null };
     const value = o.points[0]?.value;
     if (HORIZONTAL_DRAWINGS.has(o.name) && typeof value === 'number') sel.price = { value, precision: this.pricePrecision };
     const label = labelOptions(o.name, o.styles);
@@ -1297,6 +1312,27 @@ export class ChartAdapter {
     if (locked) this.ownLocks.add(sel.id);
     else this.ownLocks.delete(sel.id);
     this.applyLock(sel.id);
+    this.emitChange();
+    this.emitSelection();
+    return true;
+  }
+
+  /**
+   * The selected drawing's alert: a new one with the defaults (watched on this chart's timeframe and session), the
+   * given settings, or null to remove it. Works on locked drawings too (the alert is not part of the drawing's shape).
+   * Saved like any drawing edit. False when nothing (or a drawing without alerts) is selected.
+   */
+  setSelectedAlert(next: DrawingAlert | 'new' | null): boolean {
+    const sel = this.getSelectedDrawing();
+    if (!sel || sel.kind === 'text') return false;
+    const o = this.userOverlays().find((x) => x.id === sel.id);
+    if (!o || !alertKind(o.name)) return false;
+    if (next === null) this.alerts.delete(sel.id);
+    else {
+      const alert = next === 'new' ? defaultAlert(o.name, newAlertId(), this.tf ?? '1D', this.session) : next;
+      if (!alert) return false;
+      this.alerts.set(sel.id, alert);
+    }
     this.emitChange();
     this.emitSelection();
     return true;
@@ -1944,6 +1980,8 @@ export class ChartAdapter {
         d.anchorTf = anchor.anchorTf;
       }
       if (typeof o.extendData === 'string') d.text = o.extendData;
+      const alert = this.alerts.get(o.id);
+      if (alert) d.alert = alert;
       const styles = normalizeOverlayStyles(o.name, o.styles);
       if (styles) d.styles = styles;
       out.push(d);
@@ -1989,6 +2027,7 @@ export class ChartAdapter {
         else if (styles) create.styles = styles;
         const id = this.chart.createOverlay(create);
         if (typeof id === 'string' && own) this.ownLocks.add(id);
+        if (typeof id === 'string' && d.alert) this.alerts.set(id, d.alert);
         if (typeof id === 'string' && d.anchorTf) {
           this.anchors.set(id, display === d.points ? { anchorTf: d.anchorTf } : { anchorTf: d.anchorTf, original: d.points, display });
         }
@@ -2050,6 +2089,7 @@ export class ChartAdapter {
     for (const o of this.userOverlays()) this.chart.removeOverlay({ id: o.id });
     this.anchors.clear();
     this.ownLocks.clear();
+    this.alerts.clear();
   }
 
   /** Fired on draw end, move end and removal of user drawings. Returns an unsubscribe function. */

@@ -6,3 +6,4 @@ export * from './resample.js';
 export * from './basket.js';
 export * from './watchlist.js';
 export * from './quote.js';
+export * from './alerts.js';

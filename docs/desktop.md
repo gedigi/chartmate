@@ -258,6 +258,11 @@ The renderer is treated as untrusted web content, and the main process exposes n
   device flow's device code stays in the main process too). Without OS encryption they are refused, never stored in
   plain text; a database copied to another machine cannot use them. Signing in needs no client secret (the device
   flow and its token refresh use the app's public client ID), so the app ships none.
+- **Alert notifications**: alerts on drawings are checked by the embedded server, which calls the main process's
+  notifier directly (`src/lib/alertNotifier.ts`; no IPC, nothing from the renderer). Notifications are Electron
+  `Notification`s with plain text built from the user's own drawings and the market data, clipped in length; a click
+  only brings the window to the front. On Windows the app sets its Application User Model ID to the `appId` (the
+  installer shortcut's), which Windows needs to show them.
 - **Fuses** (flipped in the `afterPack` hook with `@electron/fuses`):
   - RunAsNode: off;
   - EnableCookieEncryption: on;
