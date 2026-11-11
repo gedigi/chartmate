@@ -40,6 +40,7 @@ export class AlertService {
   private readonly intervalMs: number;
   private timer: ReturnType<typeof setInterval> | null = null;
   private running: Promise<void> | null = null;
+  private stopped = false;
   private readonly precision = new Map<SymbolId, number>();
 
   constructor(deps: {
@@ -55,20 +56,27 @@ export class AlertService {
   }
 
   start(): void {
-    if (this.timer) return;
+    if (this.timer || this.stopped) return;
     this.timer = setInterval(() => { void this.check(); }, this.intervalMs);
     this.timer.unref?.();
     void this.check();
   }
 
-  stop(): void {
+  /** Stops checking; resolves once a round still running has finished (the database must outlive it). */
+  async stop(): Promise<void> {
+    this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    await this.running;
   }
 
-  /** One round over every armed alert (a round already running is joined, not doubled). */
+  /**
+   * One round over every armed alert (a round already running is joined, not doubled). Never rejects: a round that
+   * fails (the database or the market data unavailable) is simply tried again next time.
+   */
   check(): Promise<void> {
-    this.running ??= this.round().finally(() => { this.running = null; });
+    if (this.stopped) return Promise.resolve();
+    this.running ??= this.round().catch(() => { /* next round */ }).finally(() => { this.running = null; });
     return this.running;
   }
 

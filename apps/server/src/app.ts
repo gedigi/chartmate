@@ -186,7 +186,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     })
     : null;
   alerts?.start();
-  app.addHook('onClose', async () => alerts?.stop());
+  // Waits for a check still running: the database is closed after the app.
+  app.addHook('onClose', async () => { await alerts?.stop(); });
   await app.register(alertRoutes, { alerts });
 
   const webDist = config.webDist;

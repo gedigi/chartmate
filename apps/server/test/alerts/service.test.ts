@@ -95,6 +95,30 @@ describe('AlertService', () => {
     expect(notices.map((n) => n.title).sort()).toEqual(['BTC crossed below the horizontal line', 'Tech crossed below the horizontal line']);
   });
 
+  it('stop waits for a round still running, and nothing runs after it (the database closes next)', async () => {
+    await repos.drawings.put('crypto:BTC', [hline(100)]);
+    let release: () => void = () => {};
+    const slow = { ...market, getBars: async (a: never) => { await new Promise<void>((r) => { release = r; }); return market.getBars(a); } } as unknown as MarketDataService;
+    const s = new AlertService({ repos, market: slow, baskets, notify: () => {}, now: () => NOW });
+    s.start();
+    await new Promise((r) => setTimeout(r, 20));
+    let stopped = false;
+    const stopping = s.stop().then(() => { stopped = true; });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(stopped).toBe(false); // still waiting for the round
+    release();
+    await stopping;
+    expect(Object.keys(await s.statuses())).toEqual(['a1']);
+    reads = [];
+    await s.check();
+    expect(reads).toEqual([]);
+  });
+
+  it('a round that fails entirely never rejects (it is tried again next time)', async () => {
+    const broken = { ...repos, drawings: { list: async () => { throw new Error('database closed'); } } } as unknown as Repos;
+    await expect(new AlertService({ repos: broken, market, baskets, notify: () => {}, now: () => NOW }).check()).resolves.toBeUndefined();
+  });
+
   it('a failing symbol or notifier does not stop the others', async () => {
     await repos.drawings.put('crypto:BTC', [hline(100)]);
     await repos.drawings.put('stock:AAPL', [{ ...hline(100), alert: { ...hline(100).alert!, id: 'a2' } }]);
