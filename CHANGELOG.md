@@ -3,7 +3,7 @@
 What changed in each release of Chartmate. Versions follow [semantic versioning](https://semver.org); the desktop
 app, the Docker image and the release tag share one version number.
 
-## Unreleased
+## [1.6.0] - 2026-11-12
 
 ### Desktop app
 
