@@ -32,10 +32,11 @@ test('date range buttons switch the interval and show the period; zooming desele
   await expect(ranges.getByRole('button', { name: '1D', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(span).toHaveText(/^\w{3} \d{1,2}, 09:30 – (\w{3} \d{1,2}, )?\d{2}:\d{2}$/);
 
-  // Zooming the chart (mouse wheel) deselects the range.
+  // Zooming the chart (mouse wheel) deselects the range. Out, not in: early in the session the few bars of 1D are
+  // already at the widest bar spacing, where zooming in changes nothing.
   const box = (await page.getByTestId('chart-host').boundingBox())!;
   await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.4);
-  await page.mouse.wheel(0, -240);
+  await page.mouse.wheel(0, 240);
   await expect(ranges.getByRole('button', { name: '1D', exact: true })).toHaveAttribute('aria-pressed', 'false');
   await expect(span).toHaveText('');
   await expect(timeframes.getByRole('button', { name: '5m', exact: true })).toHaveAttribute('aria-pressed', 'true'); // the interval stays
