@@ -238,7 +238,10 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
 
   it('re-registers the affected built-ins once, keeping their own behavior', () => {
     T.registerDrawingTemplates();
-    expect([...k.templates.keys()].sort()).toEqual(['horizontalStraightLine', 'parallelChannel', 'parallelStraightLine', 'priceLine', 'rayLine', 'segment', 'straightLine']);
+    expect([...k.templates.keys()].sort()).toEqual([
+      'fibonacciLine', 'horizontalRayLine', 'horizontalSegment', 'horizontalStraightLine', 'parallelChannel', 'parallelStraightLine',
+      'priceLine', 'rayLine', 'segment', 'straightLine', 'verticalStraightLine',
+    ]);
     expect(tpl('segment').totalStep).toBe(3);
     expect(tpl('parallelStraightLine').totalStep).toBe(4);
     expect(tpl('parallelChannel')).toMatchObject({ name: 'parallelChannel', totalStep: 4, needDefaultPointFigure: true });

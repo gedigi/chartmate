@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { alertBadgeSettings } from '../chart/alertBadge';
 
 /**
  * Whether this app checks alerts on drawings (the desktop app, which notifies; a self-hosted server does not yet).
@@ -8,7 +9,11 @@ import { api } from '../api/client';
 let supported: Promise<boolean> | null = null;
 
 export function alertsSupported(): Promise<boolean> {
-  supported ??= api.alerts.get().then((r) => r?.supported === true, () => false);
+  supported ??= api.alerts.get().then((r) => {
+    const on = r?.supported === true;
+    alertBadgeSettings.enabled = on; // the bells on drawings show from the chart's next repaint
+    return on;
+  }, () => false);
   return supported;
 }
 

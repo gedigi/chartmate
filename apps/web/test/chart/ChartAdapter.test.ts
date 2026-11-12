@@ -104,6 +104,7 @@ const { ChartAdapter, COMPACT_CANDLE_TOP_GAP_PX } = await import('../../src/char
 const { api } = await import('../../src/api/client');
 const { softTone } = await import('../../src/chart/color');
 const { THEME_TOKENS } = await import('../../src/chart/theme');
+const { alertBadges } = await import('../../src/chart/alertBadge');
 
 const AAPL: SymbolInfo = { id: 'stock:AAPL', assetClass: 'stock', ticker: 'AAPL', name: 'Apple', pricePrecision: 2 };
 const BTC: SymbolInfo = { id: 'crypto:BTC', assetClass: 'crypto', ticker: 'BTC', name: 'Bitcoin', pricePrecision: 2 };
@@ -663,6 +664,18 @@ describe('ChartAdapter', () => {
         expect(a.updateAlertById(created.id, null)).toBe(true);
         expect(a.serializeDrawings()[0]).not.toHaveProperty('alert');
         expect(a.updateAlertById('elsewhere', null)).toBe(false);
+        // The bell follows: shown while the drawing has an alert (hollow when off), gone with it.
+        a.restoreDrawings([{ ...seg(), alert: { ...created, on: false } }]);
+        const shown = userOverlays()[0]!;
+        expect(alertBadges.get(shown.id)).toEqual({ on: false });
+        select(shown);
+        a.setSelectedAlert({ ...created, on: true });
+        expect(alertBadges.get(shown.id)).toEqual({ on: true });
+        a.setSelectedAlert(null);
+        expect(alertBadges.has(shown.id)).toBe(false);
+        a.setSelectedAlert('new');
+        a.restoreDrawings([]);
+        expect(alertBadges.size).toBe(0);
       });
 
       it('a drawing\'s own lock outlives "Lock all" being turned off; lock all combines with it', async () => {

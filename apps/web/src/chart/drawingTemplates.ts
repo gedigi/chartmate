@@ -1,6 +1,7 @@
 import type { LineStyleKind } from '@chartmate/shared';
 import { getOverlayClass, registerOverlay, type OverlayFigure, type OverlayTemplate } from 'klinecharts';
 import { parseColor, zoneTint } from './color';
+import { withAlertBadge } from './alertBadge';
 import { readableTextOn } from './contrast';
 import { THEME_TOKENS } from './theme';
 
@@ -366,7 +367,8 @@ export function registerDrawingTemplates(): void {
     return t && t[WRAPPED_MARK] === true && t[ORIGINAL_KEY] ? (t[ORIGINAL_KEY] as Template) : t;
   };
   const register = (base: Template, f: (t: Template) => Template) => {
-    registerOverlay({ ...f(base), [WRAPPED_MARK]: true, [ORIGINAL_KEY]: base } as Template);
+    // Every drawing that can have an alert shows its bell (alertBadge.ts).
+    registerOverlay({ ...withAlertBadge(f(base)), [WRAPPED_MARK]: true, [ORIGINAL_KEY]: base } as Template);
   };
   const wrap = (name: string, f: (t: Template) => Template) => {
     const base = original(name);
@@ -383,4 +385,6 @@ export function registerDrawingTemplates(): void {
   }
   wrap('priceLine', withLabels);
   wrap('horizontalStraightLine', withLabels);
+  // KLineChart's own drawings that are otherwise unchanged: only the alert bell is added.
+  for (const name of ['fibonacciLine', 'verticalStraightLine', 'horizontalRayLine', 'horizontalSegment']) wrap(name, (t) => t);
 }

@@ -5,6 +5,11 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+### Desktop app
+
+- A drawing with an alert now shows a small bell at its right end: filled while the alert is on, hollow when it is
+  off.
+
 ### Everywhere
 
 - Dependencies: Electron 45.2.3 (Chromium and Node.js fixes in the desktop app), and patch updates of fastify,

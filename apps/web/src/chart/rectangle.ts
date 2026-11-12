@@ -1,6 +1,7 @@
 import { registerOverlay, type OverlayFigure, type OverlayTemplate } from 'klinecharts';
 import { parseColor, zoneTint } from './color';
 import { rangeAxisFigures } from './axisRange';
+import { withAlertBadge } from './alertBadge';
 import { drawingContext, fillOption, lineStyles } from './drawingTemplates';
 import { THEME_TOKENS } from './theme';
 
@@ -216,5 +217,5 @@ let registered = false;
 export function registerRectangleOverlay(force = false): void {
   if (registered && !force) return;
   registered = true;
-  registerOverlay(template);
+  registerOverlay(withAlertBadge(template));
 }

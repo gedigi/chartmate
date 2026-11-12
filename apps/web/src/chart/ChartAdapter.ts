@@ -21,6 +21,7 @@ import {
   toPositionPoints, validatePrices, type OutcomeBar, type PositionMetrics, type PositionOutcome, type PositionSide,
 } from './position';
 import { positionContext, positionState, registerPositionOverlays, releasePositionContext } from './positionOverlay';
+import { alertBadges } from './alertBadge';
 import { isDegenerateBox, persistedPoints, RECTANGLE, registerRectangleOverlay } from './rectangle';
 import { drawingClipboard, type DrawingClip } from './drawingClipboard';
 import { DEFAULT_DRAWING_COLOR, drawingSwatches, resolveDrawingColor, type DrawingSwatch } from './drawingColors';
@@ -1001,6 +1002,7 @@ export class ChartAdapter {
       this.strongIds.delete(overlay.id);
       this.ownLocks.delete(overlay.id);
       this.alerts.delete(overlay.id);
+      alertBadges.delete(overlay.id);
       this.anchors.delete(overlay.id);
       this.pressedPoints.delete(overlay.id);
       this.removing.add(overlay.id);
@@ -1327,15 +1329,27 @@ export class ChartAdapter {
     if (!sel || sel.kind === 'text') return false;
     const o = this.userOverlays().find((x) => x.id === sel.id);
     if (!o || !alertKind(o.name)) return false;
-    if (next === null) this.alerts.delete(sel.id);
+    if (next === null) this.setAlert(sel.id, null);
     else {
       const alert = next === 'new' ? defaultAlert(o.name, newAlertId(), this.tf ?? '1D', this.session) : next;
       if (!alert) return false;
-      this.alerts.set(sel.id, alert);
+      this.setAlert(sel.id, alert);
     }
     this.emitChange();
     this.emitSelection();
     return true;
+  }
+
+  /** Sets or drops a drawing's alert, with its bell on the chart (redrawn unless the drawing is being created). */
+  private setAlert(overlayId: string, alert: DrawingAlert | null, redraw = true): void {
+    if (alert) {
+      this.alerts.set(overlayId, alert);
+      alertBadges.set(overlayId, { on: alert.on });
+    } else {
+      this.alerts.delete(overlayId);
+      alertBadges.delete(overlayId);
+    }
+    if (redraw) this.chart.overrideOverlay({ id: overlayId });
   }
 
   /**
@@ -1345,8 +1359,7 @@ export class ChartAdapter {
   updateAlertById(alertId: string, change: { on: boolean } | null): boolean {
     for (const [overlayId, a] of this.alerts) {
       if (a.id !== alertId) continue;
-      if (change === null) this.alerts.delete(overlayId);
-      else this.alerts.set(overlayId, { ...a, on: change.on });
+      this.setAlert(overlayId, change === null ? null : { ...a, on: change.on });
       this.emitChange();
       this.emitSelection();
       return true;
@@ -2043,7 +2056,7 @@ export class ChartAdapter {
         else if (styles) create.styles = styles;
         const id = this.chart.createOverlay(create);
         if (typeof id === 'string' && own) this.ownLocks.add(id);
-        if (typeof id === 'string' && d.alert) this.alerts.set(id, d.alert);
+        if (typeof id === 'string' && d.alert) this.setAlert(id, d.alert, false);
         if (typeof id === 'string' && d.anchorTf) {
           this.anchors.set(id, display === d.points ? { anchorTf: d.anchorTf } : { anchorTf: d.anchorTf, original: d.points, display });
         }
@@ -2105,6 +2118,7 @@ export class ChartAdapter {
     for (const o of this.userOverlays()) this.chart.removeOverlay({ id: o.id });
     this.anchors.clear();
     this.ownLocks.clear();
+    for (const id of this.alerts.keys()) alertBadges.delete(id);
     this.alerts.clear();
   }
 

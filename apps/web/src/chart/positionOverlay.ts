@@ -3,6 +3,7 @@ import { registerOverlay, type OverlayFigure, type OverlayTemplate } from 'kline
 import { rangeAxisFigures } from './axisRange';
 import { zoneTint } from './color';
 import { readableTextOn } from './contrast';
+import { withAlertBadge } from './alertBadge';
 import { drawingConstraint } from './drawingTemplates';
 import {
   centerLabel, DEFAULT_WIDTH_BARS, defaultGeometry, evaluateOutcome, fromPositionPoints, hasResult, outcomeLabel, positionMetrics, pressedMove,
@@ -270,6 +271,6 @@ let registered = false;
 export function registerPositionOverlays(force = false): void {
   if (registered && !force) return;
   registered = true;
-  registerOverlay(template('longPosition'));
-  registerOverlay(template('shortPosition'));
+  registerOverlay(withAlertBadge(template('longPosition')));
+  registerOverlay(withAlertBadge(template('shortPosition')));
 }

@@ -841,6 +841,8 @@ its style bar, then **Notify me**. What it watches depends on the drawing:
 | Long / short position | Entry reached, then target hit or stop hit (with the result in R) |
 | Vertical line | Its time arrives |
 
+- A drawing with an alert shows a small bell at its right end, filled in the drawing's color while the alert is on
+  and hollow when it is off, so you can tell at a glance which drawings are watched.
 - **Alerts** (the bell in the top bar; on a phone-sized window, **⋯** → **Alerts**) lists every alert on every
   symbol: what it watches, and whether it is watching, triggered (with when and why) or off. From there you can
   switch one on or off, **Re-arm** a triggered one, remove it (the drawing stays), or **Show** its chart. A dot on
@@ -1347,7 +1349,7 @@ enforcing it); custom indicators normally need only the types from `../types`.
 ## Roadmap
 
 - Compare/overlay another symbol on the same chart
-- Price alerts
+- Alerts in the self-hosted web app (the desktop app has them)
 - FX (currency pair) data
 
 ## License
