@@ -1,6 +1,6 @@
 import {
   normalizeWatchlist, WATCHLIST_STORED_HEADER,
-  type BarsResponse, type Basket, type BasketVersion, type DrawingState, type EventsResponse, type LatestResponse, type Layout, type Quote,
+  type BarsResponse, type Basket, type DrawingAlert, type BasketVersion, type DrawingState, type EventsResponse, type LatestResponse, type Layout, type Quote,
   type SessionMode, type SymbolId, type SymbolInfo, type Timeframe, type WatchlistEntry,
 } from '@chartmate/shared';
 
@@ -128,6 +128,17 @@ export interface AlertStatus {
   message: string | null;
 }
 
+/** One alert in the list of all alerts (the Alerts panel). */
+export interface AlertEntry extends AlertStatus {
+  id: string;
+  symbol: SymbolId;
+  /** As shown: "AAPL", "BTC", or a basket's name. */
+  ticker: string;
+  /** The drawing tool, e.g. 'segment'. */
+  name: string;
+  alert: DrawingAlert;
+}
+
 /** Sync with a private GitHub repository (see the server's sync service). The token is never sent back. */
 export interface SyncStatus {
   /** 'env': set by the server's environment; 'app': connected here; null: off. */
@@ -197,7 +208,11 @@ export const api = {
   },
   alerts: {
     /** Whether this app checks alerts (the desktop app) and how each stands; null from an older server. */
-    get: () => nullOn404(get<{ supported: boolean; alerts: Record<string, AlertStatus> }>('/alerts')),
+    get: () => nullOn404(get<{ supported: boolean; alerts: Record<string, AlertStatus>; list?: AlertEntry[] }>('/alerts')),
+    /** Switches an alert on or off where its drawing is stored. */
+    setOn: async (id: string, on: boolean): Promise<void> => { await request<unknown>('PATCH', `/alerts/${enc(id)}`, { on }); },
+    /** Removes an alert from its drawing (the drawing stays). */
+    remove: async (id: string): Promise<void> => { await request<void>('DELETE', `/alerts/${enc(id)}`); },
     rearm: async (id: string): Promise<void> => { await request<void>('POST', `/alerts/${enc(id)}/rearm`); },
   },
   sync: {

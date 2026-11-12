@@ -841,6 +841,10 @@ its style bar, then **Notify me**. What it watches depends on the drawing:
 | Long / short position | Entry reached, then target hit or stop hit (with the result in R) |
 | Vertical line | Its time arrives |
 
+- **Alerts** (the bell in the top bar; on a phone-sized window, **⋯** → **Alerts**) lists every alert on every
+  symbol: what it watches, and whether it is watching, triggered (with when and why) or off. From there you can
+  switch one on or off, **Re-arm** a triggered one, remove it (the drawing stays), or **Show** its chart. A dot on
+  the bell means an alert has triggered.
 - A native notification (macOS Notification Center, Windows notifications) tells you once; clicking it brings
   Chartmate to the front. The alert then shows as triggered in its panel, with **Re-arm** to watch again.
 - Sloped lines are measured the way the chart draws them, per bar of the timeframe the alert was set on (shown in the
@@ -1228,7 +1232,7 @@ JSON over `/api` (the web client uses nothing else). With `CHARTMATE_PASSWORD` s
 | `GET`, `PUT /api/watchlist` | The watchlist (see [Watchlist and sections](#watchlist-and-sections)). |
 | `GET`, `PUT /api/layouts/:key` | Chart layout; `default` is the one the app uses. |
 | `GET`, `PUT /api/drawings/:symbol` | Drawings of a symbol (each may carry an `alert`). |
-| `GET /api/alerts`; `POST /api/alerts/:id/rearm` | Whether this app checks alerts (`supported`: the desktop app) and how each stands (`armed`, `open`, `fired`, with when and what); re-arm a fired one. |
+| `GET /api/alerts`; `PATCH`, `DELETE /api/alerts/:id`; `POST /api/alerts/:id/rearm` | Whether this app checks alerts (`supported`: the desktop app), how each stands (`armed`, `open`, `fired`, with when and what) and the `list` of all of them; switch one on or off (`{ on }`) or remove it from its drawing; re-arm a fired one. |
 | `GET`, `PUT`, `DELETE /api/sync` | Sync status (`{ source, repo, lastSyncAt, lastError }`, never the token); connect (`{ repo, token }`, runs a first sync, 400 `sync_failed` on failure); disconnect. |
 | `POST /api/sync/github/start`, `POST /api/sync/github/poll`, `PUT /api/sync/github` | Sign in with GitHub: the device code to enter (`{ userCode, verificationUri, expiresAt, interval }`), its progress (`pending`, `denied`, `expired`, or `ready` with the account and the repositories the app may use), then connect one (`{ repo }`, private only). |
 | `POST /api/sync/run`; `GET /api/sync/check` | A full sync (`{ applied, pushed }`, 502 `sync_failed` on failure); whether another device saved newer data (`{ remoteNewer }`). Both `null` while sync is off. |

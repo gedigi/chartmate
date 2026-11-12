@@ -16,6 +16,17 @@ import type { MarketDataService } from '../market/service.js';
 
 export interface AlertNotification extends AlertNotice { symbol: SymbolId }
 
+/** One alert in the list of all alerts (the Alerts panel). */
+export interface AlertEntry extends AlertStatus {
+  id: string;
+  symbol: SymbolId;
+  /** As shown: "AAPL", "BTC", or a basket's name. */
+  ticker: string;
+  /** The drawing tool (overlay name), e.g. 'segment'. */
+  name: string;
+  alert: DrawingAlert;
+}
+
 /** How an alert stands, as the page shows it. */
 export interface AlertStatus {
   /** armed: watching; open: a position's entry was reached; fired: done (re-arm to watch again). */
@@ -89,6 +100,43 @@ export class AlertService {
         : { status: 'armed', at: null, message: null };
     }
     return out;
+  }
+
+  /** Every alert on every drawing, triggered ones first, then by symbol. */
+  async list(): Promise<AlertEntry[]> {
+    const statuses = await this.statuses();
+    const out: AlertEntry[] = [];
+    for (const { symbol, drawings } of await this.repos.drawings.list()) {
+      for (const d of drawings) {
+        if (!d.alert) continue;
+        const s = statuses[d.alert.id] ?? { status: 'armed' as const, at: null, message: null };
+        out.push({ id: d.alert.id, symbol, ticker: await this.ticker(symbol), name: d.name, alert: d.alert, ...s });
+      }
+    }
+    const rank = (e: AlertEntry) => (e.alert.on ? (e.status === 'fired' ? 0 : 1) : 2);
+    return out.sort((a, b) => rank(a) - rank(b) || a.ticker.localeCompare(b.ticker));
+  }
+
+  /**
+   * Changes an alert where its drawing is stored: switched on or off (`on`), or removed (null). Saved like a drawing
+   * edit (synced). False when no drawing carries that alert.
+   */
+  async update(id: string, change: { on: boolean } | null): Promise<boolean> {
+    for (const { symbol, drawings } of await this.repos.drawings.list()) {
+      const i = drawings.findIndex((d) => d.alert?.id === id);
+      if (i < 0) continue;
+      const next = drawings.map((d, j) => {
+        if (j !== i) return d;
+        if (change === null) {
+          const { alert: _drop, ...rest } = d;
+          return rest;
+        }
+        return { ...d, alert: { ...d.alert!, on: change.on } };
+      });
+      await this.repos.drawings.put(symbol, next);
+      return true;
+    }
+    return false;
   }
 
   /** Watches a fired alert again (its memory is dropped: the next price only records the side). */

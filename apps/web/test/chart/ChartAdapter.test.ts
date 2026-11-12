@@ -656,6 +656,13 @@ describe('ChartAdapter', () => {
         select(userOverlays()[1]!);
         expect(a.setSelectedAlert('new')).toBe(false);
         void text;
+        // By id (the Alerts panel): switched off, then removed; an alert not on this chart is not handled here.
+        a.restoreDrawings([{ ...seg(), alert: created }]);
+        expect(a.updateAlertById(created.id, { on: false })).toBe(true);
+        expect(a.serializeDrawings()[0]!.alert?.on).toBe(false);
+        expect(a.updateAlertById(created.id, null)).toBe(true);
+        expect(a.serializeDrawings()[0]).not.toHaveProperty('alert');
+        expect(a.updateAlertById('elsewhere', null)).toBe(false);
       });
 
       it('a drawing\'s own lock outlives "Lock all" being turned off; lock all combines with it', async () => {

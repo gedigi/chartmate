@@ -19,7 +19,7 @@ async function drawTrendLine(page: Page): Promise<void> {
 }
 
 test('the web server hides the alert bell', async ({ page, request }) => {
-  expect(await (await request.get('/api/alerts')).json()).toEqual({ supported: false, alerts: {} });
+  expect(await (await request.get('/api/alerts')).json()).toEqual({ supported: false, alerts: {}, list: [] });
   expect((await request.put(drawingsPath, { data: [] })).ok()).toBe(true);
   expect((await request.put('/api/layouts/default', { data: { symbol: BTC, tf: '1D', session: 'rth', chartType: 'candle', indicators: [] } })).ok()).toBe(true);
   await page.goto('/');

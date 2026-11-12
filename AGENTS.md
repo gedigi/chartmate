@@ -66,7 +66,10 @@ install hook is `.pnpmfile.cjs`.
   service.ts` checks them every 30 s when the host gives a notifier (only the desktop app: `alertNotify`, native
   notifications from the main process, `apps/desktop/src/lib/alertNotifier.ts`) and keeps each alert's memory in
   the settings by alert id. The alert is a field of the drawing (saved, synced); `/api/alerts` reports `supported`,
-  and the web bell (`AlertButton.tsx`) is hidden without it.
+  and the web bell (`AlertButton.tsx`) and the Alerts panel (`AlertsDialog.tsx`, every alert from `/api/alerts`'s
+  `list`) are hidden without it. The panel changes an alert of a drawing on screen through the chart
+  (`registerAlertEditor` → `updateAlertById`, so the chart's next save keeps it), any other on the server (`PATCH` /
+  `DELETE /api/alerts/:id`).
 - The web client only uses relative `/api/...` URLs, so the same bundle runs behind Vite's proxy, from the
   server, and on desktop.
 - Desktop: the window loads `app://chartmate/`; `/api/*` goes to `fastify.inject`, everything else is a static

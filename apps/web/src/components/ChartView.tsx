@@ -10,6 +10,7 @@ import { allTimeframe, rangeTimeframe, type RangeCalendar, type RangePreset } fr
 import { corporateEvents } from '../state/corporateEvents';
 import { onBasketChanged } from '../state/useBaskets';
 import { drawingsStore } from '../state/drawingsStore';
+import { registerAlertEditor } from '../state/alerts';
 import { DrawingsNote } from './DrawingsSave';
 import { SaveNote, type SaveNoteState } from './SaveNote';
 import { loadWithRetry, retryDelayMs } from '../state/retry';
@@ -391,6 +392,9 @@ function ChartViewPanel({ layout, setLayout, symbolInfo, symbolError = null, sym
     setMeasureText('');
     return adapter?.onMeasureChange((m) => setMeasureText(m ? `Measure: ${m.lines.join(', ')}` : ''));
   }, [adapter]);
+
+  // The Alerts panel changes alerts of the drawings shown here through the chart (its next save keeps them).
+  useEffect(() => (adapter ? registerAlertEditor((id, change) => adapter.updateAlertById(id, change)) : undefined), [adapter]);
 
   useEffect(() => adapter?.onDrawingsChange(() => {
     const s = symbolRef.current;

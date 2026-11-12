@@ -5,6 +5,12 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+### Desktop app
+
+- **Alerts** panel (the bell in the top bar): every alert on every symbol in one list, with what it watches and how it
+  stands (watching, triggered with when and why, or off). Switch alerts on or off, re-arm or remove them, or jump to
+  their chart from there; a dot on the bell shows when one has triggered.
+
 ## [1.6.0] - 2026-11-12
 
 ### Desktop app

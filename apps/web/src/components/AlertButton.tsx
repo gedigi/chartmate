@@ -9,7 +9,7 @@ import { useAlertsSupported } from '../state/alerts';
 
 export type AlertControls = Pick<ChartAdapter, 'setSelectedAlert'>;
 
-const BELL = (
+export const BELL = (
   <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" aria-hidden="true" focusable="false">
     <path d="M5.2 13.6V9a4.8 4.8 0 0 1 9.6 0v4.6l1.4 1.6H3.8z" />
     <path d="M8.3 17.2a1.9 1.9 0 0 0 3.4 0" />

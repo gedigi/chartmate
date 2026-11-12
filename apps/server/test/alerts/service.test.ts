@@ -95,6 +95,26 @@ describe('AlertService', () => {
     expect(notices.map((n) => n.title).sort()).toEqual(['BTC crossed below the horizontal line', 'Tech crossed below the horizontal line']);
   });
 
+  it('lists every alert (triggered first, with the ticker), switches one off and removes one where it is stored', async () => {
+    await repos.drawings.put('crypto:BTC', [hline(100), { name: 'segment', points: [{ timestamp: 1, value: 1 }, { timestamp: 2, value: 2 }], lock: false }]);
+    await repos.drawings.put('stock:AAPL', [{ ...hline(90), alert: { ...hline(90).alert!, id: 'a2' } }]);
+    const s = service();
+    await s.check();
+    price = 99;
+    await s.check(); // a1 fires (BTC crossed 100); a2 (90) does not
+    const list = await s.list();
+    expect(list.map((e) => [e.id, e.ticker, e.name, e.status])).toEqual([['a1', 'BTC', 'horizontalStraightLine', 'fired'], ['a2', 'AAPL', 'horizontalStraightLine', 'armed']]);
+    expect(list[0]!.message).toBe('crossed below the horizontal line');
+    expect(await s.update('a2', { on: false })).toBe(true);
+    expect((await repos.drawings.get('stock:AAPL'))[0]!.alert?.on).toBe(false);
+    expect((await s.list()).at(-1)!.id).toBe('a2'); // switched off: last
+    expect(await s.update('a1', null)).toBe(true);
+    const btc = await repos.drawings.get('crypto:BTC');
+    expect(btc).toHaveLength(2); // the drawing stays, without its alert
+    expect(btc[0]).not.toHaveProperty('alert');
+    expect(await s.update('nope', null)).toBe(false);
+  });
+
   it('stop waits for a round still running, and nothing runs after it (the database closes next)', async () => {
     await repos.drawings.put('crypto:BTC', [hline(100)]);
     let release: () => void = () => {};

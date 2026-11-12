@@ -1339,6 +1339,22 @@ export class ChartAdapter {
   }
 
   /**
+   * Switches an alert on or off, or removes it (null), by its id, when its drawing is on this chart (the Alerts panel
+   * goes through here so the chart's next save keeps the change). Saved like any drawing edit. False when not here.
+   */
+  updateAlertById(alertId: string, change: { on: boolean } | null): boolean {
+    for (const [overlayId, a] of this.alerts) {
+      if (a.id !== alertId) continue;
+      if (change === null) this.alerts.delete(overlayId);
+      else this.alerts.set(overlayId, { ...a, on: change.on });
+      this.emitChange();
+      this.emitSelection();
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Handles of a locked drawing: hollow rings (the theme background inside, a 1.5 px ring in the default drawing
    * color), as wide as the default filled dot (radius 5 + border 1) and the same size on hover, since they cannot be
    * dragged.

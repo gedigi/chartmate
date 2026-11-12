@@ -3,6 +3,9 @@ import { useState, type JSX } from 'react';
 import { scrollFade, useScrollEdges } from '../state/useScrollEdges';
 import { AboutDialog } from './AboutDialog';
 import { SyncDialog } from './SyncDialog';
+import { AlertsDialog } from './AlertsDialog';
+import { BELL } from './AlertButton';
+import { useAlertsOverview } from '../state/alerts';
 import { ChartAppearanceDialog } from './ChartAppearanceDialog';
 import { IndicatorButton } from './IndicatorButton';
 import { Modal } from './Modal';
@@ -83,6 +86,8 @@ export function TopBar(p: TopBarProps): JSX.Element {
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [alertsOpen, setAlertsOpen] = useState(false);
+  const alerts = useAlertsOverview();
   const [moreOpen, setMoreOpen] = useState(false);
   const [stripRef, stripEdges] = useScrollEdges();
   const { compact } = p;
@@ -102,6 +107,12 @@ export function TopBar(p: TopBarProps): JSX.Element {
     <>
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
       {syncOpen && <SyncDialog onClose={() => setSyncOpen(false)} />}
+      {alertsOpen && (
+        <AlertsDialog
+          onClose={() => { setAlertsOpen(false); alerts.refresh(); }}
+          onShow={(symbol) => { setAlertsOpen(false); alerts.refresh(); p.onSelectSymbol(symbol); }}
+        />
+      )}
       {appearanceOpen && (
         <ChartAppearanceDialog
           appearance={layout.appearance?.[p.theme]}
@@ -145,6 +156,11 @@ export function TopBar(p: TopBarProps): JSX.Element {
               {p.view === 'chart' && (
                 <button type="button" onClick={fromSheet(() => setAppearanceOpen(true))} disabled={p.controlsDisabled}>
                   {APPEARANCE_ICON}Chart appearance
+                </button>
+              )}
+              {alerts.supported && (
+                <button type="button" onClick={fromSheet(() => setAlertsOpen(true))}>
+                  {BELL}Alerts{alerts.fired > 0 && <span className="top-bar-count">{alerts.fired}</span>}
                 </button>
               )}
               <button type="button" onClick={fromSheet(() => setSyncOpen(true))}>
@@ -197,6 +213,12 @@ export function TopBar(p: TopBarProps): JSX.Element {
           aria-label={p.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
           {THEME_ICON[p.theme]}
         </button>
+        {alerts.supported && (
+          <button type="button" className="icon-button top-bar-alerts" onClick={() => setAlertsOpen(true)} aria-haspopup="dialog"
+            aria-label={alerts.fired > 0 ? `Alerts (${alerts.fired} triggered)` : 'Alerts'} title="Alerts">
+            {BELL}{alerts.fired > 0 && <span className="top-bar-dot" aria-hidden="true" />}
+          </button>
+        )}
         <button type="button" className="icon-button" onClick={() => setSyncOpen(true)} aria-haspopup="dialog"
           aria-label="Sync" title="Sync">
           {SYNC_ICON}

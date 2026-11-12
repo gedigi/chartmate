@@ -463,10 +463,16 @@ kbd {
 .login-brand img { display: block; }
 .login-card input, .login-card button { min-height: 34px; }
 
-@media (max-width: 1100px) {
-  /* Narrow: the brand keeps only its mark (it still opens About Chartmate). */
+@media (max-width: 1360px) {
+  /* Narrower: the brand keeps only its mark (it still opens About Chartmate), and the symbol only its ticker, so the
+     top bar stays one row (at 1280 px it holds the tabs, search, timeframes, chart type, indicators and its icons). */
   .symbol-name, .brand-name { display: none; }
   .top-bar .brand { padding: 4px; }
+}
+@media (max-width: 1280px) {
+  /* A shorter search field without its shortcut hint (⌘K / Ctrl K still works), so the placeholder fits. */
+  .top-bar .symbol-search input { width: 160px; padding-right: 8px; }
+  .top-bar .symbol-search-kbd { display: none; }
 }
 
 /* Visually hidden, still announced by screen readers. */
