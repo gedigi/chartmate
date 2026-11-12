@@ -5,6 +5,11 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+### Everywhere
+
+- Dependencies: Electron 45.2.3 (Chromium and Node.js fixes in the desktop app), and patch updates of fastify,
+  @fastify/static and kysely.
+
 ## [1.6.1] - 2026-11-12
 
 ### Desktop app
