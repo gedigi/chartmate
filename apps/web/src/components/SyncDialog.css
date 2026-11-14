@@ -11,7 +11,6 @@
 .sync-steps a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .sync-form .field input { width: 100%; max-width: none; min-height: 32px; }
 /* Desktop: the address as text to copy (the app opens no links). */
-.sync-url { user-select: all; -webkit-user-select: all; cursor: text; overflow-wrap: anywhere; color: var(--text); }
 .sync-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 /* A quiet text button: the secondary path next to the primary one. */
 .sync-actions .sync-link, .sync-actions .sync-link:hover:not(:disabled) {

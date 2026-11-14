@@ -115,6 +115,32 @@ describe('hardenWebContents', () => {
     expect(c.openHandler!({ url: 'app://chartmate/' })).toEqual({ action: 'deny' });
   });
 
+  it('hands only the exact Sync GitHub pages to openLink; every window.open is still denied', () => {
+    const c = new FakeContents();
+    const onBlocked = vi.fn();
+    const openLink = vi.fn();
+    hardenWebContents(c as unknown as WebContents, { hardened: true, onBlocked, openLink });
+    for (const url of [
+      'https://github.com/login/device',
+      'https://github.com/apps/chartmate-sync/installations/new',
+      'https://github.com/settings/personal-access-tokens/new',
+    ]) {
+      expect(c.openHandler!({ url })).toEqual({ action: 'deny' });
+      expect(openLink).toHaveBeenLastCalledWith(url);
+    }
+    openLink.mockClear();
+    for (const url of [
+      'https://github.com/login/device?x=1', 'https://github.com/login/device#a', 'http://github.com/login/device',
+      'https://user@github.com/login/device', 'https://github.com:443/login/device/', 'https://github.com/login',
+      'https://github.com/apps/other/installations/new', 'https://example.com/', 'app://chartmate/',
+      'https://GITHUB.com/login/device',
+    ]) {
+      expect(c.openHandler!({ url }), url).toEqual({ action: 'deny' });
+    }
+    expect(openLink).not.toHaveBeenCalled();
+    expect(onBlocked).toHaveBeenCalledWith('window.open', 'https://example.com');
+  });
+
   it('prevents webview attachment', () => {
     const { c } = setup();
     const e = ev();

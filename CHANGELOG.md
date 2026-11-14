@@ -5,6 +5,11 @@ app, the Docker image and the release tag share one version number.
 
 ## Unreleased
 
+### Desktop app
+
+- Sync: the GitHub addresses in the Sync panel (the sign-in page with the code, the Chartmate Sync install page, the
+  token page) are links that open in your browser, instead of text to copy.
+
 ## [1.6.2] - 2026-11-12
 
 ### Desktop app

@@ -1025,7 +1025,7 @@ service in between: each device reads and writes one file, `chartmate-sync.json`
 1. Create a private repository on GitHub (empty is fine), e.g. `you/chartmate-data`.
 2. In Chartmate, open **Sync** (the two-arrows button in the top bar; on a phone, **⋯** → **Sync**) and choose
    **Sign in with GitHub**. Chartmate shows a short code: open `github.com/login/device`, enter it and approve
-   **Chartmate Sync**. (In the desktop app, which opens no links, copy the address into your browser.)
+   **Chartmate Sync**. (The address is a link; the desktop app opens it in your browser.)
 3. The first time, install Chartmate Sync on your repository: the dialog links to its install page, where you choose
    **Only select repositories** and pick that one. Then **I've installed it**, pick the repository, and **Connect**.
    A first sync runs before anything is saved, so a problem is reported right away.

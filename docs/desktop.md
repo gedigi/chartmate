@@ -272,11 +272,15 @@ The renderer is treated as untrusted web content, and the main process exposes n
   - OnlyLoadAppFromAsar: on;
   - LoadBrowserProcessSpecificV8Snapshot: off;
   - GrantFileProtocolExtraPrivileges: off.
-- **Opening the browser**: `shell.openExternal` is called in exactly one place, when a macOS build that cannot
-  update itself offers the releases page after **Check for Updates…**. The URL is baked in at bundle time from
-  `GITHUB_REPOSITORY` (`build/repository.cjs`) and re-validated before the call (`src/lib/releasesPage.ts`): it
+- **Opening the browser**: `shell.openExternal` is called in exactly two places. One is when a macOS build that
+  cannot update itself offers the releases page after **Check for Updates…**. The URL is baked in at bundle time
+  from `GITHUB_REPOSITORY` (`build/repository.cjs`) and re-validated before the call (`src/lib/releasesPage.ts`): it
   must be exactly `https://github.com/<owner>/<name>/releases`, with a strict slug and no port, credentials, query
-  or fragment. A test pins that there is no other call.
+  or fragment. The other is the Sync panel's GitHub links: the window-open handler (`hardening.ts`) never opens a
+  window, and hands the browser only a URL that is exactly one of three fixed pages (`src/lib/githubLinks.ts`:
+  `github.com/login/device`, the Chartmate Sync app's install page, the new fine-grained token page), checked again
+  in `main.ts` before the call. Any other link the page asks to open is blocked and logged. Tests pin both calls
+  and that there is no other.
 - **Update UX** (`src/lib/updateController.ts`, `src/lib/updateMenu.ts`): native menu items (macOS) and message
   boxes in the main process only. No IPC, no preload, nothing is injected into the renderer. Data from GitHub is
   untrusted: the version must be plain semver (otherwise the dialog says "a new version"), and release notes,

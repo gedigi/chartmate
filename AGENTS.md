@@ -206,8 +206,9 @@ The renderer is untrusted web content. Read "Security model" in `docs/desktop.md
   validation and a security review.
 - Update UX stays in the main process: native macOS menu items and dialogs only (`src/lib/updateController.ts`;
   the Windows window has no visible menu bar, so Windows updates run in the background), with GitHub release
-  data treated as untrusted plain text (`src/lib/releaseNotes.ts`). `shell.openExternal` has a single,
-  test-pinned call for the validated build-time releases page (`src/lib/releasesPage.ts`); do not add others.
+  data treated as untrusted plain text (`src/lib/releaseNotes.ts`). `shell.openExternal` has two
+  test-pinned calls: the validated build-time releases page (`src/lib/releasesPage.ts`) and, from the window-open
+  handler, the Sync panel's three exact GitHub pages (`src/lib/githubLinks.ts`); do not add others.
 - Update verification fails closed: the Windows installer verifier (`winSignature.ts`: signature, pinned
   publisher DN from `CHARTMATE_WIN_PUBLISHER_DN`, installer version) and the macOS bundle version check
   (`updateBundle.ts`: `/usr/bin/ditto` + `/usr/bin/plutil`) refuse on any error.

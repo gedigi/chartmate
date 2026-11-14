@@ -26,15 +26,14 @@ type Step =
 
 export interface SyncDialogProps {
   onClose: () => void;
-  /** The desktop app opens no links: addresses are selectable text there (default: where the page runs). */
+  /** In the desktop app, which gives the page no clipboard, the code has no Copy button (default: where the page runs). */
   desktop?: boolean;
   /** Called when a sync brought data in: the page shows it after a reload (default: reloads). */
   onApplied?: () => void;
 }
 
-/** A GitHub address: a link on the web, selectable text in the desktop app (which opens no links). */
-function Address({ url, desktop, children }: { url: string; desktop: boolean; children?: ReactNode }): JSX.Element {
-  if (desktop) return <span className="sync-url">{url.replace(/^https:\/\//, '')}</span>;
+/** A GitHub address, as a link to open in a new tab (the desktop app opens exactly these pages in the browser). */
+function Address({ url, children }: { url: string; children?: ReactNode }): JSX.Element {
   return <a href={url} target="_blank" rel="noopener noreferrer">{children ?? url.replace(/^https:\/\//, '')}</a>;
 }
 
@@ -161,7 +160,7 @@ export function SyncDialog({ onClose, desktop = isDesktopApp(), onApplied = relo
       <ol className="sync-steps">
         <li>Create a private repository on GitHub.</li>
         <li>
-          Create <Address url={NEW_TOKEN_URL} desktop={desktop}>a fine-grained token</Address> for that repository only,
+          Create <Address url={NEW_TOKEN_URL}>a fine-grained token</Address> for that repository only,
           with <strong>Contents: Read and write</strong>.
         </li>
       </ol>
@@ -194,7 +193,7 @@ export function SyncDialog({ onClose, desktop = isDesktopApp(), onApplied = relo
     body = (
       <div className="sync-form">
         <p className="sync-text">
-          Open <Address url={step.code.verificationUri} desktop={desktop} /> and enter this code:
+          Open <Address url={step.code.verificationUri} /> and enter this code:
         </p>
         <div className="sync-code-row">
           <output className="sync-code" aria-label="Code">{step.code.userCode}</output>
@@ -222,7 +221,7 @@ export function SyncDialog({ onClose, desktop = isDesktopApp(), onApplied = relo
             <ol className="sync-steps">
               <li>Create a private repository on GitHub if you don’t have one.</li>
               <li>
-                Install <Address url={step.installUrl} desktop={desktop}>Chartmate Sync</Address> on it: choose
+                Install <Address url={step.installUrl}>Chartmate Sync</Address> on it: choose
                 {' '}<strong>Only select repositories</strong> and pick that one.
               </li>
             </ol>
@@ -254,7 +253,7 @@ export function SyncDialog({ onClose, desktop = isDesktopApp(), onApplied = relo
         </div>
         {step.repos.length > 0 && (
           <p className="sync-hint">
-            Another repository? <Address url={step.installUrl} desktop={desktop}>Add it to Chartmate Sync</Address>, then
+            Another repository? <Address url={step.installUrl}>Add it to Chartmate Sync</Address>, then
             {' '}<button type="button" className="sync-inline" disabled={busy !== null} onClick={() => void checkRepos()}>
               {busy === 'check' ? 'refreshing…' : 'refresh the list'}
             </button>.

@@ -1,4 +1,5 @@
 import type { App, CustomScheme, Session, WebContents, WebPreferences } from 'electron';
+import { isAllowedGitHubLink } from './githubLinks.js';
 
 export const APP_SCHEME = 'app';
 export const APP_HOST = 'chartmate';
@@ -82,6 +83,8 @@ export interface HardenOptions {
   hardened: boolean;
   /** Notified of blocked navigations/requests (URL origin only, for the log). */
   onBlocked?: (what: string, url: string) => void;
+  /** Opens one of the Sync panel's GitHub pages (`isAllowedGitHubLink`) in the default browser. */
+  openLink?: (url: string) => void;
 }
 
 const originOf = (url: string): string => {
@@ -110,8 +113,10 @@ export function hardenWebContents(contents: WebContents, opts: HardenOptions): v
     event.preventDefault();
     opts.onBlocked?.('webview', '');
   });
+  // No window ever opens. A link to one of the Sync panel's exact GitHub pages goes to the default browser instead.
   contents.setWindowOpenHandler(({ url }) => {
-    opts.onBlocked?.('window.open', originOf(url));
+    if (opts.openLink && isAllowedGitHubLink(url)) opts.openLink(url);
+    else opts.onBlocked?.('window.open', originOf(url));
     return { action: 'deny' };
   });
   if (opts.hardened) {

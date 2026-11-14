@@ -63,14 +63,15 @@ describe('SyncDialog: sign in with GitHub', () => {
     expect(screen.getByRole('button', { name: 'Sign in with GitHub' })).toBeInTheDocument();
   });
 
-  it('desktop: GitHub’s addresses are selectable text, not links (the app opens no links)', async () => {
+  it('desktop: GitHub’s address is a link too (the app opens it in the browser); no Copy button', async () => {
     vi.spyOn(api.sync, 'status').mockResolvedValue(off);
     vi.spyOn(api.sync.signIn, 'start').mockResolvedValue({ ...code, interval: 60 });
     vi.spyOn(api.sync.signIn, 'poll').mockResolvedValue({ state: 'pending', interval: 60 });
     render(<SyncDialog onClose={() => {}} desktop />);
     await userEvent.click(await screen.findByRole('button', { name: 'Sign in with GitHub' }));
-    expect(await screen.findByText('github.com/login/device')).toBeInTheDocument();
-    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    const link = await screen.findByRole('link', { name: 'github.com/login/device' });
+    expect(link).toHaveAttribute('href', 'https://github.com/login/device');
+    expect(link).toHaveAttribute('target', '_blank');
     expect(screen.queryByRole('button', { name: 'Copy' })).not.toBeInTheDocument();
   });
 

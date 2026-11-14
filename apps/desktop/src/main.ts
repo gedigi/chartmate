@@ -33,6 +33,7 @@ import { createSyncCipher } from './lib/syncCipher.js';
 import { createAlertNotifier } from './lib/alertNotifier.js';
 import { frameOptions, themeFromThemeColor, titleBarOverlay } from './lib/titleBar.js';
 import { isAllowedReleasesUrl } from './lib/releasesPage.js';
+import { isAllowedGitHubLink } from './lib/githubLinks.js';
 import type { UpdateController } from './lib/updateController.js';
 import { startUpdatesSafely, unsupportedUpdateMessage, type UpdateMenuState } from './lib/updateMenu.js';
 import { updateAvailability, type UpdateAvailability } from './lib/updatePolicy.js';
@@ -85,7 +86,11 @@ protocol.registerSchemesAsPrivileged([...PRIVILEGED_SCHEMES]);
 // The renderer and the outbound allowlist get separate budgets, so a noisy page cannot hide blocked provider traffic.
 const logBlocked = createRateLimiter((m) => log.warn(m), { what: 'blocked renderer' });
 const logOutbound = createRateLimiter((m) => log.warn(m), { what: 'blocked outbound' });
-const hardenOpts = { hardened, onBlocked: (what: string, url: string) => logBlocked(`blocked ${what} ${url}`) };
+// The Sync panel's GitHub links: only those exact pages (re-checked here) open, in the default browser.
+const openLink = (url: string) => {
+  if (isAllowedGitHubLink(url)) void shell.openExternal(url).catch((err: unknown) => log.error('could not open a GitHub page', err));
+};
+const hardenOpts = { hardened, onBlocked: (what: string, url: string) => logBlocked(`blocked ${what} ${url}`), openLink };
 hardenApp(app, hardenOpts);
 
 const { config } = configOrExit(

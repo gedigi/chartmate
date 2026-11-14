@@ -742,9 +742,10 @@ describe('update controller', () => {
 });
 
 describe('shell.openExternal', () => {
-  it('is called in exactly one place, for the validated releases page', () => {
+  it('is called in exactly two places: the validated releases page and the Sync panel\'s exact GitHub pages', () => {
     const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
-    expect(main.match(/openExternal\(/g)).toHaveLength(1);
+    expect(main.match(/openExternal\(/g)).toHaveLength(2);
+    expect(main).toMatch(/const openLink = \(url: string\) => \{\s*if \(isAllowedGitHubLink\(url\)\) void shell\.openExternal\(url\)/);
     expect(main).toMatch(/const hasReleasesPage = isAllowedReleasesUrl\(url, url\);[\s\S]*if \(hasReleasesPage && response === 0\) \{\s*await shell\.openExternal\(url\)/);
     for (const f of ['../src/updater.ts', '../src/lib/updateController.ts', '../src/lib/updateMenu.ts', '../src/lib/menu.ts']) {
       expect(readFileSync(new URL(f, import.meta.url), 'utf8')).not.toMatch(/openExternal|executeJavaScript|webContents|ipcMain/);
