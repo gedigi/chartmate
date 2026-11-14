@@ -10,6 +10,11 @@ app, the Docker image and the release tag share one version number.
 - Sync: the GitHub addresses in the Sync panel (the sign-in page with the code, the Chartmate Sync install page, the
   token page) are links that open in your browser, instead of text to copy.
 
+### Everywhere
+
+- Dependencies: hono 4.13.18 and @hono/node-server 2.1.7 (moderate advisories in a library the Yahoo Finance client
+  bundles for a feature Chartmate does not use).
+
 ## [1.6.2] - 2026-11-12
 
 ### Desktop app
