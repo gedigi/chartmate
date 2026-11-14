@@ -385,6 +385,7 @@ export function registerDrawingTemplates(): void {
   }
   wrap('priceLine', withLabels);
   wrap('horizontalStraightLine', withLabels);
-  // KLineChart's own drawings that are otherwise unchanged: only the alert bell is added.
-  for (const name of ['fibonacciLine', 'verticalStraightLine', 'horizontalRayLine', 'horizontalSegment']) wrap(name, (t) => t);
+  // KLineChart's own drawings that are otherwise unchanged: only the alert bell is added
+  // (and the text tool, simpleAnnotation, which has no alert: for the handle dots of a multiple selection).
+  for (const name of ['fibonacciLine', 'verticalStraightLine', 'horizontalRayLine', 'horizontalSegment', 'simpleAnnotation']) wrap(name, (t) => t);
 }

@@ -693,6 +693,12 @@ Keyboard shortcuts, hover tooltips and right-clicks need a keyboard or a mouse; 
   channel to keep it perfectly horizontal: every point takes the anchor's price (the first point while drawing,
   the fixed end while dragging one end), rounded to the symbol's price precision. A channel's width point stays
   free. Combined with ⌘/Ctrl, the snap picks the anchor price and Shift keeps the line flat.
+- **Several drawings at once**: with a drawing selected, **Shift**-click others to add them to the selection
+  (Shift-click one of them again to take it out). Each shows its handle dots. Dragging any of them moves them all by
+  the same bars and price change; **Delete** removes them together (one undo brings them back); a color, width or
+  dash change in the style bar applies to all of them of the same kind (lines, or texts), and the lock to all of them.
+  The style bar shows the last one clicked; copy and arrange act on that one. A click elsewhere on the chart or
+  **Escape** ends the selection. Locked drawings stay where they are and are not deleted.
 - **Arrange**: where drawings overlap, the top-most one is the one a click selects and a drag moves (newer drawings
   sit on top; hovering never lifts one above the others). **Arrange** in the style bar (the two-squares button
   before the lock) brings the selected drawing to the front or one step forward, or sends it one step backward or
@@ -869,8 +875,8 @@ next click without Shift, **Escape**, the next measure, a new drawing tool, an u
 change. Points snap
 like drawings (the magnet, or ⌘ / Ctrl held). Bars are the chart's actual bars (sessions, weekends and baskets
 included); the span is calendar time. A measure is never a drawing: it is not saved, copied, locked or counted, and
-Clear all leaves it alone. Shift on a drawing still drags it (kept horizontal), and indicator panes and the axes ignore
-it.
+Clear all leaves it alone. Shift on a drawing does not measure: it drags it (kept horizontal) or, with another drawing
+selected, adds it to the selection; indicator panes and the axes ignore it.
 
 ### Keyboard shortcuts
 
@@ -881,13 +887,14 @@ it.
 | ⌘K | Focus the symbol search |
 | ⌥T / ⌥H / ⌥R / ⌥J | Start a trend line / a horizontal line / a rectangle / a price line (again: cancel) |
 | ⌘] / ⌘[ (⇧ added: all the way) | Bring the selected drawing forward / send it backward (to the front / back) |
-| Delete, Backspace | Delete the selected drawing (unless locked) |
+| Shift-click a drawing | Add it to the selected drawings, or take it out |
+| Delete, Backspace | Delete the selected drawings (unless locked) |
 | Escape | Cancel the drawing tool, deselect the drawing, end the measure |
 | ⌘C / ⌘V | Copy the selected drawing / paste it |
 | ⌘Z / ⌘⇧Z (Ctrl+Y too on Windows and Linux) | Undo / redo the last drawing change |
 | ⌘ while placing or dragging | Snap to the nearest open, high, low or close |
 | Shift while placing or dragging | Keep a trend line, ray, extended line or channel horizontal |
-| Shift-drag, Shift-click | Measure |
+| Shift-drag, Shift-click (away from drawings) | Measure |
 | Enter, Space (watchlist row) | Open the symbol |
 | Delete, Backspace (watchlist row) | Remove the symbol |
 | Alt+↑ / Alt+↓ (watchlist row or header) | Move it up / down |

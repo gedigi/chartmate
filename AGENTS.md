@@ -71,6 +71,9 @@ install hook is `.pnpmfile.cjs`.
   (`registerAlertEditor` → `updateAlertById`, so the chart's next save keeps it), any other on the server (`PATCH` /
   `DELETE /api/alerts/:id`). The bell on a drawing with an alert is drawn by the overlay itself (`chart/alertBadge.ts`,
   `withAlertBadge` around every alertable template; the adapter keeps `alertBadges` in step), also only when supported.
+- Several drawings selected (Shift-click): KLineChart selects one drawing at a time, so the adapter keeps the group
+  (`chart/groupSelection.ts`, decided per press in `groupPress` before KLineChart sees it) and the same template wrapper
+  draws the handle dots of the others. Delete, style, lock and a whole-drawing drag apply to the group.
 - The web client only uses relative `/api/...` URLs, so the same bundle runs behind Vite's proxy, from the
   server, and on desktop.
 - Desktop: the window loads `app://chartmate/`; `/api/*` goes to `fastify.inject`, everything else is a static

@@ -1,6 +1,7 @@
 import type { OverlayFigure, OverlayTemplate } from 'klinecharts';
 import { readableTextOn } from './contrast';
 import { drawingContext } from './drawingTemplates';
+import { groupMarkFigures } from './groupSelection';
 import { THEME_TOKENS } from './theme';
 
 /**
@@ -71,7 +72,7 @@ export function alertBadgeFigures(p: FigureParams): OverlayFigure[] {
   ] as unknown as OverlayFigure[];
 }
 
-/** The template with the bell added to its figures. */
+/** The template with the bell added to its figures, and the handle dots of a drawing selected with others (groupSelection.ts). */
 export function withAlertBadge<T extends OverlayTemplate>(t: T): T {
   const create = t.createPointFigures;
   if (!create) return t;
@@ -80,7 +81,7 @@ export function withAlertBadge<T extends OverlayTemplate>(t: T): T {
     createPointFigures(this: unknown, p: FigureParams) {
       const own = create.call(this, p);
       const figures = own ? ([] as OverlayFigure[]).concat(own) : [];
-      return [...figures, ...alertBadgeFigures(p)];
+      return [...figures, ...groupMarkFigures(p), ...alertBadgeFigures(p)];
     },
   } as T & Template;
 }

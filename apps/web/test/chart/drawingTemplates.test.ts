@@ -240,7 +240,7 @@ describe('registerDrawingTemplates (wrapping the real KLineChart templates)', ()
     T.registerDrawingTemplates();
     expect([...k.templates.keys()].sort()).toEqual([
       'fibonacciLine', 'horizontalRayLine', 'horizontalSegment', 'horizontalStraightLine', 'parallelChannel', 'parallelStraightLine',
-      'priceLine', 'rayLine', 'segment', 'straightLine', 'verticalStraightLine',
+      'priceLine', 'rayLine', 'segment', 'simpleAnnotation', 'straightLine', 'verticalStraightLine',
     ]);
     expect(tpl('segment').totalStep).toBe(3);
     expect(tpl('parallelStraightLine').totalStep).toBe(4);

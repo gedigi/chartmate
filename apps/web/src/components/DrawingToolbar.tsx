@@ -140,7 +140,8 @@ function isOtherWidget(target: EventTarget | null): boolean {
  * snaps the drawing being placed or dragged to OHLC values, Option/Alt+T starts a trend line, Option/Alt+H a
  * horizontal line, Option/Alt+R a rectangle and Option/Alt+J a price line (see TOOL_SHORTCUTS), ⌘] / ⌘[ (Ctrl
  * elsewhere) brings the selected drawing forward / sends it backward (with Shift: to the front / back), holding Shift keeps trend lines / rays / extended lines / channels horizontal.
- * With no tool active, a Shift press on the chart measures (handled by the adapter); Escape removes the measure.
+ * With no tool active, a Shift press on the chart measures, and Shift-click on a drawing adds it to the selection (both
+ * handled by the adapter); Escape removes the measure and ends the selection.
  */
 export function DrawingToolbar({ controls, disabled: disabledProp = false, ticker, compact = false }: DrawingToolbarProps): JSX.Element {
   const [active, setActiveState] = useState<Active>(null);

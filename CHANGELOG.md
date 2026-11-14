@@ -3,6 +3,13 @@
 What changed in each release of Chartmate. Versions follow [semantic versioning](https://semver.org); the desktop
 app, the Docker image and the release tag share one version number.
 
+## Unreleased
+
+### Everywhere
+
+- Select several drawings at once: with one selected, Shift-click others to add them (or take them out). Dragging one
+  moves them all, Delete removes them together, and style and lock changes apply to all of them.
+
 ## [1.6.3] - 2026-11-14
 
 ### Desktop app

@@ -22,6 +22,7 @@ import {
 } from './position';
 import { positionContext, positionState, registerPositionOverlays, releasePositionContext } from './positionOverlay';
 import { alertBadges } from './alertBadge';
+import { groupSelection } from './groupSelection';
 import { isDegenerateBox, persistedPoints, RECTANGLE, registerRectangleOverlay } from './rectangle';
 import { drawingClipboard, type DrawingClip } from './drawingClipboard';
 import { DEFAULT_DRAWING_COLOR, drawingSwatches, resolveDrawingColor, type DrawingSwatch } from './drawingColors';
@@ -315,6 +316,7 @@ export class ChartAdapter {
     this.chart = chart;
     // Capture phase on the host: runs before KLineChart's own mousedown handler on its inner container.
     el.addEventListener('mousedown', this.onPressCapture, true);
+    window.addEventListener('mouseup', this.onReleaseCapture, true);
     chart.subscribeAction?.('onZoom', this.onUserView);
     chart.subscribeAction?.('onScroll', this.onUserView);
   }
@@ -912,6 +914,18 @@ export class ChartAdapter {
 
   /** Overlay id of the drawing currently selected by the user (KLineChart onSelected/onDeselected). */
   private selectedId: string | null = null;
+  /**
+   * Every selected drawing while Shift-click has selected two or more (groupSelection.ts; empty otherwise). selectedId is
+   * one of them: the one the style bar shows. Delete, style and lock changes and a drag apply to all of them.
+   */
+  private readonly group = groupSelection.ids;
+  /**
+   * What the current press does to the selection, until KLineChart's click on release: 'add' (Shift on a drawing not
+   * selected: added to the selection) or 'keep' (on a drawing of the group: the group stays). Null: an ordinary press.
+   */
+  private pressIntent: 'add' | 'keep' | null = null;
+  /** Points of the other drawings of the group when a drag of one of them started. */
+  private groupDragStart: Map<string, Point[]> | null = null;
   /** Overlay id + completion callback of the drawing being placed interactively. */
   private drawing: { id: string; onEnd?: () => void } | null = null;
   private magnet = false;
@@ -965,10 +979,12 @@ export class ChartAdapter {
       drawingConstraint.draggingId = overlay.id;
       this.pressedPoints.set(overlay.id, completePoints(overlay));
       if (this.strongMagnet) this.applyStrong(overlay.id);
+      this.groupDragStart = this.group.has(overlay.id) ? this.groupPoints(overlay.id) : null;
     },
     // Shift held: a whole-drawing drag keeps it horizontal (point drags are constrained by the template).
     onPressedMoving: ({ overlay }) => {
       if (drawingConstraint.shift && SHIFT_TOOLS.has(overlay.name)) flattenBase(overlay.name, overlay.points, this.pricePrecision);
+      if (this.groupDragStart) this.moveGroupWith(overlay);
       return false;
     },
     onPressedMoveEnd: ({ overlay }) => {
@@ -979,7 +995,10 @@ export class ChartAdapter {
       const before = this.pressedPoints.get(overlay.id);
       this.pressedPoints.delete(overlay.id);
       const after = completePoints(overlay);
+      const moved = this.groupDragStart;
+      this.groupDragStart = null;
       if (before && after && samePoints(before, after)) return;
+      if (moved) this.finishGroupMove(moved);
       this.anchorAfterEdit(overlay.id);
       this.roundHorizontal(overlay);
       if (isPositionTool(overlay.name) && before && after && after.some((p) => p.value <= 0)) {
@@ -995,6 +1014,11 @@ export class ChartAdapter {
       }
     },
     onRemoved: ({ overlay }) => {
+      if (this.group.delete(overlay.id)) {
+        if (this.group.size < 2) this.clearGroup();
+        if (this.selectedId === overlay.id && this.group.size > 0) this.select([...this.group].at(-1)!);
+      }
+      if (groupSelection.clicked === overlay.id) groupSelection.clicked = null;
       if (this.selectedId === overlay.id) this.select(null);
       if (this.drawing?.id === overlay.id) this.endDrawing();
       if (this.draggingId === overlay.id) this.draggingId = null;
@@ -1010,8 +1034,29 @@ export class ChartAdapter {
     },
     // KLineChart removes an overlay on right click unless prevented (it ignores the lock): locked ones stay.
     onRightClick: ({ overlay, preventDefault }) => { if (overlay.lock) preventDefault?.(); },
-    onSelected: ({ overlay }) => { this.select(overlay.id); },
-    onDeselected: ({ overlay }) => { if (this.selectedId === overlay.id) this.select(null); },
+    onSelected: ({ overlay }) => {
+      groupSelection.clicked = overlay.id;
+      if (this.pressIntent === 'add' && this.selectedId !== null && this.selectedId !== overlay.id) {
+        // Shift-click: the drawing joins the selection.
+        if (this.group.size === 0) this.group.add(this.selectedId);
+        this.group.add(overlay.id);
+        this.redraw(this.group);
+      } else if (this.pressIntent !== 'keep' && !this.group.has(overlay.id)) {
+        this.clearGroup();
+      }
+      this.select(overlay.id);
+    },
+    onDeselected: ({ overlay }) => {
+      if (groupSelection.clicked === overlay.id) groupSelection.clicked = null;
+      if (this.pressIntent !== null && this.group.has(overlay.id)) {
+        // Still selected, as part of the group: its handle dots are drawn by the template now.
+        this.redraw([overlay.id]);
+        return;
+      }
+      if (this.pressIntent === 'add') return; // the drawing joining the selection takes over (onSelected)
+      this.clearGroup();
+      if (this.selectedId === overlay.id) this.select(null);
+    },
     // Double-clicking a horizontal line selects it and asks the style bar to focus its price field.
     onDoubleClick: ({ overlay }) => {
       if (!HORIZONTAL_DRAWINGS.has(overlay.name) || overlay.id === this.drawing?.id) return false;
@@ -1198,6 +1243,7 @@ export class ChartAdapter {
   private readonly onPressCapture = (e: MouseEvent): void => {
     if (e.button !== 0) return;
     if (this.measurePress(e)) return;
+    if (this.groupPress(e)) return;
     const prev = this.lastPress;
     const now = Date.now();
     this.lastPress = { x: e.clientX, y: e.clientY, t: now };
@@ -1211,6 +1257,165 @@ export class ChartAdapter {
       try { (handler._resetClickTimeout as () => void).call(handler); } catch { /* keep KLineChart's behavior */ }
     }
   };
+
+  // ── several drawings selected (Shift-click) ──
+
+  /**
+   * A left press, before KLineChart sees it: sets what it does to the selection. Shift on a drawing not selected adds
+   * it (on KLineChart's click); Shift on a drawing of a group of two or more takes it out (the press goes no further);
+   * a press on a drawing of the group keeps the group (dragging it moves them all); any other press ends the group.
+   * True when the press was taken.
+   */
+  private groupPress(e: MouseEvent): boolean {
+    this.pressIntent = null;
+    if (this.drawing) return false;
+    const hovered = this.hoveredDrawing();
+    if (e.shiftKey && hovered && this.selectedId !== null) {
+      if (this.group.size >= 2 && this.group.has(hovered.id)) {
+        e.stopPropagation();
+        e.preventDefault();
+        this.removeFromGroup(hovered.id);
+        return true;
+      }
+      if (hovered.id !== this.selectedId) this.pressIntent = 'add';
+      return false;
+    }
+    if (hovered && this.group.has(hovered.id)) {
+      this.pressIntent = 'keep';
+      return false;
+    }
+    if (this.group.size > 0) {
+      this.clearGroup();
+      // KLineChart deselects the drawing it has selected; one it does not (after a removal) is deselected here.
+      if (!hovered && groupSelection.clicked === null) this.select(null);
+    }
+    return false;
+  }
+
+  /** After the release that ends a press, its intent is over (KLineChart's click comes on the release itself). */
+  private readonly onReleaseCapture = (): void => {
+    if (this.pressIntent !== null) setTimeout(() => { this.pressIntent = null; }, 0);
+  };
+
+  /** Takes a drawing out of the group: the last one left is selected on its own. */
+  private removeFromGroup(id: string): void {
+    if (groupSelection.clicked === id) {
+      // KLineChart lets it go first (still in the group then, so its onDeselected keeps the group).
+      this.pressIntent = 'keep';
+      try { this.setKlineSelection(null); } finally { this.pressIntent = null; }
+    }
+    this.group.delete(id);
+    this.redraw([id]);
+    const rest = [...this.group];
+    if (rest.length === 1) {
+      this.clearGroup();
+      if (groupSelection.clicked !== rest[0]) this.setKlineSelection(rest[0]!);
+      this.select(rest[0]!);
+    } else if (this.selectedId === id) {
+      this.select(rest.at(-1) ?? null);
+    }
+  }
+
+  /** Ends the group (the drawing KLineChart has selected, if any, stays selected). */
+  private clearGroup(): void {
+    if (this.group.size === 0) return;
+    const ids = [...this.group];
+    this.group.clear();
+    this.groupDragStart = null;
+    if (!this.destroyed) this.redraw(ids);
+  }
+
+  /** Redraws drawings (their handle dots changed). */
+  private redraw(ids: Iterable<string>): void {
+    for (const id of ids) this.chart.overrideOverlay({ id });
+  }
+
+  /**
+   * Sets the drawing KLineChart has selected, with its handles (null: none), as its own click would: its onSelected /
+   * onDeselected run. Internal API (KLineChart 10's store); our own state is right even if it ever changes.
+   */
+  private setKlineSelection(id: string | null): void {
+    const o = id === null ? null : this.userOverlays().find((x) => x.id === id) ?? null;
+    if (id !== null && !o) return;
+    const store = (this.chart as unknown as { getChartStore?: () => { setClickOverlayInfo?: (...a: unknown[]) => void } }).getChartStore?.();
+    type Handler = (p: { chart: Chart; overlay: Overlay }) => unknown;
+    const call = (name: 'onSelected' | 'onDeselected') => (x: Overlay) => (x[name] as Handler | null | undefined)?.({ chart: this.chart, overlay: x });
+    try {
+      store?.setClickOverlayInfo?.(
+        { paneId: (o as { paneId?: string } | null)?.paneId ?? '', overlay: o, figureType: 'none', figureIndex: -1, figure: null },
+        call('onSelected'),
+        call('onDeselected'),
+      );
+    } catch { /* internal API changed */ }
+  }
+
+  /** The user drawing under the mouse, if any. */
+  private hoveredDrawing(): Overlay | null {
+    const store = (this.chart as unknown as { getChartStore?: () => { getHoverOverlayInfo?: () => { overlay?: Overlay | null } } }).getChartStore?.();
+    try {
+      const o = store?.getHoverOverlayInfo?.()?.overlay;
+      return o != null && o.groupId !== MEASURE && o.groupId !== MARKERS && o.groupId !== EVENTS ? o : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** The points of the other drawings of the group, at the start of a drag of `id` (locked ones stay put). */
+  private groupPoints(id: string): Map<string, Point[]> | null {
+    if (this.group.size < 2) return null;
+    const out = new Map<string, Point[]>();
+    for (const o of this.userOverlays()) {
+      if (o.id === id || !this.group.has(o.id) || o.lock) continue;
+      const pts = completePoints(o);
+      if (pts) out.set(o.id, pts.map((p) => ({ ...p })));
+    }
+    return out.size > 0 ? out : null;
+  }
+
+  /**
+   * Moves the other drawings of the group with the one being dragged: by the same number of bars and the same price
+   * change. Only a drag of the whole drawing (every point moved alike); dragging one of its points moves the others back.
+   */
+  private moveGroupWith(dragged: Overlay): void {
+    const start = this.groupDragStart;
+    const before = this.pressedPoints.get(dragged.id);
+    const after = completePoints(dragged);
+    if (!start || !before || !after || before.length !== after.length) return;
+    const bars = this.chart.getDataList();
+    const barMs = this.barMs();
+    const idx = (t: number) => (bars.length > 0 ? barIndex(bars, t, barMs) : Math.floor(t / barMs));
+    const dBars = after.map((p, i) => idx(p.timestamp) - idx(before[i]!.timestamp));
+    const dValue = after.map((p, i) => p.value - before[i]!.value);
+    const tol = (v: number) => 1e-9 * Math.max(1, Math.abs(v));
+    const whole = dBars.every((d) => d === dBars[0]) && dValue.every((d) => Math.abs(d - dValue[0]!) <= tol(dValue[0]!));
+    const db = whole ? dBars[0]! : 0;
+    const dv = whole ? dValue[0]! : 0;
+    for (const [id, pts] of start) {
+      const o = this.userOverlays().find((x) => x.id === id);
+      if (!o) continue;
+      const next = pts.map((p) => ({ ...p, timestamp: db === 0 ? p.timestamp : barTime(bars, idx(p.timestamp) + db, barMs), value: p.value + dv }));
+      // A position never goes to a price of zero or below.
+      if (isPositionTool(o.name) && next.some((p) => p.value <= 0)) continue;
+      this.chart.overrideOverlay({ id, points: next });
+    }
+  }
+
+  /** After a group drag: the moved drawings are anchored and rounded like a dragged one (saved with it). */
+  private finishGroupMove(moved: Map<string, Point[]>): void {
+    for (const id of moved.keys()) {
+      const o = this.userOverlays().find((x) => x.id === id);
+      const now = o ? completePoints(o) : null;
+      if (!o || !now || samePoints(now, moved.get(id)!)) continue;
+      this.anchorAfterEdit(id);
+      this.roundHorizontal(o);
+      this.roundPosition(o);
+    }
+  }
+
+  /** How many drawings are selected (2 or more: a Shift-click selection). */
+  selectedCount(): number {
+    return this.group.size >= 2 ? this.group.size : this.selectedId !== null ? 1 : 0;
+  }
 
   private baseMode(): OverlayMode {
     return this.magnet ? 'weak_magnet' : 'normal';
@@ -1265,7 +1470,11 @@ export class ChartAdapter {
    * (the appearance's default drawing style). Null while nothing is selected or the drawing is still being placed.
    */
   getSelectedDrawing(): SelectedDrawing | null {
-    const id = this.selectedId;
+    return this.drawingInfo(this.selectedId);
+  }
+
+  /** What the style bar shows of a drawing (see getSelectedDrawing). */
+  private drawingInfo(id: string | null): SelectedDrawing | null {
     if (!id || id === this.drawing?.id) return null;
     const o = this.userOverlays().find((x) => x.id === id);
     if (!o) return null;
@@ -1311,9 +1520,12 @@ export class ChartAdapter {
   setSelectedLock(locked: boolean): boolean {
     const sel = this.getSelectedDrawing();
     if (!sel) return false;
-    if (locked) this.ownLocks.add(sel.id);
-    else this.ownLocks.delete(sel.id);
-    this.applyLock(sel.id);
+    // Several selected: all of them.
+    for (const id of new Set([sel.id, ...this.group])) {
+      if (locked) this.ownLocks.add(id);
+      else this.ownLocks.delete(id);
+      this.applyLock(id);
+    }
     this.emitChange();
     this.emitSelection();
     return true;
@@ -1461,6 +1673,7 @@ export class ChartAdapter {
   /** Deselects the selected drawing (Escape); the style bar closes. */
   deselect(): void {
     const id = this.selectedId;
+    this.clearGroup();
     if (!id) return;
     // KLineChart has no public deselect: clear its click info (fires onDeselected) when the store allows it.
     const store = (this.chart as unknown as { getChartStore?: () => { setClickOverlayInfo?: (...a: unknown[]) => void } }).getChartStore?.();
@@ -1478,6 +1691,20 @@ export class ChartAdapter {
   setSelectedStyle(patch: Partial<DrawingLineStyle> | Partial<TextStyle>): void {
     const sel = this.getSelectedDrawing();
     if (!sel || sel.locked || sel.kind === 'position') return;
+    // Several selected: the other drawings of the same kind (lines, or texts) take the change too.
+    for (const id of this.group) {
+      if (id === sel.id) continue;
+      const other = this.drawingInfo(id);
+      if (other && !other.locked && other.kind === sel.kind) this.styleDrawing(other, patch);
+    }
+    this.styleDrawing(sel, patch);
+    this.emitChange();
+    this.emitSelection();
+  }
+
+  /** Applies a style change to one drawing (no save: the caller saves). */
+  private styleDrawing(sel: SelectedDrawing, patch: Partial<DrawingLineStyle> | Partial<TextStyle>): void {
+    if (sel.kind === 'position') return;
     const o = this.userOverlays().find((x) => x.id === sel.id);
     const ownStyle = sel.kind === 'text' ? readText(o?.styles) !== null : readLine(o?.styles) !== null;
     const keys = Object.keys(patch);
@@ -1485,8 +1712,6 @@ export class ChartAdapter {
       // A drawing without a style of its own gets only a color: its width / dash (font size) keep following the
       // default drawing style.
       this.chart.overrideOverlay({ id: sel.id, styles: colorToOverlay(patch.color, this.resolveColor) });
-      this.emitChange();
-      this.emitSelection();
       return;
     }
     const styles = sel.kind === 'text'
@@ -1502,8 +1727,6 @@ export class ChartAdapter {
     if (sel.kind === 'line' && sel.extend) (styles as Record<string, unknown>)[EXTEND_STYLE_KEY] = { ...sel.extend };
     if (sel.kind === 'line' && sel.fill !== undefined) (styles as Record<string, unknown>)[FILL_STYLE_KEY] = sel.fill;
     this.chart.overrideOverlay({ id: sel.id, styles });
-    this.emitChange();
-    this.emitSelection();
   }
 
   /**
@@ -1739,6 +1962,14 @@ export class ChartAdapter {
 
   /** Removes the selected drawing. Returns false when nothing (removable) is selected. */
   removeSelected(): boolean {
+    if (this.group.size >= 2) {
+      // Several selected: the unlocked ones go, as one edit (one undo step).
+      const ids = this.userOverlays().filter((o) => this.group.has(o.id) && !o.lock).map((o) => o.id);
+      if (ids.length === 0) return false;
+      this.withSilence(() => { for (const id of ids) this.chart.removeOverlay({ id }); });
+      this.emitChange();
+      return true;
+    }
     const id = this.selectedId;
     if (!id) return false;
     const o = this.userOverlays().find((x) => x.id === id);
@@ -2115,6 +2346,7 @@ export class ChartAdapter {
   }
 
   private removeUserOverlays(): void {
+    this.clearGroup();
     for (const o of this.userOverlays()) this.chart.removeOverlay({ id: o.id });
     this.anchors.clear();
     this.ownLocks.clear();
@@ -2498,6 +2730,8 @@ export class ChartAdapter {
     this.destroyed = true;
     if (this.selectedId !== null && drawingContext.selectedId === this.selectedId) drawingContext.selectedId = null;
     this.el.removeEventListener('mousedown', this.onPressCapture, true);
+    window.removeEventListener('mouseup', this.onReleaseCapture, true);
+    this.clearGroup();
     this.chart.unsubscribeAction?.('onZoom', this.onUserView);
     this.chart.unsubscribeAction?.('onScroll', this.onUserView);
     this.range = null;

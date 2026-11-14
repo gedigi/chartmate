@@ -105,6 +105,7 @@ const { api } = await import('../../src/api/client');
 const { softTone } = await import('../../src/chart/color');
 const { THEME_TOKENS } = await import('../../src/chart/theme');
 const { alertBadges } = await import('../../src/chart/alertBadge');
+const { groupSelection, groupMarkFigures } = await import('../../src/chart/groupSelection');
 
 const AAPL: SymbolInfo = { id: 'stock:AAPL', assetClass: 'stock', ticker: 'AAPL', name: 'Apple', pricePrecision: 2 };
 const BTC: SymbolInfo = { id: 'crypto:BTC', assetClass: 'crypto', ticker: 'BTC', name: 'Bitcoin', pricePrecision: 2 };
@@ -2186,5 +2187,200 @@ describe('indicator reference levels', () => {
     expect(fakeDraw(draw).ctx.strokeStyle).not.toBe(dark);
     a.updateIndicator(id, { barColors: { up: '#00ff00', down: '#ff0000' } });
     expect(lastOverride()).not.toHaveProperty('draw');
+  });
+});
+
+describe('ChartAdapter several drawings selected (Shift-click)', () => {
+  const D1 = Date.UTC(2024, 2, 4);
+  const D2 = Date.UTC(2024, 2, 6);
+  const DAY = 86_400_000;
+  const userOverlays = () => chart().overlays.filter((o) => o.groupId !== 'markers');
+
+  /** KLineChart's store, as far as the selection goes: the drawing under the mouse and the clicked (selected) one. */
+  function fakeStore() {
+    const st = {
+      hovered: null as FakeOverlay | null,
+      clicked: null as FakeOverlay | null,
+      setClickOverlayInfo: vi.fn((info: { overlay: FakeOverlay | null }, onSel: (o: FakeOverlay) => void, onDesel: (o: FakeOverlay) => void) => {
+        const o = info.overlay;
+        if (st.clicked?.id === o?.id) return;
+        const prev = st.clicked;
+        st.clicked = o;
+        if (prev) onDesel(prev);
+        if (o) onSel(o);
+      }),
+      getHoverOverlayInfo: () => ({ overlay: st.hovered }),
+    };
+    (chart() as unknown as Record<string, unknown>).getChartStore = () => st;
+    return st;
+  }
+
+  async function setup() {
+    groupSelection.ids.clear();
+    groupSelection.clicked = null;
+    const a = make();
+    a.load({ symbol: BTC, tf: '1D', session: 'rth', pollMs: 15000 }, events());
+    vi.spyOn(api, 'bars').mockResolvedValue({
+      symbol: BTC.id, tf: '1D', session: 'rth', hasMoreBefore: false, stale: false, notices: [], markers: [],
+      bars: [{ ts: D1, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 }],
+    });
+    const loader = chart().setDataLoader.mock.calls.at(-1)![0] as { getBars: (p: unknown) => Promise<void> };
+    await loader.getBars({
+      type: 'init', timestamp: null, symbol: { ticker: BTC.id }, period: { type: 'day', span: 1 },
+      callback: (d: Array<{ timestamp: number; high: number }>) => { chart().data.splice(0, chart().data.length, ...d); },
+    });
+    a.restoreDrawings([
+      { name: 'segment', points: [{ timestamp: D1, value: 1 }, { timestamp: D2, value: 2 }], lock: false },
+      { name: 'horizontalStraightLine', points: [{ timestamp: D1, value: 5 }], lock: false },
+      { name: 'segment', points: [{ timestamp: D1, value: 3 }, { timestamp: D2, value: 4 }], lock: false },
+    ]);
+    const st = fakeStore();
+    const [x, y, z] = userOverlays();
+    /** A press: false when the adapter took it (KLineChart never sees it, so no click follows). */
+    const press = (o: FakeOverlay | null, shift: boolean) => {
+      st.hovered = o;
+      const e = new MouseEvent('mousedown', { button: 0, shiftKey: shift, clientX: 5, clientY: 5, bubbles: true, cancelable: true });
+      el.dispatchEvent(e);
+      return !e.defaultPrevented;
+    };
+    const click = (o: FakeOverlay | null) => st.setClickOverlayInfo(
+      { overlay: o },
+      (v) => v.onSelected?.({ overlay: v }),
+      (v) => v.onDeselected?.({ overlay: v }),
+    );
+    /** A press and its click, like the mouse. */
+    const tap = (o: FakeOverlay | null, shift = false) => { if (press(o, shift)) click(o); };
+    return { a, st, x: x!, y: y!, z: z!, press, click, tap };
+  }
+
+  it('Shift-click adds drawings to the selection; the last one is the one the style bar shows', async () => {
+    const { a, x, y, z, tap } = await setup();
+    tap(x);
+    expect(a.selectedCount()).toBe(1);
+    tap(y, true);
+    tap(z, true);
+    expect(a.selectedCount()).toBe(3);
+    expect([...groupSelection.ids].sort()).toEqual([x.id, y.id, z.id].sort());
+    expect(a.getSelectedDrawing()?.id).toBe(z.id);
+    a.destroy();
+  });
+
+  it('the others of the group get handle dots; the one KLineChart selected draws its own', async () => {
+    const { a, x, y, tap } = await setup();
+    tap(x);
+    tap(y, true);
+    const figs = (o: FakeOverlay) => groupMarkFigures({ overlay: o, coordinates: [{ x: 1, y: 2 }, { x: 3, y: 4 }] } as never);
+    expect(figs(x)).toHaveLength(2);
+    expect(figs(y)).toHaveLength(0);
+    a.destroy();
+    expect(figs(x)).toHaveLength(0);
+  });
+
+  it('Shift on the only selected drawing leaves the selection alone (its Shift-drag stays horizontal)', async () => {
+    const { a, x, tap } = await setup();
+    tap(x);
+    tap(x, true);
+    expect(a.selectedCount()).toBe(1);
+    expect(groupSelection.ids.size).toBe(0);
+    a.destroy();
+  });
+
+  it('Shift-click on a drawing of the group takes it out; the last one left is selected on its own', async () => {
+    const { a, st, x, y, z, tap } = await setup();
+    tap(x);
+    tap(y, true);
+    tap(z, true);
+    tap(z, true); // the one KLineChart had selected
+    expect(a.selectedCount()).toBe(2);
+    expect(st.clicked).toBeNull();
+    expect(a.getSelectedDrawing()?.id).toBe(y.id);
+    tap(x, true);
+    expect(a.selectedCount()).toBe(1);
+    expect(groupSelection.ids.size).toBe(0);
+    expect(st.clicked?.id).toBe(y.id);
+    expect(a.getSelectedDrawing()?.id).toBe(y.id);
+    a.destroy();
+  });
+
+  it('a press on the empty chart or Escape ends the group; a press on a member keeps it', async () => {
+    const { a, x, y, z, tap } = await setup();
+    tap(x);
+    tap(y, true);
+    tap(x);
+    expect(a.selectedCount()).toBe(2);
+    expect(a.getSelectedDrawing()?.id).toBe(x.id);
+    tap(z);
+    expect(a.selectedCount()).toBe(1);
+    expect(a.getSelectedDrawing()?.id).toBe(z.id);
+    tap(x, true);
+    tap(null);
+    expect(a.selectedCount()).toBe(0);
+    tap(x);
+    tap(y, true);
+    a.deselect();
+    expect(a.selectedCount()).toBe(0);
+    a.destroy();
+  });
+
+  it('Delete removes the unlocked drawings of the group as one edit', async () => {
+    const { a, x, y, z, tap } = await setup();
+    tap(x);
+    tap(y, true);
+    tap(z, true);
+    a.setSelectedLock(false);
+    const changed = vi.fn();
+    a.onDrawingsChange(changed);
+    x.lock = true;
+    expect(a.removeSelected()).toBe(true);
+    expect(userOverlays().map((o) => o.id)).toEqual([x.id]);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(a.canUndo()).toBe(true);
+    a.destroy();
+  });
+
+  it('a style or lock change applies to every drawing of the group, saved once', async () => {
+    const { a, x, y, z, tap } = await setup();
+    tap(x);
+    tap(z, true);
+    const changed = vi.fn();
+    a.onDrawingsChange(changed);
+    a.setSelectedStyle({ color: '#ff0000' });
+    expect(changed).toHaveBeenCalledTimes(1);
+    const color = (o: FakeOverlay) => (o.styles as { line?: { color?: string } } | null)?.line?.color;
+    expect(color(x)).toBe('#ff0000');
+    expect(color(z)).toBe('#ff0000');
+    expect(color(y)).not.toBe('#ff0000');
+    a.setSelectedLock(true);
+    expect([x.lock, y.lock, z.lock]).toEqual([true, false, true]);
+    a.destroy();
+  });
+
+  it('dragging one drawing of the group moves the others by the same bars and price, saved once', async () => {
+    const { a, x, z, tap } = await setup();
+    tap(x);
+    tap(z, true);
+    const changed = vi.fn();
+    a.onDrawingsChange(changed);
+    const h = z as FakeOverlay & { onPressedMoveStart?: (e: unknown) => void; onPressedMoving?: (e: unknown) => void };
+    h.onPressedMoveStart?.({ overlay: z });
+    z.points = z.points.map((p) => ({ ...p, timestamp: p.timestamp + DAY, value: p.value + 0.5 }));
+    h.onPressedMoving?.({ overlay: z });
+    expect(x.points.map((p) => p.value)).toEqual([1.5, 2.5]);
+    expect(x.points.map((p) => p.timestamp)).toEqual([D1 + DAY, D2 + DAY]);
+    z.onPressedMoveEnd?.({ overlay: z });
+    expect(changed).toHaveBeenCalledTimes(1);
+    a.destroy();
+  });
+
+  it('dragging one point of a drawing of the group leaves the others where they were', async () => {
+    const { a, x, z, tap } = await setup();
+    tap(x);
+    tap(z, true);
+    const h = z as FakeOverlay & { onPressedMoveStart?: (e: unknown) => void; onPressedMoving?: (e: unknown) => void };
+    h.onPressedMoveStart?.({ overlay: z });
+    z.points = [z.points[0]!, { ...z.points[1]!, value: 9 }];
+    h.onPressedMoving?.({ overlay: z });
+    expect(x.points.map((p) => p.value)).toEqual([1, 2]);
+    a.destroy();
   });
 });
