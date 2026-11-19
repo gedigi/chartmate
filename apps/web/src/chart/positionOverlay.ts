@@ -4,7 +4,8 @@ import { rangeAxisFigures } from './axisRange';
 import { zoneTint } from './color';
 import { readableTextOn } from './contrast';
 import { withAlertBadge } from './alertBadge';
-import { drawingConstraint } from './drawingTemplates';
+import { drawingConstraint, drawingContext } from './drawingTemplates';
+import { groupSelection } from './groupSelection';
 import {
   centerLabel, DEFAULT_WIDTH_BARS, defaultGeometry, evaluateOutcome, fromPositionPoints, hasResult, outcomeLabel, positionMetrics, pressedMove,
   sideOf, stopLabel, targetLabel, toPositionPoints, type OutcomeBar, type PositionGeometry, type PositionMetrics, type PositionOutcome,
@@ -114,6 +115,8 @@ export interface PositionFigureInput {
   formatTime: (ts: number) => string; font: { family: string; size: number };
   /** Width of the pane: labels stay inside it. */
   paneWidth: number;
+  /** The labels (target, stop, risk / reward, status): only while the position is selected. Default true. */
+  labels?: boolean;
 }
 
 const zone = (x: number, w: number, y1: number, y2: number, color: string): OverlayFigure => ({
@@ -135,7 +138,8 @@ function fitText(text: string, size: number, max: number): string {
  * The figures of a position: zones, traversed shading (outcome, from the fill bar), entry line, labels. Labels are
  * centered on the visible part of the box and kept inside the pane; target / stop labels sit outside their edge;
  * the center and outcome labels move right of the box when it is narrower than them, and the outcome label moves
- * beyond the stop label when the stop zone is too short; labels wider than the pane are truncated.
+ * beyond the stop label when the stop zone is too short; labels wider than the pane are truncated. Without `labels`
+ * (the position not selected) only the zones, the traversed shading and the entry line are drawn.
  */
 export function positionFigures(p: PositionFigureInput): OverlayFigure[] {
   const [e, t, s, end] = p.coords;
@@ -158,6 +162,7 @@ export function positionFigures(p: PositionFigureInput): OverlayFigure[] {
     if (x1 > x0) figures.push(zone(x0, x1 - x0, e.y, y, zoneFill(profit ? up : down, chartBg, TRAVERSED_WEIGHT, TRAVERSED_ALPHA)));
   }
   figures.push({ type: 'line', attrs: { coordinates: [{ x: left, y: e.y }, { x: right, y: e.y }] }, styles: { color: neutral, size: 1, style: 'solid' } });
+  if (p.labels === false) return figures;
 
   const size = p.font.size;
   const paneW = Math.max(p.paneWidth, 1);
@@ -210,6 +215,10 @@ export function positionFigures(p: PositionFigureInput): OverlayFigure[] {
 }
 
 type FigureParams = Parameters<NonNullable<OverlayTemplate['createPointFigures']>>[0];
+
+/** A position shows its labels while selected: on its own (also while being placed or dragged) or with others. */
+const isSelected = (id: string | undefined): boolean =>
+  id !== undefined && (drawingContext.selectedId === id || groupSelection.ids.has(id));
 type EventParams = Parameters<NonNullable<OverlayTemplate['performEventPressedMove']>>[0];
 
 function template(name: 'longPosition' | 'shortPosition'): OverlayTemplate {
@@ -245,6 +254,7 @@ function template(name: 'longPosition' | 'shortPosition'): OverlayTemplate {
         formatTime: positionContext.formatTime,
         font: { family: font?.family ?? CHART_FONT, size: font?.size ?? 12 },
         paneWidth: p.bounding?.width ?? 0,
+        labels: isSelected(p.overlay.id),
       });
     },
     // While placing: the default target / stop / end follow the entry under the cursor.

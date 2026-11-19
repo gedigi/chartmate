@@ -53,6 +53,12 @@ describe('positionFigures', () => {
     for (const r of rects) expect(parseColor(r.styles.color)!.alpha).toBeLessThanOrEqual(P.ZONE_ALPHA);
   });
 
+  it('without labels (not selected): the zones, the traversed shading and the entry line only', () => {
+    const f = positionFigures({ ...base, labels: false }) as Fig[];
+    expect(texts(f)).toEqual([]);
+    expect(f.map((x) => x.type)).toEqual(['rect', 'rect', 'line']);
+  });
+
   it('labels: target, stop, center (contrast-aware text, theme font) and the waiting state in a neutral style', () => {
     const f = positionFigures(base) as Fig[];
     expect(texts(f)).toEqual(['Target: 102.00 (+2.00%)', 'Stop: 98.00 (-2.00%)', 'Long · R:R 1.00', 'Waiting for entry']);
@@ -241,7 +247,7 @@ describe('position overlay templates', () => {
     expect(points[3]).toEqual({ timestamp: T0 + 3 * DAY, value: 100 });
   });
 
-  it('rendering: memoized outcome from the chart data, history state from the context, handle gap from the y axis', () => {
+  it('rendering: memoized outcome from the chart data, history state from the context, handle gap from the y axis', async () => {
     const data = [{ timestamp: T0 + DAY, open: 105, high: 105.5, low: 104.5, close: 105 }]; // never touches the entry
     const chart = {
       getStyles: () => ({ overlay: { text: { family: 'Arial', size: 12 } } }), getSymbol: () => ({ pricePrecision: 2 }), getDataList: () => data,
@@ -250,11 +256,41 @@ describe('position overlay templates', () => {
     const xAxis = { convertTimestampToPixel: (ts: number) => 10 + ((ts - T0) / DAY) * 10 };
     const params = { chart, overlay: { id: 'ov', points: toPositionPoints(g), styles: null }, coordinates: coords, bounding: { width: 800 }, xAxis, yAxis };
     positionContext.historyComplete = () => false;
-    const figs = k.templates.get('longPosition')!.createPointFigures(params) as Fig[];
-    expect(texts(figs)).toContain('Outcome needs earlier data');
-    expect(positionContext.minGapPrice).toBeCloseTo(1.2); // 12 px
-    positionContext.historyComplete = () => true;
-    expect(texts(k.templates.get('longPosition')!.createPointFigures(params) as Fig[])).toContain('Waiting for entry');
+    const { drawingContext } = await import('../../src/chart/drawingTemplates');
+    drawingContext.selectedId = 'ov';
+    try {
+      const figs = k.templates.get('longPosition')!.createPointFigures(params) as Fig[];
+      expect(texts(figs)).toContain('Outcome needs earlier data');
+      expect(positionContext.minGapPrice).toBeCloseTo(1.2); // 12 px
+      positionContext.historyComplete = () => true;
+      expect(texts(k.templates.get('longPosition')!.createPointFigures(params) as Fig[])).toContain('Waiting for entry');
+    } finally {
+      drawingContext.selectedId = null;
+    }
+  });
+
+  it('labels only while the position is selected (alone or with others); otherwise just the zones and the entry line', async () => {
+    const { drawingContext } = await import('../../src/chart/drawingTemplates');
+    const { groupSelection } = await import('../../src/chart/groupSelection');
+    const chart = { getStyles: () => ({ overlay: { text: { size: 12 } } }), getSymbol: () => ({ pricePrecision: 2 }), getDataList: () => [] };
+    const yAxis = { convertToPixel: (v: number) => 100 - (v - 100) * 10 };
+    const params = { chart, overlay: { id: 'sel', points: toPositionPoints(g), styles: null }, coordinates: coords, bounding: { width: 800 }, xAxis: null, yAxis };
+    const figs = () => k.templates.get('longPosition')!.createPointFigures(params) as Fig[];
+    expect(texts(figs())).toEqual([]);
+    expect(figs().filter((f) => f.type === 'rect')).toHaveLength(2);
+    expect(figs().filter((f) => f.type === 'line')).toHaveLength(1);
+    drawingContext.selectedId = 'other';
+    expect(texts(figs())).toEqual([]);
+    drawingContext.selectedId = 'sel';
+    try {
+      expect(texts(figs())).toContain('Waiting for entry');
+      drawingContext.selectedId = 'other';
+      groupSelection.ids.add('other').add('sel');
+      expect(texts(figs())).toContain('Waiting for entry');
+    } finally {
+      drawingContext.selectedId = null;
+      groupSelection.ids.clear();
+    }
   });
 
   it('labels fall back to the chart typeface when the chart styles carry no text font', async () => {
@@ -262,7 +298,10 @@ describe('position overlay templates', () => {
     const chart = { getStyles: () => ({ overlay: {} }), getSymbol: () => ({ pricePrecision: 2 }), getDataList: () => [] };
     const yAxis = { convertToPixel: (v: number) => 100 - (v - 100) * 10 };
     const params = { chart, overlay: { id: 'ov2', points: toPositionPoints(g), styles: null }, coordinates: coords, bounding: { width: 800 }, xAxis: null, yAxis };
+    const { drawingContext } = await import('../../src/chart/drawingTemplates');
+    drawingContext.selectedId = 'ov2';
     const figs = k.templates.get('longPosition')!.createPointFigures(params) as Array<{ type: string; styles?: { family?: string } }>;
+    drawingContext.selectedId = null;
     const families = figs.filter((f) => f.type === 'text').map((f) => f.styles?.family);
     expect(families.length).toBeGreaterThan(0);
     expect(new Set(families)).toEqual(new Set([CHART_FONT]));

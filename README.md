@@ -787,7 +787,9 @@ R:R and the outcome in %, with no account, risk, quantity or money amounts.
   gain / loss at that level, in % of the entry; label text is white or dark, whichever reads on its color). Labels
   are centered on the visible part of the box and stay inside the chart (a box wider than the screen still shows
   them); the center / outcome labels move to the right of a box narrower than them, the outcome label moves
-  beyond the stop label when the stop zone is too short, and labels wider than the chart are cut with "…".
+  beyond the stop label when the stop zone is too short, and labels wider than the chart are cut with "…". The
+  labels (and the outcome label below) show only while the position is selected, on its own or with others; once
+  it is deselected only the zones and the entry line stay, so a chart with many positions stays readable.
 - **Editing**: drag the target handle (top/bottom left corner) or the stop handle to change only that price
   (it stays on its side of the entry, at least 12 px away on screen so the entry handle stays reachable, and
   above zero); drag the entry handle, the entry line or a zone to move the whole position (prices, and time by

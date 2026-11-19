@@ -1448,8 +1448,18 @@ export class ChartAdapter {
   // ── selection style ──
 
   private select(id: string | null): void {
+    const prev = this.selectedId;
     this.selectedId = id;
     drawingContext.selectedId = id;
+    // A position shows its labels only while selected: redraw the ones whose selection changed (KLineChart repaints
+    // on its own clicks, not when the selection changes here, e.g. ending a Shift-click group).
+    if (prev !== id && !this.destroyed) {
+      for (const x of [prev, id]) {
+        if (x === null) continue;
+        const o = this.userOverlays().find((u) => u.id === x);
+        if (o && isPositionTool(o.name)) this.chart.overrideOverlay({ id: x });
+      }
+    }
     this.emitSelection();
   }
 

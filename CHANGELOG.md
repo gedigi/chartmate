@@ -7,6 +7,8 @@ app, the Docker image and the release tag share one version number.
 
 ### Everywhere
 
+- Long / short positions show their labels (target, stop, risk / reward, status) only while selected; deselected,
+  only the profit and loss zones and the entry line stay on the chart.
 - Select several drawings at once: with one selected, Shift-click others to add them (or take them out). Dragging one
   moves them all, Delete removes them together, and style and lock changes apply to all of them.
 
