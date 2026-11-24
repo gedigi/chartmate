@@ -15,12 +15,12 @@
   "dependencies": {
     "@chartmate/shared": "workspace:*",
     "@fastify/cookie": "^11.1.5",
-    "@fastify/static": "^10.1.10",
-    "better-sqlite3": "^13.0.3",
+    "@fastify/static": "^10.1.11",
+    "better-sqlite3": "^13.2.0",
     "fastify": "^5.12.8",
-    "kysely": "^0.29.8",
+    "kysely": "^0.29.9",
     "pg": "^8.23.1",
-    "yahoo-finance2": "4.0.5",
+    "yahoo-finance2": "4.0.6",
     "zod": "^4.6.7"
   },
   "devDependencies": {
